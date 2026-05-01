@@ -28,7 +28,7 @@ export type AgentCard = {
   skills: AgentCardSkill[];
 };
 
-export const agentCards: AgentCard[] = [
+const staticAgentCards: AgentCard[] = [
   {
     agentId: "end-user-triage-agent",
     name: "End User Triage Agent",
@@ -152,6 +152,97 @@ export const agentCards: AgentCard[] = [
     ]
   }
 ];
+
+let agentCards: AgentCard[] = staticAgentCards;
+
+function agentCardUrl(endpoint: string): string {
+  const url = new URL(endpoint);
+  url.pathname = "/agent-card";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function isAgentCard(value: unknown): value is AgentCard {
+  const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
+
+  return Boolean(
+    record &&
+      typeof record.agentId === "string" &&
+      typeof record.name === "string" &&
+      typeof record.description === "string" &&
+      typeof record.endpoint === "string" &&
+      Array.isArray(record.systems) &&
+      Array.isArray(record.skills)
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchAgentCardOnce(staticCard: AgentCard): Promise<AgentCard> {
+  const url = agentCardUrl(staticCard.endpoint);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    const body = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`${url} returned ${response.status}${body ? ` with body ${body}` : ""}`);
+    }
+
+    const card = JSON.parse(body) as unknown;
+
+    if (!isAgentCard(card)) {
+      throw new Error(`${url} returned an invalid Agent Card shape`);
+    }
+
+    if (card.agentId !== staticCard.agentId) {
+      throw new Error(`${url} returned agentId ${card.agentId}; expected ${staticCard.agentId}`);
+    }
+
+    return card;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchAgentCard(staticCard: AgentCard): Promise<AgentCard> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      return await fetchAgentCardOnce(staticCard);
+    } catch (error) {
+      lastError = error;
+      await delay(300);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Unknown discovery error");
+}
+
+export async function discoverAgentCards(): Promise<AgentCard[]> {
+  const discoveredCards = await Promise.all(
+    staticAgentCards.map(async (staticCard) => {
+      try {
+        const card = await fetchAgentCard(staticCard);
+        console.info(`[agent-cards] discovered ${card.agentId} from ${agentCardUrl(staticCard.endpoint)}`);
+        return card;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Unknown discovery error";
+        console.warn(`[agent-cards] discovery failed for ${staticCard.agentId}; using static fallback: ${detail}`);
+        return staticCard;
+      }
+    })
+  );
+
+  agentCards = discoveredCards;
+  return agentCards;
+}
 
 export function getAgentCards(): AgentCard[] {
   return agentCards;

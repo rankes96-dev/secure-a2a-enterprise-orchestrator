@@ -139,7 +139,7 @@ This project simulates a ServiceNow-style AI Orchestrator Agent coordinating wit
 
 - The ServiceNow Orchestrator Agent owns intake, classification, Agent Card based routing, task creation, response collection, and final support/incident-style summarization.
 - External enterprise agents own system-specific mock knowledge and tools. Jira troubleshooting belongs in `jira-agent`, GitHub repository/API troubleshooting belongs in `github-agent`, PagerDuty alert ingestion belongs in `pagerduty-agent`, and OAuth/security posture belongs in `security-oauth-agent`.
-- Agent Cards in `services/orchestrator-api/src/agentCards.ts` describe available agents, skills, examples, mock audience, and required scopes. The orchestrator selects agents by these cards instead of carrying every Jira/GitHub/PagerDuty troubleshooting rule itself.
+- Each external agent owns and serves its Agent Card from `/agent-card`. The orchestrator discovers Agent Cards from those endpoints at startup and uses the local static cards only as a fallback if discovery fails.
 - A2A task envelopes include `taskId`, `conversationId`, `fromAgent`, `toAgent`, `mediatedBy` for delegated tasks, `skillId`, support context, target audience, requested scope, and `authMode: "mock_internal_token"`.
 - Security allow/block decisions remain deterministic and policy-based. The LLM may detect or route a requested action, but `policyEngine.ts` maps the action to permissions and returns the decision.
 

@@ -15,7 +15,7 @@ import type {
   SecurityDecision
 } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
-import { getAgentCard } from "./agentCards";
+import { discoverAgentCards, getAgentCard } from "./agentCards";
 import { routeWithAI } from "./aiRouter";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
 import { createSessionCookie, hasValidSession } from "./security/sessionManager";
@@ -117,11 +117,21 @@ function sentence(value: string): string {
   return /[.!?]$/.test(value.trim()) ? value.trim() : `${value.trim()}.`;
 }
 
+function includesAny(value: string, needles: string[]): boolean {
+  return needles.some((needle) => value.includes(needle));
+}
+
 function buildFinalAnswer(params: {
   classification: Classification;
   agentResponses: A2AAgentResponse[];
-  securityDecision?: SecurityDecision;
+  securityDecisions?: SecurityDecision[];
 }): string {
+  const approvalDecision = params.securityDecisions?.find((decision) => decision.decision === "NeedsApproval");
+
+  if (approvalDecision) {
+    return `Needs approval: ${approvalDecision.reason}`;
+  }
+
   const needsMoreInfo = params.agentResponses.find((response) => response.status === "needs_more_info");
 
   if (needsMoreInfo) {
@@ -130,9 +140,10 @@ function buildFinalAnswer(params: {
   }
 
   const diagnosed = params.agentResponses.filter((response) => response.status === "diagnosed");
+  const blockedDecision = params.securityDecisions?.find((decision) => decision.decision === "Blocked");
 
-  if (params.securityDecision?.decision === "Blocked" && diagnosed.length === 0) {
-    return `Blocked by policy: ${params.securityDecision.reason}`;
+  if (blockedDecision && diagnosed.length === 0) {
+    return `Blocked by policy: ${blockedDecision.reason}`;
   }
 
   if (diagnosed.length === 0) {
@@ -157,6 +168,15 @@ function requestedActionForAgent(agentId: AgentName, classification: Classificat
   const lower = message.toLowerCase();
 
   if (agentId === "security-oauth-agent") {
+    if (
+      classification.system === "Jira" &&
+      includesAny(lower, ["grant", "give me", "add me"]) &&
+      includesAny(lower, ["permission", "access"]) &&
+      includesAny(lower, ["create jira", "create ticket", "create tickets", "create issue", "create issues"])
+    ) {
+      return "grant_jira_create_permission";
+    }
+
     if (lower.includes("inspect") && lower.includes("oauth")) {
       return "inspect_oauth_token";
     }
@@ -186,6 +206,10 @@ function requestedScopeForAction(requestedAction?: string): string | undefined {
 
   if (requestedAction === "inspect_oauth_token") {
     return "security.token.inspect";
+  }
+
+  if (requestedAction === "grant_jira_create_permission") {
+    return "jira.permission.grant";
   }
 
   if (requestedAction === "read_github_rate_limit") {
@@ -357,7 +381,6 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   const executedDelegations = new Set<string>();
   const delegationExecutionSteps: ExecutionTraceStep[] = [];
   const securityDecisions: SecurityDecision[] = [];
-  let securityDecision: SecurityDecision | undefined;
 
   async function processRequestedDelegations(agentResponse: A2AAgentResponse, parentTask: A2ATask): Promise<void> {
     for (const delegation of agentResponse.requestedDelegations ?? []) {
@@ -456,7 +479,6 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         targetAgentId: delegation.targetAgentId,
         requestedAction: delegation.skillId
       }) as SecurityDecision;
-      securityDecision = policyDecision;
       securityDecisions.push(policyDecision);
 
       orchestratorTrace.push({
@@ -597,7 +619,6 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         requestedAction
       }) as SecurityDecision;
 
-      securityDecision = policyDecision;
       securityDecisions.push(policyDecision);
       taskSecurityDecision = policyDecision;
       orchestratorTrace.push(
@@ -607,18 +628,25 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         )
       );
 
-      if (policyDecision.decision === "Blocked") {
-        orchestratorTrace.push(trace("SECURITY_BLOCKED", policyDecision.reason));
+      if (policyDecision.decision !== "Allowed") {
+        const action = policyDecision.decision === "NeedsApproval" ? "SECURITY_NEEDS_APPROVAL" : "SECURITY_BLOCKED";
+        orchestratorTrace.push(trace(action, policyDecision.reason));
         a2aResponses.push({
           agentId: agent.agentId,
           status: "blocked",
-          summary: `Task was blocked by policy before invoking ${agent.agentId}.`,
+          summary:
+            policyDecision.decision === "NeedsApproval"
+              ? `Task requires approval before invoking ${agent.agentId}.`
+              : `Task was blocked by policy before invoking ${agent.agentId}.`,
           probableCause: policyDecision.reason,
-          recommendedActions: ["Use an allowed security action or request approval."],
+          recommendedActions:
+            policyDecision.decision === "NeedsApproval"
+              ? ["Request approval from the Jira project owner or access administrator."]
+              : ["Use an allowed security action or request approval."],
           trace: [
             {
               agent: "orchestrator",
-              action: "SECURITY_BLOCKED",
+              action,
               detail: policyDecision.reason,
               timestamp: new Date().toISOString()
             }
@@ -706,7 +734,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     finalAnswer: buildFinalAnswer({
       classification,
       agentResponses: a2aResponses,
-      securityDecision
+      securityDecisions
     }),
     classification,
     selectedAgents: routingDecision.selectedAgents,
@@ -718,7 +746,6 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     evidence,
     agentTrace,
     executionTrace,
-    securityDecision,
     securityDecisions,
     a2aTasks,
     a2aResponses,
@@ -726,7 +753,10 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   };
 }
 
-startJsonServer(port, async (request, response) => {
+async function start(): Promise<void> {
+  await discoverAgentCards();
+
+  startJsonServer(port, async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, {
       ok: true
@@ -768,4 +798,7 @@ startJsonServer(port, async (request, response) => {
   }
 
   sendJson(response, 200, await resolveIssue(requestBody));
-});
+  });
+}
+
+void start();

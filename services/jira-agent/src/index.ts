@@ -75,7 +75,32 @@ startJsonServer(port, async (request, response) => {
   const requirement = requirements.find((item) => item.operation === operation);
 
   if (!requirement) {
-    sendJson(response, 404, { error: `No Jira requirement found for ${operation}` });
+    const result: A2AAgentResponse = {
+      agentId: "jira-agent",
+      status: "needs_more_info",
+      summary: `Jira Agent does not have enough mock operation context for ${operation}.`,
+      probableCause: "No Jira mock requirement is defined for the requested operation.",
+      clarifyingQuestions: ["Which Jira operation failed?", "Was the user creating, updating, reading, or syncing an issue?"],
+      evidence: [
+        {
+          title: "Missing Jira mock operation requirement",
+          data: {
+            requestedOperation: operation,
+            knownOperations: requirements.map((item) => item.operation)
+          }
+        }
+      ],
+      trace: [
+        {
+          agent: "jira-agent",
+          action: "missing_operation_requirements",
+          detail: `No mock Jira operation requirement found for ${operation}`,
+          timestamp: new Date().toISOString()
+        }
+      ]
+    };
+
+    sendJson(response, 200, result);
     return;
   }
 

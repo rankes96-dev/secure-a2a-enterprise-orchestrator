@@ -194,7 +194,6 @@ export interface ResolveResponse {
   evidence: AgentEvidence[];
   agentTrace: AgentTraceEntry[];
   executionTrace: ExecutionTraceStep[];
-  securityDecision?: SecurityDecision;
   securityDecisions?: SecurityDecision[];
   a2aTasks?: A2ATask[];
   a2aResponses?: A2AAgentResponse[];

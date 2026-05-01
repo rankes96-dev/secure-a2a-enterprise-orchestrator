@@ -378,10 +378,10 @@ function App() {
               </section>
             ) : null}
 
-            {(latestResponse.securityDecisions?.length ?? (latestResponse.securityDecision ? 1 : 0)) > 0 ? (
+            {latestResponse.securityDecisions?.length ? (
               <section>
                 <h2>Security Decisions</h2>
-                {(latestResponse.securityDecisions ?? (latestResponse.securityDecision ? [latestResponse.securityDecision] : [])).map((decision, index) => (
+                {latestResponse.securityDecisions.map((decision, index) => (
                   <div className="security-decision" key={`${decision.caller}-${decision.target}-${decision.requestedAction}-${index}`}>
                     <div>
                       <span>Caller</span>
