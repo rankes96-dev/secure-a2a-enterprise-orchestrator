@@ -19,6 +19,7 @@ import type {
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 import { discoverAgentCards, getAgentCard, getExecutableAgentCards, type AgentCardSkill } from "./agentCards";
 import { routeWithAI } from "./aiRouter";
+import { getAiConfig } from "./config/aiConfig";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
 import { createSessionCookie, hasValidSession } from "./security/sessionManager";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
@@ -990,6 +991,20 @@ async function start(): Promise<void> {
     }
 
     sendJson(response, 200, await buildAgentsHealthResponse());
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/debug/ai-config") {
+    if (!requireClientAccess(request, response)) {
+      return;
+    }
+
+    const aiConfig = getAiConfig();
+    sendJson(response, 200, {
+      provider: aiConfig.provider,
+      model: aiConfig.model,
+      hasApiKey: aiConfig.hasApiKey
+    });
     return;
   }
 

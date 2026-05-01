@@ -294,6 +294,38 @@ function chooseCapabilityMatches(interpretation: RequestInterpretation): Capabil
   };
 }
 
+function chooseEnterpriseTriageRoute(interpretation: RequestInterpretation): CapabilityRouteSelection {
+  const canTriage =
+    interpretation.scope === "enterprise_support" &&
+    (!interpretation.requestedCapability || interpretation.requestedCapability === "unknown") &&
+    (interpretation.intentType === "incident_diagnosis" || interpretation.intentType === "integration_failure" || interpretation.intentType === "unknown");
+
+  if (!canTriage) {
+    return { selectedAgents: [] };
+  }
+
+  const match = findAgentSkillsByCapability("enterprise.issue.triage", {
+    targetSystemText: interpretation.targetSystemText,
+    targetResourceType: interpretation.targetResourceType
+  })[0];
+
+  if (!match) {
+    return { selectedAgents: [] };
+  }
+
+  return {
+    selectedAgents: [
+      select(match.agent.agentId, "primary", match.skill.id, "No specialist capability matched. Routed to generic enterprise triage to gather missing system, operation, and error details.", {
+        matchedCapability: "enterprise.issue.triage",
+        matchScore: match.score,
+        owner: match.skill.owner,
+        targetSystemText: interpretation.targetSystemText
+      })
+    ],
+    candidates: [candidateSummary(match)]
+  };
+}
+
 export function selectBestCapabilityRoute(interpretation: RequestInterpretation): CapabilityRouteSelection {
   return chooseCapabilityMatches(interpretation);
 }
@@ -388,6 +420,21 @@ export function routeWithRules(
       routingConfidence: interpretation.confidence,
       routingReasoningSummary: interpretation.reason,
       resolutionStatus: "unsupported",
+      requestInterpretation: interpretation
+    };
+  }
+
+  const triageRoute = selectedAgents.length === 0 ? chooseEnterpriseTriageRoute(interpretation) : { selectedAgents: [] };
+
+  if (triageRoute.selectedAgents.length > 0) {
+    return {
+      classification,
+      selectedAgents: triageRoute.selectedAgents,
+      skippedAgents: completeSkippedAgents(triageRoute.selectedAgents),
+      routingSource: "rules_fallback",
+      routingConfidence: interpretation.confidence === "high" ? "medium" : interpretation.confidence,
+      routingReasoningSummary: "No specialist Agent Card capability matched; routed to generic enterprise triage.",
+      resolutionStatus: "resolved",
       requestInterpretation: interpretation
     };
   }
@@ -581,12 +628,23 @@ async function callOpenAi(message: string, interpretation: RequestInterpretation
 export async function routeWithAI(message: string): Promise<RoutingDecision> {
   const requestInterpretation = await interpretRequest(message);
   const fallback = routeWithRules(message, "Capability routing fallback was used.", requestInterpretation);
+  const forceSecondaryAiRouter = process.env.FORCE_SECONDARY_AI_ROUTER === "true";
+  const shouldCallSecondaryRouter =
+    fallback.resolutionStatus !== "unsupported" &&
+    (fallback.selectedAgents.length === 0 || (forceSecondaryAiRouter && requestInterpretation.scope === "enterprise_support"));
 
-  if (fallback.resolutionStatus === "unsupported" || fallback.selectedAgents.length > 0) {
+  console.info(
+    `[router] interpretation source=${requestInterpretation.interpretationSource ?? "unknown"} provider=${requestInterpretation.aiProvider ?? "none"} model=${requestInterpretation.aiModel ?? "none"} capability=${requestInterpretation.requestedCapability ?? "unknown"} scope=${requestInterpretation.scope}`
+  );
+  console.info(`[router] capability fallback selectedAgents=${fallback.selectedAgents.length} status=${fallback.resolutionStatus}`);
+  console.info(`[router] secondary AI router willCall=${shouldCallSecondaryRouter} force=${forceSecondaryAiRouter}`);
+
+  if (!shouldCallSecondaryRouter) {
     return fallback;
   }
 
   const aiConfig = getAiConfig();
+  console.info(`[router] provider=${aiConfig.provider} model=${aiConfig.model} hasKey=${aiConfig.hasApiKey}`);
 
   if (!aiConfig.apiKey?.trim()) {
     console.info(`[router] ${aiConfig.provider} key is not configured; using capability routing fallback`);
@@ -594,13 +652,18 @@ export async function routeWithAI(message: string): Promise<RoutingDecision> {
   }
 
   try {
+    console.info("[router] calling secondary AI router");
     const content =
       aiConfig.provider === "openrouter"
         ? await callOpenRouter(message, requestInterpretation, aiConfig.apiKey, aiConfig.model)
         : await callOpenAi(message, requestInterpretation, aiConfig.apiKey, aiConfig.model);
 
     if (!content) {
-      return fallback;
+      console.warn("[router] secondary AI router returned empty content; using capability fallback");
+      return {
+        ...fallback,
+        routingReasoningSummary: "Secondary AI routing returned empty content; capability fallback was used."
+      };
     }
 
     const normalized = normalizeRoutingDecision(JSON.parse(content), fallback, aiConfig.provider, aiConfig.model);
@@ -612,6 +675,9 @@ export async function routeWithAI(message: string): Promise<RoutingDecision> {
       return routeWithRules(message, `Secondary AI routing validation failed; capability fallback was used. ${reason}`, requestInterpretation);
     }
 
+    console.info(
+      `[router] secondary AI router returned selectedAgents=${validation.decision.selectedAgents.length} status=${validation.decision.resolutionStatus}`
+    );
     return { ...validation.decision, requestInterpretation };
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown AI router error";

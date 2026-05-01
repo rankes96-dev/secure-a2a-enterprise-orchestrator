@@ -119,7 +119,7 @@ function routingDescription(response: ResolveResponse): string {
   }
 
   if (response.requestInterpretation?.interpretationSource === "ai") {
-    return "AI interpreted the request. Deterministic capability routing/fallback handled agent selection.";
+    return "AI interpreted the request. Deterministic fallback handled agent selection.";
   }
 
   if (response.requestInterpretation?.interpretationSource === "fallback") {
