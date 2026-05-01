@@ -20,6 +20,8 @@ const agentCard = {
       name: "Compare OAuth scopes",
       description: "Compare required OAuth scopes with mock token scopes.",
       capabilities: ["oauth.scope.compare"],
+      requestedAction: "oauth.scope.compare",
+      requiredPermission: "security.scope.compare",
       requiredScopes: ["security.scope.compare"]
     },
     {
@@ -27,6 +29,9 @@ const agentCard = {
       name: "Inspect OAuth token",
       description: "Inspect raw OAuth token posture.",
       capabilities: ["oauth.token.inspect"],
+      requestedAction: "security.token.inspect",
+      requiredPermission: "security.token.inspect",
+      riskLevel: "sensitive",
       requiredScopes: ["security.token.inspect"],
       sensitive: true
     },

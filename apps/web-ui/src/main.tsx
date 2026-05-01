@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { ResolveResponse } from "@a2a/shared";
+import type { AgentsHealthResponse, ResolveResponse } from "@a2a/shared";
 import "./styles.css";
 
 const API_URL = import.meta.env.VITE_ORCHESTRATOR_API_URL ?? "http://localhost:4000";
@@ -117,6 +117,10 @@ function JsonBlock({ value }: { value: unknown }) {
   return <pre>{JSON.stringify(value, null, 2)}</pre>;
 }
 
+function healthClass(status: string): string {
+  return `health-${status}`;
+}
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -161,12 +165,46 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [health, setHealth] = useState<AgentsHealthResponse | null>(null);
+  const [healthError, setHealthError] = useState("");
+  const [isHealthLoading, setIsHealthLoading] = useState(false);
+  const [isHealthPanelOpen, setIsHealthPanelOpen] = useState(false);
   const [activeScenarioCategory, setActiveScenarioCategory] = useState(scenarios[0].category);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
     [messages]
   );
   const activeScenarioGroup = scenarios.find((group) => group.category === activeScenarioCategory) ?? scenarios[0];
+  const healthLabel = health
+    ? `Agents: ${health.summary.healthy}/${health.summary.total} healthy`
+    : "Agents: check health";
+
+  async function checkAgentHealth() {
+    setHealthError("");
+    setIsHealthLoading(true);
+
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/agents/health`, {
+        method: "GET",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`Agent health returned ${response.status} with body ${await response.text()}`);
+      }
+
+      setHealth((await response.json()) as AgentsHealthResponse);
+    } catch (caughtError) {
+      setHealthError(caughtError instanceof Error ? caughtError.message : "Failed to check agent health");
+    } finally {
+      setIsHealthLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void checkAgentHealth();
+  }, []);
 
   async function ensureSession() {
     const response = await fetch(`${API_URL}/session`, {
@@ -271,8 +309,63 @@ function App() {
             <p className="eyebrow">ServiceNow-style AI Orchestrator Agent</p>
             <h1>A2A support diagnosis console</h1>
           </div>
-          <div className="status">Local mock mode</div>
+          <div className="topbar-actions">
+            <div className="status">Local mock mode</div>
+            <button
+              type="button"
+              className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"}`}
+              onClick={() => {
+                setIsHealthPanelOpen((current) => !current);
+                if (!health && !isHealthLoading) {
+                  void checkAgentHealth();
+                }
+              }}
+              title={health?.summary.down || health?.summary.degraded ? "One or more external agents are unavailable. Some demo scenarios may return partial results." : "External mock agent health"}
+            >
+              <span>{isHealthLoading ? "Checking agent health..." : healthLabel}</span>
+              <small>{isHealthPanelOpen ? "Click to close" : "Click for details"}</small>
+            </button>
+          </div>
         </header>
+
+        {isHealthPanelOpen ? (
+          <section className="agent-health-panel" aria-label="Agent health">
+            <div className="agent-health-header">
+              <div>
+                <h2>Agent Health</h2>
+                <p>Orchestrator: {health?.orchestrator.status ?? "unknown"}{health?.orchestrator.timestamp ? ` / ${new Date(health.orchestrator.timestamp).toLocaleTimeString()}` : ""}</p>
+              </div>
+              <button type="button" onClick={() => void checkAgentHealth()} disabled={isHealthLoading}>
+                {isHealthLoading ? "Checking..." : "Refresh health"}
+              </button>
+            </div>
+            {healthError ? <p className="error">{healthError}</p> : null}
+            {health ? (
+              <>
+                <div className="health-counts">
+                  <span className="health-ok">Healthy {health.summary.healthy}</span>
+                  <span className="health-degraded">Degraded {health.summary.degraded}</span>
+                  <span className="health-down">Down {health.summary.down}</span>
+                </div>
+                <div className="agent-health-list">
+                  {health.agents.map((agent) => (
+                    <article className="agent-health-row" key={agent.agentId}>
+                      <div>
+                        <strong>{agent.agentId}</strong>
+                        <span>{agent.latencyMs} ms / {new Date(agent.checkedAt).toLocaleTimeString()}</span>
+                      </div>
+                      <span className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</span>
+                      <small>Agent Card {agent.details.agentCardAvailable ? "yes" : "no"}</small>
+                      {agent.error ? <p>{agent.error}</p> : null}
+                    </article>
+                  ))}
+                </div>
+              </>
+            ) : !healthError ? (
+              <p className="muted-note">Checking agent health...</p>
+            ) : null}
+          </section>
+        ) : null}
 
         <MessageList messages={messages} />
 

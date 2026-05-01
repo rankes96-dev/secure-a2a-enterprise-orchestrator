@@ -245,6 +245,36 @@ export interface ResolveResponse {
   };
 }
 
+export type AgentHealthStatus = "ok" | "down" | "degraded";
+
+export interface AgentHealthCheck {
+  agentId: string;
+  url: string;
+  status: AgentHealthStatus;
+  latencyMs: number;
+  checkedAt: string;
+  details: {
+    healthEndpoint: "/health";
+    agentCardAvailable: boolean;
+  };
+  error?: string;
+}
+
+export interface AgentsHealthResponse {
+  orchestrator: {
+    agentId: "servicenow-orchestrator-agent";
+    status: "ok";
+    timestamp: string;
+  };
+  agents: AgentHealthCheck[];
+  summary: {
+    total: number;
+    healthy: number;
+    degraded: number;
+    down: number;
+  };
+}
+
 export interface JiraOperationRequirement {
   operation: string;
   requiredScopes: string[];

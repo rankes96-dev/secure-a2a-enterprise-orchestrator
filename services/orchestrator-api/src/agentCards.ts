@@ -8,6 +8,9 @@ export type AgentCardSkill = {
   requiredScopes?: string[];
   capabilities?: string[];
   aliases?: string[];
+  requestedAction?: string;
+  requiredPermission?: string;
+  riskLevel?: "low" | "medium" | "high" | "sensitive";
   sensitive?: boolean;
 };
 
@@ -107,7 +110,9 @@ const staticAgentCards: AgentCard[] = [
         id: "pagerduty.diagnose_alert_ingestion_failure",
         name: "Diagnose alert ingestion failure",
         description: "Diagnose alerts that do not open incidents.",
-        capabilities: ["incident.alert_ingestion.diagnose"]
+        capabilities: ["incident.alert_ingestion.diagnose"],
+        requestedAction: "pagerduty.alert_ingestion.diagnose",
+        requiredPermission: "incident.draft.create"
       },
       { id: "pagerduty.diagnose_event_rate_limit", name: "Diagnose event rate limit", description: "Diagnose event ingestion rate limiting." }
     ]
@@ -125,6 +130,8 @@ const staticAgentCards: AgentCard[] = [
         name: "Compare OAuth scopes",
         description: "Compare required OAuth scopes with mock token scopes.",
         capabilities: ["oauth.scope.compare"],
+        requestedAction: "oauth.scope.compare",
+        requiredPermission: "security.scope.compare",
         requiredScopes: ["security.scope.compare"]
       },
       {
@@ -132,6 +139,9 @@ const staticAgentCards: AgentCard[] = [
         name: "Inspect OAuth token",
         description: "Inspect raw OAuth token posture.",
         capabilities: ["oauth.token.inspect"],
+        requestedAction: "security.token.inspect",
+        requiredPermission: "security.token.inspect",
+        riskLevel: "sensitive",
         requiredScopes: ["security.token.inspect"],
         sensitive: true
       },
@@ -146,12 +156,14 @@ const staticAgentCards: AgentCard[] = [
     endpoint: process.env.API_HEALTH_AGENT_URL ?? "http://localhost:4105/task",
     auth: { type: "mock_internal_token", audience: "api-health-agent" },
     skills: [
-      { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"] },
+      { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"], requestedAction: "github.rate_limit.read", requiredPermission: "github.rate_limit.read" },
       {
         id: "api_health.diagnose_connectivity_failure",
         name: "Diagnose connectivity failure",
         description: "Diagnose timeout, DNS, TLS, and connectivity failures.",
-        capabilities: ["api.connectivity.diagnose", "api.health.diagnose"]
+        capabilities: ["api.connectivity.diagnose", "api.health.diagnose"],
+        requestedAction: "api.health.read",
+        requiredPermission: "apihealth.read"
       },
       {
         id: "api_health.diagnose_webhook_delivery",

@@ -5,9 +5,11 @@ import type {
   A2AAgentResponse,
   A2ATask,
   AgentEvidence,
+  AgentHealthCheck,
   AgentName,
   AgentResponse,
   AgentTraceEntry,
+  AgentsHealthResponse,
   Classification,
   ExecutionTraceStep,
   ResolveRequest,
@@ -15,11 +17,12 @@ import type {
   SecurityDecision
 } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
-import { discoverAgentCards, getAgentCard } from "./agentCards";
+import { discoverAgentCards, getAgentCard, getExecutableAgentCards, type AgentCardSkill } from "./agentCards";
 import { routeWithAI } from "./aiRouter";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
 import { createSessionCookie, hasValidSession } from "./security/sessionManager";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
+import { detectSensitiveAction } from "./sensitiveActionGuard";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -184,53 +187,61 @@ function requestedActionForAgent(agentId: AgentName, classification: Classificat
       includesAny(lower, ["permission", "access"]) &&
       includesAny(lower, ["create jira", "create ticket", "create tickets", "create issue", "create issues"])
     ) {
-      return "access.grant_permission";
+      return "access.permission.grant";
     }
 
     if (lower.includes("inspect") && lower.includes("oauth")) {
-      return "inspect_oauth_token";
+      return "security.token.inspect";
     }
 
-    return "compare_oauth_scopes";
+    return "oauth.scope.compare";
   }
 
   if (agentId === "api-health-agent") {
     if (classification.system === "GitHub" && classification.issueType === "RATE_LIMIT") {
-      return "read_github_rate_limit";
+    return "github.rate_limit.read";
     }
 
-    return "read_api_health";
+    return "api.health.read";
   }
 
   if (agentId === "pagerduty-agent") {
-    return "create_incident_draft";
+    return "pagerduty.alert_ingestion.diagnose";
   }
 
   return undefined;
 }
 
 function requestedScopeForAction(requestedAction?: string): string | undefined {
-  if (requestedAction === "compare_oauth_scopes") {
+  if (requestedAction === "oauth.scope.compare" || requestedAction === "compare_oauth_scopes") {
     return "security.scope.compare";
   }
 
-  if (requestedAction === "inspect_oauth_token") {
+  if (requestedAction === "security.token.inspect" || requestedAction === "inspect_oauth_token") {
     return "security.token.inspect";
   }
 
-  if (requestedAction === "access.grant_permission") {
+  if (requestedAction === "access.permission.grant" || requestedAction === "access.grant_permission") {
     return "access.permission.grant";
   }
 
-  if (requestedAction === "read_github_rate_limit") {
+  if (requestedAction === "github.rate_limit.read" || requestedAction === "read_github_rate_limit") {
     return "github.rate_limit.read";
   }
 
-  if (requestedAction === "read_api_health") {
+  if (requestedAction === "api.health.read" || requestedAction === "read_api_health") {
     return "apihealth.read";
   }
 
   return undefined;
+}
+
+function getSkillMetadata(agentId: AgentName, skillId?: string): AgentCardSkill | undefined {
+  return getAgentCard(agentId)?.skills.find((skill) => skill.id === skillId);
+}
+
+function requestedActionFromSkill(skill?: AgentCardSkill): string | undefined {
+  return skill?.requestedAction ?? (skill?.sensitive ? "security.token.inspect" : undefined);
 }
 
 function requestedScopeForSkill(skillId?: string): string | undefined {
@@ -314,10 +325,163 @@ function normalizeAgentResponse(agentId: AgentName, response: AgentResponse | A2
   };
 }
 
+function endpointForPath(endpoint: string, pathname: "/health" | "/agent-card"): string {
+  const url = new URL(endpoint);
+  url.pathname = pathname;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>[number]): Promise<AgentHealthCheck> {
+  const checkedAt = new Date().toISOString();
+  const healthUrl = endpointForPath(card.endpoint, "/health");
+  const startTime = performance.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
+
+  try {
+    const response = await fetch(healthUrl, { signal: controller.signal });
+    const body = await response.text();
+    const latencyMs = Math.max(0, Math.round(performance.now() - startTime));
+
+    if (!response.ok) {
+      return {
+        agentId: card.agentId,
+        url: healthUrl,
+        status: "down",
+        latencyMs,
+        checkedAt,
+        details: {
+          healthEndpoint: "/health",
+          agentCardAvailable: Boolean(getAgentCard(card.agentId))
+        },
+        error: `Health endpoint returned ${response.status}${body ? ` with body ${body}` : ""}`
+      };
+    }
+
+    const parsed = body ? JSON.parse(body) as { status?: unknown } : {};
+    const status = parsed.status === "ok" ? "ok" : "degraded";
+
+    return {
+      agentId: card.agentId,
+      url: healthUrl,
+      status,
+      latencyMs,
+      checkedAt,
+      details: {
+        healthEndpoint: "/health",
+        agentCardAvailable: Boolean(getAgentCard(card.agentId))
+      },
+      error: status === "degraded" ? `Unexpected health payload: ${body}` : undefined
+    };
+  } catch (error) {
+    return {
+      agentId: card.agentId,
+      url: healthUrl,
+      status: "down",
+      latencyMs: Math.max(0, Math.round(performance.now() - startTime)),
+      checkedAt,
+      details: {
+        healthEndpoint: "/health",
+        agentCardAvailable: Boolean(getAgentCard(card.agentId))
+      },
+      error: error instanceof Error ? error.message : "Unknown health check failure"
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
+  const agents = await Promise.all(getExecutableAgentCards().map((card) => checkAgentHealth(card)));
+
+  return {
+    orchestrator: {
+      agentId: orchestratorAgentId,
+      status: "ok",
+      timestamp: new Date().toISOString()
+    },
+    agents,
+    summary: {
+      total: agents.length,
+      healthy: agents.filter((agent) => agent.status === "ok").length,
+      degraded: agents.filter((agent) => agent.status === "degraded").length,
+      down: agents.filter((agent) => agent.status === "down").length
+    }
+  };
+}
+
 async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveResponse> {
   const routingDecision = await routeWithAI(requestBody.message);
   const classification = routingDecision.classification;
   const conversationId = createTaskId();
+  const sensitiveAction = detectSensitiveAction(requestBody.message, routingDecision.requestInterpretation);
+
+  if (sensitiveAction.isSensitive && sensitiveAction.requestedAction) {
+    const policyDecision = evaluateSecurityPolicy({
+      callerAgentId: orchestratorAgentId,
+      targetAgentId: "security-oauth-agent",
+      requestedAction: sensitiveAction.requestedAction
+    }) as SecurityDecision;
+    const diagnosis = {
+      probableCause: "Sensitive security action blocked by policy",
+      recommendedFix: "Use approved security review workflows; raw tokens, headers, and secrets are not exposed by this demo."
+    };
+
+    return {
+      finalAnswer: `Blocked by policy: ${policyDecision.reason}`,
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: sensitiveAction.reason,
+      resolutionStatus: "resolved",
+      evidence: [],
+      agentTrace: [
+        trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
+        {
+          ...trace("SENSITIVE_ACTION_DETECTED", sensitiveAction.reason),
+          toAgent: "security-oauth-agent",
+          skillId: sensitiveAction.requestedAction,
+          decision: policyDecision.decision
+        },
+        {
+          ...trace("SECURITY_BLOCKED", policyDecision.reason),
+          toAgent: "security-oauth-agent",
+          skillId: sensitiveAction.requestedAction,
+          decision: policyDecision.decision
+        }
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        ...(routingDecision.requestInterpretation
+          ? [
+              executionStep(
+                "orchestrator",
+                "interpret_request",
+                `${routingDecision.requestInterpretation.scope} / ${routingDecision.requestInterpretation.intentType}: ${routingDecision.requestInterpretation.reason}`
+              )
+            ]
+          : []),
+        executionStep("orchestrator", "detect_sensitive_action", sensitiveAction.reason),
+        {
+          ...executionStep("orchestrator", "security_policy_evaluated", `${policyDecision.decision}: ${policyDecision.reason}`),
+          toAgent: "security-oauth-agent",
+          skillId: sensitiveAction.requestedAction,
+          decision: policyDecision.decision
+        },
+        executionStep("orchestrator", "skip_agent_execution", "Did not invoke any agent because the request asks to reveal protected token, header, or secret material.")
+      ],
+      securityDecision: policyDecision,
+      securityDecisions: [policyDecision],
+      requestInterpretation: routingDecision.requestInterpretation,
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    };
+  }
 
   if (routingDecision.selectedAgents.length === 0) {
     const needsMoreInfo = routingDecision.resolutionStatus === "needs_more_info";
@@ -598,7 +762,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         message: parentTask.userMessage,
         classification,
         securityDecision: policyDecision,
-        requestedScope: requestedScopeForSkill(delegation.skillId),
+        requestedScope: targetSkill?.requiredPermission ?? targetSkill?.requiredScopes?.[0] ?? requestedScopeForSkill(delegation.skillId),
         mediatedBy: orchestratorAgentId,
         delegationDepth: nextDepth,
         parentTaskId: parentTask.taskId,
@@ -661,7 +825,13 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       continue;
     }
 
-    const requestedAction = requestedActionForAgent(agent.agentId, classification, requestBody.message);
+    const skillMetadata = getSkillMetadata(agent.agentId, agent.skillId);
+    // TODO: remove requestedActionForAgent once every Agent Card skill publishes requestedAction/requiredPermission metadata.
+    const fallbackRequestedAction = requestedActionForAgent(agent.agentId, classification, requestBody.message);
+    const requestedAction =
+      fallbackRequestedAction === "access.permission.grant"
+        ? fallbackRequestedAction
+        : requestedActionFromSkill(skillMetadata) ?? fallbackRequestedAction;
     let taskSecurityDecision: SecurityDecision | undefined;
 
     if (requestedAction) {
@@ -715,7 +885,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       message: requestBody.message,
       classification,
       securityDecision: taskSecurityDecision,
-      requestedScope: requestedScopeForAction(requestedAction)
+      requestedScope: skillMetadata?.requiredPermission ?? skillMetadata?.requiredScopes?.[0] ?? requestedScopeForAction(requestedAction)
     });
     a2aTasks.push(a2aTask);
 
@@ -828,6 +998,15 @@ async function start(): Promise<void> {
     sendJson(response, 200, {
       ok: true
     });
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/agents/health") {
+    if (!requireClientAccess(request, response)) {
+      return;
+    }
+
+    sendJson(response, 200, await buildAgentsHealthResponse());
     return;
   }
 

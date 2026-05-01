@@ -76,6 +76,177 @@ h2 {
   white-space: nowrap;
 }
 
+.topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.health-summary {
+  display: grid;
+  gap: 1px;
+  border: 1px solid #bed3c3;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  text-align: left;
+}
+
+.health-summary small {
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.78;
+}
+
+.health-summary.all-healthy {
+  color: #1d5a38;
+  background: #eef8f0;
+}
+
+.health-summary.has-degraded {
+  color: #8a5a00;
+  background: #fff7df;
+  border-color: #e0c36f;
+}
+
+.health-summary.has-down {
+  color: #a1272d;
+  background: #fff0f1;
+  border-color: #e6a5aa;
+}
+
+.agent-health-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.agent-health-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.agent-health-header h2 {
+  margin-bottom: 4px;
+}
+
+.agent-health-header p {
+  margin-bottom: 0;
+  color: #526b76;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agent-health-header button {
+  border: 1px solid #b7c7ce;
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: #253d47;
+  background: #f6f9fa;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.health-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.health-counts span,
+.health-pill {
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.health-ok {
+  color: #1d6d3d;
+  background: #eef8f0;
+}
+
+.health-degraded {
+  color: #8a5a00;
+  background: #fff7df;
+}
+
+.health-down {
+  color: #a1272d;
+  background: #fff0f1;
+}
+
+.agent-health-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 8px;
+}
+
+.agent-health-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  align-items: center;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fbfcfd;
+}
+
+.agent-health-row div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agent-health-row strong {
+  overflow-wrap: anywhere;
+}
+
+.agent-health-row span,
+.agent-health-row small {
+  color: #526b76;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agent-health-row small,
+.agent-health-row p {
+  grid-column: 1 / -1;
+}
+
+.agent-health-row p {
+  margin-bottom: 0;
+  color: #a1272d;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.health-pill.health-ok {
+  color: #1d6d3d;
+  background: #eef8f0;
+}
+
+.health-pill.health-degraded {
+  color: #8a5a00;
+  background: #fff7df;
+}
+
+.health-pill.health-down {
+  color: #a1272d;
+  background: #fff0f1;
+}
+
 .chat-panel {
   display: flex;
   flex: 1;

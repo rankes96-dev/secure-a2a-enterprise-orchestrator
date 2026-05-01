@@ -1,10 +1,4 @@
-export type RequestedSecurityAction =
-  | "compare_oauth_scopes"
-  | "inspect_oauth_token"
-  | "access.grant_permission"
-  | "create_incident_draft"
-  | "read_api_health"
-  | "read_github_rate_limit";
+import { actionPermissions, agentPermissions, canonicalAction, delegationPolicies } from "./policies";
 
 export interface PolicyEvaluationInput {
   callerAgentId: string;
@@ -23,66 +17,17 @@ export interface PolicyEvaluationResult {
   callerPermissions: string[];
 }
 
-const actionPermissions: Record<RequestedSecurityAction, string> = {
-  compare_oauth_scopes: "security.scope.compare",
-  inspect_oauth_token: "security.token.inspect",
-  "access.grant_permission": "access.permission.grant",
-  create_incident_draft: "incident.draft.create",
-  read_api_health: "apihealth.read",
-  read_github_rate_limit: "github.rate_limit.read"
-};
-
-const agentPermissions: Record<string, string[]> = {
-  "servicenow-orchestrator-agent": [
-    "security.scope.compare",
-    "incident.draft.create",
-    "apihealth.read",
-    "github.rate_limit.read"
-  ],
-  "github-agent": [
-    "api_health.diagnose_rate_limit",
-    "api_health.diagnose_connectivity_failure"
-  ],
-  "jira-agent": [
-    "security.compare_oauth_scopes"
-  ],
-  "end-user-triage-agent": [
-    "jira.diagnose_user_permission_issue",
-    "github.diagnose_repo_access_issue",
-    "pagerduty.diagnose_alert_ingestion_failure",
-    "security.compare_oauth_scopes",
-    "api_health.diagnose_connectivity_failure"
-  ]
-};
-
-const delegationPolicies: Record<string, Record<string, string[]>> = {
-  "github-agent": {
-    "api-health-agent": ["api_health.diagnose_rate_limit", "api_health.diagnose_connectivity_failure"]
-  },
-  "jira-agent": {
-    "security-oauth-agent": ["security.compare_oauth_scopes"]
-  },
-  "end-user-triage-agent": {
-    "jira-agent": ["jira.diagnose_user_permission_issue", "jira.diagnose_issue_creation_failure"],
-    "github-agent": ["github.diagnose_repo_access_issue", "github.diagnose_repository_scan_failure", "github.diagnose_rate_limit"],
-    "pagerduty-agent": ["pagerduty.diagnose_alert_ingestion_failure", "pagerduty.diagnose_event_rate_limit"],
-    "security-oauth-agent": ["security.compare_oauth_scopes"],
-    "api-health-agent": ["api_health.diagnose_rate_limit", "api_health.diagnose_connectivity_failure", "api_health.diagnose_webhook_delivery"]
-  },
-  "security-oauth-agent": {
-    "security-oauth-agent": ["security.compare_oauth_scopes"]
-  }
-};
-
 export function evaluateSecurityPolicy(input: PolicyEvaluationInput): PolicyEvaluationResult {
-  const requiredPermission = actionPermissions[input.requestedAction as RequestedSecurityAction];
+  const requestedAction = canonicalAction(input.requestedAction);
+  const policy = actionPermissions[requestedAction];
+  const requiredPermission = policy?.requiredPermission;
   const callerPermissions = agentPermissions[input.callerAgentId] ?? [];
   const baseResult = {
     caller: input.callerAgentId,
     target: input.targetAgentId,
-    requestedAction: input.requestedAction,
+    requestedAction,
     requiredPermission: requiredPermission ?? "unknown",
-    matchedPolicy: requiredPermission ? `${input.requestedAction} -> ${requiredPermission}` : "no_matching_policy",
+    matchedPolicy: requiredPermission ? `${requestedAction} -> ${requiredPermission}` : "no_matching_policy",
     callerPermissions
   };
 
@@ -90,16 +35,16 @@ export function evaluateSecurityPolicy(input: PolicyEvaluationInput): PolicyEval
     return {
       ...baseResult,
       decision: "Blocked",
-      reason: `Unknown requested action ${input.requestedAction}.`
+      reason: `Unknown requested action ${requestedAction}.`
     };
   }
 
-  if (input.requestedAction === "access.grant_permission") {
+  if (policy.decisionMode === "requires_approval") {
     return {
       ...baseResult,
       decision: "NeedsApproval",
       reason: "Changing Jira permissions requires human approval and was not executed automatically.",
-      matchedPolicy: "access.grant_permission -> access.permission.grant requires approval"
+      matchedPolicy: `${requestedAction} -> ${requiredPermission} requires approval`
     };
   }
 
