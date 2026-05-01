@@ -35,6 +35,8 @@ function firstMatch(message: string, patterns: RegExp[]): string | undefined {
   return undefined;
 }
 
+// These patterns extract free-text incident fields from user language. They must
+// not select agents, authorize actions, or encode product-specific routing.
 function extractTargetSystem(message: string, interpretation?: RequestInterpretation): string | undefined {
   return clean(interpretation?.targetSystemText) ?? firstMatch(message, [
     /\bissue with\s+([^,.;]+?)(?:\s+(?:in|on|with|and|but|i\b|we\b)|[,.;]|$)/i,
@@ -70,6 +72,8 @@ function extractErrorText(message: string): string | undefined {
     return configured === "wrong password" ? "password is wrong" : configured;
   }
 
+  // These generic phrase patterns only capture user-provided error text for
+  // incident handoff; they are not routing or policy rules.
   return firstMatch(message, [
     /\bi get an?\s+([^,.;]+error[^,.;]*)/i,
     /\bi get\s+([^,.;]+)/i,

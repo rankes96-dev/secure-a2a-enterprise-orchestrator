@@ -1,3 +1,6 @@
+// Generic incident taxonomy for local fallback extraction. These terms describe
+// incident categories and handoff fields, not system routing rules, agent
+// selection rules, or authorization policy.
 export const incidentTaxonomy = {
   environments: ["production", "prod", "staging", "stage", "dev", "test", "qa", "sandbox"],
   impactPhrases: [

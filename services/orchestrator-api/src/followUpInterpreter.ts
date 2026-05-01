@@ -40,7 +40,7 @@ Rules:
 
 Examples:
 Previous user:
-"i have issue with jenkins, i can't login"
+"i have issue with an internal CI tool, i can't login"
 Previous assistant:
 "Which environment? What exact login error? Does it affect only you or all users?"
 Current:
@@ -48,10 +48,23 @@ Current:
 Expected:
 {"isFollowUp":true,"confidence":"high","addsEnvironment":"production","shouldPreservePreviousTargetSystem":true,"shouldPreservePreviousAction":true,"reason":"The user answered the environment clarification question."}
 
+Previous user:
+"the corporate portal login is broken"
+Previous assistant:
+"Which environment? What exact login error? Does it affect only you or all users?"
 Current:
 "login error, only me"
 Expected:
 {"isFollowUp":true,"confidence":"high","addsErrorText":"login error","addsImpact":"one user","shouldPreservePreviousTargetSystem":true,"shouldPreservePreviousAction":true,"reason":"The user provided error and impact details for the previous login issue."}
+
+Previous user:
+"our monitoring dashboard is not loading"
+Previous assistant:
+"Which dashboard is affected? What environment? What error do you see? Who is impacted?"
+Current:
+"production timeout for all users"
+Expected:
+{"isFollowUp":true,"confidence":"high","addsEnvironment":"production","addsErrorText":"timeout","addsImpact":"all users","shouldPreservePreviousTargetSystem":true,"shouldPreservePreviousAction":true,"reason":"The user provided environment, error, and impact details for the previous dashboard issue."}
 
 Current:
 "i want to order pizza"
