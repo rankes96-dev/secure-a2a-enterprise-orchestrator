@@ -83,6 +83,18 @@ h2 {
   gap: 8px;
 }
 
+.secondary-button {
+  border: 1px solid #b8c7cd;
+  border-radius: 999px;
+  padding: 7px 12px;
+  color: #2d4650;
+  background: #f7fafb;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
 .health-summary {
   display: grid;
   gap: 1px;

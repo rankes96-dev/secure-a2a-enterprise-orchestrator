@@ -1,9 +1,12 @@
 export const agentPermissions: Record<string, string[]> = {
   "servicenow-orchestrator-agent": [
-    "security.scope.compare",
+    "enterprise.triage",
+    "jira.diagnose",
+    "github.diagnose",
+    "github.rate_limit.read",
     "pagerduty.diagnose",
-    "apihealth.read",
-    "github.rate_limit.read"
+    "security.scope.compare",
+    "apihealth.read"
   ],
   "github-agent": [
     "api_health.diagnose_rate_limit",

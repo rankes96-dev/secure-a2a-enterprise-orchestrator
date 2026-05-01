@@ -227,9 +227,11 @@ export interface A2AAgentResponse {
 
 export interface ResolveRequest {
   message: string;
+  conversationId?: string;
 }
 
 export interface ResolveResponse {
+  conversationId?: string;
   finalAnswer: string;
   classification: Classification;
   selectedAgents: SelectedAgent[];

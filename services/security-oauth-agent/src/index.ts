@@ -49,10 +49,11 @@ const agentCard = {
       capabilities: ["identity.permission.change"],
       requestedAction: "access.permission.grant",
       requiredPermission: "access.permission.grant",
+      requiredScopes: ["access.permission.grant"],
       priority: 50,
       owner: "Security Platform Team",
       scope: { resourceTypes: ["role", "permission"] },
-      riskLevel: "medium"
+      riskLevel: "high"
     }
   ]
 };

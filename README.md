@@ -200,6 +200,14 @@ Expected result:
 
 This project simulates a ServiceNow-style AI Orchestrator Agent coordinating with external enterprise agents through A2A-like task conversations.
 
+### Metadata-driven routing and policy
+
+- The orchestrator no longer infers requested actions from message text for normal routing.
+- Agent Card skill metadata provides `requestedAction`, `requiredPermission`, and `requiredScopes`.
+- `SensitiveActionGuard` is the only pre-routing text-based security guard, and it exists only to block token, credential, and secret-reveal attempts before agent execution.
+- The Policy Engine evaluates canonical actions from Agent Card metadata and policy config.
+- This prepares the demo for Secure A2A Identity, where `requiredScopes` will become JWT scopes.
+
 - The ServiceNow Orchestrator Agent owns intake, AI request interpretation, capability-based Agent Card routing, task creation, mediated delegation, response collection, audit trace, and final support/incident-style summarization. Its machine identity in tasks and policies is `servicenow-orchestrator-agent`.
 - External enterprise agents own system-specific mock knowledge and tools. They advertise that ownership through Agent Card skill capabilities and policy metadata such as `requestedAction`, `requiredPermission`, `riskLevel`, and `supportingCapabilities`.
 - Each external agent owns and serves its Agent Card from `/agent-card`. The orchestrator discovers Agent Cards from those endpoints at startup and uses the local static cards only as a fallback if discovery fails.

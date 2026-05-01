@@ -46,11 +46,12 @@ Rules:
 - Use only agent IDs and skill IDs present in the provided Agent Cards.
 - selectedAgents[].skillId is REQUIRED for every selected agent.
 - Match the user's request to Agent Card skill capabilities and descriptions.
+- Agent selection should be based on Agent Card skill capabilities. Do not infer permissions or authorization.
 - Never invent, paraphrase, rename, or omit skillId.
 - Do not select unrelated agents.
 - Do not decide authorization. The deterministic policy engine decides Allowed, Blocked, or NeedsApproval.
 - Do not claim that any access/provisioning/security action was executed.
-- Prefer returning no selected agents with resolutionStatus "needs_more_info" when the issue is vague.
+- For vague enterprise_support requests where no specialist capability clearly matches, select end-user-triage-agent with skillId end_user.triage if that Agent Card skill is available. Do not do this for out_of_scope, manual access/provisioning workflows, or sensitive security requests.
 
 Return JSON only:
 {

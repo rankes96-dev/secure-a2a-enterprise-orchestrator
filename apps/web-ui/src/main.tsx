@@ -94,6 +94,14 @@ function inferDemoFlowType(response: ResolveResponse): string {
     return "Out of scope";
   }
 
+  if (response.agentTrace.some((entry) => entry.action === "manual_incident_recommended")) {
+    return "Manual incident workflow";
+  }
+
+  if (response.requestInterpretation?.scope === "manual_enterprise_workflow") {
+    return "Manual service request";
+  }
+
   if (response.resolutionStatus === "unsupported") {
     return "Unsupported/manual workflow";
   }
@@ -179,6 +187,7 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
 function App() {
   const [message, setMessage] = useState(sampleMessage);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState<string | undefined>();
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [health, setHealth] = useState<AgentsHealthResponse | null>(null);
@@ -271,7 +280,7 @@ function App() {
           "content-type": "application/json"
         },
         credentials: "include",
-        body: JSON.stringify({ message: trimmedIssueText })
+        body: JSON.stringify({ message: trimmedIssueText, conversationId })
       });
       
       if (!apiResponse.ok) {
@@ -279,6 +288,7 @@ function App() {
       }
 
       const resolvedResponse = (await apiResponse.json()) as ResolveResponse;
+      setConversationId(resolvedResponse.conversationId);
       setMessages((currentMessages) =>
         currentMessages.map((chatMessage) =>
           chatMessage.id === loadingMessageId
@@ -317,6 +327,13 @@ function App() {
     await resolveIssue(message);
   }
 
+  function startNewConversation() {
+    setMessages([]);
+    setConversationId(undefined);
+    setError("");
+    setMessage(sampleMessage);
+  }
+
   return (
     <main className="shell">
       <section className="workspace">
@@ -326,6 +343,10 @@ function App() {
             <h1>A2A support diagnosis console</h1>
           </div>
           <div className="topbar-actions">
+            <div className="status">Conversation: {conversationId ? conversationId.slice(0, 8) : "new"}</div>
+            <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
+              New conversation
+            </button>
             <div className="status">Local mock mode</div>
             <button
               type="button"
@@ -734,7 +755,7 @@ function App() {
             </section>
           </>
         ) : (
-          <div className="empty-state">Submit the Jira 403 scenario to view agent evidence and trace.</div>
+          <div className="empty-state">Choose a scenario to run or type a message in the input field.</div>
         )}
       </aside>
     </main>

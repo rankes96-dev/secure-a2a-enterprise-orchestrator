@@ -13,7 +13,7 @@ const agentCard = {
   endpoint: process.env.API_HEALTH_AGENT_URL ?? "http://localhost:4105/task",
   auth: { type: "mock_internal_token", audience: "api-health-agent" },
   skills: [
-    { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"], requestedAction: "api.health.read", requiredPermission: "apihealth.read", priority: 70, owner: "API Reliability Team", scope: { resourceTypes: ["api", "rate_limit"] }, riskLevel: "low" },
+    { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"], requestedAction: "api.health.read", requiredPermission: "apihealth.read", requiredScopes: ["apihealth.read"], priority: 70, owner: "API Reliability Team", scope: { resourceTypes: ["api", "rate_limit"] }, riskLevel: "low" },
     {
       id: "api_health.diagnose_connectivity_failure",
       name: "Diagnose connectivity failure",
@@ -21,6 +21,7 @@ const agentCard = {
       capabilities: ["api.connectivity.diagnose", "api.health.diagnose"],
       requestedAction: "api.health.read",
       requiredPermission: "apihealth.read",
+      requiredScopes: ["apihealth.read"],
       priority: 70,
       owner: "API Reliability Team",
       scope: { resourceTypes: ["api"] },
@@ -29,7 +30,15 @@ const agentCard = {
     {
       id: "api_health.diagnose_webhook_delivery",
       name: "Diagnose webhook delivery",
-      description: "Diagnose webhook delivery and callback failures."
+      description: "Diagnose webhook delivery and callback failures.",
+      capabilities: ["api.webhook_delivery.diagnose", "api.health.diagnose"],
+      requestedAction: "api.health.read",
+      requiredPermission: "apihealth.read",
+      requiredScopes: ["apihealth.read"],
+      priority: 70,
+      owner: "API Reliability Team",
+      scope: { resourceTypes: ["api", "webhook"] },
+      riskLevel: "low"
     }
   ]
 };

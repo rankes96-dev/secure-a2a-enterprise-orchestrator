@@ -15,18 +15,41 @@ const agentCard = {
   endpoint: process.env.GITHUB_AGENT_URL ?? "http://localhost:4102/task",
   auth: { type: "mock_internal_token", audience: "github-agent" },
   skills: [
-    { id: "github.diagnose_repo_access_issue", name: "Diagnose repo access issue", description: "Diagnose repository or organization access problems.", capabilities: ["github.repository_access.diagnose"] },
+    {
+      id: "github.diagnose_repo_access_issue",
+      name: "Diagnose repo access issue",
+      description: "Diagnose repository or organization access problems.",
+      capabilities: ["github.repository_access.diagnose"],
+      requestedAction: "github.repository_access.diagnose",
+      requiredPermission: "github.diagnose",
+      requiredScopes: ["github.diagnose"],
+      riskLevel: "medium",
+      owner: "GitHub Support Team"
+    },
     {
       id: "github.diagnose_repository_scan_failure",
       name: "Diagnose repository scan failure",
       description: "Diagnose repository sync or scan failures.",
       capabilities: ["github.repository_scan.diagnose"],
+      requestedAction: "github.repository_scan.diagnose",
+      requiredPermission: "github.diagnose",
+      requiredScopes: ["github.diagnose"],
       priority: 90,
       owner: "GitHub Integration Team",
       scope: { systems: ["github"], resourceTypes: ["repository"] },
       riskLevel: "medium"
     },
-    { id: "github.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose GitHub API rate limit exhaustion.", capabilities: ["github.rate_limit.diagnose"] }
+    {
+      id: "github.diagnose_rate_limit",
+      name: "Diagnose rate limit",
+      description: "Diagnose GitHub API rate limit exhaustion.",
+      capabilities: ["github.rate_limit.diagnose"],
+      requestedAction: "github.rate_limit.read",
+      requiredPermission: "github.rate_limit.read",
+      requiredScopes: ["github.rate_limit.read"],
+      riskLevel: "low",
+      owner: "GitHub Integration Team"
+    }
   ]
 };
 

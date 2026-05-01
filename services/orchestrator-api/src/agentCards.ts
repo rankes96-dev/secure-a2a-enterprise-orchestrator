@@ -11,6 +11,7 @@ export type AgentCardSkill = {
   requestedAction?: string;
   requiredPermission?: string;
   riskLevel?: "low" | "medium" | "high" | "sensitive";
+  metadataOptional?: boolean;
   supportingCapabilities?: string[];
   priority?: number;
   owner?: string;
@@ -63,7 +64,17 @@ const staticAgentCards: AgentCard[] = [
     endpoint: process.env.END_USER_TRIAGE_AGENT_URL ?? "http://localhost:4106/task",
     auth: { type: "mock_internal_token", audience: "end-user-triage-agent" },
     skills: [
-      { id: "end_user.triage", name: "End user triage", description: "Interpret a plain-language support issue.", capabilities: ["enterprise.issue.triage"] },
+      {
+        id: "end_user.triage",
+        name: "End user triage",
+        description: "Interpret a plain-language support issue.",
+        capabilities: ["enterprise.issue.triage"],
+        requestedAction: "enterprise.issue.triage",
+        requiredPermission: "enterprise.triage",
+        requiredScopes: ["enterprise.triage"],
+        riskLevel: "low",
+        owner: "Enterprise Support Triage"
+      },
       {
         id: "end_user.ask_clarifying_questions",
         name: "Ask clarifying questions",
@@ -90,6 +101,9 @@ const staticAgentCards: AgentCard[] = [
         description: "Diagnose user-facing Jira permission problems.",
         capabilities: ["jira.permission.diagnose"],
         supportingCapabilities: ["oauth.scope.compare"],
+        requestedAction: "jira.permission.diagnose",
+        requiredPermission: "jira.diagnose",
+        requiredScopes: ["jira.diagnose"],
         priority: 80,
         owner: "Jira Support Team",
         scope: { systems: ["jira"], resourceTypes: ["project", "issue"] },
@@ -102,6 +116,9 @@ const staticAgentCards: AgentCard[] = [
         description: "Diagnose Jira issue creation API or sync failures.",
         capabilities: ["jira.issue_creation.diagnose"],
         supportingCapabilities: ["oauth.scope.compare"],
+        requestedAction: "jira.issue_creation.diagnose",
+        requiredPermission: "jira.diagnose",
+        requiredScopes: ["jira.diagnose"],
         priority: 90,
         owner: "Jira Integration Team",
         scope: { systems: ["jira"], resourceTypes: ["issue"] },
@@ -119,18 +136,41 @@ const staticAgentCards: AgentCard[] = [
     endpoint: process.env.GITHUB_AGENT_URL ?? "http://localhost:4102/task",
     auth: { type: "mock_internal_token", audience: "github-agent" },
     skills: [
-      { id: "github.diagnose_repo_access_issue", name: "Diagnose repo access issue", description: "Diagnose repository or organization access problems.", capabilities: ["github.repository_access.diagnose"] },
+      {
+        id: "github.diagnose_repo_access_issue",
+        name: "Diagnose repo access issue",
+        description: "Diagnose repository or organization access problems.",
+        capabilities: ["github.repository_access.diagnose"],
+        requestedAction: "github.repository_access.diagnose",
+        requiredPermission: "github.diagnose",
+        requiredScopes: ["github.diagnose"],
+        riskLevel: "medium",
+        owner: "GitHub Support Team"
+      },
       {
         id: "github.diagnose_repository_scan_failure",
         name: "Diagnose repository scan failure",
         description: "Diagnose repository sync or scan failures.",
         capabilities: ["github.repository_scan.diagnose"],
+        requestedAction: "github.repository_scan.diagnose",
+        requiredPermission: "github.diagnose",
+        requiredScopes: ["github.diagnose"],
         priority: 90,
         owner: "GitHub Integration Team",
         scope: { systems: ["github"], resourceTypes: ["repository"] },
         riskLevel: "medium"
       },
-      { id: "github.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose GitHub API rate limit exhaustion.", capabilities: ["github.rate_limit.diagnose"] }
+      {
+        id: "github.diagnose_rate_limit",
+        name: "Diagnose rate limit",
+        description: "Diagnose GitHub API rate limit exhaustion.",
+        capabilities: ["github.rate_limit.diagnose"],
+        requestedAction: "github.rate_limit.read",
+        requiredPermission: "github.rate_limit.read",
+        requiredScopes: ["github.rate_limit.read"],
+        riskLevel: "low",
+        owner: "GitHub Integration Team"
+      }
     ]
   },
   {
@@ -148,6 +188,7 @@ const staticAgentCards: AgentCard[] = [
         capabilities: ["incident.alert_ingestion.diagnose"],
         requestedAction: "pagerduty.alert_ingestion.diagnose",
         requiredPermission: "pagerduty.diagnose",
+        requiredScopes: ["pagerduty.diagnose"],
         priority: 90,
         owner: "Incident Operations Team",
         scope: { systems: ["pagerduty"], resourceTypes: ["alert", "incident"] },
@@ -198,10 +239,11 @@ const staticAgentCards: AgentCard[] = [
         capabilities: ["identity.permission.change"],
         requestedAction: "access.permission.grant",
         requiredPermission: "access.permission.grant",
+        requiredScopes: ["access.permission.grant"],
         priority: 50,
         owner: "Security Platform Team",
         scope: { resourceTypes: ["role", "permission"] },
-        riskLevel: "medium"
+        riskLevel: "high"
       }
     ]
   },
@@ -213,7 +255,7 @@ const staticAgentCards: AgentCard[] = [
     endpoint: process.env.API_HEALTH_AGENT_URL ?? "http://localhost:4105/task",
     auth: { type: "mock_internal_token", audience: "api-health-agent" },
     skills: [
-      { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"], requestedAction: "api.health.read", requiredPermission: "apihealth.read", priority: 70, owner: "API Reliability Team", scope: { resourceTypes: ["api", "rate_limit"] }, riskLevel: "low" },
+      { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"], requestedAction: "api.health.read", requiredPermission: "apihealth.read", requiredScopes: ["apihealth.read"], priority: 70, owner: "API Reliability Team", scope: { resourceTypes: ["api", "rate_limit"] }, riskLevel: "low" },
       {
         id: "api_health.diagnose_connectivity_failure",
         name: "Diagnose connectivity failure",
@@ -221,6 +263,7 @@ const staticAgentCards: AgentCard[] = [
         capabilities: ["api.connectivity.diagnose", "api.health.diagnose"],
         requestedAction: "api.health.read",
         requiredPermission: "apihealth.read",
+        requiredScopes: ["apihealth.read"],
         priority: 70,
         owner: "API Reliability Team",
         scope: { resourceTypes: ["api"] },
@@ -229,7 +272,15 @@ const staticAgentCards: AgentCard[] = [
       {
         id: "api_health.diagnose_webhook_delivery",
         name: "Diagnose webhook delivery",
-        description: "Diagnose webhook delivery and callback failures."
+        description: "Diagnose webhook delivery and callback failures.",
+        capabilities: ["api.webhook_delivery.diagnose", "api.health.diagnose"],
+        requestedAction: "api.health.read",
+        requiredPermission: "apihealth.read",
+        requiredScopes: ["apihealth.read"],
+        priority: 70,
+        owner: "API Reliability Team",
+        scope: { resourceTypes: ["api", "webhook"] },
+        riskLevel: "low"
       }
     ]
   }
@@ -324,6 +375,34 @@ export async function discoverAgentCards(): Promise<AgentCard[]> {
 
   agentCards = discoveredCards;
   return agentCards;
+}
+
+export function validateExecutableAgentCards(cards: AgentCard[] = getExecutableAgentCards()): string[] {
+  const warnings: string[] = [];
+
+  for (const card of cards) {
+    for (const skill of card.skills) {
+      const label = `${card.agentId}/${skill.id}`;
+
+      if (skill.capabilities?.length && !skill.metadataOptional && !skill.requestedAction) {
+        warnings.push(`skill ${label} is missing requestedAction metadata`);
+      }
+
+      if (skill.requestedAction && !skill.requiredPermission && !skill.requiredScopes?.length) {
+        warnings.push(`skill ${label} has requestedAction but no requiredPermission or requiredScopes metadata`);
+      }
+
+      if (skill.sensitive && (skill.riskLevel !== "sensitive" || !skill.requiredPermission)) {
+        warnings.push(`sensitive skill ${label} must use riskLevel sensitive and declare requiredPermission`);
+      }
+
+      if ((skill.riskLevel === "high" || skill.requestedAction?.includes("grant") || skill.requestedAction?.includes("admin")) && !skill.requiredPermission) {
+        warnings.push(`high-risk skill ${label} is missing requiredPermission metadata`);
+      }
+    }
+  }
+
+  return warnings;
 }
 
 export function getAgentCards(): AgentCard[] {

@@ -14,13 +14,16 @@ import type {
   ExecutionTraceStep,
   ResolveRequest,
   ResolveResponse,
-  SecurityDecision
+  RequestInterpretation,
+  SecurityDecision,
+  SelectedAgent
 } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
-import { discoverAgentCards, getAgentCard, getExecutableAgentCards, type AgentCardSkill } from "./agentCards";
+import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCardSkill } from "./agentCards";
 import { routeWithAI } from "./aiRouter";
 import { getAiConfig } from "./config/aiConfig";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
+import { buildManualIncidentAnswer, extractIncidentContext, type IncidentContext } from "./incidentContext";
 import { createSessionCookie, hasValidSession } from "./security/sessionManager";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
@@ -33,6 +36,21 @@ const rateLimitMaxRequests = Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 30);
 const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 const orchestratorAgentId = "servicenow-orchestrator-agent";
 const MAX_DELEGATION_DEPTH = 1;
+
+type ConversationState = {
+  conversationId: string;
+  messages: Array<{
+    role: "user" | "assistant";
+    content: string;
+    timestamp: string;
+  }>;
+  needsMoreInfoCount: number;
+  lastRequestInterpretation?: RequestInterpretation;
+  lastSelectedAgents?: SelectedAgent[];
+  lastResolutionStatus?: "resolved" | "needs_more_info" | "unsupported";
+};
+
+const conversations = new Map<string, ConversationState>();
 
 function clientIp(request: { headers: Record<string, string | string[] | undefined>; socket: { remoteAddress?: string } }): string {
   const forwardedFor = request.headers["x-forwarded-for"];
@@ -91,6 +109,43 @@ function executionStep(actor: ExecutionTraceStep["actor"], action: string, detai
   };
 }
 
+function getOrCreateConversationState(conversationId?: string): ConversationState {
+  if (conversationId) {
+    const existing = conversations.get(conversationId);
+    if (existing) {
+      return existing;
+    }
+  }
+
+  const state: ConversationState = {
+    conversationId: createTaskId(),
+    messages: [],
+    needsMoreInfoCount: 0
+  };
+  conversations.set(state.conversationId, state);
+  return state;
+}
+
+function appendConversationMessage(state: ConversationState, role: "user" | "assistant", content: string): void {
+  state.messages.push({
+    role,
+    content,
+    timestamp: new Date().toISOString()
+  });
+  state.messages = state.messages.slice(-10);
+}
+
+function updateConversationState(state: ConversationState, response: ResolveResponse): void {
+  appendConversationMessage(state, "assistant", response.finalAnswer);
+  state.lastRequestInterpretation = response.requestInterpretation;
+  state.lastSelectedAgents = response.selectedAgents;
+  state.lastResolutionStatus = response.resolutionStatus;
+
+  if (response.resolutionStatus === "needs_more_info" || response.a2aResponses?.some((item) => item.status === "needs_more_info")) {
+    state.needsMoreInfoCount += 1;
+  }
+}
+
 function buildDiagnosis(agentResponses: A2AAgentResponse[]): ResolveResponse["diagnosis"] {
   const diagnosed =
     agentResponses.find((response) => response.status === "diagnosed" && response.probableCause && response.agentId !== "end-user-triage-agent") ??
@@ -122,14 +177,41 @@ function sentence(value: string): string {
   return /[.!?]$/.test(value.trim()) ? value.trim() : `${value.trim()}.`;
 }
 
-function includesAny(value: string, needles: string[]): boolean {
-  return needles.some((needle) => value.includes(needle));
+function isEnterpriseIncidentIntent(interpretation?: RequestInterpretation): boolean {
+  return Boolean(
+    interpretation?.scope === "enterprise_support" &&
+      (interpretation.intentType === "incident_diagnosis" || interpretation.intentType === "integration_failure" || interpretation.intentType === "unknown")
+  );
+}
+
+function hasOnlyGenericFallbackAgents(selectedAgents: SelectedAgent[]): boolean {
+  return (
+    selectedAgents.length === 0 ||
+    selectedAgents.every((agent) => agent.agentId === "end-user-triage-agent" || agent.agentId === "api-health-agent")
+  );
+}
+
+function shouldReturnManualIncidentGuidance(params: {
+  state: ConversationState;
+  interpretation?: RequestInterpretation;
+  selectedAgents: SelectedAgent[];
+  context: IncidentContext;
+}): boolean {
+  return (
+    params.state.needsMoreInfoCount >= 1 &&
+    isEnterpriseIncidentIntent(params.interpretation) &&
+    params.interpretation?.intentType !== "security_sensitive_action" &&
+    hasOnlyGenericFallbackAgents(params.selectedAgents) &&
+    params.context.hasMinimumDetails
+  );
 }
 
 function buildFinalAnswer(params: {
   classification: Classification;
   agentResponses: A2AAgentResponse[];
   securityDecisions?: SecurityDecision[];
+  requestInterpretation?: RequestInterpretation;
+  manualIncidentContext?: IncidentContext;
 }): string {
   const approvalDecision = params.securityDecisions?.find((decision) => decision.decision === "NeedsApproval");
 
@@ -140,6 +222,10 @@ function buildFinalAnswer(params: {
   const needsMoreInfo = params.agentResponses.find((response) => response.status === "needs_more_info");
 
   if (needsMoreInfo) {
+    if (params.manualIncidentContext) {
+      return buildManualIncidentAnswer(params.manualIncidentContext);
+    }
+
     const questions = needsMoreInfo.clarifyingQuestions?.join(" ");
     return questions ? `${needsMoreInfo.summary} ${questions}` : needsMoreInfo.summary;
   }
@@ -152,6 +238,10 @@ function buildFinalAnswer(params: {
   }
 
   if (diagnosed.length === 0) {
+    if (params.manualIncidentContext) {
+      return buildManualIncidentAnswer(params.manualIncidentContext);
+    }
+
     return "I could not complete the A2A diagnosis. Please provide the failed action, exact error, and affected system or record.";
   }
 
@@ -178,70 +268,20 @@ function primarySecurityDecision(decisions: SecurityDecision[]): SecurityDecisio
   );
 }
 
-function requestedActionForAgent(_agentId: AgentName, _classification: Classification, message: string): string | undefined {
-  const lower = message.toLowerCase();
-
-  if (includesAny(lower, ["grant", "give me", "add me", "make me"]) && includesAny(lower, ["permission", "access", "admin", "role"])) {
-    return "access.permission.grant";
-  }
-
-  if (includesAny(lower, ["inspect", "show", "print", "reveal", "dump", "decode"]) && includesAny(lower, ["oauth", "token", "jwt", "authorization header", "bearer"])) {
-    return "security.token.inspect";
-  }
-
-  if (includesAny(lower, ["scope", "oauth", "403", "permission", "access denied", "forbidden"])) {
-    return "oauth.scope.compare";
-  }
-
-  return undefined;
-}
-
-function requestedScopeForAction(requestedAction?: string): string | undefined {
-  if (requestedAction === "oauth.scope.compare" || requestedAction === "compare_oauth_scopes") {
-    return "security.scope.compare";
-  }
-
-  if (requestedAction === "security.token.inspect" || requestedAction === "inspect_oauth_token") {
-    return "security.token.inspect";
-  }
-
-  if (requestedAction === "access.permission.grant" || requestedAction === "access.grant_permission") {
-    return "access.permission.grant";
-  }
-
-  if (requestedAction === "github.rate_limit.read" || requestedAction === "read_github_rate_limit") {
-    return "github.rate_limit.read";
-  }
-
-  if (requestedAction === "api.health.read" || requestedAction === "read_api_health") {
-    return "apihealth.read";
-  }
-
-  return undefined;
-}
-
 function getSkillMetadata(agentId: AgentName, skillId?: string): AgentCardSkill | undefined {
   return getAgentCard(agentId)?.skills.find((skill) => skill.id === skillId);
 }
 
-function requestedActionFromSkill(skill?: AgentCardSkill): string | undefined {
-  return skill?.requestedAction ?? (skill?.sensitive ? "security.token.inspect" : undefined);
+function requestedActionForSkill(skill?: AgentCardSkill): string | undefined {
+  return skill?.requestedAction;
 }
 
-function requestedScopeForSkill(skillId?: string): string | undefined {
-  if (skillId === "api_health.diagnose_rate_limit") {
-    return "apihealth.read";
-  }
+function requiredPermissionForSkill(skill?: AgentCardSkill): string | undefined {
+  return skill?.requiredPermission ?? skill?.requiredScopes?.[0];
+}
 
-  if (skillId === "api_health.diagnose_connectivity_failure" || skillId === "api_health.diagnose_webhook_delivery") {
-    return "apihealth.read";
-  }
-
-  if (skillId === "security.compare_oauth_scopes") {
-    return "security.scope.compare";
-  }
-
-  return undefined;
+function requestedScopesForSkill(skill?: AgentCardSkill): string[] {
+  return skill?.requiredScopes ?? (skill?.requiredPermission ? [skill.requiredPermission] : []);
 }
 
 function createTaskId(): string {
@@ -397,10 +437,35 @@ async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
 }
 
 async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveResponse> {
+  const conversationState = getOrCreateConversationState(requestBody.conversationId);
+  appendConversationMessage(conversationState, "user", requestBody.message);
   const routingDecision = await routeWithAI(requestBody.message);
   const classification = routingDecision.classification;
-  const conversationId = createTaskId();
+  const conversationId = conversationState.conversationId;
+  const incidentInterpretation =
+    conversationState.needsMoreInfoCount > 0 && conversationState.lastRequestInterpretation?.targetSystemText
+      ? {
+          ...(routingDecision.requestInterpretation ?? conversationState.lastRequestInterpretation),
+          targetSystemText: conversationState.lastRequestInterpretation.targetSystemText,
+          targetResourceType: [
+            conversationState.lastRequestInterpretation.targetResourceType,
+            routingDecision.requestInterpretation?.targetResourceType
+          ].filter(Boolean).join(" ") || undefined,
+          targetResourceName:
+            routingDecision.requestInterpretation?.targetResourceName ?? conversationState.lastRequestInterpretation.targetResourceName,
+          requestedActionText: [
+            conversationState.lastRequestInterpretation.requestedActionText,
+            routingDecision.requestInterpretation?.requestedActionText
+          ].filter(Boolean).join(" ") || undefined
+        }
+      : routingDecision.requestInterpretation;
+  const incidentContext = extractIncidentContext(requestBody.message, incidentInterpretation);
   const sensitiveAction = detectSensitiveAction(requestBody.message, routingDecision.requestInterpretation);
+  const finalize = (response: ResolveResponse): ResolveResponse => {
+    const finalResponse = { ...response, conversationId };
+    updateConversationState(conversationState, finalResponse);
+    return finalResponse;
+  };
 
   if (sensitiveAction.isSensitive && sensitiveAction.requestedAction) {
     const policyDecision = evaluateSecurityPolicy({
@@ -413,7 +478,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       recommendedFix: "Use approved security review workflows; raw tokens, headers, and secrets are not exposed by this demo."
     };
 
-    return {
+    return finalize({
       finalAnswer: `Blocked by policy: ${policyDecision.reason}`,
       classification,
       selectedAgents: [],
@@ -463,8 +528,59 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       requestInterpretation: routingDecision.requestInterpretation,
       a2aTasks: [],
       a2aResponses: [],
-      diagnosis
+      diagnosis,
+      conversationId
+    });
+  }
+
+  if (
+    shouldReturnManualIncidentGuidance({
+      state: conversationState,
+      interpretation: routingDecision.requestInterpretation,
+      selectedAgents: routingDecision.selectedAgents,
+      context: incidentContext
+    })
+  ) {
+    const finalAnswer = buildManualIncidentAnswer(incidentContext);
+    const diagnosis = {
+      probableCause: "Unsupported enterprise incident workflow",
+      recommendedFix: "Open a ServiceNow incident manually with the suggested fields."
     };
+
+    return finalize({
+      conversationId,
+      finalAnswer,
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "No specialist Agent Card capability is currently available for this enterprise incident.",
+      resolutionStatus: "unsupported",
+      evidence: [],
+      agentTrace: [
+        trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
+        trace("manual_incident_recommended", "Enough incident context was provided, but no specialist Agent Card capability is available.")
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        ...(routingDecision.requestInterpretation
+          ? [
+              executionStep(
+                "orchestrator",
+                "interpret_request",
+                `${routingDecision.requestInterpretation.scope} / ${routingDecision.requestInterpretation.intentType}: ${routingDecision.requestInterpretation.reason}`
+              )
+            ]
+          : []),
+        executionStep("orchestrator", "return_manual_incident_guidance", "Returned manual ServiceNow incident guidance for an unsupported enterprise incident.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: routingDecision.requestInterpretation,
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
   }
 
   if (routingDecision.selectedAgents.length === 0) {
@@ -500,7 +616,8 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       ? "I need more details before I can route this to the right specialist agent. Please provide the exact error message or code, the failed operation, the affected system or integration, and when the issue started."
       : `${diagnosis.probableCause}. ${diagnosis.recommendedFix}`;
 
-    return {
+    return finalize({
+      conversationId,
       finalAnswer,
       classification,
       selectedAgents: routingDecision.selectedAgents,
@@ -567,7 +684,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       securityDecisions: [],
       requestInterpretation: interpretation,
       diagnosis
-    };
+    });
   }
 
   const orchestratorTrace = [
@@ -674,6 +791,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         delegationDepth: nextDepth
       });
 
+      // Delegation policy is skill-based. Security permission policy is action-based.
       const policyDecision = evaluateDelegationPolicy({
         callerAgentId: fromAgent,
         targetAgentId: delegation.targetAgentId,
@@ -746,7 +864,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         message: parentTask.userMessage,
         classification,
         securityDecision: policyDecision,
-        requestedScope: targetSkill?.requiredPermission ?? targetSkill?.requiredScopes?.[0] ?? requestedScopeForSkill(delegation.skillId),
+        requestedScope: requiredPermissionForSkill(targetSkill),
         mediatedBy: orchestratorAgentId,
         delegationDepth: nextDepth,
         parentTaskId: parentTask.taskId,
@@ -810,12 +928,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     }
 
     const skillMetadata = getSkillMetadata(agent.agentId, agent.skillId);
-    // TODO: remove requestedActionForAgent once every Agent Card skill publishes requestedAction/requiredPermission metadata.
-    const fallbackRequestedAction = skillMetadata ? undefined : requestedActionForAgent(agent.agentId, classification, requestBody.message);
-    const requestedAction =
-      fallbackRequestedAction === "access.permission.grant"
-        ? fallbackRequestedAction
-        : requestedActionFromSkill(skillMetadata) ?? fallbackRequestedAction;
+    const requestedAction = requestedActionForSkill(skillMetadata);
     let taskSecurityDecision: SecurityDecision | undefined;
 
     if (requestedAction) {
@@ -860,8 +973,11 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         });
         continue;
       }
+    } else {
+      orchestratorTrace.push(trace("POLICY_METADATA_MISSING", "No requestedAction metadata found for selected skill; policy check skipped for read-only diagnostic mock."));
     }
 
+    const requestedScopes = requestedScopesForSkill(skillMetadata);
     const a2aTask = createA2ATask({
       conversationId,
       toAgent: agent.agentId,
@@ -869,7 +985,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       message: requestBody.message,
       classification,
       securityDecision: taskSecurityDecision,
-      requestedScope: skillMetadata?.requiredPermission ?? skillMetadata?.requiredScopes?.[0] ?? requestedScopeForAction(requestedAction)
+      requestedScope: requiredPermissionForSkill(skillMetadata) ?? requestedScopes[0]
     });
     a2aTasks.push(a2aTask);
 
@@ -949,11 +1065,24 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     executionStep("orchestrator", "generate_final_diagnosis", diagnosis.probableCause)
   ];
 
-  return {
+  const manualIncidentContext =
+    shouldReturnManualIncidentGuidance({
+      state: conversationState,
+      interpretation: routingDecision.requestInterpretation,
+      selectedAgents: routingDecision.selectedAgents,
+      context: incidentContext
+    })
+      ? incidentContext
+      : undefined;
+
+  return finalize({
+    conversationId,
     finalAnswer: buildFinalAnswer({
       classification,
       agentResponses: a2aResponses,
-      securityDecisions
+      securityDecisions,
+      requestInterpretation: routingDecision.requestInterpretation,
+      manualIncidentContext
     }),
     classification,
     selectedAgents: routingDecision.selectedAgents,
@@ -971,11 +1100,14 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     a2aTasks,
     a2aResponses,
     diagnosis
-  };
+  });
 }
 
 async function start(): Promise<void> {
   await discoverAgentCards();
+  for (const warning of validateExecutableAgentCards()) {
+    console.warn(`[agent-cards] ${warning}`);
+  }
 
   startJsonServer(port, async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {

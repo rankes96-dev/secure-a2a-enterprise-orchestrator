@@ -11,13 +11,18 @@ export const actionAliases: Record<string, string> = {
 };
 
 export const actionPermissions: Record<string, { requiredPermission: string; decisionMode?: PolicyDecisionMode }> = {
+  "enterprise.issue.triage": { requiredPermission: "enterprise.triage" },
+  "jira.permission.diagnose": { requiredPermission: "jira.diagnose" },
+  "jira.issue_creation.diagnose": { requiredPermission: "jira.diagnose" },
+  "github.repository_access.diagnose": { requiredPermission: "github.diagnose" },
+  "github.repository_scan.diagnose": { requiredPermission: "github.diagnose" },
+  "github.rate_limit.read": { requiredPermission: "github.rate_limit.read" },
+  "pagerduty.alert_ingestion.diagnose": { requiredPermission: "pagerduty.diagnose" },
   "oauth.scope.compare": { requiredPermission: "security.scope.compare" },
   "security.token.inspect": { requiredPermission: "security.token.inspect" },
   "security.secret.reveal": { requiredPermission: "security.secret.reveal" },
   "access.permission.grant": { requiredPermission: "access.permission.grant", decisionMode: "requires_approval" },
-  "pagerduty.alert_ingestion.diagnose": { requiredPermission: "pagerduty.diagnose" },
-  "api.health.read": { requiredPermission: "apihealth.read" },
-  "github.rate_limit.read": { requiredPermission: "github.rate_limit.read" }
+  "api.health.read": { requiredPermission: "apihealth.read" }
 };
 
 export function canonicalAction(action: string): string {

@@ -20,6 +20,7 @@ const agentCard = {
       capabilities: ["incident.alert_ingestion.diagnose"],
       requestedAction: "pagerduty.alert_ingestion.diagnose",
       requiredPermission: "pagerduty.diagnose",
+      requiredScopes: ["pagerduty.diagnose"],
       priority: 90,
       owner: "Incident Operations Team",
       scope: { systems: ["pagerduty"], resourceTypes: ["alert", "incident"] },

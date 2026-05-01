@@ -97,6 +97,22 @@ User: "Jira says I don't have permission to create a ticket in the FIN project"
 Expected:
 {"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"jira.permission.diagnose","targetSystemText":"Jira","targetResourceType":"project","targetResourceName":"FIN","requestedActionText":"diagnose Jira permission issue","requiresApproval":false,"confidence":"high","reason":"The user is reporting a Jira permission problem."}
 
+User: "i have issue with jenkins, i can't login"
+Expected:
+{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"Jenkins","targetResourceType":"application","requestedActionText":"login","requiresApproval":false,"confidence":"medium","reason":"The user is reporting a Jenkins login/authentication problem, but no specific Jenkins Agent Card capability is available."}
+
+User: "i have issue with jenkins in production, i can't login, i get an login error"
+Expected:
+{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"Jenkins","targetResourceType":"application","requestedActionText":"login","requiresApproval":false,"confidence":"high","reason":"The user is reporting a Jenkins production login/authentication issue."}
+
+User: "GitLab CI deployment fails in production with permission denied"
+Expected:
+{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"GitLab CI","targetResourceType":"pipeline","requestedActionText":"deployment","requiresApproval":false,"confidence":"high","reason":"The user is reporting an unsupported CI/CD deployment incident."}
+
+User: "Snowflake production dashboards fail with timeout error for all finance users"
+Expected:
+{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"Snowflake","targetResourceType":"data_platform","requestedActionText":"dashboard/query","requiresApproval":false,"confidence":"high","reason":"The user is reporting an unsupported data platform incident."}
+
 User: "GitHub repository sync started failing with 403 during nightly scan"
 Expected:
 {"scope":"enterprise_support","intentType":"integration_failure","requestedCapability":"github.repository_scan.diagnose","targetSystemText":"GitHub","targetResourceType":"repository","requestedActionText":"diagnose repository scan failure","requiresApproval":false,"confidence":"high","reason":"The user is reporting a GitHub repository scan failure."}
