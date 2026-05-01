@@ -20,7 +20,8 @@ const agentCard = {
       id: "github.diagnose_repository_scan_failure",
       name: "Diagnose repository scan failure",
       description: "Diagnose repository sync or scan failures.",
-      capabilities: ["github.repository_scan.diagnose"]
+      capabilities: ["github.repository_scan.diagnose"],
+      riskLevel: "medium"
     },
     { id: "github.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose GitHub API rate limit exhaustion.", capabilities: ["github.rate_limit.diagnose"] }
   ]

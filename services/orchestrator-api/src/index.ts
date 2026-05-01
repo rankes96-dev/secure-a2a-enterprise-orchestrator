@@ -177,36 +177,19 @@ function primarySecurityDecision(decisions: SecurityDecision[]): SecurityDecisio
   );
 }
 
-function requestedActionForAgent(agentId: AgentName, classification: Classification, message: string): string | undefined {
+function requestedActionForAgent(_agentId: AgentName, _classification: Classification, message: string): string | undefined {
   const lower = message.toLowerCase();
 
-  if (agentId === "security-oauth-agent") {
-    if (
-      classification.system === "Jira" &&
-      includesAny(lower, ["grant", "give me", "add me"]) &&
-      includesAny(lower, ["permission", "access"]) &&
-      includesAny(lower, ["create jira", "create ticket", "create tickets", "create issue", "create issues"])
-    ) {
-      return "access.permission.grant";
-    }
+  if (includesAny(lower, ["grant", "give me", "add me", "make me"]) && includesAny(lower, ["permission", "access", "admin", "role"])) {
+    return "access.permission.grant";
+  }
 
-    if (lower.includes("inspect") && lower.includes("oauth")) {
-      return "security.token.inspect";
-    }
+  if (includesAny(lower, ["inspect", "show", "print", "reveal", "dump", "decode"]) && includesAny(lower, ["oauth", "token", "jwt", "authorization header", "bearer"])) {
+    return "security.token.inspect";
+  }
 
+  if (includesAny(lower, ["scope", "oauth", "403", "permission", "access denied", "forbidden"])) {
     return "oauth.scope.compare";
-  }
-
-  if (agentId === "api-health-agent") {
-    if (classification.system === "GitHub" && classification.issueType === "RATE_LIMIT") {
-    return "github.rate_limit.read";
-    }
-
-    return "api.health.read";
-  }
-
-  if (agentId === "pagerduty-agent") {
-    return "pagerduty.alert_ingestion.diagnose";
   }
 
   return undefined;
@@ -827,7 +810,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
 
     const skillMetadata = getSkillMetadata(agent.agentId, agent.skillId);
     // TODO: remove requestedActionForAgent once every Agent Card skill publishes requestedAction/requiredPermission metadata.
-    const fallbackRequestedAction = requestedActionForAgent(agent.agentId, classification, requestBody.message);
+    const fallbackRequestedAction = skillMetadata ? undefined : requestedActionForAgent(agent.agentId, classification, requestBody.message);
     const requestedAction =
       fallbackRequestedAction === "access.permission.grant"
         ? fallbackRequestedAction

@@ -19,23 +19,32 @@ const agentCard = {
       id: "security.compare_oauth_scopes",
       name: "Compare OAuth scopes",
       description: "Compare required OAuth scopes with mock token scopes.",
-      capabilities: ["oauth.scope.compare"],
+      capabilities: ["oauth.scope.compare", "oauth.client_auth.diagnose", "integration.auth.diagnose"],
       requestedAction: "oauth.scope.compare",
       requiredPermission: "security.scope.compare",
+      riskLevel: "medium",
       requiredScopes: ["security.scope.compare"]
     },
     {
       id: "security.inspect_oauth_token",
       name: "Inspect OAuth token",
       description: "Inspect raw OAuth token posture.",
-      capabilities: ["oauth.token.inspect"],
+      capabilities: ["oauth.token.inspect", "security.token.inspect"],
       requestedAction: "security.token.inspect",
       requiredPermission: "security.token.inspect",
       riskLevel: "sensitive",
       requiredScopes: ["security.token.inspect"],
       sensitive: true
     },
-    { id: "security.evaluate_agent_action", name: "Evaluate agent action", description: "Evaluate agent action policy requirements." }
+    {
+      id: "security.evaluate_agent_action",
+      name: "Evaluate agent action",
+      description: "Evaluate agent action policy requirements.",
+      capabilities: ["identity.permission.change"],
+      requestedAction: "access.permission.grant",
+      requiredPermission: "access.permission.grant",
+      riskLevel: "medium"
+    }
   ]
 };
 

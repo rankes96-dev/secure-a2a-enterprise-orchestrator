@@ -110,7 +110,7 @@ function inferDemoFlowType(response: ResolveResponse): string {
 }
 
 function decisionClass(decision: string): string {
-  return `decision-${decision.toLowerCase()}`;
+  return `decision-${decision.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase()}`;
 }
 
 function JsonBlock({ value }: { value: unknown }) {

@@ -636,12 +636,12 @@ pre {
   background: #fff0f1;
 }
 
-.decision-needsapproval {
+.decision-needs-approval {
   color: #8a5a00;
   background: #fff7df;
 }
 
-.decision-needsmorecontext {
+.decision-needs-more-context {
   color: #4c6170;
   background: #eef3f6;
 }
