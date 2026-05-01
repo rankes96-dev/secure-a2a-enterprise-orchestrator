@@ -49,23 +49,27 @@ Expected:
 {"isFollowUp":true,"confidence":"high","addsEnvironment":"production","shouldPreservePreviousTargetSystem":true,"shouldPreservePreviousAction":true,"reason":"The user answered the environment clarification question."}
 
 Previous user:
-"the corporate portal login is broken"
+"our internal deployment tool is failing"
 Previous assistant:
-"Which environment? What exact login error? Does it affect only you or all users?"
+"Which stage failed? What is the exact error? What changed recently?"
 Current:
-"login error, only me"
+"deploy stage fails with permission denied in production"
 Expected:
-{"isFollowUp":true,"confidence":"high","addsErrorText":"login error","addsImpact":"one user","shouldPreservePreviousTargetSystem":true,"shouldPreservePreviousAction":true,"reason":"The user provided error and impact details for the previous login issue."}
+{"isFollowUp":true,"confidence":"high","addsEnvironment":"production","addsErrorText":"permission denied","addsSymptom":"deployment/pipeline failure","shouldPreservePreviousTargetSystem":true,"shouldPreservePreviousAction":true,"reason":"The user provided deployment stage, error, and environment details."}
 
 Previous user:
-"our monitoring dashboard is not loading"
+"the corporate portal is not loading"
 Previous assistant:
-"Which dashboard is affected? What environment? What error do you see? Who is impacted?"
+"What error do you see? Is this affecting only you or multiple users?"
 Current:
-"production timeout for all users"
+"all users get timeout error"
 Expected:
-{"isFollowUp":true,"confidence":"high","addsEnvironment":"production","addsErrorText":"timeout","addsImpact":"all users","shouldPreservePreviousTargetSystem":true,"shouldPreservePreviousAction":true,"reason":"The user provided environment, error, and impact details for the previous dashboard issue."}
+{"isFollowUp":true,"confidence":"high","addsErrorText":"timeout error","addsImpact":"all users","shouldPreservePreviousTargetSystem":true,"shouldPreservePreviousAction":true,"reason":"The user provided error and impact details for the previous enterprise issue."}
 
+Previous user:
+"i have issue with an internal app"
+Previous assistant:
+"What is the affected system and what operation failed?"
 Current:
 "i want to order pizza"
 Expected:
@@ -73,6 +77,15 @@ Expected:
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeImpact(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const lower = value.toLowerCase();
+  return incidentTaxonomy.impactPhrases.find((item) => item.terms.some((term) => lower.includes(term.toLowerCase())))?.value ?? value;
 }
 
 function normalizeFollowUp(value: unknown, fallback: FollowUpInterpretation): FollowUpInterpretation {
@@ -85,7 +98,7 @@ function normalizeFollowUp(value: unknown, fallback: FollowUpInterpretation): Fo
     reason: optionalString(record.reason) ?? fallback.reason,
     addsEnvironment: optionalString(record.addsEnvironment) ?? fallback.addsEnvironment,
     addsErrorText: optionalString(record.addsErrorText) ?? fallback.addsErrorText,
-    addsImpact: optionalString(record.addsImpact) ?? fallback.addsImpact,
+    addsImpact: normalizeImpact(optionalString(record.addsImpact)) ?? fallback.addsImpact,
     addsSymptom: optionalString(record.addsSymptom) ?? fallback.addsSymptom,
     addsTargetSystemText: optionalString(record.addsTargetSystemText) ?? fallback.addsTargetSystemText,
     shouldPreservePreviousTargetSystem:

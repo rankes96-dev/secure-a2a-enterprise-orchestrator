@@ -1,6 +1,7 @@
-// Generic incident taxonomy for local fallback extraction. These terms describe
-// incident categories and handoff fields, not system routing rules, agent
-// selection rules, or authorization policy.
+// This taxonomy contains generic incident categories and extraction hints. It is
+// not a system routing table. Product/system names should come from
+// RequestInterpretation.targetSystemText or free-text extraction, not from
+// hardcoded routing rules.
 export const incidentTaxonomy = {
   environments: ["production", "prod", "staging", "stage", "dev", "test", "qa", "sandbox"],
   impactPhrases: [

@@ -78,7 +78,7 @@ startJsonServer(port, async (request, response) => {
         ]
       : pipelineIssue
         ? [
-            "Which pipeline or tool is failing, for example GitHub Actions, Jenkins, Azure DevOps, GitLab CI, or an internal deployment system?",
+            "Which pipeline, CI/CD tool, or internal deployment system is failing?",
             "Which stage failed: build, test, deployment, approval, artifact publish, or notification?",
             "What is the exact error message or code?",
             "What changed yesterday?",

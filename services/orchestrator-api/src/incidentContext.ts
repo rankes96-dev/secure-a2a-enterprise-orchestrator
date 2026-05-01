@@ -35,8 +35,9 @@ function firstMatch(message: string, patterns: RegExp[]): string | undefined {
   return undefined;
 }
 
-// These patterns extract free-text incident fields from user language. They must
-// not select agents, authorize actions, or encode product-specific routing.
+// These patterns only extract free-text incident fields from user language. They
+// must not select agents, authorize actions, or encode product-specific routing.
+// Routing is based on Agent Card capabilities; authorization is based on policy.
 function extractTargetSystem(message: string, interpretation?: RequestInterpretation): string | undefined {
   return clean(interpretation?.targetSystemText) ?? firstMatch(message, [
     /\bissue with\s+([^,.;]+?)(?:\s+(?:in|on|with|and|but|i\b|we\b)|[,.;]|$)/i,

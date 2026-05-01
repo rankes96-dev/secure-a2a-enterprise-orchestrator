@@ -97,21 +97,21 @@ User: "Jira says I don't have permission to create a ticket in the FIN project"
 Expected:
 {"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"jira.permission.diagnose","targetSystemText":"Jira","targetResourceType":"project","targetResourceName":"FIN","requestedActionText":"diagnose Jira permission issue","requiresApproval":false,"confidence":"high","reason":"The user is reporting a Jira permission problem."}
 
-User: "i have issue with jenkins, i can't login"
+User: "i have issue with an internal CI tool, i can't login"
 Expected:
-{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"Jenkins","targetResourceType":"application","requestedActionText":"login","requiresApproval":false,"confidence":"medium","reason":"The user is reporting a Jenkins login/authentication problem, but no specific Jenkins Agent Card capability is available."}
+{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"internal CI tool","targetResourceType":"application","requestedActionText":"login","requiresApproval":false,"confidence":"medium","reason":"The user is reporting an internal tool login/authentication problem, but no specific Agent Card capability is available."}
 
-User: "i have issue with jenkins in production, i can't login, i get an login error"
+User: "i have issue with an internal CI tool in production, i can't login, i get a login error"
 Expected:
-{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"Jenkins","targetResourceType":"application","requestedActionText":"login","requiresApproval":false,"confidence":"high","reason":"The user is reporting a Jenkins production login/authentication issue."}
+{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"internal CI tool","targetResourceType":"application","requestedActionText":"login","requiresApproval":false,"confidence":"high","reason":"The user is reporting an internal tool production login/authentication issue."}
 
-User: "GitLab CI deployment fails in production with permission denied"
+User: "Internal deployment tool fails in production with permission denied"
 Expected:
-{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"GitLab CI","targetResourceType":"pipeline","requestedActionText":"deployment","requiresApproval":false,"confidence":"high","reason":"The user is reporting an unsupported CI/CD deployment incident."}
+{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"Internal deployment tool","targetResourceType":"pipeline","requestedActionText":"deployment","requiresApproval":false,"confidence":"high","reason":"The user is reporting an unsupported CI/CD deployment incident."}
 
-User: "Snowflake production dashboards fail with timeout error for all finance users"
+User: "Corporate reporting dashboards fail in production with timeout error for all finance users"
 Expected:
-{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"Snowflake","targetResourceType":"data_platform","requestedActionText":"dashboard/query","requiresApproval":false,"confidence":"high","reason":"The user is reporting an unsupported data platform incident."}
+{"scope":"enterprise_support","intentType":"incident_diagnosis","requestedCapability":"unknown","targetSystemText":"Corporate reporting dashboards","targetResourceType":"data_platform","requestedActionText":"dashboard/query","requiresApproval":false,"confidence":"high","reason":"The user is reporting an unsupported data platform incident."}
 
 User: "GitHub repository sync started failing with 403 during nightly scan"
 Expected:
