@@ -189,6 +189,10 @@ export type A2AAuthMode =
   | "mock_internal_token"
   | "oauth2_client_credentials_jwt";
 
+export type OAuthClientAuthMethod =
+  | "client_secret_post"
+  | "private_key_jwt";
+
 export type A2ATokenClaims = {
   iss: string;
   sub: string;
@@ -232,6 +236,7 @@ export type A2ATaskAuthMetadata = {
   delegationDepth?: number;
   parentTaskId?: string;
   requestedByAgent?: string;
+  tokenAuthMethod?: OAuthClientAuthMethod;
 };
 
 export interface A2ATask {

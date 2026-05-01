@@ -111,6 +111,10 @@ PORT=4110
 A2A_ISSUER=http://localhost:4110
 ORCHESTRATOR_CLIENT_SECRET=dev-secret
 A2A_TOKEN_TTL_SECONDS=300
+ORCHESTRATOR_ALLOWED_AUTH_METHODS=private_key_jwt,client_secret_post
+ORCHESTRATOR_PRIVATE_KEY_JWT_ENABLED=false
+ORCHESTRATOR_PRIVATE_KEY_JWT_AUDIENCE=http://localhost:4110/oauth/token
+ORCHESTRATOR_PUBLIC_JWK_JSON=
 ```
 
 Future orchestrator identity environment:
@@ -120,6 +124,32 @@ A2A_IDP_URL=http://localhost:4110
 A2A_AUTH_MODE=mock_internal_token
 ORCHESTRATOR_CLIENT_ID=servicenow-orchestrator-agent
 ORCHESTRATOR_CLIENT_SECRET=dev-secret
+ORCHESTRATOR_TOKEN_AUTH_METHOD=client_secret_post
+ORCHESTRATOR_PRIVATE_JWK_JSON=
+```
+
+### Token client authentication
+
+The token endpoint supports two local client authentication methods:
+
+- `private_key_jwt` is the preferred enterprise-style mode. The orchestrator signs a short-lived client assertion with its private JWK, and the Mock IdP verifies it with the registered public JWK.
+- `client_secret_post` remains available as a simple local fallback.
+
+The Mock IdP access-token signing key and the orchestrator client-authentication key are separate key pairs. The Mock IdP stores only the orchestrator public JWK; the orchestrator holds the private JWK. Raw private keys, client assertions, access tokens, and client secrets must not be logged or shown in the UI.
+
+Generate local demo client-authentication keys with:
+
+```bash
+npm run generate:orchestrator-client-key
+```
+
+Copy `ORCHESTRATOR_PRIVATE_JWK_JSON` to the orchestrator environment and `ORCHESTRATOR_PUBLIC_JWK_JSON` to the Mock IdP environment. Then set:
+
+```env
+ORCHESTRATOR_TOKEN_AUTH_METHOD=private_key_jwt
+ORCHESTRATOR_PRIVATE_KEY_JWT_ENABLED=true
+ORCHESTRATOR_PRIVATE_KEY_JWT_AUDIENCE=http://localhost:4110/oauth/token
+ORCHESTRATOR_ALLOWED_AUTH_METHODS=private_key_jwt,client_secret_post
 ```
 
 Manual local checks:

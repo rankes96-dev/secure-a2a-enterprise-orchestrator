@@ -11,7 +11,8 @@
     "dev": "concurrently -n web,orchestrator,triage,jira,github,pagerduty,oauth,health,idp -c blue,green,white,magenta,cyan,yellow,red,white,gray \"npm:dev -w apps/web-ui\" \"npm:dev -w services/orchestrator-api\" \"npm:dev -w services/end-user-triage-agent\" \"npm:dev -w services/jira-agent\" \"npm:dev -w services/github-agent\" \"npm:dev -w services/pagerduty-agent\" \"npm:dev -w services/security-oauth-agent\" \"npm:dev -w services/api-health-agent\" \"npm:dev -w services/mock-identity-provider\"",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "verify:a2a-token": "tsx scripts/verify-a2a-token.ts"
+    "verify:a2a-token": "tsx scripts/verify-a2a-token.ts",
+    "generate:orchestrator-client-key": "tsx scripts/generate-orchestrator-client-key.ts"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
@@ -24,6 +25,7 @@
     "vite": "^5.2.11"
   },
   "dependencies": {
+    "jose": "^5.10.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   }

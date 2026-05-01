@@ -7,6 +7,7 @@ import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 import { StaticAgentCardRegistry } from "../../orchestrator-api/src/agentCardRegistry";
 import { buildDiscoveredA2AResourceRegistry, type DiscoveredA2AResourceRegistry } from "./agentCardScopeRegistry";
 import { getOAuthApplication, oauthApplications, sensitiveScopesNeverIssuedByMockIdp, type OAuthApplicationRegistration } from "./config/oauthApplications";
+import { authenticateOAuthClient } from "./security/clientAuthentication";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -19,6 +20,8 @@ type TokenRequest = {
   grant_type?: string;
   client_id?: string;
   client_secret?: string;
+  client_assertion_type?: string;
+  client_assertion?: string;
   audience?: string;
   scope?: string;
   delegated_by?: string;
@@ -57,49 +60,58 @@ function parseScopes(scope: string): string[] {
   return scope.split(/\s+/).map((item) => item.trim()).filter(Boolean);
 }
 
-function validateTokenRequest(body: TokenRequest): { ok: true; application: OAuthApplicationRegistration; scopes: string[] } | { ok: false; status: number; error: string } {
+type TokenValidationResult =
+  | { ok: true; application: OAuthApplicationRegistration; scopes: string[]; authMethod: "client_secret_post" | "private_key_jwt" }
+  | { ok: false; status: number; error: string; authMethod?: "client_secret_post" | "private_key_jwt" | "unknown" };
+
+async function validateTokenRequest(body: TokenRequest): Promise<TokenValidationResult> {
   if (body.grant_type !== "client_credentials") {
     return { ok: false, status: 400, error: "unsupported_grant_type" };
   }
 
-  if (!body.client_id || !body.client_secret) {
+  if (!body.client_id) {
     return { ok: false, status: 401, error: "invalid_client" };
   }
 
   const application = getOAuthApplication(body.client_id);
-  if (!application || application.clientSecret !== body.client_secret) {
+  if (!application) {
     return { ok: false, status: 401, error: "invalid_client" };
   }
 
+  const clientAuth = await authenticateOAuthClient({ body, application });
+  if (!clientAuth.ok) {
+    return clientAuth;
+  }
+
   if (!body.audience || !body.scope) {
-    return { ok: false, status: 400, error: "missing_audience_or_scope" };
+    return { ok: false, status: 400, error: "missing_audience_or_scope", authMethod: clientAuth.authMethod };
   }
 
   const delegationValidation = validateDelegationContext(body);
   if (!delegationValidation.ok) {
-    return delegationValidation;
+    return { ...delegationValidation, authMethod: clientAuth.authMethod };
   }
 
   const scopes = parseScopes(body.scope);
   if (scopes.length === 0) {
-    return { ok: false, status: 400, error: "missing_audience_or_scope" };
+    return { ok: false, status: 400, error: "missing_audience_or_scope", authMethod: clientAuth.authMethod };
   }
 
   if (!resourceRegistry.audiences.has(body.audience)) {
-    return { ok: false, status: 403, error: `audience_not_allowed: ${body.audience}` };
+    return { ok: false, status: 403, error: `audience_not_allowed: ${body.audience}`, authMethod: clientAuth.authMethod };
   }
 
   const denied = scopes.find((scope) => deniedScopes.has(scope));
   if (denied) {
-    return { ok: false, status: 403, error: `scope_denied: ${denied}` };
+    return { ok: false, status: 403, error: `scope_denied: ${denied}`, authMethod: clientAuth.authMethod };
   }
 
   const unsupported = scopes.find((scope) => !resourceRegistry.scopes.has(scope));
   if (unsupported) {
-    return { ok: false, status: 403, error: `scope_not_allowed: ${unsupported}` };
+    return { ok: false, status: 403, error: `scope_not_allowed: ${unsupported}`, authMethod: clientAuth.authMethod };
   }
 
-  return { ok: true, application, scopes };
+  return { ok: true, application, scopes, authMethod: clientAuth.authMethod };
 }
 
 function validateDelegationContext(body: TokenRequest): { ok: true } | { ok: false; status: 400; error: string } {
@@ -191,13 +203,15 @@ async function issueToken(
 
 async function handleToken(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const body = await readJsonBody<TokenRequest>(request);
-  const validation = validateTokenRequest(body);
+  const validation = await validateTokenRequest(body);
 
   if (!validation.ok) {
+    auditTokenAttempt(body, validation.authMethod ?? "unknown", "denied", validation.error);
     sendJson(response, validation.status, { error: validation.error }, request);
     return;
   }
 
+  auditTokenAttempt(body, validation.authMethod, "allowed");
   sendJson(
     response,
     200,
@@ -215,6 +229,17 @@ async function handleToken(request: IncomingMessage, response: ServerResponse): 
       validation.application.tokenTtlSeconds ?? Number(process.env.A2A_TOKEN_TTL_SECONDS ?? 300)
     ),
     request
+  );
+}
+
+function auditTokenAttempt(
+  body: TokenRequest,
+  authMethod: "client_secret_post" | "private_key_jwt" | "unknown",
+  result: "allowed" | "denied",
+  denialReason?: string
+): void {
+  console.log(
+    `[mock-idp] token_request timestamp=${new Date().toISOString()} client_id=${body.client_id ?? "unknown"} audience=${body.audience ?? "unknown"} scope=${body.scope ?? "unknown"} authMethod=${authMethod} result=${result}${denialReason ? ` reason=${denialReason}` : ""} delegated_by=${body.delegated_by ?? "none"} delegation_depth=${body.delegation_depth ?? 0}`
   );
 }
 
@@ -244,7 +269,15 @@ async function start(): Promise<void> {
             displayName: application.displayName,
             ownerAgentId: application.ownerAgentId,
             scopePolicy: application.scopePolicy,
-            tokenTtlSeconds: application.tokenTtlSeconds ?? Number(process.env.A2A_TOKEN_TTL_SECONDS ?? 300)
+            tokenTtlSeconds: application.tokenTtlSeconds ?? Number(process.env.A2A_TOKEN_TTL_SECONDS ?? 300),
+            allowedAuthMethods: application.allowedAuthMethods,
+            privateKeyJwt: application.privateKeyJwt
+              ? {
+                  enabled: application.privateKeyJwt.enabled,
+                  expectedAudience: application.privateKeyJwt.expectedAudience,
+                  hasPublicJwk: Boolean(application.privateKeyJwt.publicJwkJson)
+                }
+              : undefined
           })),
           discoveredResources: {
             audiences: [...resourceRegistry.audiences].sort(),
