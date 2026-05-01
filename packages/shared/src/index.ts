@@ -142,6 +142,10 @@ export interface SelectedAgent {
   role: AgentRole;
   skillId?: string;
   reason: string;
+  matchedCapability?: string;
+  matchScore?: number;
+  owner?: string;
+  targetSystemText?: string;
 }
 
 export interface SkippedAgent {

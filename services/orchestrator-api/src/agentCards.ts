@@ -12,7 +12,27 @@ export type AgentCardSkill = {
   requiredPermission?: string;
   riskLevel?: "low" | "medium" | "high" | "sensitive";
   supportingCapabilities?: string[];
+  priority?: number;
+  owner?: string;
+  scope?: {
+    systems?: string[];
+    environments?: string[];
+    resourceTypes?: string[];
+  };
   sensitive?: boolean;
+};
+
+export type CapabilityMatchContext = {
+  targetSystemText?: string;
+  targetResourceType?: string;
+  environment?: string;
+};
+
+export type CapabilityMatch = {
+  agent: AgentCard;
+  skill: AgentCardSkill;
+  score: number;
+  reason: string;
 };
 
 export type AgentCard = {
@@ -70,6 +90,9 @@ const staticAgentCards: AgentCard[] = [
         description: "Diagnose user-facing Jira permission problems.",
         capabilities: ["jira.permission.diagnose"],
         supportingCapabilities: ["oauth.scope.compare"],
+        priority: 80,
+        owner: "Jira Support Team",
+        scope: { systems: ["jira"], resourceTypes: ["project", "issue"] },
         riskLevel: "medium",
         examples: ["I don't have permission to create a Jira ticket", "Jira says I cannot create a ticket in FIN"]
       },
@@ -79,6 +102,9 @@ const staticAgentCards: AgentCard[] = [
         description: "Diagnose Jira issue creation API or sync failures.",
         capabilities: ["jira.issue_creation.diagnose"],
         supportingCapabilities: ["oauth.scope.compare"],
+        priority: 90,
+        owner: "Jira Integration Team",
+        scope: { systems: ["jira"], resourceTypes: ["issue"] },
         riskLevel: "medium",
         examples: ["Jira API returns 403 when creating issues"]
       },
@@ -99,6 +125,9 @@ const staticAgentCards: AgentCard[] = [
         name: "Diagnose repository scan failure",
         description: "Diagnose repository sync or scan failures.",
         capabilities: ["github.repository_scan.diagnose"],
+        priority: 90,
+        owner: "GitHub Integration Team",
+        scope: { systems: ["github"], resourceTypes: ["repository"] },
         riskLevel: "medium"
       },
       { id: "github.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose GitHub API rate limit exhaustion.", capabilities: ["github.rate_limit.diagnose"] }
@@ -119,6 +148,9 @@ const staticAgentCards: AgentCard[] = [
         capabilities: ["incident.alert_ingestion.diagnose"],
         requestedAction: "pagerduty.alert_ingestion.diagnose",
         requiredPermission: "pagerduty.diagnose",
+        priority: 90,
+        owner: "Incident Operations Team",
+        scope: { systems: ["pagerduty"], resourceTypes: ["alert", "incident"] },
         riskLevel: "low"
       },
       { id: "pagerduty.diagnose_event_rate_limit", name: "Diagnose event rate limit", description: "Diagnose event ingestion rate limiting." }
@@ -139,6 +171,9 @@ const staticAgentCards: AgentCard[] = [
         capabilities: ["oauth.scope.compare", "oauth.client_auth.diagnose", "integration.auth.diagnose"],
         requestedAction: "oauth.scope.compare",
         requiredPermission: "security.scope.compare",
+        priority: 60,
+        owner: "Security Platform Team",
+        scope: { resourceTypes: ["oauth_client", "scope", "token"] },
         riskLevel: "medium",
         requiredScopes: ["security.scope.compare"]
       },
@@ -149,6 +184,9 @@ const staticAgentCards: AgentCard[] = [
         capabilities: ["oauth.token.inspect", "security.token.inspect"],
         requestedAction: "security.token.inspect",
         requiredPermission: "security.token.inspect",
+        priority: 90,
+        owner: "Security Platform Team",
+        scope: { resourceTypes: ["token", "credential"] },
         riskLevel: "sensitive",
         requiredScopes: ["security.token.inspect"],
         sensitive: true
@@ -160,6 +198,9 @@ const staticAgentCards: AgentCard[] = [
         capabilities: ["identity.permission.change"],
         requestedAction: "access.permission.grant",
         requiredPermission: "access.permission.grant",
+        priority: 50,
+        owner: "Security Platform Team",
+        scope: { resourceTypes: ["role", "permission"] },
         riskLevel: "medium"
       }
     ]
@@ -172,7 +213,7 @@ const staticAgentCards: AgentCard[] = [
     endpoint: process.env.API_HEALTH_AGENT_URL ?? "http://localhost:4105/task",
     auth: { type: "mock_internal_token", audience: "api-health-agent" },
     skills: [
-      { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"], requestedAction: "api.health.read", requiredPermission: "apihealth.read", riskLevel: "low" },
+      { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"], requestedAction: "api.health.read", requiredPermission: "apihealth.read", priority: 70, owner: "API Reliability Team", scope: { resourceTypes: ["api", "rate_limit"] }, riskLevel: "low" },
       {
         id: "api_health.diagnose_connectivity_failure",
         name: "Diagnose connectivity failure",
@@ -180,6 +221,9 @@ const staticAgentCards: AgentCard[] = [
         capabilities: ["api.connectivity.diagnose", "api.health.diagnose"],
         requestedAction: "api.health.read",
         requiredPermission: "apihealth.read",
+        priority: 70,
+        owner: "API Reliability Team",
+        scope: { resourceTypes: ["api"] },
         riskLevel: "low"
       },
       {
@@ -302,8 +346,43 @@ export function findAgentSkillByCapability(capability: string): { agent: AgentCa
   return findAgentSkillsByCapability(capability)[0];
 }
 
-export function findAgentSkillsByCapability(capability: string): Array<{ agent: AgentCard; skill: AgentCardSkill }> {
-  return getExecutableAgentCards().flatMap((agent) => agent.skills.map((skill) => ({ agent, skill }))).filter(({ skill }) =>
-    skill.capabilities?.includes(capability) || skill.aliases?.includes(capability) || skill.id === capability
-  );
+function scopeContains(scopeValues: string[] | undefined, value: string | undefined): boolean {
+  const normalized = value?.toLowerCase().trim();
+
+  return Boolean(normalized && scopeValues?.some((scopeValue) => normalized.includes(scopeValue.toLowerCase()) || scopeValue.toLowerCase().includes(normalized)));
+}
+
+export function findAgentSkillsByCapability(capability: string, context: CapabilityMatchContext = {}): CapabilityMatch[] {
+  // Target system is context. Capability is routing. Policy is authorization.
+  // `systems[]` on an Agent Card remains descriptive; skill capability equality is the required route key.
+  return getExecutableAgentCards()
+    .flatMap((agent) => agent.skills.map((skill) => ({ agent, skill })))
+    .filter(({ skill }) => skill.capabilities?.includes(capability))
+    .map(({ agent, skill }) => {
+      const reasons = [`exact capability ${capability}`];
+      let score = 100 + (skill.priority ?? 0);
+
+      if (scopeContains(skill.scope?.systems, context.targetSystemText)) {
+        score += 20;
+        reasons.push(`target system matched skill scope (${context.targetSystemText})`);
+      }
+
+      if (scopeContains(skill.scope?.resourceTypes, context.targetResourceType)) {
+        score += 10;
+        reasons.push(`resource type matched skill scope (${context.targetResourceType})`);
+      }
+
+      if (scopeContains(skill.scope?.environments, context.environment)) {
+        score += 5;
+        reasons.push(`environment matched skill scope (${context.environment})`);
+      }
+
+      return {
+        agent,
+        skill,
+        score,
+        reason: reasons.join("; ")
+      };
+    })
+    .sort((left, right) => right.score - left.score || left.agent.agentId.localeCompare(right.agent.agentId));
 }

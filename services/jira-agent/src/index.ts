@@ -21,6 +21,9 @@ const agentCard = {
       description: "Diagnose user-facing Jira permission problems.",
       capabilities: ["jira.permission.diagnose"],
       supportingCapabilities: ["oauth.scope.compare"],
+      priority: 80,
+      owner: "Jira Support Team",
+      scope: { systems: ["jira"], resourceTypes: ["project", "issue"] },
       riskLevel: "medium",
       examples: ["I don't have permission to create a Jira ticket", "Jira says I cannot create a ticket in FIN"]
     },
@@ -30,6 +33,9 @@ const agentCard = {
       description: "Diagnose Jira issue creation API or sync failures.",
       capabilities: ["jira.issue_creation.diagnose"],
       supportingCapabilities: ["oauth.scope.compare"],
+      priority: 90,
+      owner: "Jira Integration Team",
+      scope: { systems: ["jira"], resourceTypes: ["issue"] },
       riskLevel: "medium",
       examples: ["Jira API returns 403 when creating issues"]
     },

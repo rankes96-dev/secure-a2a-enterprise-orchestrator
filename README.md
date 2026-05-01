@@ -204,6 +204,8 @@ This project simulates a ServiceNow-style AI Orchestrator Agent coordinating wit
 - External enterprise agents own system-specific mock knowledge and tools. They advertise that ownership through Agent Card skill capabilities and policy metadata such as `requestedAction`, `requiredPermission`, `riskLevel`, and `supportingCapabilities`.
 - Each external agent owns and serves its Agent Card from `/agent-card`. The orchestrator discovers Agent Cards from those endpoints at startup and uses the local static cards only as a fallback if discovery fails.
 - Primary routing is capability-based: `RequestInterpreter` extracts `requestedCapability`, the orchestrator matches that capability to Agent Card skills, and supporting agents are selected through skill metadata such as `supportingCapabilities`.
+- `systems[]` describes where an agent may be relevant for UI, discovery, scoring, and explainability, but routing is based on skill capabilities, not system names. `targetSystemText` is free-text context; `requestedCapability` is the stable routing key; policy remains the authorization layer.
+- Capability matching can score optional skill scope metadata (`scope.systems`, `scope.resourceTypes`, `scope.environments`) and `priority`, but it does not reject a capability match just because the target system text is unknown or absent from `systems[]`.
 - A2A task envelopes include `taskId`, `conversationId`, `fromAgent`, `toAgent`, `mediatedBy` for delegated tasks, `skillId`, support context, target audience, requested scope, and `authMode: "mock_internal_token"`.
 - Security decisions remain deterministic and policy-based: `Allowed`, `Blocked`, `NeedsApproval`, or `NeedsMoreContext`. Policy data lives in `services/orchestrator-api/src/security/policies/`, while `policyEngine.ts` only evaluates configured action, permission, and delegation maps.
 - The Sensitive Action Guard deterministically blocks attempts to reveal tokens, Authorization headers, API keys, client secrets, passwords, private keys, session cookies, credentials, or raw secrets before any agent is invoked.
@@ -212,5 +214,12 @@ This project simulates a ServiceNow-style AI Orchestrator Agent coordinating wit
 - Manual enterprise workflows are interpreted generically from the user’s natural language. The interpreter derives a requested capability such as `identity.group_membership.manage`, the orchestrator checks Agent Card skill capabilities, and the response returns manual ServiceNow workflow guidance when no matching agent exists.
 - Future OAuth/OIDC direction: target system agents should return required scopes and permissions as part of their A2A responses; `security-oauth-agent` should compare those requirements against token, user, and app scopes instead of hardcoding every system operation.
 - Hardcoded connector routing is intentionally avoided. The remaining deterministic fallback handles generic safety cases only: out-of-scope requests, manual access/provisioning requests without a matching capability, vague enterprise issues, and sensitive token/secret reveal attempts.
+
+Routing examples:
+
+- `Give me access to Salesforce` maps to `identity.access.grant`. Because no identity/access agent exists in the demo, the orchestrator returns unsupported/manual ServiceNow request guidance.
+- If a future identity-access-agent advertises `identity.access.grant`, the orchestrator can route to it even if its descriptive `systems[]` does not explicitly list Salesforce, unless future scope metadata explicitly excludes that request.
+- `GitHub repository sync started failing with 403 during nightly scan` maps to `github.repository_scan.diagnose`, so `github-agent` is primary even though API Health also lists GitHub descriptively.
+- `Show me the GitHub bearer token` maps to `security.token.inspect`; the Sensitive Action Guard blocks it by policy before any GitHub diagnostic agent can run.
 
 The orchestrator does not need to know every Jira/GitHub/PagerDuty issue. It selects the external agent that owns the system and summarizes that agent's diagnosis. Everything remains local and mock-based for now; no real enterprise APIs or OAuth flows are called.

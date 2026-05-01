@@ -21,6 +21,9 @@ const agentCard = {
       name: "Diagnose repository scan failure",
       description: "Diagnose repository sync or scan failures.",
       capabilities: ["github.repository_scan.diagnose"],
+      priority: 90,
+      owner: "GitHub Integration Team",
+      scope: { systems: ["github"], resourceTypes: ["repository"] },
       riskLevel: "medium"
     },
     { id: "github.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose GitHub API rate limit exhaustion.", capabilities: ["github.rate_limit.diagnose"] }

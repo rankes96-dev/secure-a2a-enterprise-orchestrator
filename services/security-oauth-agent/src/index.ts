@@ -22,6 +22,9 @@ const agentCard = {
       capabilities: ["oauth.scope.compare", "oauth.client_auth.diagnose", "integration.auth.diagnose"],
       requestedAction: "oauth.scope.compare",
       requiredPermission: "security.scope.compare",
+      priority: 60,
+      owner: "Security Platform Team",
+      scope: { resourceTypes: ["oauth_client", "scope", "token"] },
       riskLevel: "medium",
       requiredScopes: ["security.scope.compare"]
     },
@@ -32,6 +35,9 @@ const agentCard = {
       capabilities: ["oauth.token.inspect", "security.token.inspect"],
       requestedAction: "security.token.inspect",
       requiredPermission: "security.token.inspect",
+      priority: 90,
+      owner: "Security Platform Team",
+      scope: { resourceTypes: ["token", "credential"] },
       riskLevel: "sensitive",
       requiredScopes: ["security.token.inspect"],
       sensitive: true
@@ -43,6 +49,9 @@ const agentCard = {
       capabilities: ["identity.permission.change"],
       requestedAction: "access.permission.grant",
       requiredPermission: "access.permission.grant",
+      priority: 50,
+      owner: "Security Platform Team",
+      scope: { resourceTypes: ["role", "permission"] },
       riskLevel: "medium"
     }
   ]

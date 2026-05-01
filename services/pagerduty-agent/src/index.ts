@@ -20,6 +20,9 @@ const agentCard = {
       capabilities: ["incident.alert_ingestion.diagnose"],
       requestedAction: "pagerduty.alert_ingestion.diagnose",
       requiredPermission: "pagerduty.diagnose",
+      priority: 90,
+      owner: "Incident Operations Team",
+      scope: { systems: ["pagerduty"], resourceTypes: ["alert", "incident"] },
       riskLevel: "low"
     },
     { id: "pagerduty.diagnose_event_rate_limit", name: "Diagnose event rate limit", description: "Diagnose event ingestion rate limiting." }

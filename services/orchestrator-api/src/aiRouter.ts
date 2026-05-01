@@ -13,7 +13,7 @@ import type {
   SelectedAgent,
   SkippedAgent
 } from "@a2a/shared";
-import { findAgentSkillsByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard } from "./agentCards";
+import { findAgentSkillsByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard, type CapabilityMatch } from "./agentCards";
 import { getAiConfig } from "./config/aiConfig";
 import { interpretRequest } from "./requestInterpreter";
 
@@ -159,68 +159,147 @@ function classifyFromInterpretation(message: string, interpretation: RequestInte
   };
 }
 
-function select(agentId: AgentName, role: "primary" | "supporting", skillId: string, reason: string): SelectedAgent {
-  return { agentId, role, skillId, reason };
+type CapabilityRouteCandidate = {
+  agentId: string;
+  skillId: string;
+  score: number;
+  reason: string;
+};
+
+type CapabilityRouteSelection = {
+  selectedAgents: SelectedAgent[];
+  ambiguous?: boolean;
+  candidates?: CapabilityRouteCandidate[];
+};
+
+function select(
+  agentId: AgentName,
+  role: "primary" | "supporting",
+  skillId: string,
+  reason: string,
+  metadata?: {
+    matchedCapability?: string;
+    matchScore?: number;
+    owner?: string;
+    targetSystemText?: string;
+  }
+): SelectedAgent {
+  return { agentId, role, skillId, reason, ...metadata };
 }
 
-function chooseCapabilityMatch(interpretation: RequestInterpretation): ReturnType<typeof findAgentSkillsByCapability>[number] | undefined {
+function isHighRiskSelection(match: CapabilityMatch, interpretation: RequestInterpretation): boolean {
+  return (
+    interpretation.scope === "manual_enterprise_workflow" ||
+    interpretation.intentType === "access_request" ||
+    interpretation.intentType === "permission_change" ||
+    interpretation.intentType === "user_provisioning" ||
+    match.skill.riskLevel === "high" ||
+    match.skill.riskLevel === "sensitive"
+  );
+}
+
+function canRunAmbiguousCandidatesTogether(matches: CapabilityMatch[], interpretation: RequestInterpretation): boolean {
+  return matches.every((match) => !isHighRiskSelection(match, interpretation));
+}
+
+function candidateSummary(match: CapabilityMatch): CapabilityRouteCandidate {
+  return {
+    agentId: match.agent.agentId,
+    skillId: match.skill.id,
+    score: match.score,
+    reason: match.reason
+  };
+}
+
+function chooseCapabilityMatches(interpretation: RequestInterpretation): CapabilityRouteSelection {
   const capability = interpretation.requestedCapability;
 
   if (!capability || capability === "unknown") {
-    return undefined;
+    return { selectedAgents: [] };
   }
 
-  const matches = findAgentSkillsByCapability(capability);
+  const matches = findAgentSkillsByCapability(capability, {
+    targetSystemText: interpretation.targetSystemText,
+    targetResourceType: interpretation.targetResourceType
+  });
   const filtered = matches.filter(({ skill }) =>
     interpretation.intentType === "security_sensitive_action" || (!skill.sensitive && skill.riskLevel !== "sensitive")
   );
   const candidates = filtered.length > 0 ? filtered : matches;
 
-  return candidates.sort((left, right) => {
-    const leftExact = left.skill.capabilities?.includes(capability) ? 0 : 1;
-    const rightExact = right.skill.capabilities?.includes(capability) ? 0 : 1;
-    const leftTriage = left.agent.agentId === "end-user-triage-agent" ? 1 : 0;
-    const rightTriage = right.agent.agentId === "end-user-triage-agent" ? 1 : 0;
-    return leftExact - rightExact || leftTriage - rightTriage;
-  })[0];
+  if (candidates.length === 0) {
+    return { selectedAgents: [] };
+  }
+
+  const bestScore = candidates[0].score;
+  const bestMatches = candidates.filter((candidate) => candidate.score === bestScore);
+  const candidateMetadata = candidates.map(candidateSummary);
+
+  if (bestMatches.length > 1 && !canRunAmbiguousCandidatesTogether(bestMatches, interpretation)) {
+    return {
+      selectedAgents: [],
+      ambiguous: true,
+      candidates: candidateMetadata
+    };
+  }
+
+  const selectedAgents = bestMatches.map((match, index) =>
+    select(
+      match.agent.agentId,
+      index === 0 ? "primary" : "supporting",
+      match.skill.id,
+      `Matched requested capability ${interpretation.requestedCapability} to Agent Card skill ${match.skill.id}. ${match.reason}.`,
+      {
+        matchedCapability: interpretation.requestedCapability,
+        matchScore: match.score,
+        owner: match.skill.owner,
+        targetSystemText: interpretation.targetSystemText
+      }
+    )
+  );
+  const selectedKeys = new Set(selectedAgents.map((agent) => `${agent.agentId}:${agent.skillId}`));
+
+  for (const primary of bestMatches) {
+    for (const capability of primary.skill.supportingCapabilities ?? []) {
+      const supporting = findAgentSkillsByCapability(capability, {
+        targetSystemText: interpretation.targetSystemText,
+        targetResourceType: interpretation.targetResourceType
+      }).find(({ agent, skill }) => !selectedKeys.has(`${agent.agentId}:${skill.id}`));
+
+      if (!supporting) {
+        continue;
+      }
+
+      selectedAgents.push(
+        select(
+          supporting.agent.agentId,
+          "supporting",
+          supporting.skill.id,
+          `Matched supporting capability ${capability} from primary skill ${primary.skill.id}. ${supporting.reason}.`,
+          {
+            matchedCapability: capability,
+            matchScore: supporting.score,
+            owner: supporting.skill.owner,
+            targetSystemText: interpretation.targetSystemText
+          }
+        )
+      );
+      selectedKeys.add(`${supporting.agent.agentId}:${supporting.skill.id}`);
+    }
+  }
+
+  return {
+    selectedAgents,
+    candidates: candidateMetadata
+  };
+}
+
+export function selectBestCapabilityRoute(interpretation: RequestInterpretation): CapabilityRouteSelection {
+  return chooseCapabilityMatches(interpretation);
 }
 
 export function routeByCapability(interpretation: RequestInterpretation): SelectedAgent[] {
-  const primary = chooseCapabilityMatch(interpretation);
-
-  if (!primary) {
-    return [];
-  }
-
-  const selectedAgents: SelectedAgent[] = [
-    select(
-      primary.agent.agentId,
-      "primary",
-      primary.skill.id,
-      `Matched requested capability ${interpretation.requestedCapability} to Agent Card skill ${primary.skill.id}.`
-    )
-  ];
-  const selectedKeys = new Set(selectedAgents.map((agent) => `${agent.agentId}:${agent.skillId}`));
-
-  for (const capability of primary.skill.supportingCapabilities ?? []) {
-    const supporting = findAgentSkillsByCapability(capability).find(({ agent, skill }) => !selectedKeys.has(`${agent.agentId}:${skill.id}`));
-
-    if (!supporting) {
-      continue;
-    }
-
-    selectedAgents.push(
-      select(
-        supporting.agent.agentId,
-        "supporting",
-        supporting.skill.id,
-        `Matched supporting capability ${capability} from primary skill ${primary.skill.id}.`
-      )
-    );
-    selectedKeys.add(`${supporting.agent.agentId}:${supporting.skill.id}`);
-  }
-
-  return selectedAgents;
+  return selectBestCapabilityRoute(interpretation).selectedAgents;
 }
 
 export function routeWithRules(
@@ -278,7 +357,21 @@ export function routeWithRules(
     };
   }
 
-  const selectedAgents = routeByCapability(interpretation);
+  const capabilityRoute = selectBestCapabilityRoute(interpretation);
+  const selectedAgents = capabilityRoute.selectedAgents;
+
+  if (capabilityRoute.ambiguous) {
+    return {
+      classification,
+      selectedAgents: [],
+      skippedAgents: completeSkippedAgents([]),
+      routingSource: "rules_fallback",
+      routingConfidence: "medium",
+      routingReasoningSummary: "Multiple agents can handle this capability. Please choose the target system or owner.",
+      resolutionStatus: "needs_more_info",
+      requestInterpretation: interpretation
+    };
+  }
 
   if (interpretation.scope === "manual_enterprise_workflow" && selectedAgents.length === 0) {
     return {

@@ -557,6 +557,14 @@ function App() {
                     <li key={agent.agentId}>
                       <strong>{agent.agentId}</strong>
                       <span>{agent.role}{agent.skillId ? ` / ${agent.skillId}` : ""}</span>
+                      {agent.matchedCapability || typeof agent.matchScore === "number" || agent.owner || agent.targetSystemText ? (
+                        <span>
+                          {agent.matchedCapability ? `capability=${agent.matchedCapability} ` : ""}
+                          {typeof agent.matchScore === "number" ? `score=${agent.matchScore} ` : ""}
+                          {agent.owner ? `owner=${agent.owner} ` : ""}
+                          {agent.targetSystemText ? `target=${agent.targetSystemText}` : ""}
+                        </span>
+                      ) : null}
                       <p>{agent.reason}</p>
                     </li>
                   ))}
