@@ -95,6 +95,15 @@ The local services run on:
 
 Phase 1 of Secure A2A Identity adds a local mock OAuth2 Client Credentials issuer, but the orchestrator still sends existing A2A tasks with `authMode: "mock_internal_token"` for now. Agents do not validate JWTs yet.
 
+The mock OAuth application no longer hardcodes every agent audience or scope. The ServiceNow Orchestrator Agent is registered once as an OAuth client, and the Mock Identity Provider discovers allowed A2A audiences and non-sensitive scopes from the Agent Card Registry:
+
+- `auth.audience` becomes an allowed JWT audience.
+- `skills[].requiredScopes` become issuable scopes.
+- If a skill has no `requiredScopes`, `requiredPermission` is used as the scope.
+- Sensitive scopes remain globally denied even if an Agent Card accidentally exposes them.
+
+Adding a new local agent should only require adding or persisting an Agent Card with `auth.audience` and skill scope metadata. The future Agent Builder UI will write Agent Cards into this registry. In a real deployment, this maps to OAuth client registration plus dynamic client, resource, and agent registry management.
+
 Mock identity provider environment:
 
 ```env
@@ -118,6 +127,7 @@ Manual local checks:
 ```bash
 curl http://localhost:4110/health
 curl http://localhost:4110/.well-known/jwks.json
+curl http://localhost:4110/debug/oauth-applications
 
 curl -X POST http://localhost:4110/oauth/token \
   -H "content-type: application/json" \
@@ -147,6 +157,11 @@ curl -X POST http://localhost:4110/oauth/token \
 ```
 
 Expected result: `403`, with no token issued.
+
+Unknown audience and unknown scope checks should also fail:
+
+- `audience=unknown-agent` returns `403 audience_not_allowed`.
+- `scope=jira.admin` returns `403 scope_not_allowed`.
 
 ## Try it
 

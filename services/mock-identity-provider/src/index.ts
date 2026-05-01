@@ -4,36 +4,16 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { exportJWK, generateKeyPair, calculateJwkThumbprint, SignJWT, type JWK, type KeyLike } from "jose";
 import type { A2ATokenClaims, A2ATokenResponse } from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
+import { StaticAgentCardRegistry } from "../../orchestrator-api/src/agentCardRegistry";
+import { buildDiscoveredA2AResourceRegistry, type DiscoveredA2AResourceRegistry } from "./agentCardScopeRegistry";
+import { getOAuthApplication, oauthApplications, sensitiveScopesNeverIssuedByMockIdp, type OAuthApplicationRegistration } from "./config/oauthApplications";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? 4110);
 const issuer = process.env.A2A_ISSUER ?? "http://localhost:4110";
-const tokenTtlSeconds = Number(process.env.A2A_TOKEN_TTL_SECONDS ?? 300);
-
-const deniedScopes = new Set([
-  "security.token.inspect",
-  "security.secret.reveal",
-  "access.permission.grant"
-]);
-
-const clients = new Map([
-  [
-    "servicenow-orchestrator-agent",
-    {
-      clientSecret: process.env.ORCHESTRATOR_CLIENT_SECRET ?? "dev-secret",
-      allowedScopes: new Set([
-        "enterprise.triage",
-        "jira.diagnose",
-        "github.diagnose",
-        "github.rate_limit.read",
-        "pagerduty.diagnose",
-        "security.scope.compare",
-        "apihealth.read"
-      ])
-    }
-  ]
-]);
+const deniedScopes = new Set<string>(sensitiveScopesNeverIssuedByMockIdp);
+const agentCardRegistry = new StaticAgentCardRegistry();
 
 type TokenRequest = {
   grant_type?: string;
@@ -50,6 +30,7 @@ type SigningKey = {
 };
 
 let signingKey: SigningKey;
+let resourceRegistry: DiscoveredA2AResourceRegistry;
 
 async function createSigningKey(): Promise<SigningKey> {
   // This is a local demo key. Production would use persisted signing keys and rotation.
@@ -72,7 +53,7 @@ function parseScopes(scope: string): string[] {
   return scope.split(/\s+/).map((item) => item.trim()).filter(Boolean);
 }
 
-function validateTokenRequest(body: TokenRequest): { ok: true; scopes: string[] } | { ok: false; status: number; error: string } {
+function validateTokenRequest(body: TokenRequest): { ok: true; application: OAuthApplicationRegistration; scopes: string[] } | { ok: false; status: number; error: string } {
   if (body.grant_type !== "client_credentials") {
     return { ok: false, status: 400, error: "unsupported_grant_type" };
   }
@@ -81,8 +62,8 @@ function validateTokenRequest(body: TokenRequest): { ok: true; scopes: string[] 
     return { ok: false, status: 401, error: "invalid_client" };
   }
 
-  const client = clients.get(body.client_id);
-  if (!client || client.clientSecret !== body.client_secret) {
+  const application = getOAuthApplication(body.client_id);
+  if (!application || application.clientSecret !== body.client_secret) {
     return { ok: false, status: 401, error: "invalid_client" };
   }
 
@@ -95,20 +76,28 @@ function validateTokenRequest(body: TokenRequest): { ok: true; scopes: string[] 
     return { ok: false, status: 400, error: "missing_audience_or_scope" };
   }
 
+  if (!resourceRegistry.audiences.has(body.audience)) {
+    return { ok: false, status: 403, error: `audience_not_allowed: ${body.audience}` };
+  }
+
   const denied = scopes.find((scope) => deniedScopes.has(scope));
   if (denied) {
     return { ok: false, status: 403, error: `scope_denied: ${denied}` };
   }
 
-  const unsupported = scopes.find((scope) => !client.allowedScopes.has(scope));
+  const unsupported = scopes.find((scope) => !resourceRegistry.scopes.has(scope));
   if (unsupported) {
     return { ok: false, status: 403, error: `scope_not_allowed: ${unsupported}` };
   }
 
-  return { ok: true, scopes };
+  return { ok: true, application, scopes };
 }
 
-async function issueToken(body: Required<Pick<TokenRequest, "client_id" | "audience" | "scope">>, scopes: string[]): Promise<A2ATokenResponse> {
+async function issueToken(
+  body: Required<Pick<TokenRequest, "client_id" | "audience" | "scope">>,
+  scopes: string[],
+  tokenTtlSeconds: number
+): Promise<A2ATokenResponse> {
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + tokenTtlSeconds;
   const claims: A2ATokenClaims = {
@@ -159,7 +148,8 @@ async function handleToken(request: IncomingMessage, response: ServerResponse): 
         audience: body.audience as string,
         scope: body.scope as string
       },
-      validation.scopes
+      validation.scopes,
+      validation.application.tokenTtlSeconds ?? Number(process.env.A2A_TOKEN_TTL_SECONDS ?? 300)
     ),
     request
   );
@@ -167,6 +157,7 @@ async function handleToken(request: IncomingMessage, response: ServerResponse): 
 
 async function start(): Promise<void> {
   signingKey = await createSigningKey();
+  resourceRegistry = await buildDiscoveredA2AResourceRegistry(agentCardRegistry);
 
   startJsonServer(port, async (request, response) => {
     if (request.method === "GET" && request.url === "/health") {
@@ -176,6 +167,35 @@ async function start(): Promise<void> {
 
     if (request.method === "GET" && request.url === "/.well-known/jwks.json") {
       sendJson(response, 200, { keys: [signingKey.publicJwk] }, request);
+      return;
+    }
+
+    if (request.method === "GET" && request.url === "/debug/oauth-applications") {
+      sendJson(
+        response,
+        200,
+        {
+          issuer,
+          applications: oauthApplications.map((application) => ({
+            clientId: application.clientId,
+            displayName: application.displayName,
+            ownerAgentId: application.ownerAgentId,
+            scopePolicy: application.scopePolicy,
+            tokenTtlSeconds: application.tokenTtlSeconds ?? Number(process.env.A2A_TOKEN_TTL_SECONDS ?? 300)
+          })),
+          discoveredResources: {
+            audiences: [...resourceRegistry.audiences].sort(),
+            scopes: [...resourceRegistry.scopes].sort(),
+            scopeToAgents: Object.fromEntries(
+              [...resourceRegistry.scopeToAgents.entries()]
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([scope, agents]) => [scope, [...new Set(agents)].sort()])
+            ),
+            sensitiveScopesNeverIssued: [...sensitiveScopesNeverIssuedByMockIdp]
+          }
+        },
+        request
+      );
       return;
     }
 
