@@ -1,0 +1,16 @@
+[
+  {
+    "integration": "repo-security-scan",
+    "operation": "repository_scan",
+    "status": 403,
+    "headers": {
+      "x-ratelimit-remaining": "0",
+      "x-ratelimit-reset": "2026-04-30T23:00:00Z"
+    },
+    "token": {
+      "type": "fine_grained_pat",
+      "permissions": ["metadata:read", "contents:read"],
+      "samlSsoAuthorized": true
+    }
+  }
+]

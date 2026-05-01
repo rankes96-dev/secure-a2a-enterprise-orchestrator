@@ -1,0 +1,103 @@
+import dotenv from "dotenv";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import type { A2AAgentResponse, A2ATask, AgentTask, OAuthTokenRecord } from "@a2a/shared";
+import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } from "@a2a/shared/src/http";
+
+dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
+
+const port = Number(process.env.PORT ?? 4104);
+
+async function loadTokens(): Promise<OAuthTokenRecord[]> {
+  const filePath = path.resolve(process.cwd(), "../../mock-data/oauth-tokens.json");
+  return JSON.parse(await readFile(filePath, "utf8")) as OAuthTokenRecord[];
+}
+
+function requiredScopesFor(task: AgentTask): string[] {
+  if (task.classification.system === "Jira" && task.classification.operation === "create_issue") {
+    return ["read:jira-work", "write:jira-work"];
+  }
+
+  return [];
+}
+
+startJsonServer(port, async (request, response) => {
+  if (request.method !== "POST" || request.url !== "/task") {
+    sendJson(response, 404, { error: "Not found" });
+    return;
+  }
+
+  if (!requireInternalServiceToken(request, response)) {
+    return;
+  }
+
+  const task = await readJsonBody<A2ATask | AgentTask>(request);
+  const legacyTask: AgentTask = {
+    message: "userMessage" in task ? task.userMessage : task.message,
+    classification: task.classification
+  };
+  const tokens = await loadTokens();
+  const token = tokens.find((item) => item.system === task.classification.system);
+  const currentScopes = token?.currentScopes ?? [];
+  const requiredScopes = requiredScopesFor(legacyTask);
+  const missingScopes = requiredScopes.filter((scope) => !currentScopes.includes(scope));
+  const isGitHubRateLimit = task.classification.system === "GitHub" && task.classification.issueType === "RATE_LIMIT";
+
+  if (isGitHubRateLimit) {
+    const result: A2AAgentResponse = {
+      agentId: "security-oauth-agent",
+      status: "diagnosed",
+      summary: "Security Agent did not find token posture as the primary GitHub failure signal.",
+      probableCause: "Rate-limit evidence is more relevant than OAuth scope posture for this GitHub scan failure.",
+      recommendedActions: ["Use GitHub Agent and API Health Agent rate-limit recommendations."],
+      evidence: [
+        {
+          title: "GitHub token authorization posture",
+          data: {
+            finding: "Token permissions and SAML SSO are not the failing signal; rate-limit headers indicate exhaustion.",
+            checkedSignals: ["token_type", "permissions", "saml_sso_authorization"]
+          }
+        }
+      ],
+      trace: [
+        {
+          agent: "security-oauth-agent",
+          action: "review_github_token_posture",
+          detail: "Reviewed token context after GitHub rate-limit evidence was found",
+          timestamp: new Date().toISOString()
+        }
+      ]
+    };
+
+    sendJson(response, 200, result);
+    return;
+  }
+
+  const result: A2AAgentResponse = {
+    agentId: "security-oauth-agent",
+    status: "diagnosed",
+    summary: missingScopes.length > 0 ? `Security Agent found missing OAuth scopes: ${missingScopes.join(", ")}.` : "Security Agent found no missing OAuth scopes in mock token data.",
+    probableCause: missingScopes.length > 0 ? `Missing OAuth scope ${missingScopes.join(", ")}.` : undefined,
+    recommendedActions: missingScopes.length > 0 ? ["Add the missing scope and reauthorize the integration app."] : ["Continue with the system specialist diagnosis."],
+    evidence: [
+      {
+        title: "OAuth token scope comparison",
+        data: {
+          app: token?.app ?? "unknown",
+          currentScopes,
+          missingScopes
+        }
+      }
+    ],
+    trace: [
+      {
+        agent: "security-oauth-agent",
+        action: "compare_oauth_scopes",
+        detail: missingScopes.length > 0 ? `Missing scopes: ${missingScopes.join(", ")}` : "No missing scopes found",
+        timestamp: new Date().toISOString()
+      }
+    ]
+  };
+
+  sendJson(response, 200, result);
+});

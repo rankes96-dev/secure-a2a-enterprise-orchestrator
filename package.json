@@ -1,0 +1,29 @@
+{
+  "name": "secure-a2a-enterprise-integration-resolver",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,orchestrator,triage,jira,github,pagerduty,oauth,health -c blue,green,white,magenta,cyan,yellow,red,white \"npm:dev -w apps/web-ui\" \"npm:dev -w services/orchestrator-api\" \"npm:dev -w services/end-user-triage-agent\" \"npm:dev -w services/jira-agent\" \"npm:dev -w services/github-agent\" \"npm:dev -w services/pagerduty-agent\" \"npm:dev -w services/security-oauth-agent\" \"npm:dev -w services/api-health-agent\"",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

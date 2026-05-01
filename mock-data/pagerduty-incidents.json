@@ -1,0 +1,7 @@
+[
+  {
+    "service": "enterprise-sync",
+    "status": "not_checked",
+    "note": "PagerDuty is not selected for the Jira 403 scenario."
+  }
+]

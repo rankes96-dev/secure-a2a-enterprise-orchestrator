@@ -1,0 +1,6 @@
+[
+  {
+    "operation": "create_issue",
+    "requiredScopes": ["read:jira-work", "write:jira-work"]
+  }
+]

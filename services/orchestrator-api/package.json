@@ -1,0 +1,16 @@
+{
+  "name": "orchestrator-api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@a2a/shared": "0.1.0",
+    "@openrouter/sdk": "^0.12.24",
+    "dotenv": "^17.4.2",
+    "openai": "^6.35.0"
+  }
+}

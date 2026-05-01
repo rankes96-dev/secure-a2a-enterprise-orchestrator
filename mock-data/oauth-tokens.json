@@ -1,0 +1,7 @@
+[
+  {
+    "app": "enterprise-jira-sync",
+    "system": "Jira",
+    "currentScopes": ["read:jira-work"]
+  }
+]
