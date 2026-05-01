@@ -575,6 +575,71 @@ function App() {
               </section>
             ) : null}
 
+            {latestResponse.followUpInterpretation ? (
+              <section>
+                <h2>Follow-up Context</h2>
+                <div className="classification-details">
+                  <div>
+                    <span>Follow-up</span>
+                    <strong>{latestResponse.followUpInterpretation.isFollowUp ? "yes" : "no"}</strong>
+                  </div>
+                  <div>
+                    <span>Source</span>
+                    <strong>{latestResponse.followUpInterpretation.interpretationSource ?? "unknown"}</strong>
+                  </div>
+                  <div>
+                    <span>Confidence</span>
+                    <strong>{latestResponse.followUpInterpretation.confidence}</strong>
+                  </div>
+                  <div>
+                    <span>Added Environment</span>
+                    <strong>{latestResponse.followUpInterpretation.addsEnvironment ?? "none"}</strong>
+                  </div>
+                  <div>
+                    <span>Added Error</span>
+                    <strong>{latestResponse.followUpInterpretation.addsErrorText ?? "none"}</strong>
+                  </div>
+                  <div>
+                    <span>Added Impact</span>
+                    <strong>{latestResponse.followUpInterpretation.addsImpact ?? "none"}</strong>
+                  </div>
+                  <p>{latestResponse.followUpInterpretation.reason}</p>
+                </div>
+              </section>
+            ) : null}
+
+            {latestResponse.incidentContext ? (
+              <section>
+                <h2>Incident Context</h2>
+                <div className="classification-details">
+                  <div>
+                    <span>Affected System</span>
+                    <strong>{latestResponse.incidentContext.targetSystemText ?? "Unknown"}</strong>
+                  </div>
+                  <div>
+                    <span>Environment</span>
+                    <strong>{latestResponse.incidentContext.environment ?? "Unknown"}</strong>
+                  </div>
+                  <div>
+                    <span>Symptom</span>
+                    <strong>{latestResponse.incidentContext.symptom ?? "Unknown"}</strong>
+                  </div>
+                  <div>
+                    <span>Error</span>
+                    <strong>{latestResponse.incidentContext.errorText ?? "Unknown"}</strong>
+                  </div>
+                  <div>
+                    <span>Impact</span>
+                    <strong>{latestResponse.incidentContext.impact ?? "Unknown"}</strong>
+                  </div>
+                  <div>
+                    <span>Assignment Group</span>
+                    <strong>{latestResponse.incidentContext.suggestedAssignmentGroup}</strong>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
             <section>
               <h2>ServiceNow Routing</h2>
               <div className="routing-details">

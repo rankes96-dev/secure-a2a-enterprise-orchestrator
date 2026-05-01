@@ -76,6 +76,22 @@ export type RequestInterpretation = {
   aiModel?: string;
 };
 
+export type FollowUpInterpretation = {
+  isFollowUp: boolean;
+  confidence: "low" | "medium" | "high";
+  reason: string;
+  addsEnvironment?: string;
+  addsErrorText?: string;
+  addsImpact?: string;
+  addsSymptom?: string;
+  addsTargetSystemText?: string;
+  shouldPreservePreviousTargetSystem?: boolean;
+  shouldPreservePreviousAction?: boolean;
+  interpretationSource?: "ai" | "fallback";
+  aiProvider?: "openrouter" | "openai";
+  aiModel?: string;
+};
+
 export interface Classification {
   system: EnterpriseSystem;
   errorCode?: ErrorCode;
@@ -246,6 +262,17 @@ export interface ResolveResponse {
   securityDecision?: SecurityDecision;
   securityDecisions?: SecurityDecision[];
   requestInterpretation?: RequestInterpretation;
+  followUpInterpretation?: FollowUpInterpretation;
+  incidentContext?: {
+    targetSystemText?: string;
+    environment?: string;
+    symptom?: string;
+    errorText?: string;
+    impact?: string;
+    suggestedAssignmentGroup: string;
+    confidence: "low" | "medium" | "high";
+    hasMinimumDetails: boolean;
+  };
   a2aTasks?: A2ATask[];
   a2aResponses?: A2AAgentResponse[];
   diagnosis: {

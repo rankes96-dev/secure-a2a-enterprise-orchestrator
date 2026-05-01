@@ -1,4 +1,5 @@
-import type { RequestInterpretation } from "@a2a/shared";
+import type { FollowUpInterpretation, RequestInterpretation } from "@a2a/shared";
+import { incidentTaxonomy } from "./config/incidentTaxonomy";
 
 export type IncidentContext = {
   targetSystemText?: string;
@@ -13,6 +14,14 @@ export type IncidentContext = {
 
 function clean(value: string | undefined): string | undefined {
   return value?.trim().replace(/[,.?!]+$/, "") || undefined;
+}
+
+function includesTerm(value: string, term: string): boolean {
+  return value.toLowerCase().includes(term.toLowerCase());
+}
+
+function firstConfiguredTerm(message: string, terms: readonly string[]): string | undefined {
+  return terms.find((term) => includesTerm(message, term));
 }
 
 function firstMatch(message: string, patterns: RegExp[]): string | undefined {
@@ -36,43 +45,18 @@ function extractTargetSystem(message: string, interpretation?: RequestInterpreta
 }
 
 function extractEnvironment(message: string): string | undefined {
-  const match = message.match(/\b(production|prod|staging|stage|dev|test|qa|sandbox)\b/i)?.[1];
-  if (!match) {
+  const term = firstConfiguredTerm(message, incidentTaxonomy.environments);
+  if (!term) {
     return undefined;
   }
 
-  return match.toLowerCase() === "prod" ? "production" : match.toLowerCase();
+  return term === "prod" ? "production" : term === "stage" ? "staging" : term;
 }
 
 function extractSymptom(message: string, interpretation?: RequestInterpretation): string | undefined {
-  const lower = message.toLowerCase();
-  const action = interpretation?.requestedActionText?.toLowerCase();
-
-  if (/(login|log in|sign in|signin|authentication|sso|mfa|invalid credentials|access denied|can't login|cannot login)/i.test(lower) || action?.includes("login")) {
-    return "login/authentication issue";
-  }
-
-  if (/(pipeline|deployment|deploy|build|test stage|release|artifact)/i.test(lower) || action?.includes("deploy")) {
-    return "deployment/pipeline failure";
-  }
-
-  if (/(query timeout|dashboard not loading|dashboard|report failing|data refresh|snowflake)/i.test(lower)) {
-    return "data/query/platform issue";
-  }
-
-  if (/(vpn|connection failed|cannot connect|can't connect|timeout|dns|tls|network)/i.test(lower)) {
-    return "connectivity/network issue";
-  }
-
-  if (/(sync failed|sync|webhook|api error|callback)/i.test(lower)) {
-    return "sync/integration issue";
-  }
-
-  if (/(error|failed|failure|broken|not working)/i.test(lower)) {
-    return "enterprise application issue";
-  }
-
-  return undefined;
+  const action = interpretation?.requestedActionText ?? "";
+  const value = `${message}\n${action}`;
+  return incidentTaxonomy.categories.find((category) => firstConfiguredTerm(value, category.terms))?.label;
 }
 
 function extractErrorText(message: string): string | undefined {
@@ -81,9 +65,9 @@ function extractErrorText(message: string): string | undefined {
     return code;
   }
 
-  const knownError = message.match(/\b(permission denied|access denied|invalid credentials|password is wrong|wrong password|timeout error|login error|sso error|mfa error)\b/i)?.[1];
-  if (knownError) {
-    return knownError.toLowerCase() === "wrong password" ? "password is wrong" : knownError.toLowerCase();
+  const configured = firstConfiguredTerm(message, incidentTaxonomy.errorPhrases);
+  if (configured) {
+    return configured === "wrong password" ? "password is wrong" : configured;
   }
 
   return firstMatch(message, [
@@ -96,64 +80,68 @@ function extractErrorText(message: string): string | undefined {
 }
 
 function extractImpact(message: string): string | undefined {
-  const impact = firstMatch(message, [
-    /\b(all users|one user|only me|everyone|a group|team|all deployments|one service|one repository|production users|finance users|all finance users|it happens for everyone)\b/i
-  ]);
-
-  if (impact === "only me") {
-    return "one user";
-  }
-
-  if (impact === "everyone" || impact === "it happens for everyone") {
-    return "all users";
-  }
-
-  return impact;
+  return incidentTaxonomy.impactPhrases.find((item) => firstConfiguredTerm(message, item.terms))?.value;
 }
 
 function assignmentGroupFor(symptom?: string): string {
-  if (symptom === "login/authentication issue") {
-    return "IAM / Identity / SSO Support";
-  }
-
-  if (symptom === "deployment/pipeline failure") {
-    return "CI/CD Platform / DevOps Tools";
-  }
-
-  if (symptom === "connectivity/network issue") {
-    return "Network / Endpoint Support";
-  }
-
-  if (symptom === "data/query/platform issue") {
-    return "Data Platform Support";
-  }
-
-  if (symptom === "sync/integration issue") {
-    return "Integration Platform Support";
-  }
-
-  return "Service Desk Triage";
+  return incidentTaxonomy.categories.find((category) => category.label === symptom)?.assignmentGroup ?? incidentTaxonomy.defaultAssignmentGroup;
 }
 
-export function extractIncidentContext(message: string, interpretation?: RequestInterpretation): IncidentContext {
-  const targetSystemText = extractTargetSystem(message, interpretation);
-  const environment = extractEnvironment(message);
-  const symptom = extractSymptom(message, interpretation);
-  const errorText = extractErrorText(message);
-  const impact = extractImpact(message);
-  const hasMinimumDetails = Boolean(targetSystemText && symptom && (environment || errorText || impact));
-  const detailCount = [targetSystemText, environment, symptom, errorText, impact].filter(Boolean).length;
+function completeContext(context: Partial<IncidentContext>): IncidentContext {
+  const hasMinimumDetails = Boolean(context.targetSystemText && context.symptom && (context.environment || context.errorText || context.impact));
+  const detailCount = [context.targetSystemText, context.environment, context.symptom, context.errorText, context.impact].filter(Boolean).length;
 
   return {
-    targetSystemText,
-    environment,
-    symptom,
-    errorText,
-    impact,
-    suggestedAssignmentGroup: assignmentGroupFor(symptom),
+    targetSystemText: context.targetSystemText,
+    environment: context.environment,
+    symptom: context.symptom,
+    errorText: context.errorText,
+    impact: context.impact,
+    suggestedAssignmentGroup: assignmentGroupFor(context.symptom),
     confidence: hasMinimumDetails && detailCount >= 4 ? "high" : hasMinimumDetails ? "medium" : "low",
     hasMinimumDetails
   };
+}
+
+export function extractIncidentContext(message: string, interpretation?: RequestInterpretation): IncidentContext {
+  return completeContext({
+    targetSystemText: extractTargetSystem(message, interpretation),
+    environment: extractEnvironment(message),
+    symptom: extractSymptom(message, interpretation),
+    errorText: extractErrorText(message),
+    impact: extractImpact(message)
+  });
+}
+
+export function mergeIncidentContext(previous?: IncidentContext, current: Partial<IncidentContext> = {}): IncidentContext {
+  return completeContext({
+    targetSystemText: current.targetSystemText ?? previous?.targetSystemText,
+    environment: current.environment ?? previous?.environment,
+    symptom: current.symptom ?? previous?.symptom,
+    errorText: current.errorText ?? previous?.errorText,
+    impact: current.impact ?? previous?.impact
+  });
+}
+
+export function applyFollowUpToIncidentContext(params: {
+  previous?: IncidentContext;
+  current?: IncidentContext;
+  followUp?: FollowUpInterpretation;
+}): IncidentContext {
+  const followUpPatch: Partial<IncidentContext> = params.followUp?.isFollowUp
+    ? {
+        targetSystemText: params.followUp.addsTargetSystemText ?? (params.followUp.shouldPreservePreviousTargetSystem ? params.previous?.targetSystemText : undefined),
+        environment: params.followUp.addsEnvironment,
+        symptom: params.followUp.addsSymptom ?? (params.followUp.shouldPreservePreviousAction ? params.previous?.symptom : undefined),
+        errorText: params.followUp.addsErrorText,
+        impact: params.followUp.addsImpact
+      }
+    : {};
+
+  return mergeIncidentContext(params.previous, {
+    ...params.current,
+    ...Object.fromEntries(Object.entries(followUpPatch).filter(([, value]) => Boolean(value)))
+  });
 }
 
 export function buildManualIncidentAnswer(context: IncidentContext): string {

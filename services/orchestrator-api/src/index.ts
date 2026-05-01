@@ -12,6 +12,7 @@ import type {
   AgentsHealthResponse,
   Classification,
   ExecutionTraceStep,
+  FollowUpInterpretation,
   ResolveRequest,
   ResolveResponse,
   RequestInterpretation,
@@ -23,7 +24,8 @@ import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExec
 import { routeWithAI } from "./aiRouter";
 import { getAiConfig } from "./config/aiConfig";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
-import { buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, type IncidentContext } from "./incidentContext";
+import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext";
+import { interpretFollowUp } from "./followUpInterpreter";
 import { createSessionCookie, hasValidSession } from "./security/sessionManager";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
@@ -46,6 +48,7 @@ type ConversationState = {
   }>;
   needsMoreInfoCount: number;
   lastRequestInterpretation?: RequestInterpretation;
+  lastFollowUpInterpretation?: FollowUpInterpretation;
   lastIncidentContext?: IncidentContext;
   lastSelectedAgents?: SelectedAgent[];
   lastResolutionStatus?: "resolved" | "needs_more_info" | "unsupported";
@@ -136,30 +139,10 @@ function appendConversationMessage(state: ConversationState, role: "user" | "ass
   state.messages = state.messages.slice(-10);
 }
 
-function mergeIncidentContext(previous: IncidentContext | undefined, current: IncidentContext): IncidentContext {
-  const targetSystemText = current.targetSystemText ?? previous?.targetSystemText;
-  const environment = current.environment ?? previous?.environment;
-  const symptom = current.symptom ?? previous?.symptom;
-  const errorText = current.errorText ?? previous?.errorText;
-  const impact = current.impact ?? previous?.impact;
-  const hasMinimumDetails = Boolean(targetSystemText && symptom && (environment || errorText || impact));
-  const detailCount = [targetSystemText, environment, symptom, errorText, impact].filter(Boolean).length;
-
-  return {
-    targetSystemText,
-    environment,
-    symptom,
-    errorText,
-    impact,
-    suggestedAssignmentGroup: current.symptom ? current.suggestedAssignmentGroup : previous?.suggestedAssignmentGroup ?? current.suggestedAssignmentGroup,
-    confidence: hasMinimumDetails && detailCount >= 4 ? "high" : hasMinimumDetails ? "medium" : "low",
-    hasMinimumDetails
-  };
-}
-
 function updateConversationState(state: ConversationState, response: ResolveResponse, incidentContext?: IncidentContext): void {
   appendConversationMessage(state, "assistant", response.finalAnswer);
   state.lastRequestInterpretation = response.requestInterpretation;
+  state.lastFollowUpInterpretation = response.followUpInterpretation;
   if (incidentContext) {
     state.lastIncidentContext = mergeIncidentContext(state.lastIncidentContext, incidentContext);
   }
@@ -178,21 +161,15 @@ function lastUserMessageBeforeLatest(state: ConversationState): string | undefin
     .find((message) => message.role === "user")?.content;
 }
 
-function isLikelyClarificationFollowUp(message: string, state: ConversationState): boolean {
-  if (state.needsMoreInfoCount <= 0 || state.lastRequestInterpretation?.scope !== "enterprise_support") {
-    return false;
-  }
-
-  const trimmed = message.trim();
-  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
-  const contextPattern =
-    /\b(production|prod|staging|stage|dev|test|qa|sandbox|all users|only me|one user|everyone|login error|permission denied|build stage|deploy stage|sso|mfa|since yesterday|all finance users|one repository|happens for everyone|timeout error|access denied|invalid credentials|team|group)\b/i;
-
-  return wordCount <= 8 || contextPattern.test(trimmed);
+function lastAssistantMessage(state: ConversationState): string | undefined {
+  return [...state.messages]
+    .slice(0, -1)
+    .reverse()
+    .find((message) => message.role === "assistant")?.content;
 }
 
-function buildEffectiveMessageForRouting(state: ConversationState, currentMessage: string): string {
-  if (!isLikelyClarificationFollowUp(currentMessage, state)) {
+function buildEffectiveMessageForRouting(state: ConversationState, currentMessage: string, followUp: FollowUpInterpretation): string {
+  if (!followUp.isFollowUp) {
     return currentMessage;
   }
 
@@ -509,33 +486,53 @@ async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
 async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveResponse> {
   const conversationState = getOrCreateConversationState(requestBody.conversationId);
   appendConversationMessage(conversationState, "user", requestBody.message);
-  const effectiveMessage = buildEffectiveMessageForRouting(conversationState, requestBody.message);
-  const isClarificationFollowUp = effectiveMessage !== requestBody.message;
+  const followUp = await interpretFollowUp({
+    currentMessage: requestBody.message,
+    previousUserMessage: lastUserMessageBeforeLatest(conversationState),
+    previousAssistantMessage: lastAssistantMessage(conversationState),
+    previousInterpretation: conversationState.lastRequestInterpretation,
+    previousIncidentContext: conversationState.lastIncidentContext
+  });
+  const effectiveMessage = buildEffectiveMessageForRouting(conversationState, requestBody.message, followUp);
   const routingDecision = await routeWithAI(effectiveMessage);
   const classification = routingDecision.classification;
   const conversationId = conversationState.conversationId;
   const incidentInterpretation =
-    conversationState.needsMoreInfoCount > 0 && conversationState.lastRequestInterpretation?.targetSystemText
+    followUp.isFollowUp && conversationState.lastRequestInterpretation
       ? {
           ...(routingDecision.requestInterpretation ?? conversationState.lastRequestInterpretation),
-          targetSystemText: conversationState.lastRequestInterpretation.targetSystemText,
+          targetSystemText:
+            followUp.addsTargetSystemText ??
+            (followUp.shouldPreservePreviousTargetSystem ? conversationState.lastRequestInterpretation.targetSystemText : routingDecision.requestInterpretation?.targetSystemText),
           targetResourceType: [
-            conversationState.lastRequestInterpretation.targetResourceType,
+            followUp.shouldPreservePreviousAction ? conversationState.lastRequestInterpretation.targetResourceType : undefined,
             routingDecision.requestInterpretation?.targetResourceType
           ].filter(Boolean).join(" ") || undefined,
           targetResourceName:
             routingDecision.requestInterpretation?.targetResourceName ?? conversationState.lastRequestInterpretation.targetResourceName,
           requestedActionText: [
-            conversationState.lastRequestInterpretation.requestedActionText,
+            followUp.shouldPreservePreviousAction ? conversationState.lastRequestInterpretation.requestedActionText : undefined,
             routingDecision.requestInterpretation?.requestedActionText
           ].filter(Boolean).join(" ") || undefined
         }
       : routingDecision.requestInterpretation;
   const incidentContext = extractIncidentContext(effectiveMessage, incidentInterpretation);
-  const mergedIncidentContext = mergeIncidentContext(conversationState.lastIncidentContext, incidentContext);
-  const sensitiveAction = detectSensitiveAction(`${effectiveMessage}\n${requestBody.message}`, routingDecision.requestInterpretation);
+  const mergedIncidentContext = applyFollowUpToIncidentContext({
+    previous: conversationState.lastIncidentContext,
+    current: incidentContext,
+    followUp
+  });
+  const sensitiveAction = detectSensitiveAction(
+    `${effectiveMessage}\n${requestBody.message}\n${conversationState.lastRequestInterpretation?.requestedActionText ?? ""}\n${conversationState.lastIncidentContext?.errorText ?? ""}`,
+    incidentInterpretation ?? routingDecision.requestInterpretation
+  );
   const finalize = (response: ResolveResponse): ResolveResponse => {
-    const finalResponse = { ...response, conversationId };
+    const finalResponse = {
+      ...response,
+      conversationId,
+      followUpInterpretation: response.followUpInterpretation ?? followUp,
+      incidentContext: response.incidentContext ?? mergedIncidentContext
+    };
     updateConversationState(conversationState, finalResponse, mergedIncidentContext);
     return finalResponse;
   };
@@ -599,6 +596,8 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       securityDecision: policyDecision,
       securityDecisions: [policyDecision],
       requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      followUpInterpretation: followUp,
+      incidentContext: mergedIncidentContext,
       a2aTasks: [],
       a2aResponses: [],
       diagnosis,
@@ -633,12 +632,12 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       evidence: [],
       agentTrace: [
         trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
-        ...(isClarificationFollowUp ? [trace("merge_follow_up_context", "Interpreted the short user reply as context for the previous enterprise support issue.")] : []),
+        ...(followUp.isFollowUp ? [trace("merge_follow_up_context", "Interpreted the short user reply as context for the previous enterprise support issue.")] : []),
         trace("manual_incident_recommended", "Enough incident context was provided, but no specialist Agent Card capability is available.")
       ],
       executionTrace: [
         executionStep("user", "submit_issue", requestBody.message),
-        ...(isClarificationFollowUp ? [executionStep("orchestrator", "merge_follow_up_context", "Interpreted the short user reply as context for the previous enterprise support issue.")] : []),
+        ...(followUp.isFollowUp ? [executionStep("orchestrator", "merge_follow_up_context", "Interpreted the short user reply as context for the previous enterprise support issue.")] : []),
         ...(routingDecision.requestInterpretation
           ? [
               executionStep(
@@ -651,7 +650,9 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         executionStep("orchestrator", "return_manual_incident_guidance", "Returned manual ServiceNow incident guidance for an unsupported enterprise incident.")
       ],
       securityDecisions: [],
-      requestInterpretation: routingDecision.requestInterpretation,
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      followUpInterpretation: followUp,
+      incidentContext: mergedIncidentContext,
       a2aTasks: [],
       a2aResponses: [],
       diagnosis
@@ -659,7 +660,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   }
 
   if (
-    isClarificationFollowUp &&
+    followUp.isFollowUp &&
     isEnterpriseIncidentIntent(incidentInterpretation) &&
     mergedIncidentContext.targetSystemText &&
     mergedIncidentContext.symptom &&
@@ -696,6 +697,8 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       ],
       securityDecisions: [],
       requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      followUpInterpretation: followUp,
+      incidentContext: mergedIncidentContext,
       a2aTasks: [],
       a2aResponses: [],
       diagnosis
@@ -704,7 +707,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
 
   if (routingDecision.selectedAgents.length === 0) {
     const needsMoreInfo = routingDecision.resolutionStatus === "needs_more_info";
-    const interpretation = routingDecision.requestInterpretation;
+    const interpretation = incidentInterpretation ?? routingDecision.requestInterpretation;
     const unsupportedManualWorkflow = routingDecision.resolutionStatus === "unsupported" && interpretation?.scope === "manual_enterprise_workflow";
     const outOfScope = routingDecision.resolutionStatus === "unsupported" && interpretation?.scope === "out_of_scope";
     const diagnosis = unsupportedManualWorkflow
@@ -1187,7 +1190,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   const manualIncidentContext =
     shouldReturnManualIncidentGuidance({
       state: conversationState,
-      interpretation: routingDecision.requestInterpretation,
+      interpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
       selectedAgents: routingDecision.selectedAgents,
       context: mergedIncidentContext
     })
@@ -1200,7 +1203,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       classification,
       agentResponses: a2aResponses,
       securityDecisions,
-      requestInterpretation: routingDecision.requestInterpretation,
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
       manualIncidentContext
     }),
     classification,
@@ -1215,7 +1218,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     executionTrace,
     securityDecision,
     securityDecisions,
-    requestInterpretation: routingDecision.requestInterpretation,
+    requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
     a2aTasks,
     a2aResponses,
     diagnosis
