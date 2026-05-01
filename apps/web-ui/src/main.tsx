@@ -113,6 +113,22 @@ function decisionClass(decision: string): string {
   return `decision-${decision.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase()}`;
 }
 
+function routingDescription(response: ResolveResponse): string {
+  if (response.routingSource === "ai") {
+    return "Secondary AI router selected agents using Agent Cards.";
+  }
+
+  if (response.requestInterpretation?.interpretationSource === "ai") {
+    return "AI interpreted the request. Deterministic capability routing/fallback handled agent selection.";
+  }
+
+  if (response.requestInterpretation?.interpretationSource === "fallback") {
+    return "Deterministic request interpretation fallback was used.";
+  }
+
+  return "Deterministic capability routing/fallback handled agent selection.";
+}
+
 function JsonBlock({ value }: { value: unknown }) {
   return <pre>{JSON.stringify(value, null, 2)}</pre>;
 }
@@ -471,11 +487,11 @@ function App() {
                   <strong>{latestResponse.classification.classificationSource}</strong>
                 </div>
                 <div>
-                  <span>AI Provider</span>
+                  <span>Classification AI Provider</span>
                   <strong>{latestResponse.classification.aiProvider ?? "none"}</strong>
                 </div>
                 <div>
-                  <span>AI Model</span>
+                  <span>Classification AI Model</span>
                   <strong>{latestResponse.classification.aiModel ?? "none"}</strong>
                 </div>
                 <div>
@@ -505,6 +521,18 @@ function App() {
                   <div>
                     <span>Capability</span>
                     <strong>{latestResponse.requestInterpretation.requestedCapability ?? "unknown"}</strong>
+                  </div>
+                  <div>
+                    <span>Interpretation Source</span>
+                    <strong>{latestResponse.requestInterpretation.interpretationSource ?? "unknown"}</strong>
+                  </div>
+                  <div>
+                    <span>AI Provider</span>
+                    <strong>{latestResponse.requestInterpretation.aiProvider ?? "none"}</strong>
+                  </div>
+                  <div>
+                    <span>AI Model</span>
+                    <strong>{latestResponse.requestInterpretation.aiModel ?? "none"}</strong>
                   </div>
                   <div>
                     <span>Target System</span>
@@ -541,10 +569,7 @@ function App() {
                   <strong>{latestResponse.resolutionStatus}</strong>
                 </div>
                 <p>
-                  {latestResponse.routingSource === "ai"
-                    ? "AI selected agents using Agent Cards."
-                    : "AI route failed validation; deterministic Agent Card fallback used."}{" "}
-                  {latestResponse.routingReasoningSummary}
+                  {routingDescription(latestResponse)} {latestResponse.routingReasoningSummary}
                 </p>
               </div>
             </section>

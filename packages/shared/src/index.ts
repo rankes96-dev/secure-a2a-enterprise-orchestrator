@@ -71,6 +71,9 @@ export type RequestInterpretation = {
   requiresApproval?: boolean;
   confidence: "low" | "medium" | "high";
   reason: string;
+  interpretationSource?: "ai" | "fallback";
+  aiProvider?: "openrouter" | "openai";
+  aiModel?: string;
 };
 
 export interface Classification {

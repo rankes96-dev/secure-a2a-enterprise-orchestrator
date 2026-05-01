@@ -14,6 +14,8 @@ const intentTypes: RequestIntentType[] = [
   "manual_service_request",
   "unknown"
 ];
+const interpretationSources = ["ai", "fallback"] as const;
+const aiProviders = ["openrouter", "openai"] as const;
 
 const interpreterPrompt = `You are a ServiceNow enterprise request interpreter.
 Classify the user's request before agent routing.
@@ -131,6 +133,10 @@ function asEnum<T extends string>(value: unknown, allowed: readonly T[], fallbac
   return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
 }
 
+function optionalEnum<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+  return typeof value === "string" && allowed.includes(value as T) ? (value as T) : undefined;
+}
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -161,7 +167,8 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
       requestedActionText: lower.includes("pizza") ? "order pizza" : undefined,
       requiresApproval: false,
       confidence: "high",
-      reason: "The request is outside the supported enterprise IT support scope."
+      reason: "The request is outside the supported enterprise IT support scope.",
+      interpretationSource: "fallback"
     };
   }
 
@@ -176,7 +183,8 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
       requestedActionText: includesAny(lower, ["remove me from", "remove user from"]) ? "remove user from group" : "add user to group",
       requiresApproval: true,
       confidence: "high",
-      reason: "The user is requesting a group membership change."
+      reason: "The user is requesting a group membership change.",
+      interpretationSource: "fallback"
     };
   }
 
@@ -191,7 +199,8 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
       requestedActionText: lower.includes("mailbox") ? "create mailbox" : "provision user",
       requiresApproval: true,
       confidence: "high",
-      reason: "The user is requesting account or user provisioning."
+      reason: "The user is requesting account or user provisioning.",
+      interpretationSource: "fallback"
     };
   }
 
@@ -204,7 +213,8 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
       requestedActionText: "change permissions",
       requiresApproval: true,
       confidence: "high",
-      reason: "The user is requesting a permission or role change."
+      reason: "The user is requesting a permission or role change.",
+      interpretationSource: "fallback"
     };
   }
 
@@ -220,7 +230,8 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
       requestedActionText: "grant access",
       requiresApproval: true,
       confidence: "high",
-      reason: "The user is requesting access to an enterprise resource."
+      reason: "The user is requesting access to an enterprise resource.",
+      interpretationSource: "fallback"
     };
   }
 
@@ -232,7 +243,8 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
       requestedActionText: "inspect or reveal protected credential material",
       requiresApproval: false,
       confidence: "high",
-      reason: "The user requested a sensitive security action."
+      reason: "The user requested a sensitive security action.",
+      interpretationSource: "fallback"
     };
   }
 
@@ -243,7 +255,8 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
       requestedCapability: "unknown",
       requiresApproval: false,
       confidence: "low",
-      reason
+      reason,
+      interpretationSource: "fallback"
     };
   }
 
@@ -253,7 +266,8 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
     requestedCapability: "unknown",
     requiresApproval: false,
     confidence: "low",
-    reason: "The request could not be confidently interpreted."
+    reason: "The request could not be confidently interpreted.",
+    interpretationSource: "fallback"
   };
 }
 
@@ -271,7 +285,10 @@ function normalizeInterpretation(value: unknown, fallback: RequestInterpretation
     requestedActionText: optionalString(record.requestedActionText) ?? fallback.requestedActionText,
     requiresApproval: typeof record.requiresApproval === "boolean" ? record.requiresApproval : fallback.requiresApproval,
     confidence: asEnum(record.confidence, ["low", "medium", "high"] as const, fallback.confidence),
-    reason: optionalString(record.reason) ?? fallback.reason
+    reason: optionalString(record.reason) ?? fallback.reason,
+    interpretationSource: asEnum(record.interpretationSource, interpretationSources, fallback.interpretationSource ?? "fallback"),
+    aiProvider: optionalEnum(record.aiProvider, aiProviders) ?? fallback.aiProvider,
+    aiModel: optionalString(record.aiModel) ?? fallback.aiModel
   };
 }
 
@@ -312,18 +329,34 @@ async function callOpenAi(message: string, apiKey: string, model: string): Promi
 export async function interpretRequest(message: string): Promise<RequestInterpretation> {
   const fallback = fallbackInterpretRequest(message);
   const aiConfig = getAiConfig();
+  console.info(`[request-interpreter] provider=${aiConfig.provider} model=${aiConfig.model} hasKey=${aiConfig.hasApiKey}`);
 
   if (!aiConfig.apiKey?.trim()) {
-    return fallback;
+    return fallbackInterpretRequest(message, "AI API key is not configured; deterministic fallback was used.");
   }
 
   try {
+    console.info(`[request-interpreter] calling ${aiConfig.provider} model=${aiConfig.model}`);
     const content =
       aiConfig.provider === "openrouter"
         ? await callOpenRouter(message, aiConfig.apiKey, aiConfig.model)
         : await callOpenAi(message, aiConfig.apiKey, aiConfig.model);
 
-    return content ? normalizeInterpretation(JSON.parse(content), fallback) : fallback;
+    if (!content) {
+      return fallbackInterpretRequest(message, "AI request interpretation returned no content; deterministic fallback was used.");
+    }
+
+    const normalized = normalizeInterpretation(JSON.parse(content), fallback);
+    const interpretation = {
+      ...normalized,
+      interpretationSource: "ai" as const,
+      aiProvider: aiConfig.provider,
+      aiModel: aiConfig.model
+    };
+    console.info(
+      `[request-interpreter] AI interpretation succeeded scope=${interpretation.scope} intent=${interpretation.intentType} capability=${interpretation.requestedCapability ?? "unknown"}`
+    );
+    return interpretation;
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown AI request interpreter error";
     console.warn(`[request-interpreter] AI interpretation failed; using deterministic fallback: ${detail}`);

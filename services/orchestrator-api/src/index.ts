@@ -229,7 +229,7 @@ function requestedActionFromSkill(skill?: AgentCardSkill): string | undefined {
 
 function requestedScopeForSkill(skillId?: string): string | undefined {
   if (skillId === "api_health.diagnose_rate_limit") {
-    return "github.rate_limit.read";
+    return "apihealth.read";
   }
 
   if (skillId === "api_health.diagnose_connectivity_failure" || skillId === "api_health.diagnose_webhook_delivery") {
@@ -485,18 +485,18 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       ? {
           probableCause: "Not enough diagnostic detail to route the issue",
           recommendedFix:
-            "Please provide the error message or code, what operation failed, and which system Monday.com is syncing with."
+            "Please provide the exact error message or code, the failed operation, the affected system or integration, and when the issue started."
         }
       : {
           probableCause: "Scenario not implemented yet",
-          recommendedFix: "Use the Jira 403 Missing Scope or GitHub Rate Limit scenario for the fully wired local agent flow."
+          recommendedFix: "Provide more details so the orchestrator can match the request to an Agent Card capability."
     };
     const finalAnswer = unsupportedManualWorkflow
       ? buildManualWorkflowAnswer(interpretation)
       : outOfScope
         ? buildManualWorkflowAnswer(interpretation)
       : needsMoreInfo
-      ? "I need more details before I can route this to the right agent. Please provide the error message or code, what operation failed, and which system Monday.com is syncing with."
+      ? "I need more details before I can route this to the right specialist agent. Please provide the exact error message or code, the failed operation, the affected system or integration, and when the issue started."
       : `${diagnosis.probableCause}. ${diagnosis.recommendedFix}`;
 
     return {
