@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { ResolveResponse } from "@a2a/shared";
 import "./styles.css";
 
+const orchestratorApiUrl = import.meta.env.VITE_ORCHESTRATOR_API_URL ?? "http://localhost:4000";
 const sampleMessage = "Jira sync fails with 403 when creating issues";
 
 const scenarios = [
@@ -78,7 +79,7 @@ function App() {
   );
 
   async function ensureSession() {
-    const response = await fetch("http://localhost:4000/session", {
+    const response = await fetch(`${orchestratorApiUrl}/session`, {
       method: "POST",
       credentials: "include"
     });
@@ -121,7 +122,7 @@ function App() {
 
     try {
       await ensureSession();
-      const apiResponse = await fetch("http://localhost:4000/resolve", {
+      const apiResponse = await fetch(`${orchestratorApiUrl}/resolve`, {
         method: "POST",
         headers: {
           "content-type": "application/json"
@@ -377,42 +378,44 @@ function App() {
               </section>
             ) : null}
 
-            {latestResponse.securityDecision ? (
+            {(latestResponse.securityDecisions?.length ?? (latestResponse.securityDecision ? 1 : 0)) > 0 ? (
               <section>
-                <h2>Security Decision</h2>
-                <div className="security-decision">
-                  <div>
-                    <span>Caller</span>
-                    <strong>{latestResponse.securityDecision.caller}</strong>
+                <h2>Security Decisions</h2>
+                {(latestResponse.securityDecisions ?? (latestResponse.securityDecision ? [latestResponse.securityDecision] : [])).map((decision, index) => (
+                  <div className="security-decision" key={`${decision.caller}-${decision.target}-${decision.requestedAction}-${index}`}>
+                    <div>
+                      <span>Caller</span>
+                      <strong>{decision.caller}</strong>
+                    </div>
+                    <div>
+                      <span>Target</span>
+                      <strong>{decision.target}</strong>
+                    </div>
+                    <div>
+                      <span>Requested Action</span>
+                      <strong>{decision.requestedAction}</strong>
+                    </div>
+                    <div>
+                      <span>Required Permission</span>
+                      <strong>{decision.requiredPermission}</strong>
+                    </div>
+                    <div>
+                      <span>Decision</span>
+                      <strong className={decision.decision === "Allowed" ? "allowed" : "blocked"}>
+                        {decision.decision}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Matched Policy</span>
+                      <strong>{decision.matchedPolicy}</strong>
+                    </div>
+                    <div>
+                      <span>Caller Permissions</span>
+                      <strong>{decision.callerPermissions.join(", ") || "none"}</strong>
+                    </div>
+                    <p>{decision.reason}</p>
                   </div>
-                  <div>
-                    <span>Target</span>
-                    <strong>{latestResponse.securityDecision.target}</strong>
-                  </div>
-                  <div>
-                    <span>Requested Action</span>
-                    <strong>{latestResponse.securityDecision.requestedAction}</strong>
-                  </div>
-                  <div>
-                    <span>Required Permission</span>
-                    <strong>{latestResponse.securityDecision.requiredPermission}</strong>
-                  </div>
-                  <div>
-                    <span>Decision</span>
-                    <strong className={latestResponse.securityDecision.decision === "Allowed" ? "allowed" : "blocked"}>
-                      {latestResponse.securityDecision.decision}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Matched Policy</span>
-                    <strong>{latestResponse.securityDecision.matchedPolicy}</strong>
-                  </div>
-                  <div>
-                    <span>Caller Permissions</span>
-                    <strong>{latestResponse.securityDecision.callerPermissions.join(", ") || "none"}</strong>
-                  </div>
-                  <p>{latestResponse.securityDecision.reason}</p>
-                </div>
+                ))}
               </section>
             ) : null}
 

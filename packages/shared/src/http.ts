@@ -129,7 +129,8 @@ export async function postJson<TResponse>(url: string, body: unknown, headers: R
   });
 
   if (!response.ok) {
-    throw new Error(`${url} returned ${response.status}`);
+    const responseBody = await response.text();
+    throw new Error(`${url} returned ${response.status}${responseBody ? ` with body ${responseBody}` : ""}`);
   }
 
   return response.json() as Promise<TResponse>;

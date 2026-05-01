@@ -113,6 +113,10 @@ function buildDiagnosis(agentResponses: A2AAgentResponse[]): ResolveResponse["di
   };
 }
 
+function sentence(value: string): string {
+  return /[.!?]$/.test(value.trim()) ? value.trim() : `${value.trim()}.`;
+}
+
 function buildFinalAnswer(params: {
   classification: Classification;
   agentResponses: A2AAgentResponse[];
@@ -146,7 +150,7 @@ function buildFinalAnswer(params: {
     return `${primary.summary}${actions}${supporting ? ` Supporting findings: ${supporting}` : ""}`;
   }
 
-  return `${primary.summary}${primary.probableCause ? ` Probable cause: ${primary.probableCause}.` : ""}${actions}${supporting ? ` Supporting findings: ${supporting}` : ""}`;
+  return `${primary.summary}${primary.probableCause ? ` Probable cause: ${sentence(primary.probableCause)}` : ""}${actions}${supporting ? ` Supporting findings: ${supporting}` : ""}`;
 }
 
 function requestedActionForAgent(agentId: AgentName, classification: Classification, message: string): string | undefined {
@@ -352,6 +356,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   const a2aResponses: A2AAgentResponse[] = [];
   const executedDelegations = new Set<string>();
   const delegationExecutionSteps: ExecutionTraceStep[] = [];
+  const securityDecisions: SecurityDecision[] = [];
   let securityDecision: SecurityDecision | undefined;
 
   async function processRequestedDelegations(agentResponse: A2AAgentResponse, parentTask: A2ATask): Promise<void> {
@@ -452,6 +457,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         requestedAction: delegation.skillId
       }) as SecurityDecision;
       securityDecision = policyDecision;
+      securityDecisions.push(policyDecision);
 
       orchestratorTrace.push({
         ...trace(
@@ -586,12 +592,13 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
 
     if (requestedAction) {
       const policyDecision = evaluateSecurityPolicy({
-        callerAgentId: "orchestrator-agent",
+        callerAgentId: orchestratorAgentId,
         targetAgentId: agent.agentId,
         requestedAction
       }) as SecurityDecision;
 
       securityDecision = policyDecision;
+      securityDecisions.push(policyDecision);
       taskSecurityDecision = policyDecision;
       orchestratorTrace.push(
         trace(
@@ -712,6 +719,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     agentTrace,
     executionTrace,
     securityDecision,
+    securityDecisions,
     a2aTasks,
     a2aResponses,
     diagnosis

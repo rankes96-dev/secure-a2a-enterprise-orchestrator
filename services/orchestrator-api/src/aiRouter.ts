@@ -451,6 +451,15 @@ function validateRoutingDecision(decision: RoutingDecision, fallback: RoutingDec
 
   const selectedAgents = [...selectedById.values()];
   const fallbackHasKnownRoute = fallback.selectedAgents.length > 0 && fallback.classification.confidence === "high";
+  const classification = fallbackHasKnownRoute
+    ? {
+        ...fallback.classification,
+        classificationSource: decision.classification.classificationSource,
+        aiProvider: decision.classification.aiProvider,
+        aiModel: decision.classification.aiModel,
+        reasoningSummary: decision.classification.reasoningSummary
+      }
+    : decision.classification;
   const selectedIds = new Set(selectedAgents.map((agent) => agent.agentId));
   const includesFallbackAgents = fallback.selectedAgents.every((agent) => selectedIds.has(agent.agentId));
 
@@ -493,6 +502,7 @@ function validateRoutingDecision(decision: RoutingDecision, fallback: RoutingDec
     ok: true,
     decision: {
       ...decision,
+      classification,
       selectedAgents,
       skippedAgents: completeSkippedAgents(selectedAgents),
       resolutionStatus: decision.resolutionStatus === "unsupported" ? "unsupported" : "resolved"

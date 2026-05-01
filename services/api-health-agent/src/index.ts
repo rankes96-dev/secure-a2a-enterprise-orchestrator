@@ -5,8 +5,39 @@ import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? 4105);
+const agentCard = {
+  agentId: "api-health-agent",
+  name: "API Health Agent",
+  description: "API health agent that evaluates rate limits, latency, connectivity, 5xx, DNS, TLS, and webhook delivery.",
+  systems: ["API", "GitHub", "PagerDuty", "Jira", "SAP", "Confluence", "Monday"],
+  endpoint: process.env.API_HEALTH_AGENT_URL ?? "http://localhost:4105/task",
+  auth: { type: "mock_internal_token", audience: "api-health-agent" },
+  skills: [
+    { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures." },
+    {
+      id: "api_health.diagnose_connectivity_failure",
+      name: "Diagnose connectivity failure",
+      description: "Diagnose timeout, DNS, TLS, and connectivity failures."
+    },
+    {
+      id: "api_health.diagnose_webhook_delivery",
+      name: "Diagnose webhook delivery",
+      description: "Diagnose webhook delivery and callback failures."
+    }
+  ]
+};
 
 startJsonServer(port, async (request, response) => {
+  if (request.method === "GET" && request.url === "/health") {
+    sendJson(response, 200, { status: "ok", agentId: "api-health-agent" }, request);
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/agent-card") {
+    sendJson(response, 200, agentCard, request);
+    return;
+  }
+
   if (request.method !== "POST" || request.url !== "/task") {
     sendJson(response, 404, { error: "Not found" });
     return;

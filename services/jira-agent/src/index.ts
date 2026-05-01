@@ -7,6 +7,29 @@ import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? 4101);
+const agentCard = {
+  agentId: "jira-agent",
+  name: "Jira Agent",
+  description: "External Jira support agent that owns Jira-specific troubleshooting knowledge.",
+  systems: ["Jira"],
+  endpoint: process.env.JIRA_AGENT_URL ?? "http://localhost:4101/task",
+  auth: { type: "mock_internal_token", audience: "jira-agent" },
+  skills: [
+    {
+      id: "jira.diagnose_user_permission_issue",
+      name: "Diagnose Jira user permission issue",
+      description: "Diagnose user-facing Jira permission problems.",
+      examples: ["I don't have permission to create a Jira ticket", "Jira says I cannot create a ticket in FIN"]
+    },
+    {
+      id: "jira.diagnose_issue_creation_failure",
+      name: "Diagnose Jira issue creation failure",
+      description: "Diagnose Jira issue creation API or sync failures.",
+      examples: ["Jira API returns 403 when creating issues"]
+    },
+    { id: "jira.ask_clarifying_questions", name: "Ask Jira clarifying questions", description: "Ask for Jira project, operation, or error detail." }
+  ]
+};
 
 async function loadRequirements(): Promise<JiraOperationRequirement[]> {
   const filePath = path.resolve(process.cwd(), "../../mock-data/jira-operation-requirements.json");
@@ -26,6 +49,16 @@ function extractProjectKey(message: string): string | undefined {
 }
 
 startJsonServer(port, async (request, response) => {
+  if (request.method === "GET" && request.url === "/health") {
+    sendJson(response, 200, { status: "ok", agentId: "jira-agent" }, request);
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/agent-card") {
+    sendJson(response, 200, agentCard, request);
+    return;
+  }
+
   if (request.method !== "POST" || request.url !== "/task") {
     sendJson(response, 404, { error: "Not found" });
     return;

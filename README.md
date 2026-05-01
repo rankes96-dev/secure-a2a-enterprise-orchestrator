@@ -12,10 +12,12 @@ The ServiceNow-style AI Orchestrator Agent classifies the request, selects exter
 
 - `apps/web-ui` - React + Vite chat UI
 - `services/orchestrator-api` - ServiceNow-style AI Orchestrator Agent API
+- `services/end-user-triage-agent` - local end-user symptom triage agent
 - `services/jira-agent` - local Jira specialist agent
 - `services/github-agent` - local GitHub specialist agent
 - `services/pagerduty-agent` - local PagerDuty specialist agent
 - `services/security-oauth-agent` - local OAuth/security specialist agent
+- `services/api-health-agent` - local API health and rate-limit specialist agent
 - `mock-data` - JSON-only mock enterprise data
 
 ## Requirements
@@ -101,7 +103,7 @@ Expected result:
 - Issue type: `AUTHORIZATION_FAILURE`
 - Selected agents: `jira-agent`, `security-oauth-agent`
 - A2A conversation trace showing user submission, classification, Agent Card selection, task delivery, evidence checks, and final diagnosis
-- Security decision allowing `orchestrator-agent` to call `security-oauth-agent` for `security.scope.compare`
+- Security decision allowing `servicenow-orchestrator-agent` to call `security-oauth-agent` for `security.scope.compare`
 - Probable cause: missing OAuth scope `write:jira-work`
 - Recommended fix: add the missing scope and reauthorize the Jira OAuth app
 
@@ -119,13 +121,15 @@ Expected GitHub result:
 - Error code: 403
 - Issue type: `RATE_LIMIT`
 - Operation: `repository_scan`
-- Selected agents: `github-agent`, `security-oauth-agent`
+- Initial selected agent: `github-agent`
+- GitHub Agent requests mediated delegation to `api-health-agent` for `api_health.diagnose_rate_limit`
+- A2A conversation trace shows the GitHub delegation request, orchestrator validation, policy decision, and mediated API Health task
 - Probable cause: GitHub API rate limit was exhausted during the nightly repository scan
 - Recommended fix: throttle scan concurrency, add retry/backoff handling, and schedule repository scans in batches
 
 ## Notes
 
-- No authentication is implemented.
+- No production-grade OAuth/OIDC is implemented yet. The demo includes API key/session protection for the orchestrator and internal service tokens for mock agent calls.
 - No real Jira, GitHub, PagerDuty, SAP, or OAuth APIs are called.
 - All enterprise evidence comes from JSON files in `mock-data`.
 
@@ -136,7 +140,7 @@ This project simulates a ServiceNow-style AI Orchestrator Agent coordinating wit
 - The ServiceNow Orchestrator Agent owns intake, classification, Agent Card based routing, task creation, response collection, and final support/incident-style summarization.
 - External enterprise agents own system-specific mock knowledge and tools. Jira troubleshooting belongs in `jira-agent`, GitHub repository/API troubleshooting belongs in `github-agent`, PagerDuty alert ingestion belongs in `pagerduty-agent`, and OAuth/security posture belongs in `security-oauth-agent`.
 - Agent Cards in `services/orchestrator-api/src/agentCards.ts` describe available agents, skills, examples, mock audience, and required scopes. The orchestrator selects agents by these cards instead of carrying every Jira/GitHub/PagerDuty troubleshooting rule itself.
-- A2A task envelopes include `taskId`, `conversationId`, `fromAgent`, `toAgent`, `skillId`, support context, target audience, requested scope, and `authMode: "mock_internal_token"`.
+- A2A task envelopes include `taskId`, `conversationId`, `fromAgent`, `toAgent`, `mediatedBy` for delegated tasks, `skillId`, support context, target audience, requested scope, and `authMode: "mock_internal_token"`.
 - Security allow/block decisions remain deterministic and policy-based. The LLM may detect or route a requested action, but `policyEngine.ts` maps the action to permissions and returns the decision.
 
 The orchestrator does not need to know every Jira/GitHub/PagerDuty issue. It selects the external agent that owns the system and summarizes that agent's diagnosis. Everything remains local and mock-based for now; no real enterprise APIs or OAuth flows are called.

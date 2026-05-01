@@ -5,8 +5,39 @@ import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? 4106);
+const agentCard = {
+  agentId: "end-user-triage-agent",
+  name: "End User Triage Agent",
+  description: "Interprets non-technical user complaints and converts them into support context.",
+  systems: ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday"],
+  endpoint: process.env.END_USER_TRIAGE_AGENT_URL ?? "http://localhost:4106/task",
+  auth: { type: "mock_internal_token", audience: "end-user-triage-agent" },
+  skills: [
+    { id: "end_user.triage", name: "End user triage", description: "Interpret a plain-language support issue." },
+    {
+      id: "end_user.ask_clarifying_questions",
+      name: "Ask clarifying questions",
+      description: "Ask for the missing action, error, or affected record when the issue is vague."
+    },
+    {
+      id: "end_user.summarize_user_friendly",
+      name: "User-friendly summary",
+      description: "Convert technical findings into simple support language."
+    }
+  ]
+};
 
 startJsonServer(port, async (request, response) => {
+  if (request.method === "GET" && request.url === "/health") {
+    sendJson(response, 200, { status: "ok", agentId: "end-user-triage-agent" }, request);
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/agent-card") {
+    sendJson(response, 200, agentCard, request);
+    return;
+  }
+
   if (request.method !== "POST" || request.url !== "/task") {
     sendJson(response, 404, { error: "Not found" });
     return;

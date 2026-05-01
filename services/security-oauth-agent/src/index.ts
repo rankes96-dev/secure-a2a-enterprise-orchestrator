@@ -7,6 +7,30 @@ import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? 4104);
+const agentCard = {
+  agentId: "security-oauth-agent",
+  name: "Security OAuth Agent",
+  description: "Security agent that evaluates OAuth, token, scope, permission and policy-sensitive actions.",
+  systems: ["Security", "OAuth", "Identity"],
+  endpoint: process.env.SECURITY_OAUTH_AGENT_URL ?? "http://localhost:4104/task",
+  auth: { type: "mock_internal_token", audience: "security-oauth-agent" },
+  skills: [
+    {
+      id: "security.compare_oauth_scopes",
+      name: "Compare OAuth scopes",
+      description: "Compare required OAuth scopes with mock token scopes.",
+      requiredScopes: ["security.scope.compare"]
+    },
+    {
+      id: "security.inspect_oauth_token",
+      name: "Inspect OAuth token",
+      description: "Inspect raw OAuth token posture.",
+      requiredScopes: ["security.token.inspect"],
+      sensitive: true
+    },
+    { id: "security.evaluate_agent_action", name: "Evaluate agent action", description: "Evaluate agent action policy requirements." }
+  ]
+};
 
 async function loadTokens(): Promise<OAuthTokenRecord[]> {
   const filePath = path.resolve(process.cwd(), "../../mock-data/oauth-tokens.json");
@@ -22,6 +46,16 @@ function requiredScopesFor(task: AgentTask): string[] {
 }
 
 startJsonServer(port, async (request, response) => {
+  if (request.method === "GET" && request.url === "/health") {
+    sendJson(response, 200, { status: "ok", agentId: "security-oauth-agent" }, request);
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/agent-card") {
+    sendJson(response, 200, agentCard, request);
+    return;
+  }
+
   if (request.method !== "POST" || request.url !== "/task") {
     sendJson(response, 404, { error: "Not found" });
     return;

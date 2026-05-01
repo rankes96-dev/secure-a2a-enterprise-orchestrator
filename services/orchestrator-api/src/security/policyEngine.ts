@@ -31,7 +31,7 @@ const actionPermissions: Record<RequestedSecurityAction, string> = {
 };
 
 const agentPermissions: Record<string, string[]> = {
-  "orchestrator-agent": [
+  "servicenow-orchestrator-agent": [
     "security.scope.compare",
     "incident.draft.create",
     "apihealth.read",
