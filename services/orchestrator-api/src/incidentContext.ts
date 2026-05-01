@@ -81,9 +81,9 @@ function extractErrorText(message: string): string | undefined {
     return code;
   }
 
-  const knownError = message.match(/\b(permission denied|access denied|invalid credentials|timeout error|login error|sso error|mfa error)\b/i)?.[1];
+  const knownError = message.match(/\b(permission denied|access denied|invalid credentials|password is wrong|wrong password|timeout error|login error|sso error|mfa error)\b/i)?.[1];
   if (knownError) {
-    return knownError.toLowerCase();
+    return knownError.toLowerCase() === "wrong password" ? "password is wrong" : knownError.toLowerCase();
   }
 
   return firstMatch(message, [
@@ -96,9 +96,19 @@ function extractErrorText(message: string): string | undefined {
 }
 
 function extractImpact(message: string): string | undefined {
-  return firstMatch(message, [
-    /\b(all users|one user|a group|all deployments|one service|one repository|production users|finance users|all finance users)\b/i
+  const impact = firstMatch(message, [
+    /\b(all users|one user|only me|everyone|a group|team|all deployments|one service|one repository|production users|finance users|all finance users|it happens for everyone)\b/i
   ]);
+
+  if (impact === "only me") {
+    return "one user";
+  }
+
+  if (impact === "everyone" || impact === "it happens for everyone") {
+    return "all users";
+  }
+
+  return impact;
 }
 
 function assignmentGroupFor(symptom?: string): string {
@@ -154,4 +164,18 @@ export function buildManualIncidentAnswer(context: IncidentContext): string {
     "Please open a ServiceNow incident manually.",
     `Suggested fields: Request type: Incident; Affected system: ${context.targetSystemText ?? "Unknown / needs confirmation"}; Environment: ${context.environment ?? "Unknown"}; Symptom: ${context.symptom ?? "Unknown"}; Error message/code: ${context.errorText ?? "Unknown"}; Suggested assignment group: ${context.suggestedAssignmentGroup}; Business impact: ${context.impact ?? "required"}; Attachments: screenshot, timestamp, affected users/services, and recent change reference.`
   ].join(" ");
+}
+
+export function buildIncidentFollowUpQuestion(context: IncidentContext): string {
+  const captured = [
+    context.targetSystemText ? `affected system: ${context.targetSystemText}` : undefined,
+    context.environment ? `environment: ${context.environment}` : undefined,
+    context.symptom ? `symptom: ${context.symptom}` : undefined
+  ].filter(Boolean).join("; ");
+  const missing = [
+    context.errorText ? undefined : "the exact error message or code",
+    context.impact ? undefined : "whether this affects only you, a group, or all users/services"
+  ].filter(Boolean).join(" and ");
+
+  return `Thanks, I added ${captured || "that context"} to the active enterprise incident. I still need ${missing || "any remaining business impact details"} before recommending a manual ServiceNow incident.`;
 }

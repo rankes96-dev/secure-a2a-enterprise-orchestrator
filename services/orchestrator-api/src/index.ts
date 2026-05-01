@@ -23,7 +23,7 @@ import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExec
 import { routeWithAI } from "./aiRouter";
 import { getAiConfig } from "./config/aiConfig";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
-import { buildManualIncidentAnswer, extractIncidentContext, type IncidentContext } from "./incidentContext";
+import { buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, type IncidentContext } from "./incidentContext";
 import { createSessionCookie, hasValidSession } from "./security/sessionManager";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
@@ -46,6 +46,7 @@ type ConversationState = {
   }>;
   needsMoreInfoCount: number;
   lastRequestInterpretation?: RequestInterpretation;
+  lastIncidentContext?: IncidentContext;
   lastSelectedAgents?: SelectedAgent[];
   lastResolutionStatus?: "resolved" | "needs_more_info" | "unsupported";
 };
@@ -135,15 +136,83 @@ function appendConversationMessage(state: ConversationState, role: "user" | "ass
   state.messages = state.messages.slice(-10);
 }
 
-function updateConversationState(state: ConversationState, response: ResolveResponse): void {
+function mergeIncidentContext(previous: IncidentContext | undefined, current: IncidentContext): IncidentContext {
+  const targetSystemText = current.targetSystemText ?? previous?.targetSystemText;
+  const environment = current.environment ?? previous?.environment;
+  const symptom = current.symptom ?? previous?.symptom;
+  const errorText = current.errorText ?? previous?.errorText;
+  const impact = current.impact ?? previous?.impact;
+  const hasMinimumDetails = Boolean(targetSystemText && symptom && (environment || errorText || impact));
+  const detailCount = [targetSystemText, environment, symptom, errorText, impact].filter(Boolean).length;
+
+  return {
+    targetSystemText,
+    environment,
+    symptom,
+    errorText,
+    impact,
+    suggestedAssignmentGroup: current.symptom ? current.suggestedAssignmentGroup : previous?.suggestedAssignmentGroup ?? current.suggestedAssignmentGroup,
+    confidence: hasMinimumDetails && detailCount >= 4 ? "high" : hasMinimumDetails ? "medium" : "low",
+    hasMinimumDetails
+  };
+}
+
+function updateConversationState(state: ConversationState, response: ResolveResponse, incidentContext?: IncidentContext): void {
   appendConversationMessage(state, "assistant", response.finalAnswer);
   state.lastRequestInterpretation = response.requestInterpretation;
+  if (incidentContext) {
+    state.lastIncidentContext = mergeIncidentContext(state.lastIncidentContext, incidentContext);
+  }
   state.lastSelectedAgents = response.selectedAgents;
   state.lastResolutionStatus = response.resolutionStatus;
 
   if (response.resolutionStatus === "needs_more_info" || response.a2aResponses?.some((item) => item.status === "needs_more_info")) {
     state.needsMoreInfoCount += 1;
   }
+}
+
+function lastUserMessageBeforeLatest(state: ConversationState): string | undefined {
+  return [...state.messages]
+    .slice(0, -1)
+    .reverse()
+    .find((message) => message.role === "user")?.content;
+}
+
+function isLikelyClarificationFollowUp(message: string, state: ConversationState): boolean {
+  if (state.needsMoreInfoCount <= 0 || state.lastRequestInterpretation?.scope !== "enterprise_support") {
+    return false;
+  }
+
+  const trimmed = message.trim();
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  const contextPattern =
+    /\b(production|prod|staging|stage|dev|test|qa|sandbox|all users|only me|one user|everyone|login error|permission denied|build stage|deploy stage|sso|mfa|since yesterday|all finance users|one repository|happens for everyone|timeout error|access denied|invalid credentials|team|group)\b/i;
+
+  return wordCount <= 8 || contextPattern.test(trimmed);
+}
+
+function buildEffectiveMessageForRouting(state: ConversationState, currentMessage: string): string {
+  if (!isLikelyClarificationFollowUp(currentMessage, state)) {
+    return currentMessage;
+  }
+
+  const previous = state.lastRequestInterpretation;
+
+  return [
+    "Previous enterprise support issue:",
+    lastUserMessageBeforeLatest(state) ?? "unknown",
+    "",
+    "Previous interpretation:",
+    `scope=${previous?.scope ?? "unknown"}`,
+    `intent=${previous?.intentType ?? "unknown"}`,
+    `targetSystem=${previous?.targetSystemText ?? "unknown"}`,
+    `requestedAction=${previous?.requestedActionText ?? "unknown"}`,
+    "",
+    "User follow-up:",
+    currentMessage,
+    "",
+    "Interpret the follow-up as additional context for the previous issue. Do not treat it as a new standalone request."
+  ].join("\n");
 }
 
 function buildDiagnosis(agentResponses: A2AAgentResponse[]): ResolveResponse["diagnosis"] {
@@ -202,7 +271,8 @@ function shouldReturnManualIncidentGuidance(params: {
     isEnterpriseIncidentIntent(params.interpretation) &&
     params.interpretation?.intentType !== "security_sensitive_action" &&
     hasOnlyGenericFallbackAgents(params.selectedAgents) &&
-    params.context.hasMinimumDetails
+    params.context.hasMinimumDetails &&
+    Boolean(params.context.errorText || params.context.impact)
   );
 }
 
@@ -439,7 +509,9 @@ async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
 async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveResponse> {
   const conversationState = getOrCreateConversationState(requestBody.conversationId);
   appendConversationMessage(conversationState, "user", requestBody.message);
-  const routingDecision = await routeWithAI(requestBody.message);
+  const effectiveMessage = buildEffectiveMessageForRouting(conversationState, requestBody.message);
+  const isClarificationFollowUp = effectiveMessage !== requestBody.message;
+  const routingDecision = await routeWithAI(effectiveMessage);
   const classification = routingDecision.classification;
   const conversationId = conversationState.conversationId;
   const incidentInterpretation =
@@ -459,11 +531,12 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
           ].filter(Boolean).join(" ") || undefined
         }
       : routingDecision.requestInterpretation;
-  const incidentContext = extractIncidentContext(requestBody.message, incidentInterpretation);
-  const sensitiveAction = detectSensitiveAction(requestBody.message, routingDecision.requestInterpretation);
+  const incidentContext = extractIncidentContext(effectiveMessage, incidentInterpretation);
+  const mergedIncidentContext = mergeIncidentContext(conversationState.lastIncidentContext, incidentContext);
+  const sensitiveAction = detectSensitiveAction(`${effectiveMessage}\n${requestBody.message}`, routingDecision.requestInterpretation);
   const finalize = (response: ResolveResponse): ResolveResponse => {
     const finalResponse = { ...response, conversationId };
-    updateConversationState(conversationState, finalResponse);
+    updateConversationState(conversationState, finalResponse, mergedIncidentContext);
     return finalResponse;
   };
 
@@ -525,7 +598,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       ],
       securityDecision: policyDecision,
       securityDecisions: [policyDecision],
-      requestInterpretation: routingDecision.requestInterpretation,
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
       a2aTasks: [],
       a2aResponses: [],
       diagnosis,
@@ -536,12 +609,12 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   if (
     shouldReturnManualIncidentGuidance({
       state: conversationState,
-      interpretation: routingDecision.requestInterpretation,
+      interpretation: incidentInterpretation,
       selectedAgents: routingDecision.selectedAgents,
-      context: incidentContext
+      context: mergedIncidentContext
     })
   ) {
-    const finalAnswer = buildManualIncidentAnswer(incidentContext);
+    const finalAnswer = buildManualIncidentAnswer(mergedIncidentContext);
     const diagnosis = {
       probableCause: "Unsupported enterprise incident workflow",
       recommendedFix: "Open a ServiceNow incident manually with the suggested fields."
@@ -560,10 +633,12 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       evidence: [],
       agentTrace: [
         trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
+        ...(isClarificationFollowUp ? [trace("merge_follow_up_context", "Interpreted the short user reply as context for the previous enterprise support issue.")] : []),
         trace("manual_incident_recommended", "Enough incident context was provided, but no specialist Agent Card capability is available.")
       ],
       executionTrace: [
         executionStep("user", "submit_issue", requestBody.message),
+        ...(isClarificationFollowUp ? [executionStep("orchestrator", "merge_follow_up_context", "Interpreted the short user reply as context for the previous enterprise support issue.")] : []),
         ...(routingDecision.requestInterpretation
           ? [
               executionStep(
@@ -577,6 +652,50 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       ],
       securityDecisions: [],
       requestInterpretation: routingDecision.requestInterpretation,
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  if (
+    isClarificationFollowUp &&
+    isEnterpriseIncidentIntent(incidentInterpretation) &&
+    mergedIncidentContext.targetSystemText &&
+    mergedIncidentContext.symptom &&
+    mergedIncidentContext.environment &&
+    !mergedIncidentContext.errorText &&
+    !mergedIncidentContext.impact
+  ) {
+    const finalAnswer = buildIncidentFollowUpQuestion(mergedIncidentContext);
+    const diagnosis = {
+      probableCause: "More incident detail is needed before manual incident guidance can be completed",
+      recommendedFix: "Collect the exact error and impact, then open a ServiceNow incident if no specialist Agent Card capability exists."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer,
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "Interpreted short follow-up as context for the active enterprise incident.",
+      resolutionStatus: "needs_more_info",
+      evidence: [],
+      agentTrace: [
+        trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
+        trace("merge_follow_up_context", "Interpreted the short user reply as context for the previous enterprise support issue."),
+        trace("ask_for_remaining_incident_context", "Captured environment but still needs exact error and impact details.")
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "merge_follow_up_context", "Interpreted the short user reply as context for the previous enterprise support issue."),
+        executionStep("orchestrator", "ask_for_remaining_incident_context", "Asked for exact error and impact details before manual incident handoff.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
       a2aTasks: [],
       a2aResponses: [],
       diagnosis
@@ -1070,9 +1189,9 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       state: conversationState,
       interpretation: routingDecision.requestInterpretation,
       selectedAgents: routingDecision.selectedAgents,
-      context: incidentContext
+      context: mergedIncidentContext
     })
-      ? incidentContext
+      ? mergedIncidentContext
       : undefined;
 
   return finalize({

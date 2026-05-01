@@ -471,6 +471,7 @@ function App() {
             <section>
               <h2>Demo Flow Type</h2>
               <div className="flow-type">{inferDemoFlowType(latestResponse)}</div>
+              <p className="muted-note">Conversation ID: {latestResponse.conversationId ?? conversationId ?? "new"}</p>
             </section>
 
             {latestResponse.resolutionStatus === "unsupported" && inferDemoFlowType(latestResponse) !== "Out of scope" ? (
