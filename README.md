@@ -163,6 +163,52 @@ Unknown audience and unknown scope checks should also fail:
 - `audience=unknown-agent` returns `403 audience_not_allowed`.
 - `scope=jira.admin` returns `403 scope_not_allowed`.
 
+### Phase 2: A2A JWT validation helper
+
+The shared package now includes a reusable A2A JWT validation helper for the next Secure A2A Identity phase. The Mock Identity Provider issues audience-bound, scoped RS256 JWTs, and `verifyA2AToken` validates:
+
+- `Authorization: Bearer <token>` format
+- issuer
+- audience
+- signature through the JWKS endpoint
+- expiration
+- required scope from either `scope` or `scp`
+
+Agents do not enforce this yet. Current A2A task delivery still uses `authMode: "mock_internal_token"` until a later phase switches orchestrator-to-agent calls to Bearer JWTs.
+
+Future agent-side usage:
+
+```ts
+const authResult = await verifyA2AToken({
+  authorizationHeader: request.headers.authorization,
+  expectedIssuer: process.env.A2A_ISSUER ?? "http://localhost:4110",
+  expectedAudience: "jira-agent",
+  requiredScope: task.context.requestedScope,
+  jwksUri: process.env.A2A_JWKS_URI ?? "http://localhost:4110/.well-known/jwks.json"
+});
+```
+
+Manual validation:
+
+```bash
+npm run dev
+npm run verify:a2a-token
+```
+
+Expected result:
+
+- `valid.valid=true`
+- `valid.reason=A2A JWT validated`
+- `valid.claims.aud=jira-agent`
+- `valid.claims.scopes` includes `jira.diagnose`
+
+The script also prints safe negative validation results without printing the raw token:
+
+- wrong audience returns `valid=false`
+- missing scope returns `valid=false`
+- missing Authorization header returns `valid=false`
+- invalid Bearer value returns `valid=false`
+
 ## Try it
 
 Send this message in the chat UI:

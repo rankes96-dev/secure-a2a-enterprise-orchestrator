@@ -368,3 +368,5 @@ export interface GitHubRateLimitEvent {
     samlSsoAuthorized: boolean;
   };
 }
+
+export * from "./auth/verifyA2AToken";
