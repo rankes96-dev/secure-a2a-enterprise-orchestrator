@@ -751,6 +751,7 @@ function App() {
                         targetAudience: task.context.targetAudience,
                         requestedScope: task.context.requestedScope,
                         authMode: task.context.authMode,
+                        auth: task.context.auth,
                         mediatedBy: task.mediatedBy,
                         delegationDepth: task.delegationDepth,
                         parentTaskId: task.parentTaskId,

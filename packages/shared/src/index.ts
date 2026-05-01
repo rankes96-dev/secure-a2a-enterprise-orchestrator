@@ -217,6 +217,16 @@ export type A2AAuthValidationResult = {
   claims?: A2ATokenClaims;
 };
 
+export type A2ATaskAuthMetadata = {
+  authMode: A2AAuthMode;
+  issuer?: string;
+  audience?: string;
+  scope?: string;
+  tokenIssued?: boolean;
+  tokenValidated?: boolean;
+  validationReason?: string;
+};
+
 export interface A2ATask {
   taskId: string;
   conversationId: string;
@@ -240,6 +250,7 @@ export interface A2ATask {
     targetAudience?: string;
     requestedScope?: string;
     authMode?: A2AAuthMode;
+    auth?: A2ATaskAuthMetadata;
     delegationContext?: Record<string, unknown>;
   };
 }

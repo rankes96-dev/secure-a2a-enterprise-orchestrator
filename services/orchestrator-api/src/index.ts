@@ -24,6 +24,7 @@ import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExec
 import { routeWithAI } from "./aiRouter";
 import { getAiConfig } from "./config/aiConfig";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
+import { getA2AAccessToken } from "./security/tokenClient";
 import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext";
 import { interpretFollowUp } from "./followUpInterpreter";
 import { createSessionCookie, hasValidSession } from "./security/sessionManager";
@@ -38,6 +39,7 @@ const rateLimitMaxRequests = Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 30);
 const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 const orchestratorAgentId = "servicenow-orchestrator-agent";
 const MAX_DELEGATION_DEPTH = 1;
+const a2aAuthMode = process.env.A2A_AUTH_MODE === "oauth2_client_credentials_jwt" ? "oauth2_client_credentials_jwt" : "mock_internal_token";
 
 type ConversationState = {
   conversationId: string;
@@ -349,6 +351,7 @@ function createA2ATask(params: {
   parentTaskId?: string;
   requestedByAgent?: string;
   delegationContext?: Record<string, unknown>;
+  authMode?: A2ATask["context"]["authMode"];
 }): A2ATask {
   const card = getAgentCard(params.toAgent);
 
@@ -374,11 +377,73 @@ function createA2ATask(params: {
       targetAgentId: params.toAgent,
       targetAudience: card?.auth.audience,
       requestedScope: params.requestedScope,
-      authMode: "mock_internal_token",
+      authMode: params.authMode ?? "mock_internal_token",
+      auth: {
+        authMode: params.authMode ?? "mock_internal_token",
+        audience: card?.auth.audience,
+        scope: params.requestedScope,
+        tokenIssued: false
+      },
       delegationContext: params.delegationContext
       // TODO: replace mock_internal_token with OAuth 2.0 Client Credentials, JWT access tokens,
       // audience/issuer/scope/JWKS validation, and optional mTLS or DPoP.
     }
+  };
+}
+
+function shouldUseJwtForAgent(agentId: string): boolean {
+  return a2aAuthMode === "oauth2_client_credentials_jwt" && agentId === "jira-agent";
+}
+
+async function prepareA2ARequestAuth(params: {
+  task: A2ATask;
+  targetAudience?: string;
+  requestedScope?: string;
+  executionSteps: ExecutionTraceStep[];
+  traceEntries: AgentTraceEntry[];
+}): Promise<Record<string, string>> {
+  if (!shouldUseJwtForAgent(params.task.toAgent)) {
+    return {
+      "x-internal-service-token": process.env.INTERNAL_SERVICE_TOKEN ?? ""
+    };
+  }
+
+  if (!params.targetAudience || !params.requestedScope) {
+    throw new Error(`Cannot request A2A JWT for ${params.task.toAgent}: missing audience or scope metadata`);
+  }
+
+  params.executionSteps.push({
+    ...executionStep("orchestrator", "request_a2a_access_token", `Requested scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope}`),
+    taskId: params.task.taskId,
+    conversationId: params.task.conversationId,
+    fromAgent: params.task.fromAgent,
+    toAgent: params.task.toAgent,
+    skillId: params.task.skillId
+  });
+  params.traceEntries.push(trace("request_a2a_access_token", `Requested scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope}`));
+
+  const issued = await getA2AAccessToken({
+    audience: params.targetAudience,
+    scope: params.requestedScope
+  });
+  params.task.context.authMode = "oauth2_client_credentials_jwt";
+  params.task.context.auth = {
+    ...issued.metadata,
+    authMode: "oauth2_client_credentials_jwt"
+  };
+
+  params.executionSteps.push({
+    ...executionStep("orchestrator", "attach_a2a_bearer_token", "Attached Bearer token metadata to A2A request; raw token not logged"),
+    taskId: params.task.taskId,
+    conversationId: params.task.conversationId,
+    fromAgent: params.task.fromAgent,
+    toAgent: params.task.toAgent,
+    skillId: params.task.skillId
+  });
+  params.traceEntries.push(trace("attach_a2a_bearer_token", "Attached Bearer token metadata to A2A request; raw token not logged"));
+
+  return {
+    authorization: `Bearer ${issued.accessToken}`
   };
 }
 
@@ -978,6 +1043,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       }
 
       executedDelegations.add(delegationKey);
+      const delegatedRequestedScope = targetSkill?.requiredPermission ?? targetSkill?.requiredScopes?.[0];
       const delegatedTask = createA2ATask({
         conversationId: parentTask.conversationId,
         fromAgent,
@@ -986,7 +1052,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         message: parentTask.userMessage,
         classification,
         securityDecision: policyDecision,
-        requestedScope: requiredPermissionForSkill(targetSkill),
+        requestedScope: delegatedRequestedScope,
         mediatedBy: orchestratorAgentId,
         delegationDepth: nextDepth,
         parentTaskId: parentTask.taskId,
@@ -996,9 +1062,14 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       a2aTasks.push(delegatedTask);
 
       try {
-        const response = await postJson<AgentResponse | A2AAgentResponse>(targetCard!.endpoint, delegatedTask, {
-          "x-internal-service-token": process.env.INTERNAL_SERVICE_TOKEN ?? ""
+        const headers = await prepareA2ARequestAuth({
+          task: delegatedTask,
+          targetAudience: targetCard!.auth.audience,
+          requestedScope: delegatedRequestedScope,
+          executionSteps: delegationExecutionSteps,
+          traceEntries: orchestratorTrace
         });
+        const response = await postJson<AgentResponse | A2AAgentResponse>(targetCard!.endpoint, delegatedTask, headers);
         const normalizedResponse = normalizeAgentResponse(delegation.targetAgentId, response);
         a2aResponses.push(normalizedResponse);
         delegationExecutionSteps.push({
@@ -1100,6 +1171,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     }
 
     const requestedScopes = requestedScopesForSkill(skillMetadata);
+    const requestedScope = requiredPermissionForSkill(skillMetadata) ?? requestedScopes[0];
     const a2aTask = createA2ATask({
       conversationId,
       toAgent: agent.agentId,
@@ -1107,14 +1179,19 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       message: requestBody.message,
       classification,
       securityDecision: taskSecurityDecision,
-      requestedScope: requiredPermissionForSkill(skillMetadata) ?? requestedScopes[0]
+      requestedScope
     });
     a2aTasks.push(a2aTask);
 
     try {
-      const response = await postJson<AgentResponse | A2AAgentResponse>(card.endpoint, a2aTask, {
-        "x-internal-service-token": process.env.INTERNAL_SERVICE_TOKEN ?? ""
+      const headers = await prepareA2ARequestAuth({
+        task: a2aTask,
+        targetAudience: card.auth.audience,
+        requestedScope,
+        executionSteps: delegationExecutionSteps,
+        traceEntries: orchestratorTrace
       });
+      const response = await postJson<AgentResponse | A2AAgentResponse>(card.endpoint, a2aTask, headers);
       const normalizedResponse = normalizeAgentResponse(agent.agentId, response);
       a2aResponses.push(normalizedResponse);
       await processRequestedDelegations(normalizedResponse, a2aTask);
