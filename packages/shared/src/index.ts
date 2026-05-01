@@ -189,6 +189,38 @@ export interface AgentResponse {
   trace: AgentTraceEntry[];
 }
 
+export type A2AAuthMode =
+  | "mock_internal_token"
+  | "oauth2_client_credentials_jwt";
+
+export type A2ATokenClaims = {
+  iss: string;
+  sub: string;
+  aud: string;
+  scope?: string;
+  scp?: string[];
+  exp: number;
+  iat: number;
+  jti: string;
+  client_id: string;
+  actor?: string;
+  delegated_by?: string;
+  delegation_depth?: number;
+};
+
+export type A2ATokenResponse = {
+  access_token: string;
+  token_type: "Bearer";
+  expires_in: number;
+  scope: string;
+};
+
+export type A2AAuthValidationResult = {
+  valid: boolean;
+  reason: string;
+  claims?: A2ATokenClaims;
+};
+
 export interface A2ATask {
   taskId: string;
   conversationId: string;
@@ -211,7 +243,7 @@ export interface A2ATask {
     targetAgentId?: string;
     targetAudience?: string;
     requestedScope?: string;
-    authMode?: "mock_internal_token";
+    authMode?: A2AAuthMode;
     delegationContext?: Record<string, unknown>;
   };
 }

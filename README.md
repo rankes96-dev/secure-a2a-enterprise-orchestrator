@@ -18,6 +18,7 @@ The ServiceNow-style AI Orchestrator Agent classifies the request, selects exter
 - `services/pagerduty-agent` - local PagerDuty specialist agent
 - `services/security-oauth-agent` - local OAuth/security specialist agent
 - `services/api-health-agent` - local API health and rate-limit specialist agent
+- `services/mock-identity-provider` - local OAuth2/JWT identity provider skeleton for future Secure A2A Identity phases
 - `mock-data` - JSON-only mock enterprise data
 
 ## Requirements
@@ -87,6 +88,65 @@ The local services run on:
 - PagerDuty Agent: `http://localhost:4103`
 - Security/OAuth Agent: `http://localhost:4104`
 - API Health Agent: `http://localhost:4105`
+- End-user Triage Agent: `http://localhost:4106`
+- Mock Identity Provider: `http://localhost:4110`
+
+## Mock Identity Provider
+
+Phase 1 of Secure A2A Identity adds a local mock OAuth2 Client Credentials issuer, but the orchestrator still sends existing A2A tasks with `authMode: "mock_internal_token"` for now. Agents do not validate JWTs yet.
+
+Mock identity provider environment:
+
+```env
+PORT=4110
+A2A_ISSUER=http://localhost:4110
+ORCHESTRATOR_CLIENT_SECRET=dev-secret
+A2A_TOKEN_TTL_SECONDS=300
+```
+
+Future orchestrator identity environment:
+
+```env
+A2A_IDP_URL=http://localhost:4110
+A2A_AUTH_MODE=mock_internal_token
+ORCHESTRATOR_CLIENT_ID=servicenow-orchestrator-agent
+ORCHESTRATOR_CLIENT_SECRET=dev-secret
+```
+
+Manual local checks:
+
+```bash
+curl http://localhost:4110/health
+curl http://localhost:4110/.well-known/jwks.json
+
+curl -X POST http://localhost:4110/oauth/token \
+  -H "content-type: application/json" \
+  -d '{
+    "grant_type": "client_credentials",
+    "client_id": "servicenow-orchestrator-agent",
+    "client_secret": "dev-secret",
+    "audience": "jira-agent",
+    "scope": "jira.diagnose"
+  }'
+```
+
+Expected result: a Bearer JWT response scoped to `jira.diagnose`.
+
+Negative check:
+
+```bash
+curl -X POST http://localhost:4110/oauth/token \
+  -H "content-type: application/json" \
+  -d '{
+    "grant_type": "client_credentials",
+    "client_id": "servicenow-orchestrator-agent",
+    "client_secret": "dev-secret",
+    "audience": "security-oauth-agent",
+    "scope": "security.token.inspect"
+  }'
+```
+
+Expected result: `403`, with no token issued.
 
 ## Try it
 
