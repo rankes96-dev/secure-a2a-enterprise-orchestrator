@@ -13,11 +13,12 @@ const agentCard = {
   endpoint: process.env.API_HEALTH_AGENT_URL ?? "http://localhost:4105/task",
   auth: { type: "mock_internal_token", audience: "api-health-agent" },
   skills: [
-    { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures." },
+    { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"] },
     {
       id: "api_health.diagnose_connectivity_failure",
       name: "Diagnose connectivity failure",
-      description: "Diagnose timeout, DNS, TLS, and connectivity failures."
+      description: "Diagnose timeout, DNS, TLS, and connectivity failures.",
+      capabilities: ["api.connectivity.diagnose", "api.health.diagnose"]
     },
     {
       id: "api_health.diagnose_webhook_delivery",

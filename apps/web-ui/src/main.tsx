@@ -69,12 +69,31 @@ const scenarios = [
         label: "Active Directory Access Request",
         message: "Add me to a helpdesk group in active directory",
         subtitle: "Unsupported system should create manual ServiceNow request guidance"
+      },
+      {
+        label: "Salesforce Access Request",
+        message: "Give me access to Salesforce",
+        subtitle: "Access request with no matching identity agent"
+      },
+      {
+        label: "User Provisioning",
+        message: "Create a mailbox for a new employee",
+        subtitle: "Provisioning request should become a manual workflow"
+      },
+      {
+        label: "Out-of-scope Request",
+        message: "i want to order pizza",
+        subtitle: "Non-enterprise request should be rejected without routing to agents"
       }
     ]
   }
 ];
 
 function inferDemoFlowType(response: ResolveResponse): string {
+  if (response.requestInterpretation?.scope === "out_of_scope" || response.routingReasoningSummary.toLowerCase().includes("outside the supported enterprise") || response.agentTrace.some((entry) => entry.action === "out_of_scope")) {
+    return "Out of scope";
+  }
+
   if (response.resolutionStatus === "unsupported") {
     return "Unsupported/manual workflow";
   }
@@ -324,7 +343,7 @@ function App() {
               <div className="flow-type">{inferDemoFlowType(latestResponse)}</div>
             </section>
 
-            {latestResponse.resolutionStatus === "unsupported" ? (
+            {latestResponse.resolutionStatus === "unsupported" && inferDemoFlowType(latestResponse) !== "Out of scope" ? (
               <section className="manual-workflow">
                 <h2>Manual ServiceNow Request Required</h2>
                 <p>{latestResponse.finalAnswer}</p>
@@ -377,6 +396,41 @@ function App() {
                 <p>{latestResponse.classification.reasoningSummary}</p>
               </div>
             </section>
+
+            {latestResponse.requestInterpretation ? (
+              <section>
+                <h2>Request Interpretation</h2>
+                <div className="classification-details">
+                  <div>
+                    <span>Scope</span>
+                    <strong>{latestResponse.requestInterpretation.scope}</strong>
+                  </div>
+                  <div>
+                    <span>Intent</span>
+                    <strong>{latestResponse.requestInterpretation.intentType}</strong>
+                  </div>
+                  <div>
+                    <span>Capability</span>
+                    <strong>{latestResponse.requestInterpretation.requestedCapability ?? "unknown"}</strong>
+                  </div>
+                  <div>
+                    <span>Target System</span>
+                    <strong>{latestResponse.requestInterpretation.targetSystemText ?? "Unknown"}</strong>
+                  </div>
+                  <div>
+                    <span>Resource</span>
+                    <strong>
+                      {[latestResponse.requestInterpretation.targetResourceType, latestResponse.requestInterpretation.targetResourceName].filter(Boolean).join(": ") || "Unknown"}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Requires Approval</span>
+                    <strong>{latestResponse.requestInterpretation.requiresApproval ? "yes" : "no"}</strong>
+                  </div>
+                  <p>{latestResponse.requestInterpretation.reason}</p>
+                </div>
+              </section>
+            ) : null}
 
             <section>
               <h2>ServiceNow Routing</h2>

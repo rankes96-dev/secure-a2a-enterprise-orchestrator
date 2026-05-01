@@ -41,7 +41,7 @@ OPENROUTER_MODEL=openai/gpt-4o-mini
 
 If no API key is configured, if the AI request fails, or if the AI returns an invalid/unsafe agent route, the orchestrator automatically uses the local rules fallback. API keys stay server-side in `services/orchestrator-api/.env` and are never sent to the React frontend.
 
-The AI orchestrator returns both classification and A2A agent routing. The backend validates selected agent IDs and skill IDs against Agent Cards before invoking any local mock agent. AI may classify intent and choose agents, but it never makes final authorization decisions.
+The AI request interpreter first returns structured scope, intent, requested capability, target system text, resource text, and approval hints. The AI router can then return classification and A2A agent routing for supported enterprise requests. The backend validates selected agent IDs, skill IDs, and capabilities against Agent Cards before invoking any local mock agent. AI may interpret intent and choose agents, but it never executes actions or makes final authorization decisions.
 
 Security settings for public hosting:
 
@@ -154,6 +154,21 @@ Expected result:
 - Final answer explains this is an access request, not an incident diagnosis
 - Final answer recommends opening a manual ServiceNow access request with suggested fields for Active Directory, Helpdesk group, business justification, and approver
 
+Other unsupported manual workflows, such as `Give me access to Salesforce` or `Create a mailbox for a new employee`, follow the same pattern. The orchestrator derives the requested capability, checks discovered Agent Cards for a matching skill capability, and returns manual ServiceNow request guidance when no matching identity, access, or provisioning agent exists.
+
+Out-of-scope input:
+
+```text
+i want to order pizza
+```
+
+Expected result:
+
+- Resolution status: `unsupported`
+- No agents are selected or executed
+- No evidence or A2A tasks are created
+- Final answer explains the supported enterprise IT scope instead of asking for an error code
+
 ## Notes
 
 - No production-grade OAuth/OIDC authentication is implemented yet. The demo includes API key/session protection for the orchestrator and internal service tokens for mock agent-to-agent calls.
@@ -170,6 +185,8 @@ This project simulates a ServiceNow-style AI Orchestrator Agent coordinating wit
 - A2A task envelopes include `taskId`, `conversationId`, `fromAgent`, `toAgent`, `mediatedBy` for delegated tasks, `skillId`, support context, target audience, requested scope, and `authMode: "mock_internal_token"`.
 - Security decisions remain deterministic and policy-based: `Allowed`, `Blocked`, `NeedsApproval`, or `NeedsMoreContext`. The LLM may detect or route a requested action, but `policyEngine.ts` maps the action to permissions and returns the decision.
 - Agents can request help from other agents through `requestedDelegations`, but they do not call each other directly. The orchestrator validates Agent Cards, checks policy, prevents loops, invokes the delegated task, and records the trace.
+- The orchestrator first applies an AI-based request interpreter with a safe deterministic fallback. It classifies request scope before agent routing, so consumer or personal requests such as food ordering are rejected before they can invoke the triage agent.
+- Manual enterprise workflows are interpreted generically from the user’s natural language. The interpreter derives a requested capability such as `identity.group_membership.manage`, the orchestrator checks Agent Card skill capabilities, and the response returns manual ServiceNow workflow guidance when no matching agent exists.
 - Future OAuth/OIDC direction: target system agents should return required scopes and permissions as part of their A2A responses; `security-oauth-agent` should compare those requirements against token, user, and app scopes instead of hardcoding every system operation.
 
 The orchestrator does not need to know every Jira/GitHub/PagerDuty issue. It selects the external agent that owns the system and summarizes that agent's diagnosis. Everything remains local and mock-based for now; no real enterprise APIs or OAuth flows are called.

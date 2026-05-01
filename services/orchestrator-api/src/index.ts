@@ -15,11 +15,11 @@ import type {
   SecurityDecision
 } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
-import { buildManualAccessRequestAnswer, detectAccessRequestIntent } from "./accessRequest";
 import { discoverAgentCards, getAgentCard } from "./agentCards";
 import { routeWithAI } from "./aiRouter";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
 import { createSessionCookie, hasValidSession } from "./security/sessionManager";
+import { buildManualWorkflowAnswer } from "./requestInterpreter";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -321,12 +321,18 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
 
   if (routingDecision.selectedAgents.length === 0) {
     const needsMoreInfo = routingDecision.resolutionStatus === "needs_more_info";
-    const accessRequest = detectAccessRequestIntent(requestBody.message);
-    const unsupportedAccessRequest = routingDecision.resolutionStatus === "unsupported" && accessRequest.isAccessRequest;
-    const diagnosis = unsupportedAccessRequest
+    const interpretation = routingDecision.requestInterpretation;
+    const unsupportedManualWorkflow = routingDecision.resolutionStatus === "unsupported" && interpretation?.scope === "manual_enterprise_workflow";
+    const outOfScope = routingDecision.resolutionStatus === "unsupported" && interpretation?.scope === "out_of_scope";
+    const diagnosis = unsupportedManualWorkflow
       ? {
           probableCause: "Unsupported manual access request workflow",
-          recommendedFix: "Open a ServiceNow access request manually for the requested group membership change."
+          recommendedFix: "Open a ServiceNow request manually for the requested enterprise workflow."
+        }
+      : outOfScope
+        ? {
+          probableCause: "Request is outside enterprise support scope",
+          recommendedFix: "Ask for help with IT incidents, integration failures, access requests, security policy checks, or supported enterprise systems."
         }
       : needsMoreInfo
       ? {
@@ -337,9 +343,11 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       : {
           probableCause: "Scenario not implemented yet",
           recommendedFix: "Use the Jira 403 Missing Scope or GitHub Rate Limit scenario for the fully wired local agent flow."
-        };
-    const finalAnswer = unsupportedAccessRequest
-      ? buildManualAccessRequestAnswer(accessRequest)
+    };
+    const finalAnswer = unsupportedManualWorkflow
+      ? buildManualWorkflowAnswer(interpretation)
+      : outOfScope
+        ? buildManualWorkflowAnswer(interpretation)
       : needsMoreInfo
       ? "I need more details before I can route this to the right agent. Please provide the error message or code, what operation failed, and which system Monday.com is syncing with."
       : `${diagnosis.probableCause}. ${diagnosis.recommendedFix}`;
@@ -357,9 +365,11 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       agentTrace: [
         trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
         trace(
-          unsupportedAccessRequest ? "unsupported_manual_workflow" : needsMoreInfo ? "needs_more_info" : "skip_unimplemented_scenario",
-          unsupportedAccessRequest
-            ? "No Active Directory or Identity Access agent is available for this access request"
+          outOfScope ? "out_of_scope" : unsupportedManualWorkflow ? "unsupported_manual_workflow" : needsMoreInfo ? "needs_more_info" : "skip_unimplemented_scenario",
+          outOfScope
+            ? "Request is outside enterprise support scope"
+            : unsupportedManualWorkflow
+            ? "No matching enterprise workflow agent capability is available"
             : needsMoreInfo
             ? "No specialist agents were executed because the issue lacks diagnostic details"
             : "No local specialist workflow is implemented for this scenario yet"
@@ -367,6 +377,15 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       ],
       executionTrace: [
         executionStep("user", "submit_issue", requestBody.message),
+        ...(interpretation
+          ? [
+              executionStep(
+                "orchestrator",
+                "interpret_request",
+                `${interpretation.scope} / ${interpretation.intentType}: ${interpretation.reason}`
+              )
+            ]
+          : []),
         executionStep(
           "orchestrator",
           "classify_issue",
@@ -374,17 +393,21 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         ),
         executionStep(
           "orchestrator",
-          unsupportedAccessRequest ? "skip_agent_execution" : needsMoreInfo ? "skip_agent_execution" : "return_not_implemented",
-          unsupportedAccessRequest
-            ? "Did not execute specialist agents because no Active Directory or Identity Access agent is available"
+          outOfScope || unsupportedManualWorkflow ? "skip_agent_execution" : needsMoreInfo ? "skip_agent_execution" : "return_not_implemented",
+          outOfScope
+            ? "Did not execute specialist agents because the request is outside enterprise support scope"
+            : unsupportedManualWorkflow
+            ? "Did not execute specialist agents because no matching Agent Card capability is available"
             : needsMoreInfo
             ? "Did not execute specialist agents because the issue lacks diagnostic details"
             : "Scenario not implemented yet"
         ),
         executionStep(
           "orchestrator",
-          unsupportedAccessRequest ? "return_manual_request_guidance" : needsMoreInfo ? "ask_for_more_information" : "return_response",
-          unsupportedAccessRequest
+          outOfScope ? "return_supported_scope_guidance" : unsupportedManualWorkflow ? "return_manual_request_guidance" : needsMoreInfo ? "ask_for_more_information" : "return_response",
+          outOfScope
+            ? "Returned supported enterprise scope guidance"
+            : unsupportedManualWorkflow
             ? "Returned manual ServiceNow access request guidance"
             : needsMoreInfo
               ? "Asked the user for the error code, failed operation, and integration direction"
@@ -394,6 +417,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       a2aTasks: [],
       a2aResponses: [],
       securityDecisions: [],
+      requestInterpretation: interpretation,
       diagnosis
     };
   }
@@ -738,6 +762,15 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     : routingDecision.resolutionStatus;
   const executionTrace = [
     executionStep("user", "submit_issue", requestBody.message),
+    ...(routingDecision.requestInterpretation
+      ? [
+          executionStep(
+            "orchestrator",
+            "interpret_request",
+            `${routingDecision.requestInterpretation.scope} / ${routingDecision.requestInterpretation.intentType}: ${routingDecision.requestInterpretation.reason}`
+          )
+        ]
+      : []),
     executionStep("orchestrator", "route_issue", `${routingDecision.routingSource} routing decision: ${routingDecision.routingReasoningSummary}`),
     executionStep("orchestrator", "classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
     ...routingDecision.selectedAgents.map((agent) => ({
@@ -780,6 +813,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     executionTrace,
     securityDecision,
     securityDecisions,
+    requestInterpretation: routingDecision.requestInterpretation,
     a2aTasks,
     a2aResponses,
     diagnosis

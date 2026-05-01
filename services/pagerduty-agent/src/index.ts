@@ -16,7 +16,8 @@ const agentCard = {
     {
       id: "pagerduty.diagnose_alert_ingestion_failure",
       name: "Diagnose alert ingestion failure",
-      description: "Diagnose alerts that do not open incidents."
+      description: "Diagnose alerts that do not open incidents.",
+      capabilities: ["incident.alert_ingestion.diagnose"]
     },
     { id: "pagerduty.diagnose_event_rate_limit", name: "Diagnose event rate limit", description: "Diagnose event ingestion rate limiting." }
   ]

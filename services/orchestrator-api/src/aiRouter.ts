@@ -9,12 +9,13 @@ import type {
   IssueType,
   ReporterType,
   RoutingDecision,
+  RequestInterpretation,
   SelectedAgent,
   SkippedAgent
 } from "@a2a/shared";
-import { getAgentCard, getExecutableAgentCards, isExecutableAgentCard } from "./agentCards";
+import { findAgentSkillByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard } from "./agentCards";
 import { getAiConfig } from "./config/aiConfig";
-import { detectAccessRequestIntent } from "./accessRequest";
+import { interpretRequest } from "./requestInterpreter";
 
 const systems: EnterpriseSystem[] = ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday", "Unknown"];
 const errorCodes: ErrorCode[] = ["401", "403", "404", "429", "500", "502", "503", "504"];
@@ -60,6 +61,13 @@ Rules:
 - Do not select end-user-triage-agent for technical sync/API prompts unless the user phrased the issue as a plain-language end-user complaint.
 - If the issue is vague, select no specialist agents or only end-user-triage-agent and ask for more details.
 - If the user is requesting access, group membership, permission grants, or user provisioning for a system that has no matching Agent Card, classify it as an unsupported manual workflow. Do not ask for incident diagnostics and do not route to unrelated agents.
+- First determine whether the user is reporting a failure or requesting a service/action.
+- If the user asks to be added to a group, granted access, provisioned, made admin, or assigned permissions, classify it as an access_request / permission_change / user_provisioning intent.
+- Do not ask for an error code when the user is clearly making an access/service request.
+- If no available Agent Card skill can satisfy the requested capability, return selectedAgents: [] and resolutionStatus: "unsupported".
+- Do not route unsupported access requests to unrelated agents.
+- Do not route generic access requests to security-oauth-agent unless the user specifically asks for OAuth/token/scope inspection.
+- Do not pretend the action was executed.
 - Never decide Allowed or Blocked authorization. Security authorization is decided later by the policy engine.
 - Never invent agent IDs or skill IDs.
 
@@ -132,7 +140,23 @@ Expected selectedAgents:
 Expected resolutionStatus:
 "unsupported"
 Expected routingReasoningSummary:
-"The user is making an Active Directory access request, but no Active Directory or identity access agent is available."
+"Access request detected, but no identity or directory management agent is available."
+
+User: "Give me access to Salesforce"
+Expected selectedAgents:
+[]
+Expected resolutionStatus:
+"unsupported"
+Expected routingReasoningSummary:
+"Access request detected, but no Salesforce or identity access agent is available."
+
+User: "Create a mailbox for a new employee"
+Expected selectedAgents:
+[]
+Expected resolutionStatus:
+"unsupported"
+Expected routingReasoningSummary:
+"User provisioning request detected, but no provisioning agent is available."
 
 Return JSON only:
 {
@@ -276,20 +300,56 @@ function completeSkippedAgents(selectedAgents: SelectedAgent[], explicitSkipped:
     }));
 }
 
-export function routeWithRules(message: string, reason = "AI routing unavailable; Agent Card rules fallback was used."): RoutingDecision {
+export function routeWithRules(
+  message: string,
+  reason = "AI routing unavailable; Agent Card rules fallback was used.",
+  requestInterpretation?: RequestInterpretation
+): RoutingDecision {
   const lower = message.toLowerCase();
-  const classification = classifyForRouting(message, reason);
-  const accessRequest = detectAccessRequestIntent(message);
+  const interpretation = requestInterpretation;
 
-  if (accessRequest.isAccessRequest) {
+  if (interpretation?.scope === "out_of_scope") {
+    return {
+      classification: {
+        system: "Unknown",
+        issueType: "UNKNOWN",
+        operation: "unknown",
+        confidence: "high",
+        reasoningSummary: interpretation.reason,
+        classificationSource: "rules_fallback",
+        reporterType: "unknown",
+        supportMode: "end_user_support"
+      },
+      selectedAgents: [],
+      skippedAgents: getExecutableAgentCards().map((card) => ({
+        agentId: card.agentId,
+        reason: "Request is outside enterprise support scope."
+      })),
+      routingSource: "rules_fallback",
+      routingConfidence: "high",
+      routingReasoningSummary: interpretation.reason,
+      resolutionStatus: "unsupported",
+      requestInterpretation: interpretation
+    };
+  }
+
+  const classification = classifyForRouting(message, reason);
+  const matchingCapability = interpretation?.requestedCapability ? findAgentSkillByCapability(interpretation.requestedCapability) : undefined;
+  const shouldUseExistingPolicyRoute =
+    interpretation?.intentType === "permission_change" &&
+    classification.system === "Jira" &&
+    includesAny(lower, ["grant", "give me", "permission", "access"]) &&
+    includesAny(lower, ["ticket", "tickets", "issue", "issues"]);
+
+  if (interpretation?.scope === "manual_enterprise_workflow" && !matchingCapability && !shouldUseExistingPolicyRoute) {
     return {
       classification: {
         ...classification,
         system: "Unknown",
         issueType: classification.issueType === "UNKNOWN" ? "AUTHORIZATION_FAILURE" : classification.issueType,
         operation: "unknown",
-        confidence: accessRequest.targetSystem === "Active Directory" ? "high" : "medium",
-        reasoningSummary: "Access request detected for a system without a matching Agent Card.",
+        confidence: "high",
+        reasoningSummary: "Manual enterprise workflow detected for a capability without a matching Agent Card.",
         reporterType: "end_user",
         supportMode: "end_user_support"
       },
@@ -297,8 +357,37 @@ export function routeWithRules(message: string, reason = "AI routing unavailable
       skippedAgents: completeSkippedAgents([]),
       routingSource: "rules_fallback",
       routingConfidence: "high",
-      routingReasoningSummary: "Access request detected, but no Active Directory/Identity Access agent is available.",
-      resolutionStatus: "unsupported"
+      routingReasoningSummary: interpretation.reason,
+      resolutionStatus: "unsupported",
+      requestInterpretation: interpretation
+    };
+  }
+
+  if (interpretation?.scope === "manual_enterprise_workflow" && matchingCapability && !shouldUseExistingPolicyRoute) {
+    const selectedAgents = [
+      select(
+        matchingCapability.agent.agentId,
+        "primary",
+        matchingCapability.skill.id,
+        `Agent Card capability ${interpretation.requestedCapability} matches this manual enterprise workflow.`
+      )
+    ];
+
+    return {
+      classification: {
+        ...classification,
+        confidence: "high",
+        reasoningSummary: interpretation.reason,
+        reporterType: "end_user",
+        supportMode: "end_user_support"
+      },
+      selectedAgents,
+      skippedAgents: completeSkippedAgents(selectedAgents),
+      routingSource: "rules_fallback",
+      routingConfidence: "high",
+      routingReasoningSummary: interpretation.reason,
+      resolutionStatus: "resolved",
+      requestInterpretation: interpretation
     };
   }
 
@@ -310,7 +399,8 @@ export function routeWithRules(message: string, reason = "AI routing unavailable
       routingSource: "rules_fallback",
       routingConfidence: "low",
       routingReasoningSummary: "The issue mentions Monday.com but does not include the failed action or exact error.",
-      resolutionStatus: "needs_more_info"
+      resolutionStatus: "needs_more_info",
+      requestInterpretation: interpretation
     };
   }
 
@@ -347,7 +437,8 @@ export function routeWithRules(message: string, reason = "AI routing unavailable
     routingSource: "rules_fallback",
     routingConfidence: selectedAgents.length > 0 ? "high" : "low",
     routingReasoningSummary: selectedAgents.length > 0 ? reason : "No Agent Card skill matched enough detail to start a specialist task.",
-    resolutionStatus: selectedAgents.length > 0 ? "resolved" : "needs_more_info"
+    resolutionStatus: selectedAgents.length > 0 ? "resolved" : "needs_more_info",
+    requestInterpretation: interpretation
   };
 }
 
@@ -593,10 +684,11 @@ async function callOpenAi(message: string, apiKey: string, model: string): Promi
 }
 
 export async function routeWithAI(message: string): Promise<RoutingDecision> {
-  const fallback = routeWithRules(message);
+  const requestInterpretation = await interpretRequest(message);
+  const fallback = routeWithRules(message, "AI routing unavailable; Agent Card rules fallback was used.", requestInterpretation);
   const aiConfig = getAiConfig();
 
-  if (fallback.resolutionStatus === "unsupported" && detectAccessRequestIntent(message).isAccessRequest) {
+  if (fallback.resolutionStatus === "unsupported") {
     return fallback;
   }
 
@@ -621,13 +713,13 @@ export async function routeWithAI(message: string): Promise<RoutingDecision> {
     if (!validation.ok) {
       const reason = validation.reasons.join(" ");
       console.warn(`[router] AI routing validation failed; using Agent Card rules fallback: ${reason}`);
-      return routeWithRules(message, `AI routing validation failed; Agent Card rules fallback was used. ${reason}`);
+      return routeWithRules(message, `AI routing validation failed; Agent Card rules fallback was used. ${reason}`, requestInterpretation);
     }
 
-    return validation.decision;
+    return { ...validation.decision, requestInterpretation };
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown AI router error";
     console.warn(`[router] AI routing failed; using Agent Card rules fallback: ${detail}`);
-    return routeWithRules(message, `AI routing failed; Agent Card rules fallback was used. ${detail}`);
+    return routeWithRules(message, `AI routing failed; Agent Card rules fallback was used. ${detail}`, requestInterpretation);
   }
 }

@@ -1,0 +1,315 @@
+import { OpenRouter } from "@openrouter/sdk";
+import OpenAI from "openai";
+import type { RequestInterpretation, RequestIntentType, RequestScope } from "@a2a/shared";
+import { getAiConfig } from "./config/aiConfig";
+
+const scopes: RequestScope[] = ["enterprise_support", "manual_enterprise_workflow", "out_of_scope", "unknown"];
+const intentTypes: RequestIntentType[] = [
+  "incident_diagnosis",
+  "integration_failure",
+  "access_request",
+  "permission_change",
+  "user_provisioning",
+  "security_sensitive_action",
+  "manual_service_request",
+  "unknown"
+];
+
+const interpreterPrompt = `You are a ServiceNow enterprise request interpreter.
+Classify the user's request before agent routing.
+
+Determine:
+- Is this an enterprise IT/support/security/integration request?
+- Is it an incident/diagnosis?
+- Is it an access request?
+- Is it a permission change?
+- Is it user provisioning?
+- Is it a sensitive security action?
+- Is it outside enterprise support scope?
+
+Return JSON only:
+{
+  "scope": "enterprise_support|manual_enterprise_workflow|out_of_scope|unknown",
+  "intentType": "incident_diagnosis|integration_failure|access_request|permission_change|user_provisioning|security_sensitive_action|manual_service_request|unknown",
+  "requestedCapability": "string",
+  "targetSystemText": "string",
+  "targetResourceType": "string",
+  "targetResourceName": "string",
+  "requestedActionText": "string",
+  "requiresApproval": true,
+  "confidence": "low|medium|high",
+  "reason": "string"
+}
+
+Guidance:
+- For IT incidents, integration failures, API errors, login issues, access denied, OAuth, SAML, token, webhooks, monitoring, alerting, tickets, repositories, boards, enterprise apps: scope = "enterprise_support".
+- For requests to grant access, add user to group, remove user from group, make someone admin, create account, create mailbox, provision user: scope = "manual_enterprise_workflow", intentType = access_request / permission_change / user_provisioning, requiresApproval = true.
+- For consumer/personal/non-enterprise requests like ordering pizza, weather, recipes, dating, shopping, travel, games: scope = "out_of_scope".
+- Do not ask for an error code if the user is clearly requesting access/provisioning.
+- Extract targetSystemText as free text. Do not require it to be known.
+- Extract targetResourceName as free text when possible.
+- requestedCapability should be generic and stable.
+- AI may interpret and extract only. It must not authorize, execute, or claim completion.
+
+Capability examples:
+- identity.group_membership.manage
+- identity.access.grant
+- identity.permission.change
+- identity.user.provision
+- oauth.token.inspect
+- oauth.scope.compare
+- api.health.diagnose
+- incident.alert_ingestion.diagnose
+- jira.issue_creation.diagnose
+- github.repository_scan.diagnose
+- unknown
+
+Examples:
+User: "Add me to a helpdesk group in active directory"
+Expected:
+{"scope":"manual_enterprise_workflow","intentType":"access_request","requestedCapability":"identity.group_membership.manage","targetSystemText":"active directory","targetResourceType":"group","targetResourceName":"helpdesk","requestedActionText":"add user to group","requiresApproval":true,"confidence":"high","reason":"The user is requesting a directory group membership change."}
+
+User: "Give me access to Internal Finance Portal"
+Expected:
+{"scope":"manual_enterprise_workflow","intentType":"access_request","requestedCapability":"identity.access.grant","targetSystemText":"Internal Finance Portal","targetResourceType":"application","targetResourceName":"Internal Finance Portal","requestedActionText":"grant access","requiresApproval":true,"confidence":"high","reason":"The user is requesting application access."}
+
+User: "Create a mailbox for a new employee"
+Expected:
+{"scope":"manual_enterprise_workflow","intentType":"user_provisioning","requestedCapability":"identity.user.provision","targetSystemText":"mailbox","targetResourceType":"account","targetResourceName":"mailbox","requestedActionText":"create mailbox","requiresApproval":true,"confidence":"high","reason":"The user is requesting account/mailbox provisioning."}
+
+User: "i want to order pizza"
+Expected:
+{"scope":"out_of_scope","intentType":"unknown","requestedCapability":"unknown","targetSystemText":"pizza ordering","targetResourceType":"consumer_service","requestedActionText":"order pizza","requiresApproval":false,"confidence":"high","reason":"Food ordering is outside the supported enterprise IT support scope."}
+
+User: "Jira sync fails with 403 when creating issues"
+Expected:
+{"scope":"enterprise_support","intentType":"integration_failure","requestedCapability":"jira.issue_creation.diagnose","targetSystemText":"Jira","targetResourceType":"issue","requestedActionText":"diagnose issue creation failure","requiresApproval":false,"confidence":"high","reason":"The user is reporting an enterprise integration failure."}`;
+
+function includesAny(value: string, terms: string[]): boolean {
+  return terms.some((term) => value.includes(term));
+}
+
+function asEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function fallbackTargetAfter(message: string, pattern: RegExp): string | undefined {
+  return message.match(pattern)?.[1]?.trim().replace(/[.?!]$/, "");
+}
+
+export function fallbackInterpretRequest(message: string, reason = "Deterministic fallback request interpretation."): RequestInterpretation {
+  const lower = message.toLowerCase();
+  const clearOutOfScope = includesAny(lower, ["order pizza", "weather", "recipe", "movie", "dating", "shopping"]);
+  const groupMembership = includesAny(lower, ["add me to", "add user to", "add someone to", "remove me from", "remove user from", "join group", "add to group"]);
+  const accessGrant = includesAny(lower, ["grant access", "grant me access", "give access", "give me access", "request access", "need access"]);
+  const provisioning = includesAny(lower, ["create account", "create user", "create mailbox", "create a mailbox", "provision user"]);
+  const permissionChange = includesAny(lower, ["make me admin", "grant role", "add admin role", "change my permissions", "elevate access"]);
+  const sensitiveSecurity = includesAny(lower, ["inspect oauth", "inspect token", "token inspection"]);
+  const failure = includesAny(lower, ["error", "fails", "failed", "failure", "401", "403", "429", "500", "timeout", "access denied", "cannot login", "can't login", "sync", "webhook", "alert", "incident"]);
+
+  if (clearOutOfScope) {
+    return {
+      scope: "out_of_scope",
+      intentType: "unknown",
+      requestedCapability: "unknown",
+      targetSystemText: lower.includes("pizza") ? "pizza ordering" : undefined,
+      targetResourceType: lower.includes("pizza") ? "consumer_service" : undefined,
+      requestedActionText: lower.includes("pizza") ? "order pizza" : undefined,
+      requiresApproval: false,
+      confidence: "high",
+      reason: "The request is outside the supported enterprise IT support scope."
+    };
+  }
+
+  if (groupMembership) {
+    return {
+      scope: "manual_enterprise_workflow",
+      intentType: "access_request",
+      requestedCapability: "identity.group_membership.manage",
+      targetSystemText: fallbackTargetAfter(message, /\bin\s+(.+)$/i),
+      targetResourceType: "group",
+      targetResourceName: fallbackTargetAfter(message, /(?:to|from|join)\s+(?:a\s+|the\s+)?(.+?)\s+group/i),
+      requestedActionText: includesAny(lower, ["remove me from", "remove user from"]) ? "remove user from group" : "add user to group",
+      requiresApproval: true,
+      confidence: "high",
+      reason: "The user is requesting a group membership change."
+    };
+  }
+
+  if (provisioning) {
+    return {
+      scope: "manual_enterprise_workflow",
+      intentType: "user_provisioning",
+      requestedCapability: "identity.user.provision",
+      targetSystemText: lower.includes("mailbox") ? "mailbox" : undefined,
+      targetResourceType: "account",
+      targetResourceName: lower.includes("mailbox") ? "mailbox" : undefined,
+      requestedActionText: lower.includes("mailbox") ? "create mailbox" : "provision user",
+      requiresApproval: true,
+      confidence: "high",
+      reason: "The user is requesting account or user provisioning."
+    };
+  }
+
+  if (permissionChange) {
+    return {
+      scope: "manual_enterprise_workflow",
+      intentType: "permission_change",
+      requestedCapability: "identity.permission.change",
+      targetResourceType: "role",
+      requestedActionText: "change permissions",
+      requiresApproval: true,
+      confidence: "high",
+      reason: "The user is requesting a permission or role change."
+    };
+  }
+
+  if (accessGrant) {
+    const target = fallbackTargetAfter(message, /(?:access to|need access to|request access to)\s+(.+)$/i);
+    return {
+      scope: "manual_enterprise_workflow",
+      intentType: "access_request",
+      requestedCapability: "identity.access.grant",
+      targetSystemText: target,
+      targetResourceType: "application",
+      targetResourceName: target,
+      requestedActionText: "grant access",
+      requiresApproval: true,
+      confidence: "high",
+      reason: "The user is requesting access to an enterprise resource."
+    };
+  }
+
+  if (sensitiveSecurity) {
+    return {
+      scope: "enterprise_support",
+      intentType: "security_sensitive_action",
+      requestedCapability: "oauth.token.inspect",
+      requestedActionText: "inspect OAuth token",
+      requiresApproval: false,
+      confidence: "high",
+      reason: "The user requested a sensitive security action."
+    };
+  }
+
+  if (failure) {
+    return {
+      scope: "enterprise_support",
+      intentType: includesAny(lower, ["sync", "api", "webhook", "401", "403", "429", "500"]) ? "integration_failure" : "incident_diagnosis",
+      requestedCapability: "unknown",
+      requiresApproval: false,
+      confidence: "low",
+      reason
+    };
+  }
+
+  return {
+    scope: "unknown",
+    intentType: "unknown",
+    requestedCapability: "unknown",
+    requiresApproval: false,
+    confidence: "low",
+    reason: "The request could not be confidently interpreted."
+  };
+}
+
+function normalizeInterpretation(value: unknown, fallback: RequestInterpretation): RequestInterpretation {
+  const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  const requestedCapability = optionalString(record.requestedCapability) ?? fallback.requestedCapability;
+
+  return {
+    scope: asEnum(record.scope, scopes, fallback.scope),
+    intentType: requestedCapability === "oauth.token.inspect" ? "security_sensitive_action" : asEnum(record.intentType, intentTypes, fallback.intentType),
+    requestedCapability,
+    targetSystemText: optionalString(record.targetSystemText) ?? fallback.targetSystemText,
+    targetResourceType: optionalString(record.targetResourceType) ?? fallback.targetResourceType,
+    targetResourceName: optionalString(record.targetResourceName) ?? fallback.targetResourceName,
+    requestedActionText: optionalString(record.requestedActionText) ?? fallback.requestedActionText,
+    requiresApproval: typeof record.requiresApproval === "boolean" ? record.requiresApproval : fallback.requiresApproval,
+    confidence: asEnum(record.confidence, ["low", "medium", "high"] as const, fallback.confidence),
+    reason: optionalString(record.reason) ?? fallback.reason
+  };
+}
+
+async function callOpenRouter(message: string, apiKey: string, model: string): Promise<string | undefined> {
+  const openRouter = new OpenRouter({ apiKey });
+  const result = await openRouter.chat.send({
+    chatRequest: {
+      model,
+      messages: [
+        { role: "system", content: interpreterPrompt },
+        { role: "user", content: JSON.stringify({ message }) }
+      ],
+      responseFormat: { type: "json_object" },
+      stream: false,
+      temperature: 0
+    }
+  });
+
+  const content = result.choices[0]?.message.content;
+  return typeof content === "string" ? content : undefined;
+}
+
+async function callOpenAi(message: string, apiKey: string, model: string): Promise<string | undefined> {
+  const client = new OpenAI({ apiKey });
+  const completion = await client.chat.completions.create({
+    model,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: interpreterPrompt },
+      { role: "user", content: JSON.stringify({ message }) }
+    ],
+    temperature: 0
+  });
+
+  return completion.choices[0]?.message.content ?? undefined;
+}
+
+export async function interpretRequest(message: string): Promise<RequestInterpretation> {
+  const fallback = fallbackInterpretRequest(message);
+  const aiConfig = getAiConfig();
+
+  if (!aiConfig.apiKey?.trim()) {
+    return fallback;
+  }
+
+  try {
+    const content =
+      aiConfig.provider === "openrouter"
+        ? await callOpenRouter(message, aiConfig.apiKey, aiConfig.model)
+        : await callOpenAi(message, aiConfig.apiKey, aiConfig.model);
+
+    return content ? normalizeInterpretation(JSON.parse(content), fallback) : fallback;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Unknown AI request interpreter error";
+    console.warn(`[request-interpreter] AI interpretation failed; using deterministic fallback: ${detail}`);
+    return fallbackInterpretRequest(message, `AI request interpretation failed; deterministic fallback was used. ${detail}`);
+  }
+}
+
+export function buildManualWorkflowAnswer(interpretation: RequestInterpretation): string {
+  if (interpretation.scope === "out_of_scope") {
+    return "This request is outside the supported enterprise support scope. I can help with IT incidents, integration failures, access requests, security policy checks, and supported enterprise agents such as Jira, GitHub, PagerDuty, SAP, Monday, and Confluence.";
+  }
+
+  const requestType =
+    interpretation.intentType === "user_provisioning"
+      ? "User provisioning"
+      : interpretation.intentType === "permission_change"
+        ? "Permission change"
+        : interpretation.intentType === "manual_service_request"
+          ? "Manual service request"
+          : "Access request";
+
+  return [
+    "Manual ServiceNow Request Required.",
+    "This looks like an access/service request, not an incident diagnosis.",
+    "I do not currently have an agent available that can process this request automatically.",
+    "Please open a ServiceNow request manually.",
+    `Suggested fields: Request type: ${requestType}; Target system: ${interpretation.targetSystemText ?? "Unknown"}; Requested action: ${interpretation.requestedActionText ?? "Unknown"}; Resource type: ${interpretation.targetResourceType ?? "Unknown"}; Resource name: ${interpretation.targetResourceName ?? "Unknown"}; Approval needed: ${interpretation.requiresApproval ? "Yes, manager/system owner/resource owner" : "No"}; Business justification: required.`
+  ].join(" ");
+}

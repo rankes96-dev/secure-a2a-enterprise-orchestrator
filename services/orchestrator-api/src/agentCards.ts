@@ -6,6 +6,8 @@ export type AgentCardSkill = {
   description: string;
   examples?: string[];
   requiredScopes?: string[];
+  capabilities?: string[];
+  aliases?: string[];
   sensitive?: boolean;
 };
 
@@ -37,7 +39,7 @@ const staticAgentCards: AgentCard[] = [
     endpoint: process.env.END_USER_TRIAGE_AGENT_URL ?? "http://localhost:4106/task",
     auth: { type: "mock_internal_token", audience: "end-user-triage-agent" },
     skills: [
-      { id: "end_user.triage", name: "End user triage", description: "Interpret a plain-language support issue." },
+      { id: "end_user.triage", name: "End user triage", description: "Interpret a plain-language support issue.", capabilities: ["enterprise.issue.triage"] },
       {
         id: "end_user.ask_clarifying_questions",
         name: "Ask clarifying questions",
@@ -62,12 +64,14 @@ const staticAgentCards: AgentCard[] = [
         id: "jira.diagnose_user_permission_issue",
         name: "Diagnose Jira user permission issue",
         description: "Diagnose user-facing Jira permission problems.",
+        capabilities: ["jira.permission.diagnose"],
         examples: ["I don't have permission to create a Jira ticket", "Jira says I cannot create a ticket in FIN"]
       },
       {
         id: "jira.diagnose_issue_creation_failure",
         name: "Diagnose Jira issue creation failure",
         description: "Diagnose Jira issue creation API or sync failures.",
+        capabilities: ["jira.issue_creation.diagnose"],
         examples: ["Jira API returns 403 when creating issues"]
       },
       { id: "jira.ask_clarifying_questions", name: "Ask Jira clarifying questions", description: "Ask for Jira project, operation, or error detail." }
@@ -81,13 +85,14 @@ const staticAgentCards: AgentCard[] = [
     endpoint: process.env.GITHUB_AGENT_URL ?? "http://localhost:4102/task",
     auth: { type: "mock_internal_token", audience: "github-agent" },
     skills: [
-      { id: "github.diagnose_repo_access_issue", name: "Diagnose repo access issue", description: "Diagnose repository or organization access problems." },
+      { id: "github.diagnose_repo_access_issue", name: "Diagnose repo access issue", description: "Diagnose repository or organization access problems.", capabilities: ["github.repository_access.diagnose"] },
       {
         id: "github.diagnose_repository_scan_failure",
         name: "Diagnose repository scan failure",
-        description: "Diagnose repository sync or scan failures."
+        description: "Diagnose repository sync or scan failures.",
+        capabilities: ["github.repository_scan.diagnose"]
       },
-      { id: "github.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose GitHub API rate limit exhaustion." }
+      { id: "github.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose GitHub API rate limit exhaustion.", capabilities: ["github.rate_limit.diagnose"] }
     ]
   },
   {
@@ -101,7 +106,8 @@ const staticAgentCards: AgentCard[] = [
       {
         id: "pagerduty.diagnose_alert_ingestion_failure",
         name: "Diagnose alert ingestion failure",
-        description: "Diagnose alerts that do not open incidents."
+        description: "Diagnose alerts that do not open incidents.",
+        capabilities: ["incident.alert_ingestion.diagnose"]
       },
       { id: "pagerduty.diagnose_event_rate_limit", name: "Diagnose event rate limit", description: "Diagnose event ingestion rate limiting." }
     ]
@@ -118,12 +124,14 @@ const staticAgentCards: AgentCard[] = [
         id: "security.compare_oauth_scopes",
         name: "Compare OAuth scopes",
         description: "Compare required OAuth scopes with mock token scopes.",
+        capabilities: ["oauth.scope.compare"],
         requiredScopes: ["security.scope.compare"]
       },
       {
         id: "security.inspect_oauth_token",
         name: "Inspect OAuth token",
         description: "Inspect raw OAuth token posture.",
+        capabilities: ["oauth.token.inspect"],
         requiredScopes: ["security.token.inspect"],
         sensitive: true
       },
@@ -138,11 +146,12 @@ const staticAgentCards: AgentCard[] = [
     endpoint: process.env.API_HEALTH_AGENT_URL ?? "http://localhost:4105/task",
     auth: { type: "mock_internal_token", audience: "api-health-agent" },
     skills: [
-      { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures." },
+      { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"] },
       {
         id: "api_health.diagnose_connectivity_failure",
         name: "Diagnose connectivity failure",
-        description: "Diagnose timeout, DNS, TLS, and connectivity failures."
+        description: "Diagnose timeout, DNS, TLS, and connectivity failures.",
+        capabilities: ["api.connectivity.diagnose", "api.health.diagnose"]
       },
       {
         id: "api_health.diagnose_webhook_delivery",
@@ -258,4 +267,10 @@ export function getExecutableAgentCards(): AgentCard[] {
 
 export function isExecutableAgentCard(agentId: string): agentId is AgentName {
   return Boolean(getAgentCard(agentId)?.endpoint);
+}
+
+export function findAgentSkillByCapability(capability: string): { agent: AgentCard; skill: AgentCardSkill } | undefined {
+  return getExecutableAgentCards().flatMap((agent) => agent.skills.map((skill) => ({ agent, skill }))).find(({ skill }) =>
+    skill.capabilities?.includes(capability) || skill.aliases?.includes(capability) || skill.id === capability
+  );
 }

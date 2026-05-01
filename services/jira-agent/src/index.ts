@@ -19,12 +19,14 @@ const agentCard = {
       id: "jira.diagnose_user_permission_issue",
       name: "Diagnose Jira user permission issue",
       description: "Diagnose user-facing Jira permission problems.",
+      capabilities: ["jira.permission.diagnose"],
       examples: ["I don't have permission to create a Jira ticket", "Jira says I cannot create a ticket in FIN"]
     },
     {
       id: "jira.diagnose_issue_creation_failure",
       name: "Diagnose Jira issue creation failure",
       description: "Diagnose Jira issue creation API or sync failures.",
+      capabilities: ["jira.issue_creation.diagnose"],
       examples: ["Jira API returns 403 when creating issues"]
     },
     { id: "jira.ask_clarifying_questions", name: "Ask Jira clarifying questions", description: "Ask for Jira project, operation, or error detail." }

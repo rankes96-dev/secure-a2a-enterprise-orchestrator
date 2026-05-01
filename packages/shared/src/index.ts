@@ -33,6 +33,45 @@ export type DelegationTargetAgentName = Exclude<AgentName, "sap-agent">;
 export type AgentRole = "primary" | "supporting";
 export type ReporterType = "end_user" | "it_engineer" | "unknown";
 export type SupportMode = "end_user_support" | "technical_integration";
+export type RequestIntentType =
+  | "incident_diagnosis"
+  | "integration_failure"
+  | "access_request"
+  | "permission_change"
+  | "user_provisioning"
+  | "security_sensitive_action"
+  | "manual_service_request"
+  | "unknown";
+export type RequestScope = "enterprise_support" | "manual_enterprise_workflow" | "out_of_scope" | "unknown";
+
+export type UnsupportedWorkflowContext = {
+  intentType: RequestIntentType;
+  targetSystemText?: string;
+  targetResourceType?: "group" | "role" | "account" | "application" | "repository" | "project" | "unknown";
+  targetResourceName?: string;
+  requestedActionText?: string;
+  requestedCapability?: string;
+  requiresApproval?: boolean;
+};
+
+export type RequestScopeContext = {
+  scope: RequestScope;
+  reason: string;
+  detectedTopic?: string;
+};
+
+export type RequestInterpretation = {
+  scope: RequestScope;
+  intentType: RequestIntentType;
+  requestedCapability?: string;
+  targetSystemText?: string;
+  targetResourceType?: string;
+  targetResourceName?: string;
+  requestedActionText?: string;
+  requiresApproval?: boolean;
+  confidence: "low" | "medium" | "high";
+  reason: string;
+};
 
 export interface Classification {
   system: EnterpriseSystem;
@@ -118,6 +157,7 @@ export interface RoutingDecision {
   routingConfidence: "low" | "medium" | "high";
   routingReasoningSummary: string;
   resolutionStatus: "resolved" | "needs_more_info" | "unsupported";
+  requestInterpretation?: RequestInterpretation;
 }
 
 export interface AgentResponse {
@@ -196,6 +236,7 @@ export interface ResolveResponse {
   executionTrace: ExecutionTraceStep[];
   securityDecision?: SecurityDecision;
   securityDecisions?: SecurityDecision[];
+  requestInterpretation?: RequestInterpretation;
   a2aTasks?: A2ATask[];
   a2aResponses?: A2AAgentResponse[];
   diagnosis: {
