@@ -2,13 +2,12 @@ import dotenv from "dotenv";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
-import { verifyA2AToken } from "@a2a/shared";
-import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } from "@a2a/shared/src/http";
+import { requireA2AAuth } from "@a2a/shared";
+import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? 4101);
-const a2aAuthMode = process.env.A2A_AUTH_MODE === "oauth2_client_credentials_jwt" ? "oauth2_client_credentials_jwt" : "mock_internal_token";
 type JiraOperationRequirement = {
   operation: string;
   requiredScopes: string[];
@@ -73,78 +72,6 @@ function extractProjectKey(message: string): string | undefined {
   );
 }
 
-async function validateA2AJwt(request: Parameters<typeof readJsonBody>[0], task: A2ATask | AgentTask): Promise<A2AAgentResponse | undefined> {
-  if (!("context" in task)) {
-    return {
-      agentId: "jira-agent",
-      status: "blocked",
-      summary: "Missing A2A task context for JWT validation.",
-      trace: [
-        {
-          agent: "jira-agent",
-          action: "A2A_JWT_VALIDATION_FAILED",
-          detail: "Missing A2A task context for JWT validation.",
-          timestamp: new Date().toISOString()
-        }
-      ]
-    };
-  }
-
-  const requiredScope = task.context.requestedScope;
-  if (!requiredScope) {
-    return {
-      agentId: "jira-agent",
-      status: "blocked",
-      summary: "Missing requested scope in A2A task context",
-      trace: [
-        {
-          agent: "jira-agent",
-          action: "A2A_JWT_VALIDATION_FAILED",
-          detail: "Missing requested scope in A2A task context",
-          timestamp: new Date().toISOString()
-        }
-      ]
-    };
-  }
-
-  const expectedIssuer = process.env.A2A_ISSUER ?? "http://localhost:4110";
-  const authResult = await verifyA2AToken({
-    authorizationHeader: request.headers.authorization,
-    expectedIssuer,
-    expectedAudience: "jira-agent",
-    requiredScope,
-    jwksUri: process.env.A2A_JWKS_URI ?? `${expectedIssuer}/.well-known/jwks.json`
-  });
-
-  task.context.auth = {
-    ...(task.context.auth ?? { authMode: "oauth2_client_credentials_jwt" }),
-    authMode: "oauth2_client_credentials_jwt",
-    tokenValidated: authResult.valid,
-    validationReason: authResult.reason,
-    audience: "jira-agent",
-    issuer: expectedIssuer,
-    scope: requiredScope
-  };
-
-  if (!authResult.valid) {
-    return {
-      agentId: "jira-agent",
-      status: "blocked",
-      summary: authResult.reason,
-      trace: [
-        {
-          agent: "jira-agent",
-          action: "A2A_JWT_VALIDATION_FAILED",
-          detail: authResult.reason,
-          timestamp: new Date().toISOString()
-        }
-      ]
-    };
-  }
-
-  return undefined;
-}
-
 startJsonServer(port, async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, { status: "ok", agentId: "jira-agent" }, request);
@@ -161,17 +88,19 @@ startJsonServer(port, async (request, response) => {
     return;
   }
 
-  if (a2aAuthMode !== "oauth2_client_credentials_jwt" && !requireInternalServiceToken(request, response)) {
+  const task = await readJsonBody<A2ATask | AgentTask>(request);
+  const auth = await requireA2AAuth({
+    request,
+    task,
+    agentId: agentCard.agentId,
+    expectedAudience: agentCard.auth.audience
+  });
+  if (!auth.ok) {
+    sendJson(response, auth.statusCode, auth.response, request);
     return;
   }
-
-  const task = await readJsonBody<A2ATask | AgentTask>(request);
-  if (a2aAuthMode === "oauth2_client_credentials_jwt") {
-    const blocked = await validateA2AJwt(request, task);
-    if (blocked) {
-      sendJson(response, blocked.summary === "Missing requested scope in A2A task context" ? 403 : 401, blocked, request);
-      return;
-    }
+  if ("context" in task && auth.taskAuth) {
+    task.context.auth = auth.taskAuth;
   }
 
   const message = taskMessage(task);

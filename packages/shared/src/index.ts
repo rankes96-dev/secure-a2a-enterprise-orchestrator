@@ -351,3 +351,4 @@ export interface AgentsHealthResponse {
 }
 
 export * from "./auth/verifyA2AToken";
+export * from "./auth/requireA2AAuth";

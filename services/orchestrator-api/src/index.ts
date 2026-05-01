@@ -392,7 +392,7 @@ function createA2ATask(params: {
 }
 
 function shouldUseJwtForAgent(agentId: string): boolean {
-  return a2aAuthMode === "oauth2_client_credentials_jwt" && agentId === "jira-agent";
+  return a2aAuthMode === "oauth2_client_credentials_jwt" && Boolean(getAgentCard(agentId));
 }
 
 async function prepareA2ARequestAuth(params: {
@@ -409,7 +409,21 @@ async function prepareA2ARequestAuth(params: {
   }
 
   if (!params.targetAudience || !params.requestedScope) {
-    throw new Error(`Cannot request A2A JWT for ${params.task.toAgent}: missing audience or scope metadata`);
+    const missingAudience = !params.targetAudience;
+    const action = missingAudience ? "missing_a2a_audience_metadata" : "missing_a2a_scope_metadata";
+    const detail = missingAudience
+      ? "Cannot issue A2A JWT because target agent is missing audience metadata."
+      : "Cannot issue A2A JWT because selected skill is missing required scope metadata.";
+    params.executionSteps.push({
+      ...executionStep("orchestrator", action, detail),
+      taskId: params.task.taskId,
+      conversationId: params.task.conversationId,
+      fromAgent: params.task.fromAgent,
+      toAgent: params.task.toAgent,
+      skillId: params.task.skillId
+    });
+    params.traceEntries.push(trace(action, detail));
+    throw new Error(detail);
   }
 
   params.executionSteps.push({

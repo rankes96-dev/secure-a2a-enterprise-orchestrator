@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
-import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } from "@a2a/shared/src/http";
+import { requireA2AAuth } from "@a2a/shared";
+import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
@@ -46,11 +47,21 @@ startJsonServer(port, async (request, response) => {
     return;
   }
 
-  if (!requireInternalServiceToken(request, response)) {
+  const task = await readJsonBody<A2ATask | AgentTask>(request);
+  const auth = await requireA2AAuth({
+    request,
+    task,
+    agentId: agentCard.agentId,
+    expectedAudience: agentCard.auth.audience
+  });
+  if (!auth.ok) {
+    sendJson(response, auth.statusCode, auth.response, request);
     return;
   }
+  if ("context" in task && auth.taskAuth) {
+    task.context.auth = auth.taskAuth;
+  }
 
-  const task = await readJsonBody<A2ATask | AgentTask>(request);
   const message = "userMessage" in task ? task.userMessage : task.message;
   const hasAlertContext = /alert|incident|event/i.test(message);
 
@@ -80,7 +91,17 @@ startJsonServer(port, async (request, response) => {
         action: hasAlertContext ? "inspect_alert_ingestion" : "idle",
         detail: hasAlertContext ? "Prepared mock PagerDuty alert ingestion diagnosis" : "PagerDuty agent was not needed for this scenario",
         timestamp: new Date().toISOString()
-      }
+      },
+      ...("context" in task && task.context.auth?.tokenValidated
+        ? [
+            {
+              agent: "pagerduty-agent",
+              action: "A2A_JWT_VALIDATED",
+              detail: `Validated JWT issuer, audience, expiration, and required scope ${task.context.requestedScope}`,
+              timestamp: new Date().toISOString()
+            }
+          ]
+        : [])
     ]
   };
 

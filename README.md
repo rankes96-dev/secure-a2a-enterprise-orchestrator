@@ -209,6 +209,25 @@ The script also prints safe negative validation results without printing the raw
 - missing Authorization header returns `valid=false`
 - invalid Bearer value returns `valid=false`
 
+### Phase 4: Generic Agent JWT
+
+When `A2A_AUTH_MODE=oauth2_client_credentials_jwt`, direct A2A calls are now Agent Card driven:
+
+- The orchestrator reads the target Agent Card `auth.audience`.
+- The orchestrator reads the selected skill `requiredScopes[0]` or `requiredPermission`.
+- The orchestrator requests a scoped JWT from the Mock Identity Provider.
+- The orchestrator sends `Authorization: Bearer <token>` to the target agent.
+- Agents validate JWTs through the shared `requireA2AAuth` helper.
+
+No agent IDs are hardcoded into the JWT eligibility path. Adding a new agent should require an Agent Card with `auth.audience` and skill scope metadata, not an orchestrator code change. `mock_internal_token` remains available for local/simple mode.
+
+The shared agent auth helper validates either:
+
+- `x-internal-service-token` in `mock_internal_token` mode, or
+- issuer, audience, signature, expiration, and required scope in `oauth2_client_credentials_jwt` mode.
+
+Delegated A2A calls use the same metadata-driven auth preparation path when target skill metadata is available. Future phases can add delegation-specific JWT claims such as `delegated_by` and `delegation_depth`, and can back token/state caching with Redis or another store.
+
 ## Try it
 
 Send this message in the chat UI:
