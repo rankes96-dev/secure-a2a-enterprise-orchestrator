@@ -399,6 +399,10 @@ async function prepareA2ARequestAuth(params: {
   task: A2ATask;
   targetAudience?: string;
   requestedScope?: string;
+  delegatedBy?: string;
+  delegationDepth?: number;
+  parentTaskId?: string;
+  requestedByAgent?: string;
   executionSteps: ExecutionTraceStep[];
   traceEntries: AgentTraceEntry[];
 }): Promise<Record<string, string>> {
@@ -426,19 +430,41 @@ async function prepareA2ARequestAuth(params: {
     throw new Error(detail);
   }
 
+  const isDelegatedToken = Boolean(params.delegatedBy) || (params.delegationDepth ?? 0) > 0;
+  const requestAction = isDelegatedToken ? "request_delegated_a2a_access_token" : "request_a2a_access_token";
+  const attachAction = isDelegatedToken ? "attach_delegated_a2a_bearer_token" : "attach_a2a_bearer_token";
+  const requestDetail = isDelegatedToken
+    ? `Requested delegated scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope} delegated by ${params.delegatedBy ?? "unknown"} at depth ${params.delegationDepth ?? 0}`
+    : `Requested scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope}`;
+  const attachDetail = isDelegatedToken
+    ? "Attached delegated Bearer token metadata to A2A request; raw token not logged"
+    : "Attached Bearer token metadata to A2A request; raw token not logged";
+
   params.executionSteps.push({
-    ...executionStep("orchestrator", "request_a2a_access_token", `Requested scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope}`),
+    ...executionStep("orchestrator", requestAction, requestDetail),
     taskId: params.task.taskId,
     conversationId: params.task.conversationId,
     fromAgent: params.task.fromAgent,
     toAgent: params.task.toAgent,
-    skillId: params.task.skillId
+    skillId: params.task.skillId,
+    delegationDepth: params.task.delegationDepth
   });
-  params.traceEntries.push(trace("request_a2a_access_token", `Requested scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope}`));
+  params.traceEntries.push({
+    ...trace(requestAction, requestDetail),
+    fromAgent: params.task.fromAgent,
+    toAgent: params.task.toAgent,
+    mediatedBy: params.task.mediatedBy,
+    skillId: params.task.skillId,
+    delegationDepth: params.task.delegationDepth
+  });
 
   const issued = await getA2AAccessToken({
     audience: params.targetAudience,
-    scope: params.requestedScope
+    scope: params.requestedScope,
+    delegatedBy: params.delegatedBy,
+    delegationDepth: params.delegationDepth,
+    parentTaskId: params.parentTaskId,
+    requestedByAgent: params.requestedByAgent
   });
   params.task.context.authMode = "oauth2_client_credentials_jwt";
   params.task.context.auth = {
@@ -447,14 +473,22 @@ async function prepareA2ARequestAuth(params: {
   };
 
   params.executionSteps.push({
-    ...executionStep("orchestrator", "attach_a2a_bearer_token", "Attached Bearer token metadata to A2A request; raw token not logged"),
+    ...executionStep("orchestrator", attachAction, attachDetail),
     taskId: params.task.taskId,
     conversationId: params.task.conversationId,
     fromAgent: params.task.fromAgent,
     toAgent: params.task.toAgent,
-    skillId: params.task.skillId
+    skillId: params.task.skillId,
+    delegationDepth: params.task.delegationDepth
   });
-  params.traceEntries.push(trace("attach_a2a_bearer_token", "Attached Bearer token metadata to A2A request; raw token not logged"));
+  params.traceEntries.push({
+    ...trace(attachAction, attachDetail),
+    fromAgent: params.task.fromAgent,
+    toAgent: params.task.toAgent,
+    mediatedBy: params.task.mediatedBy,
+    skillId: params.task.skillId,
+    delegationDepth: params.task.delegationDepth
+  });
 
   return {
     authorization: `Bearer ${issued.accessToken}`
@@ -1080,6 +1114,10 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
           task: delegatedTask,
           targetAudience: targetCard!.auth.audience,
           requestedScope: delegatedRequestedScope,
+          delegatedBy: fromAgent,
+          delegationDepth: nextDepth,
+          parentTaskId: parentTask.taskId,
+          requestedByAgent: fromAgent,
           executionSteps: delegationExecutionSteps,
           traceEntries: orchestratorTrace
         });

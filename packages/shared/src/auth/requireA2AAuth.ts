@@ -12,7 +12,7 @@ export type RequireA2AAuthInput = {
   jwksUri?: string;
 };
 
-type RequireA2AAuthResult =
+export type RequireA2AAuthResult =
   | {
       ok: true;
       taskAuth?: A2ATask["context"]["auth"];
@@ -60,6 +60,16 @@ function validateInternalServiceToken(request: IncomingMessage, agentId: string)
   return { ok: true };
 }
 
+export function formatA2AAuthTraceDetail(auth?: A2ATask["context"]["auth"]): string {
+  const scope = auth?.scope ?? "unknown";
+
+  if (auth?.delegatedBy) {
+    return `Validated delegated JWT issuer, audience, expiration, required scope ${scope}, delegated_by ${auth.delegatedBy}, depth ${auth.delegationDepth ?? "unknown"}`;
+  }
+
+  return `Validated JWT issuer, audience, expiration, and required scope ${scope}`;
+}
+
 export async function requireA2AAuth(input: RequireA2AAuthInput): Promise<RequireA2AAuthResult> {
   const authMode = input.authMode ?? process.env.A2A_AUTH_MODE ?? "mock_internal_token";
 
@@ -91,6 +101,18 @@ export async function requireA2AAuth(input: RequireA2AAuthInput): Promise<Requir
     return blocked(input.agentId, statusCode, validation.reason);
   }
 
+  if ((validation.claims?.delegation_depth ?? 0) > 1) {
+    return blocked(input.agentId, 403, "Delegation depth exceeds allowed limit");
+  }
+
+  if (validation.claims?.delegated_by && validation.claims.delegation_depth === undefined) {
+    return blocked(input.agentId, 403, "Delegation token is missing delegation depth");
+  }
+
+  if ((validation.claims?.delegation_depth ?? 0) > 0 && !validation.claims?.delegated_by) {
+    return blocked(input.agentId, 403, "Delegation token is missing delegated_by");
+  }
+
   return {
     ok: true,
     taskAuth: {
@@ -99,7 +121,11 @@ export async function requireA2AAuth(input: RequireA2AAuthInput): Promise<Requir
       audience: input.expectedAudience,
       scope: requiredScope,
       tokenValidated: true,
-      validationReason: "A2A JWT validated"
+      validationReason: "A2A JWT validated",
+      delegatedBy: validation.claims?.delegated_by,
+      delegationDepth: validation.claims?.delegation_depth,
+      parentTaskId: validation.claims?.parent_task_id,
+      requestedByAgent: validation.claims?.requested_by_agent
     }
   };
 }

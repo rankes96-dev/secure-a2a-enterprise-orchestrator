@@ -56,7 +56,10 @@ function claimsFromPayload(payload: Record<string, unknown>): A2ATokenClaims | u
     client_id: payload.client_id,
     actor: payload.actor,
     delegated_by: payload.delegated_by,
-    delegation_depth: payload.delegation_depth
+    delegation_depth: payload.delegation_depth,
+    parent_task_id: payload.parent_task_id,
+    requested_by_agent: payload.requested_by_agent,
+    original_subject: payload.original_subject
   };
 
   if (
@@ -83,7 +86,10 @@ function claimsFromPayload(payload: Record<string, unknown>): A2ATokenClaims | u
     client_id: claims.client_id,
     actor: typeof claims.actor === "string" ? claims.actor : undefined,
     delegated_by: typeof claims.delegated_by === "string" ? claims.delegated_by : undefined,
-    delegation_depth: typeof claims.delegation_depth === "number" ? claims.delegation_depth : undefined
+    delegation_depth: typeof claims.delegation_depth === "number" ? claims.delegation_depth : undefined,
+    parent_task_id: typeof claims.parent_task_id === "string" ? claims.parent_task_id : undefined,
+    requested_by_agent: typeof claims.requested_by_agent === "string" ? claims.requested_by_agent : undefined,
+    original_subject: typeof claims.original_subject === "string" ? claims.original_subject : undefined
   };
 }
 

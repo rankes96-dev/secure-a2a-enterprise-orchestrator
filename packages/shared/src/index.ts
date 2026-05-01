@@ -202,6 +202,9 @@ export type A2ATokenClaims = {
   actor?: string;
   delegated_by?: string;
   delegation_depth?: number;
+  parent_task_id?: string;
+  requested_by_agent?: string;
+  original_subject?: string;
 };
 
 export type A2ATokenResponse = {
@@ -225,6 +228,10 @@ export type A2ATaskAuthMetadata = {
   tokenIssued?: boolean;
   tokenValidated?: boolean;
   validationReason?: string;
+  delegatedBy?: string;
+  delegationDepth?: number;
+  parentTaskId?: string;
+  requestedByAgent?: string;
 };
 
 export interface A2ATask {

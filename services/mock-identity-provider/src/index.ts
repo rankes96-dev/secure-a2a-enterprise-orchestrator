@@ -21,6 +21,10 @@ type TokenRequest = {
   client_secret?: string;
   audience?: string;
   scope?: string;
+  delegated_by?: string;
+  delegation_depth?: number;
+  parent_task_id?: string;
+  requested_by_agent?: string;
 };
 
 type SigningKey = {
@@ -71,6 +75,11 @@ function validateTokenRequest(body: TokenRequest): { ok: true; application: OAut
     return { ok: false, status: 400, error: "missing_audience_or_scope" };
   }
 
+  const delegationValidation = validateDelegationContext(body);
+  if (!delegationValidation.ok) {
+    return delegationValidation;
+  }
+
   const scopes = parseScopes(body.scope);
   if (scopes.length === 0) {
     return { ok: false, status: 400, error: "missing_audience_or_scope" };
@@ -93,8 +102,42 @@ function validateTokenRequest(body: TokenRequest): { ok: true; application: OAut
   return { ok: true, application, scopes };
 }
 
+function validateDelegationContext(body: TokenRequest): { ok: true } | { ok: false; status: 400; error: string } {
+  if (body.delegated_by !== undefined && typeof body.delegated_by !== "string") {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
+  if (body.parent_task_id !== undefined && typeof body.parent_task_id !== "string") {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
+  if (body.requested_by_agent !== undefined && typeof body.requested_by_agent !== "string") {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
+  if (body.delegation_depth !== undefined) {
+    if (typeof body.delegation_depth !== "number" || !Number.isInteger(body.delegation_depth)) {
+      return { ok: false, status: 400, error: "invalid_delegation_context" };
+    }
+
+    if (body.delegation_depth < 0 || body.delegation_depth > 1) {
+      return { ok: false, status: 400, error: "invalid_delegation_context" };
+    }
+  }
+
+  if (body.delegated_by && body.delegation_depth !== 1) {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
+  if ((body.delegation_depth ?? 0) > 0 && !body.delegated_by) {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
+  return { ok: true };
+}
+
 async function issueToken(
-  body: Required<Pick<TokenRequest, "client_id" | "audience" | "scope">>,
+  body: Required<Pick<TokenRequest, "client_id" | "audience" | "scope">> & Pick<TokenRequest, "delegated_by" | "delegation_depth" | "parent_task_id" | "requested_by_agent">,
   scopes: string[],
   tokenTtlSeconds: number
 ): Promise<A2ATokenResponse> {
@@ -111,6 +154,22 @@ async function issueToken(
     jti: randomUUID(),
     client_id: body.client_id
   };
+
+  if (body.delegated_by) {
+    claims.delegated_by = body.delegated_by;
+  }
+
+  if (body.delegation_depth !== undefined) {
+    claims.delegation_depth = body.delegation_depth;
+  }
+
+  if (body.parent_task_id) {
+    claims.parent_task_id = body.parent_task_id;
+  }
+
+  if (body.requested_by_agent) {
+    claims.requested_by_agent = body.requested_by_agent;
+  }
 
   const accessToken = await new SignJWT({ ...claims })
     .setProtectedHeader({ alg: "RS256", kid: signingKey.kid, typ: "JWT" })
@@ -146,7 +205,11 @@ async function handleToken(request: IncomingMessage, response: ServerResponse): 
       {
         client_id: body.client_id as string,
         audience: body.audience as string,
-        scope: body.scope as string
+        scope: body.scope as string,
+        delegated_by: body.delegated_by,
+        delegation_depth: body.delegation_depth,
+        parent_task_id: body.parent_task_id,
+        requested_by_agent: body.requested_by_agent
       },
       validation.scopes,
       validation.application.tokenTtlSeconds ?? Number(process.env.A2A_TOKEN_TTL_SECONDS ?? 300)

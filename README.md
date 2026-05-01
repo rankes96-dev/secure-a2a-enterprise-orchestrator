@@ -226,7 +226,18 @@ The shared agent auth helper validates either:
 - `x-internal-service-token` in `mock_internal_token` mode, or
 - issuer, audience, signature, expiration, and required scope in `oauth2_client_credentials_jwt` mode.
 
-Delegated A2A calls use the same metadata-driven auth preparation path when target skill metadata is available. Future phases can add delegation-specific JWT claims such as `delegated_by` and `delegation_depth`, and can back token/state caching with Redis or another store.
+### Delegation-aware JWTs
+
+Direct A2A calls receive normal audience-bound, scoped JWTs. Delegated A2A calls receive audience-bound, scoped JWTs with safe delegation claims:
+
+- `delegated_by`
+- `delegation_depth`
+- `parent_task_id`
+- `requested_by_agent`
+
+The orchestrator remains the mediator and policy enforcement point. Target agents validate issuer, audience, signature, expiration, required scope, and delegation guardrails through the shared `requireA2AAuth` helper. Raw tokens are never displayed in traces or the UI. This prepares the demo for enterprise delegation audit trails while keeping `mock_internal_token` available for local/simple mode.
+
+Future phases can add stronger delegated identity semantics such as original actor chains, replay controls, persisted token/state caching, and enterprise IdP integration.
 
 ## Try it
 

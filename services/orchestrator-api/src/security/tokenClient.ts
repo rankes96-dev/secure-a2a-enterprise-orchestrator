@@ -3,6 +3,10 @@ import type { A2ATokenResponse, A2AAuthMode } from "@a2a/shared";
 export type A2ATokenRequestInput = {
   audience: string;
   scope: string;
+  delegatedBy?: string;
+  delegationDepth?: number;
+  parentTaskId?: string;
+  requestedByAgent?: string;
 };
 
 export type A2AIssuedTokenMetadata = {
@@ -12,6 +16,10 @@ export type A2AIssuedTokenMetadata = {
   scope: string;
   tokenIssued: boolean;
   expiresIn?: number;
+  delegatedBy?: string;
+  delegationDepth?: number;
+  parentTaskId?: string;
+  requestedByAgent?: string;
 };
 
 type CachedToken = {
@@ -23,7 +31,14 @@ type CachedToken = {
 const tokenCache = new Map<string, CachedToken>();
 
 function tokenCacheKey(input: A2ATokenRequestInput): string {
-  return `${input.audience}:${input.scope}`;
+  return [
+    input.audience,
+    input.scope,
+    input.delegatedBy ?? "",
+    input.delegationDepth ?? 0,
+    input.parentTaskId ?? "",
+    input.requestedByAgent ?? ""
+  ].join(":");
 }
 
 export async function getA2AAccessToken(input: A2ATokenRequestInput): Promise<{ accessToken: string; metadata: A2AIssuedTokenMetadata }> {
@@ -49,7 +64,11 @@ export async function getA2AAccessToken(input: A2ATokenRequestInput): Promise<{ 
       client_id: clientId,
       client_secret: clientSecret,
       audience: input.audience,
-      scope: input.scope
+      scope: input.scope,
+      delegated_by: input.delegatedBy,
+      delegation_depth: input.delegationDepth,
+      parent_task_id: input.parentTaskId,
+      requested_by_agent: input.requestedByAgent
     })
   });
   const responseBody = await response.text();
@@ -65,7 +84,11 @@ export async function getA2AAccessToken(input: A2ATokenRequestInput): Promise<{ 
     audience: input.audience,
     scope: input.scope,
     tokenIssued: true,
-    expiresIn: token.expires_in
+    expiresIn: token.expires_in,
+    delegatedBy: input.delegatedBy,
+    delegationDepth: input.delegationDepth,
+    parentTaskId: input.parentTaskId,
+    requestedByAgent: input.requestedByAgent
   };
 
   if (token.expires_in > 30) {
