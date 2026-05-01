@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { ResolveResponse } from "@a2a/shared";
 import "./styles.css";
 
-const orchestratorApiUrl = import.meta.env.VITE_ORCHESTRATOR_API_URL ?? "http://localhost:4000";
+const API_URL = import.meta.env.VITE_ORCHESTRATOR_API_URL ?? "http://localhost:4000";
 const sampleMessage = "Jira sync fails with 403 when creating issues";
 
 const scenarios = [
@@ -79,7 +79,7 @@ function App() {
   );
 
   async function ensureSession() {
-    const response = await fetch(`${orchestratorApiUrl}/session`, {
+    const response = await fetch(`${API_URL}/session`, {
       method: "POST",
       credentials: "include"
     });
@@ -122,7 +122,7 @@ function App() {
 
     try {
       await ensureSession();
-      const apiResponse = await fetch(`${orchestratorApiUrl}/resolve`, {
+      const apiResponse = await fetch(`${API_URL}/resolve`, {
         method: "POST",
         headers: {
           "content-type": "application/json"
@@ -378,10 +378,10 @@ function App() {
               </section>
             ) : null}
 
-            {latestResponse.securityDecisions?.length ? (
+            {(latestResponse.securityDecisions?.length ?? (latestResponse.securityDecision ? 1 : 0)) > 0 ? (
               <section>
                 <h2>Security Decisions</h2>
-                {latestResponse.securityDecisions.map((decision, index) => (
+                {(latestResponse.securityDecisions ?? (latestResponse.securityDecision ? [latestResponse.securityDecision] : [])).map((decision, index) => (
                   <div className="security-decision" key={`${decision.caller}-${decision.target}-${decision.requestedAction}-${index}`}>
                     <div>
                       <span>Caller</span>

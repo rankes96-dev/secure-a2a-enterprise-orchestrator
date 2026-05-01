@@ -164,6 +164,15 @@ function buildFinalAnswer(params: {
   return `${primary.summary}${primary.probableCause ? ` Probable cause: ${sentence(primary.probableCause)}` : ""}${actions}${supporting ? ` Supporting findings: ${supporting}` : ""}`;
 }
 
+function primarySecurityDecision(decisions: SecurityDecision[]): SecurityDecision | undefined {
+  return (
+    decisions.find((decision) => decision.decision === "Blocked") ??
+    decisions.find((decision) => decision.decision === "NeedsApproval") ??
+    decisions.find((decision) => decision.decision === "NeedsMoreContext") ??
+    decisions[0]
+  );
+}
+
 function requestedActionForAgent(agentId: AgentName, classification: Classification, message: string): string | undefined {
   const lower = message.toLowerCase();
 
@@ -704,6 +713,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   );
   const agentTrace = [...orchestratorTrace, ...a2aResponses.flatMap((response) => response.trace ?? [])] as AgentTraceEntry[];
   const diagnosis = buildDiagnosis(a2aResponses);
+  const securityDecision = primarySecurityDecision(securityDecisions);
   const executionTrace = [
     executionStep("user", "submit_issue", requestBody.message),
     executionStep("orchestrator", "route_issue", `${routingDecision.routingSource} routing decision: ${routingDecision.routingReasoningSummary}`),
@@ -746,6 +756,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     evidence,
     agentTrace,
     executionTrace,
+    securityDecision,
     securityDecisions,
     a2aTasks,
     a2aResponses,
