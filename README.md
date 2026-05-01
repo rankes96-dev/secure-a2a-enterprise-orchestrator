@@ -141,6 +141,19 @@ Expected result:
 - No permission change is executed automatically
 - Final answer explains that changing Jira permissions requires human approval
 
+Unsupported manual workflow input:
+
+```text
+Add me to a helpdesk group in active directory
+```
+
+Expected result:
+
+- Resolution status: `unsupported`
+- No Jira, GitHub, PagerDuty, Security OAuth, or API Health specialist is executed
+- Final answer explains this is an access request, not an incident diagnosis
+- Final answer recommends opening a manual ServiceNow access request with suggested fields for Active Directory, Helpdesk group, business justification, and approver
+
 ## Notes
 
 - No production-grade OAuth/OIDC authentication is implemented yet. The demo includes API key/session protection for the orchestrator and internal service tokens for mock agent-to-agent calls.

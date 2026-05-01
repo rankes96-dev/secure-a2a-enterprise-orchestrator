@@ -15,6 +15,7 @@ import type {
   SecurityDecision
 } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
+import { buildManualAccessRequestAnswer, detectAccessRequestIntent } from "./accessRequest";
 import { discoverAgentCards, getAgentCard } from "./agentCards";
 import { routeWithAI } from "./aiRouter";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
@@ -320,7 +321,14 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
 
   if (routingDecision.selectedAgents.length === 0) {
     const needsMoreInfo = routingDecision.resolutionStatus === "needs_more_info";
-    const diagnosis = needsMoreInfo
+    const accessRequest = detectAccessRequestIntent(requestBody.message);
+    const unsupportedAccessRequest = routingDecision.resolutionStatus === "unsupported" && accessRequest.isAccessRequest;
+    const diagnosis = unsupportedAccessRequest
+      ? {
+          probableCause: "Unsupported manual access request workflow",
+          recommendedFix: "Open a ServiceNow access request manually for the requested group membership change."
+        }
+      : needsMoreInfo
       ? {
           probableCause: "Not enough diagnostic detail to route the issue",
           recommendedFix:
@@ -330,7 +338,9 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
           probableCause: "Scenario not implemented yet",
           recommendedFix: "Use the Jira 403 Missing Scope or GitHub Rate Limit scenario for the fully wired local agent flow."
         };
-    const finalAnswer = needsMoreInfo
+    const finalAnswer = unsupportedAccessRequest
+      ? buildManualAccessRequestAnswer(accessRequest)
+      : needsMoreInfo
       ? "I need more details before I can route this to the right agent. Please provide the error message or code, what operation failed, and which system Monday.com is syncing with."
       : `${diagnosis.probableCause}. ${diagnosis.recommendedFix}`;
 
@@ -347,8 +357,10 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       agentTrace: [
         trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
         trace(
-          needsMoreInfo ? "needs_more_info" : "skip_unimplemented_scenario",
-          needsMoreInfo
+          unsupportedAccessRequest ? "unsupported_manual_workflow" : needsMoreInfo ? "needs_more_info" : "skip_unimplemented_scenario",
+          unsupportedAccessRequest
+            ? "No Active Directory or Identity Access agent is available for this access request"
+            : needsMoreInfo
             ? "No specialist agents were executed because the issue lacks diagnostic details"
             : "No local specialist workflow is implemented for this scenario yet"
         )
@@ -362,19 +374,26 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         ),
         executionStep(
           "orchestrator",
-          needsMoreInfo ? "skip_agent_execution" : "return_not_implemented",
-          needsMoreInfo
+          unsupportedAccessRequest ? "skip_agent_execution" : needsMoreInfo ? "skip_agent_execution" : "return_not_implemented",
+          unsupportedAccessRequest
+            ? "Did not execute specialist agents because no Active Directory or Identity Access agent is available"
+            : needsMoreInfo
             ? "Did not execute specialist agents because the issue lacks diagnostic details"
             : "Scenario not implemented yet"
         ),
         executionStep(
           "orchestrator",
-          needsMoreInfo ? "ask_for_more_information" : "return_response",
-          needsMoreInfo ? "Asked the user for the error code, failed operation, and integration direction" : "Returned placeholder response"
+          unsupportedAccessRequest ? "return_manual_request_guidance" : needsMoreInfo ? "ask_for_more_information" : "return_response",
+          unsupportedAccessRequest
+            ? "Returned manual ServiceNow access request guidance"
+            : needsMoreInfo
+              ? "Asked the user for the error code, failed operation, and integration direction"
+              : "Returned placeholder response"
         )
       ],
       a2aTasks: [],
       a2aResponses: [],
+      securityDecisions: [],
       diagnosis
     };
   }
@@ -714,6 +733,9 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   const agentTrace = [...orchestratorTrace, ...a2aResponses.flatMap((response) => response.trace ?? [])] as AgentTraceEntry[];
   const diagnosis = buildDiagnosis(a2aResponses);
   const securityDecision = primarySecurityDecision(securityDecisions);
+  const resolutionStatus = a2aResponses.some((response) => response.status === "needs_more_info")
+    ? "needs_more_info"
+    : routingDecision.resolutionStatus;
   const executionTrace = [
     executionStep("user", "submit_issue", requestBody.message),
     executionStep("orchestrator", "route_issue", `${routingDecision.routingSource} routing decision: ${routingDecision.routingReasoningSummary}`),
@@ -752,7 +774,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     routingSource: routingDecision.routingSource,
     routingConfidence: routingDecision.routingConfidence,
     routingReasoningSummary: routingDecision.routingReasoningSummary,
-    resolutionStatus: routingDecision.resolutionStatus,
+    resolutionStatus,
     evidence,
     agentTrace,
     executionTrace,

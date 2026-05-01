@@ -14,6 +14,7 @@ import type {
 } from "@a2a/shared";
 import { getAgentCard, getExecutableAgentCards, isExecutableAgentCard } from "./agentCards";
 import { getAiConfig } from "./config/aiConfig";
+import { detectAccessRequestIntent } from "./accessRequest";
 
 const systems: EnterpriseSystem[] = ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday", "Unknown"];
 const errorCodes: ErrorCode[] = ["401", "403", "404", "429", "500", "502", "503", "504"];
@@ -58,6 +59,7 @@ Rules:
 - For "inspect oauth" or OAuth token inspection requests, MUST select security-oauth-agent primary with skillId security.inspect_oauth_token.
 - Do not select end-user-triage-agent for technical sync/API prompts unless the user phrased the issue as a plain-language end-user complaint.
 - If the issue is vague, select no specialist agents or only end-user-triage-agent and ask for more details.
+- If the user is requesting access, group membership, permission grants, or user provisioning for a system that has no matching Agent Card, classify it as an unsupported manual workflow. Do not ask for incident diagnostics and do not route to unrelated agents.
 - Never decide Allowed or Blocked authorization. Security authorization is decided later by the policy engine.
 - Never invent agent IDs or skill IDs.
 
@@ -123,6 +125,14 @@ Expected selectedAgents:
     "reason": "The user requested OAuth token inspection."
   }
 ]
+
+User: "Add me to a helpdesk group in active directory"
+Expected selectedAgents:
+[]
+Expected resolutionStatus:
+"unsupported"
+Expected routingReasoningSummary:
+"The user is making an Active Directory access request, but no Active Directory or identity access agent is available."
 
 Return JSON only:
 {
@@ -203,7 +213,7 @@ function classifyForRouting(message: string, reason: string): Classification {
               : "Unknown";
   const reporterType: ReporterType = includesAny(lower, ["api", "sync", "403", "401", "429", "token", "scope", "webhook", "nightly scan"])
     ? "it_engineer"
-    : includesAny(lower, ["i ", "can't", "cannot", "says i", "don't have"])
+    : includesAny(lower, ["i ", "me ", "can't", "cannot", "says i", "don't have", "grant me", "give me"])
       ? "end_user"
       : "unknown";
   const operation: IntegrationOperation =
@@ -269,6 +279,28 @@ function completeSkippedAgents(selectedAgents: SelectedAgent[], explicitSkipped:
 export function routeWithRules(message: string, reason = "AI routing unavailable; Agent Card rules fallback was used."): RoutingDecision {
   const lower = message.toLowerCase();
   const classification = classifyForRouting(message, reason);
+  const accessRequest = detectAccessRequestIntent(message);
+
+  if (accessRequest.isAccessRequest) {
+    return {
+      classification: {
+        ...classification,
+        system: "Unknown",
+        issueType: classification.issueType === "UNKNOWN" ? "AUTHORIZATION_FAILURE" : classification.issueType,
+        operation: "unknown",
+        confidence: accessRequest.targetSystem === "Active Directory" ? "high" : "medium",
+        reasoningSummary: "Access request detected for a system without a matching Agent Card.",
+        reporterType: "end_user",
+        supportMode: "end_user_support"
+      },
+      selectedAgents: [],
+      skippedAgents: completeSkippedAgents([]),
+      routingSource: "rules_fallback",
+      routingConfidence: "high",
+      routingReasoningSummary: "Access request detected, but no Active Directory/Identity Access agent is available.",
+      resolutionStatus: "unsupported"
+    };
+  }
 
   if (classification.system === "Monday" && classification.issueType === "UNKNOWN") {
     return {
@@ -563,6 +595,10 @@ async function callOpenAi(message: string, apiKey: string, model: string): Promi
 export async function routeWithAI(message: string): Promise<RoutingDecision> {
   const fallback = routeWithRules(message);
   const aiConfig = getAiConfig();
+
+  if (fallback.resolutionStatus === "unsupported" && detectAccessRequestIntent(message).isAccessRequest) {
+    return fallback;
+  }
 
   if (!aiConfig.apiKey?.trim()) {
     console.info(`[router] ${aiConfig.provider} key is not configured; using Agent Card rules fallback`);

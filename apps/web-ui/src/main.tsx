@@ -8,22 +8,91 @@ const sampleMessage = "Jira sync fails with 403 when creating issues";
 
 const scenarios = [
   {
-    label: "Jira 403 Missing Scope",
-    message: "Jira sync fails with 403 when creating issues"
+    category: "End-user support",
+    items: [
+      {
+        label: "Jira Permission Issue",
+        message: "Jira says I don't have permission to create a ticket in the FIN project",
+        subtitle: "End-user support routed to Jira Agent"
+      },
+      {
+        label: "Vague Monday Issue",
+        message: "i have issue with monday.com",
+        subtitle: "Needs more information / no fake diagnosis"
+      }
+    ]
   },
   {
-    label: "GitHub Rate Limit",
-    message: "GitHub repository sync started failing with 403 during nightly scan"
+    category: "Technical integration",
+    items: [
+      {
+        label: "Jira 403 Missing Scope",
+        message: "Jira sync fails with 403 when creating issues",
+        subtitle: "Technical integration + OAuth scope analysis"
+      },
+      {
+        label: "GitHub Rate Limit Delegation",
+        message: "GitHub repository sync started failing with 403 during nightly scan",
+        subtitle: "GitHub Agent delegates to API Health Agent"
+      },
+      {
+        label: "PagerDuty Alert Failure",
+        message: "PagerDuty alert failure when sending incident notifications",
+        subtitle: "Incident/alert specialist path"
+      },
+      {
+        label: "SAP 401 Invalid Client",
+        message: "SAP integration returns 401 invalid client during token exchange",
+        subtitle: "Authentication failure path"
+      }
+    ]
   },
   {
-    label: "PagerDuty Alert Failure",
-    message: "PagerDuty alert failure when sending incident notifications"
+    category: "Security / policy",
+    items: [
+      {
+        label: "Blocked OAuth Inspection",
+        message: "inspect oauth in github",
+        subtitle: "Sensitive action blocked by policy"
+      },
+      {
+        label: "Needs Approval: Grant Jira Permission",
+        message: "Grant me permission to create Jira tickets in FIN",
+        subtitle: "Permission change requires human approval"
+      }
+    ]
   },
   {
-    label: "SAP 401 Invalid Client",
-    message: "SAP integration returns 401 invalid client during token exchange"
+    category: "Unsupported / manual workflow",
+    items: [
+      {
+        label: "Active Directory Access Request",
+        message: "Add me to a helpdesk group in active directory",
+        subtitle: "Unsupported system should create manual ServiceNow request guidance"
+      }
+    ]
   }
 ];
+
+function inferDemoFlowType(response: ResolveResponse): string {
+  if (response.resolutionStatus === "unsupported") {
+    return "Unsupported/manual workflow";
+  }
+
+  if (response.securityDecisions?.some((decision) => decision.decision === "Blocked" || decision.decision === "NeedsApproval" || decision.decision === "NeedsMoreContext")) {
+    return "Security policy";
+  }
+
+  if (response.classification.supportMode === "end_user_support") {
+    return "End-user support";
+  }
+
+  return "Technical integration";
+}
+
+function decisionClass(decision: string): string {
+  return `decision-${decision.toLowerCase()}`;
+}
 
 function JsonBlock({ value }: { value: unknown }) {
   return <pre>{JSON.stringify(value, null, 2)}</pre>;
@@ -73,10 +142,12 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [activeScenarioCategory, setActiveScenarioCategory] = useState(scenarios[0].category);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
     [messages]
   );
+  const activeScenarioGroup = scenarios.find((group) => group.category === activeScenarioCategory) ?? scenarios[0];
 
   async function ensureSession() {
     const response = await fetch(`${API_URL}/session`, {
@@ -89,11 +160,10 @@ function App() {
     }
   }
 
-  async function submitIssue(event: React.FormEvent) {
-    event.preventDefault();
-    const issueText = message.trim();
+  async function resolveIssue(issueText: string) {
+    const trimmedIssueText = issueText.trim();
 
-    if (!issueText || isLoading) {
+    if (!trimmedIssueText || isLoading) {
       return;
     }
 
@@ -107,7 +177,7 @@ function App() {
       {
         id: createMessageId(),
         role: "user",
-        content: issueText,
+        content: trimmedIssueText,
         timestamp: now,
         status: "done"
       },
@@ -128,7 +198,7 @@ function App() {
           "content-type": "application/json"
         },
         credentials: "include",
-        body: JSON.stringify({ message: issueText })
+        body: JSON.stringify({ message: trimmedIssueText })
       });
       
       if (!apiResponse.ok) {
@@ -169,6 +239,11 @@ function App() {
     }
   }
 
+  async function submitIssue(event: React.FormEvent) {
+    event.preventDefault();
+    await resolveIssue(message);
+  }
+
   return (
     <main className="shell">
       <section className="workspace">
@@ -183,16 +258,47 @@ function App() {
         <MessageList messages={messages} />
 
         <div className="composer-dock">
-          <div className="scenario-buttons" aria-label="Demo scenarios">
-            {scenarios.map((scenario) => (
-              <button
-                type="button"
-                key={scenario.label}
-                onClick={() => setMessage(scenario.message)}
-              >
-                {scenario.label}
-              </button>
-            ))}
+          <div className="scenario-launcher" aria-label="Demo scenarios">
+            <div className="scenario-tabs" role="tablist" aria-label="Scenario categories">
+              {scenarios.map((group) => (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={group.category === activeScenarioCategory}
+                  className={group.category === activeScenarioCategory ? "active" : ""}
+                  key={group.category}
+                  onClick={() => setActiveScenarioCategory(group.category)}
+                >
+                  {group.category}
+                </button>
+              ))}
+            </div>
+            <div className="scenario-buttons">
+              {activeScenarioGroup.items.map((scenario) => (
+                <article className="scenario-option" key={scenario.label}>
+                  <button
+                    type="button"
+                    className="scenario-select"
+                    title={scenario.subtitle}
+                    onClick={() => setMessage(scenario.message)}
+                  >
+                    <strong>{scenario.label}</strong>
+                    <small>{scenario.subtitle}</small>
+                  </button>
+                  <button
+                    type="button"
+                    className="scenario-run"
+                    disabled={isLoading}
+                    onClick={() => {
+                      setMessage(scenario.message);
+                      void resolveIssue(scenario.message);
+                    }}
+                  >
+                    Run
+                  </button>
+                </article>
+              ))}
+            </div>
           </div>
 
           <form className="composer" onSubmit={submitIssue}>
@@ -213,6 +319,18 @@ function App() {
       <aside className="details">
         {latestResponse ? (
           <>
+            <section>
+              <h2>Demo Flow Type</h2>
+              <div className="flow-type">{inferDemoFlowType(latestResponse)}</div>
+            </section>
+
+            {latestResponse.resolutionStatus === "unsupported" ? (
+              <section className="manual-workflow">
+                <h2>Manual ServiceNow Request Required</h2>
+                <p>{latestResponse.finalAnswer}</p>
+              </section>
+            ) : null}
+
             <section>
               <h2>Classification</h2>
               <div className="classification-details">
@@ -401,7 +519,7 @@ function App() {
                     </div>
                     <div>
                       <span>Decision</span>
-                      <strong className={decision.decision === "Allowed" ? "allowed" : "blocked"}>
+                      <strong className={`decision-badge ${decisionClass(decision.decision)}`}>
                         {decision.decision}
                       </strong>
                     </div>
@@ -426,7 +544,7 @@ function App() {
                   <li key={`${entry.agent}-${entry.action}-${index}`}>
                     <div className="raw-trace-header">
                       <strong>{entry.agent}</strong>
-                      <span className="trace-separator"> </span>
+                      <span className="trace-separator">  </span>
                       <span className="trace-action">{entry.action}</span>
                     </div>
                     <p className="raw-trace-description">{entry.detail}</p>
