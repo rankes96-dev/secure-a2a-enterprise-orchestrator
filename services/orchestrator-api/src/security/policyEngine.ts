@@ -1,7 +1,7 @@
 export type RequestedSecurityAction =
   | "compare_oauth_scopes"
   | "inspect_oauth_token"
-  | "grant_jira_create_permission"
+  | "access.grant_permission"
   | "create_incident_draft"
   | "read_api_health"
   | "read_github_rate_limit";
@@ -26,7 +26,7 @@ export interface PolicyEvaluationResult {
 const actionPermissions: Record<RequestedSecurityAction, string> = {
   compare_oauth_scopes: "security.scope.compare",
   inspect_oauth_token: "security.token.inspect",
-  grant_jira_create_permission: "jira.permission.grant",
+  "access.grant_permission": "access.permission.grant",
   create_incident_draft: "incident.draft.create",
   read_api_health: "apihealth.read",
   read_github_rate_limit: "github.rate_limit.read"
@@ -94,12 +94,12 @@ export function evaluateSecurityPolicy(input: PolicyEvaluationInput): PolicyEval
     };
   }
 
-  if (input.requestedAction === "grant_jira_create_permission") {
+  if (input.requestedAction === "access.grant_permission") {
     return {
       ...baseResult,
       decision: "NeedsApproval",
-      reason: "Granting Jira Create Issues permission changes user access and requires human approval.",
-      matchedPolicy: "grant_jira_create_permission -> jira.permission.grant requires approval"
+      reason: "Changing Jira permissions requires human approval and was not executed automatically.",
+      matchedPolicy: "access.grant_permission -> access.permission.grant requires approval"
     };
   }
 

@@ -41,7 +41,7 @@ OPENROUTER_MODEL=openai/gpt-4o-mini
 
 If no API key is configured, if the AI request fails, or if the AI returns an invalid/unsafe agent route, the orchestrator automatically uses the local rules fallback. API keys stay server-side in `services/orchestrator-api/.env` and are never sent to the React frontend.
 
-The AI orchestrator returns both classification and A2A agent routing. The backend validates selected agent IDs and skill IDs against Agent Cards before invoking any local mock agent.
+The AI orchestrator returns both classification and A2A agent routing. The backend validates selected agent IDs and skill IDs against Agent Cards before invoking any local mock agent. AI may classify intent and choose agents, but it never makes final authorization decisions.
 
 Security settings for public hosting:
 
@@ -55,17 +55,17 @@ RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX_REQUESTS=30
 ```
 
-- `POST /resolve` requires `x-api-key`.
-- Browser clients can also call `POST /session` to receive an HttpOnly session cookie, then call `POST /resolve` with credentials.
-- Agent `/task` endpoints require `x-internal-service-token`.
-- The orchestrator sends `x-internal-service-token` to agents.
+- `ORCHESTRATOR_API_KEY` protects public orchestrator endpoints. `POST /resolve` accepts this key through `x-api-key`.
+- Browser clients use `POST /session` to receive an HttpOnly session cookie, then call `POST /resolve` with credentials. The web UI never needs the orchestrator API key.
+- `INTERNAL_SERVICE_TOKEN` protects internal mock agent calls. Agent `/task` endpoints require `x-internal-service-token`.
+- The orchestrator sends `x-internal-service-token` to agents for mock A2A task delivery.
 - Browser CORS is restricted by `ALLOWED_ORIGINS`.
 - Request bodies are capped by `MAX_BODY_BYTES`.
 - `/resolve` has a simple in-memory rate limit.
 - Do not put `ORCHESTRATOR_API_KEY`, `INTERNAL_SERVICE_TOKEN`, OpenRouter keys, or OpenAI keys in frontend code.
 - For Railway, set these as Railway environment variables. Use `HOST=0.0.0.0` only for services Railway must route to.
 - For a separate public frontend/backend domain on Railway, use `SESSION_COOKIE_SECURE=true` and `SESSION_COOKIE_SAMESITE=None`.
-- Session cookies prevent exposing a shared API key in the browser. They do not prove a visitor is human by themselves; add a CAPTCHA provider such as Cloudflare Turnstile before `/session` for real human verification.
+- This is demo-grade protection, not production identity. Session cookies prevent exposing a shared API key in the browser, but they do not prove a visitor is human by themselves; add a CAPTCHA provider such as Cloudflare Turnstile before `/session` for real human verification.
 
 ```bash
 npm install
@@ -127,9 +127,23 @@ Expected GitHub result:
 - Probable cause: GitHub API rate limit was exhausted during the nightly repository scan
 - Recommended fix: throttle scan concurrency, add retry/backoff handling, and schedule repository scans in batches
 
+NeedsApproval input:
+
+```text
+Grant me permission to create Jira tickets in FIN
+```
+
+Expected result:
+
+- Security decision: `NeedsApproval`
+- Requested action: `access.grant_permission`
+- Required permission: `access.permission.grant`
+- No permission change is executed automatically
+- Final answer explains that changing Jira permissions requires human approval
+
 ## Notes
 
-- No production-grade OAuth/OIDC is implemented yet. The demo includes API key/session protection for the orchestrator and internal service tokens for mock agent calls.
+- No production-grade OAuth/OIDC authentication is implemented yet. The demo includes API key/session protection for the orchestrator and internal service tokens for mock agent-to-agent calls.
 - No real Jira, GitHub, PagerDuty, SAP, or OAuth APIs are called.
 - All enterprise evidence comes from JSON files in `mock-data`.
 
@@ -137,10 +151,12 @@ Expected GitHub result:
 
 This project simulates a ServiceNow-style AI Orchestrator Agent coordinating with external enterprise agents through A2A-like task conversations.
 
-- The ServiceNow Orchestrator Agent owns intake, classification, Agent Card based routing, task creation, response collection, and final support/incident-style summarization.
+- The ServiceNow Orchestrator Agent owns intake, classification, Agent Card based routing, task creation, mediated delegation, response collection, audit trace, and final support/incident-style summarization. Its machine identity in tasks and policies is `servicenow-orchestrator-agent`.
 - External enterprise agents own system-specific mock knowledge and tools. Jira troubleshooting belongs in `jira-agent`, GitHub repository/API troubleshooting belongs in `github-agent`, PagerDuty alert ingestion belongs in `pagerduty-agent`, and OAuth/security posture belongs in `security-oauth-agent`.
 - Each external agent owns and serves its Agent Card from `/agent-card`. The orchestrator discovers Agent Cards from those endpoints at startup and uses the local static cards only as a fallback if discovery fails.
 - A2A task envelopes include `taskId`, `conversationId`, `fromAgent`, `toAgent`, `mediatedBy` for delegated tasks, `skillId`, support context, target audience, requested scope, and `authMode: "mock_internal_token"`.
-- Security allow/block decisions remain deterministic and policy-based. The LLM may detect or route a requested action, but `policyEngine.ts` maps the action to permissions and returns the decision.
+- Security decisions remain deterministic and policy-based: `Allowed`, `Blocked`, `NeedsApproval`, or `NeedsMoreContext`. The LLM may detect or route a requested action, but `policyEngine.ts` maps the action to permissions and returns the decision.
+- Agents can request help from other agents through `requestedDelegations`, but they do not call each other directly. The orchestrator validates Agent Cards, checks policy, prevents loops, invokes the delegated task, and records the trace.
+- Future OAuth/OIDC direction: target system agents should return required scopes and permissions as part of their A2A responses; `security-oauth-agent` should compare those requirements against token, user, and app scopes instead of hardcoding every system operation.
 
 The orchestrator does not need to know every Jira/GitHub/PagerDuty issue. It selects the external agent that owns the system and summarizes that agent's diagnosis. Everything remains local and mock-based for now; no real enterprise APIs or OAuth flows are called.

@@ -38,6 +38,10 @@ async function loadTokens(): Promise<OAuthTokenRecord[]> {
 }
 
 function requiredScopesFor(task: AgentTask): string[] {
+  // TODO: In the production architecture, target system agents should return
+  // requiredScopes/requiredPermissions in their A2A responses. This security
+  // agent should compare those requirements against token, user, and app scopes
+  // instead of hardcoding every system operation locally.
   if (task.classification.system === "Jira" && task.classification.operation === "create_issue") {
     return ["read:jira-work", "write:jira-work"];
   }

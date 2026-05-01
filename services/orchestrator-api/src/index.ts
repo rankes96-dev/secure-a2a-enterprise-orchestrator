@@ -183,7 +183,7 @@ function requestedActionForAgent(agentId: AgentName, classification: Classificat
       includesAny(lower, ["permission", "access"]) &&
       includesAny(lower, ["create jira", "create ticket", "create tickets", "create issue", "create issues"])
     ) {
-      return "grant_jira_create_permission";
+      return "access.grant_permission";
     }
 
     if (lower.includes("inspect") && lower.includes("oauth")) {
@@ -217,8 +217,8 @@ function requestedScopeForAction(requestedAction?: string): string | undefined {
     return "security.token.inspect";
   }
 
-  if (requestedAction === "grant_jira_create_permission") {
-    return "jira.permission.grant";
+  if (requestedAction === "access.grant_permission") {
+    return "access.permission.grant";
   }
 
   if (requestedAction === "read_github_rate_limit") {
