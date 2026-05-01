@@ -1,12 +1,18 @@
 import dotenv from "dotenv";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { A2AAgentResponse, A2ATask, AgentTask, OAuthTokenRecord } from "@a2a/shared";
+import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
 import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? 4104);
+type OAuthTokenRecord = {
+  app: string;
+  system: string;
+  currentScopes: string[];
+};
+
 const agentCard = {
   agentId: "security-oauth-agent",
   name: "Security OAuth Agent",

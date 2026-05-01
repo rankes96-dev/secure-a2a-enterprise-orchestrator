@@ -1,12 +1,27 @@
 import dotenv from "dotenv";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { A2AAgentResponse, A2ATask, AgentTask, GitHubRateLimitEvent } from "@a2a/shared";
+import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
 import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? 4102);
+type GitHubRateLimitEvent = {
+  integration: string;
+  operation: string;
+  status: number;
+  headers: {
+    "x-ratelimit-remaining": string;
+    "x-ratelimit-reset": string;
+  };
+  token: {
+    type: string;
+    permissions: string[];
+    samlSsoAuthorized: boolean;
+  };
+};
+
 const agentCard = {
   agentId: "github-agent",
   name: "GitHub Agent",

@@ -1,12 +1,17 @@
 import dotenv from "dotenv";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { A2AAgentResponse, A2ATask, AgentTask, JiraOperationRequirement } from "@a2a/shared";
+import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
 import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? 4101);
+type JiraOperationRequirement = {
+  operation: string;
+  requiredScopes: string[];
+};
+
 const agentCard = {
   agentId: "jira-agent",
   name: "Jira Agent",

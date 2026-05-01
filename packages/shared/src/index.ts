@@ -7,29 +7,25 @@ export type IssueType =
   | "API_AVAILABILITY"
   | "UNKNOWN";
 
-export type EnterpriseSystem = "Jira" | "GitHub" | "PagerDuty" | "SAP" | "Confluence" | "Monday" | "Unknown";
+// Enterprise systems are dynamic because future Agent Cards may be created
+// through the Agent Builder UI. Do not model systems as a closed union.
+export type EnterpriseSystem = string;
 
-export type ErrorCode = "401" | "403" | "404" | "429" | "500" | "502" | "503" | "504";
+// Error codes may be HTTP status codes or vendor/application-specific codes.
+export type ErrorCode = string;
 
-export type IntegrationOperation =
-  | "create_issue"
-  | "repository_scan"
-  | "send_alert"
-  | "oauth_client_auth"
-  | "sync_board_updates"
-  | "read_pages"
-  | "unknown";
+// Operations are dynamic and should usually come from Agent Card skill metadata,
+// requestedAction, capability, or runtime interpretation.
+export type IntegrationOperation = string;
 
-export type AgentName =
-  | "end-user-triage-agent"
-  | "jira-agent"
-  | "github-agent"
-  | "pagerduty-agent"
-  | "sap-agent"
-  | "security-oauth-agent"
-  | "api-health-agent";
+// Agent IDs are dynamic. Built-in demo agents are defined by Agent Cards, not by
+// shared protocol unions.
+export type AgentId = string;
+export type AgentName = AgentId;
 
-export type DelegationTargetAgentName = Exclude<AgentName, "sap-agent">;
+export type DelegationTargetAgentName = AgentId;
+export type TraceActorId = string;
+export type ExecutionActorId = string;
 export type AgentRole = "primary" | "supporting";
 export type ReporterType = "end_user" | "it_engineer" | "unknown";
 export type SupportMode = "end_user_support" | "technical_integration";
@@ -112,13 +108,13 @@ export interface AgentTask {
 }
 
 export interface AgentEvidence {
-  agent: AgentName;
+  agent: AgentId;
   title: string;
   data: Record<string, unknown>;
 }
 
 export interface AgentTraceEntry {
-  agent: AgentName | "orchestrator";
+  agent: TraceActorId;
   action: string;
   detail: string;
   timestamp: string;
@@ -131,7 +127,7 @@ export interface AgentTraceEntry {
 }
 
 export interface ExecutionTraceStep {
-  actor: AgentName | "user" | "orchestrator";
+  actor: ExecutionActorId;
   action: string;
   detail: string;
   timestamp: string;
@@ -147,7 +143,7 @@ export interface ExecutionTraceStep {
 
 export interface SecurityDecision {
   caller: string;
-  target: AgentName;
+  target: AgentId;
   requestedAction: string;
   requiredPermission: string;
   decision: "Allowed" | "Blocked" | "NeedsApproval" | "NeedsMoreContext";
@@ -157,7 +153,7 @@ export interface SecurityDecision {
 }
 
 export interface SelectedAgent {
-  agentId: AgentName;
+  agentId: AgentId;
   role: AgentRole;
   skillId?: string;
   reason: string;
@@ -168,7 +164,7 @@ export interface SelectedAgent {
 }
 
 export interface SkippedAgent {
-  agentId: AgentName;
+  agentId: AgentId;
   reason: string;
 }
 
@@ -184,7 +180,7 @@ export interface RoutingDecision {
 }
 
 export interface AgentResponse {
-  agent: AgentName;
+  agent: AgentId;
   evidence: AgentEvidence[];
   trace: AgentTraceEntry[];
 }
@@ -256,7 +252,7 @@ export interface A2AAgentResponse {
   recommendedActions?: string[];
   clarifyingQuestions?: string[];
   requestedDelegations?: Array<{
-    targetAgentId: DelegationTargetAgentName;
+    targetAgentId: AgentId;
     skillId: string;
     reason: string;
     context?: Record<string, unknown>;
@@ -340,32 +336,6 @@ export interface AgentsHealthResponse {
     healthy: number;
     degraded: number;
     down: number;
-  };
-}
-
-export interface JiraOperationRequirement {
-  operation: string;
-  requiredScopes: string[];
-}
-
-export interface OAuthTokenRecord {
-  app: string;
-  system: EnterpriseSystem;
-  currentScopes: string[];
-}
-
-export interface GitHubRateLimitEvent {
-  integration: string;
-  operation: string;
-  status: number;
-  headers: {
-    "x-ratelimit-remaining": string;
-    "x-ratelimit-reset": string;
-  };
-  token: {
-    type: string;
-    permissions: string[];
-    samlSsoAuthorized: boolean;
   };
 }
 
