@@ -168,6 +168,7 @@ type DemoAgentCard = {
     examples?: string[];
     requiredScopes?: string[];
     capabilities?: string[];
+    supportingCapabilities?: string[];
     requestedAction?: string;
     requiredPermission?: string;
     riskLevel?: "low" | "medium" | "high" | "sensitive";
@@ -182,22 +183,28 @@ type DemoAgentCard = {
 
 type DemoAgentCardInput = {
   system: string;
+  agentSlug: string;
   agentName: string;
   description: string;
   capability: string;
+  requiredScope: string;
   riskLevel: "low" | "medium" | "high" | "sensitive";
   resourceTypes: string;
   examples: string;
+  supportingCapabilities: string;
 };
 
 const emptyDemoAgentInput: DemoAgentCardInput = {
   system: "",
+  agentSlug: "",
   agentName: "",
   description: "",
   capability: "",
+  requiredScope: "",
   riskLevel: "low",
   resourceTypes: "incident, ticket, account",
-  examples: ""
+  examples: "",
+  supportingCapabilities: ""
 };
 
 function createMessageId() {
@@ -245,6 +252,7 @@ function App() {
   const [demoAgentCards, setDemoAgentCards] = useState<DemoAgentCard[]>([]);
   const [demoAgentWarnings, setDemoAgentWarnings] = useState<string[]>([]);
   const [demoAgentError, setDemoAgentError] = useState("");
+  const [demoAgentSavedDuringOpen, setDemoAgentSavedDuringOpen] = useState(false);
   const [activeScenarioCategory, setActiveScenarioCategory] = useState(scenarios[0].category);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
@@ -297,8 +305,17 @@ function App() {
     return {
       ...demoAgentInput,
       resourceTypes: demoAgentInput.resourceTypes.split(",").map((item) => item.trim()).filter(Boolean),
-      examples: demoAgentInput.examples.split(",").map((item) => item.trim()).filter(Boolean)
+      examples: demoAgentInput.examples.split(",").map((item) => item.trim()).filter(Boolean),
+      supportingCapabilities: demoAgentInput.supportingCapabilities.split(",").map((item) => item.trim()).filter(Boolean)
     };
+  }
+
+  function closeDemoBuilder() {
+    setIsDemoBuilderOpen(false);
+    if (demoAgentSavedDuringOpen && messages.length > 0) {
+      startNewConversation();
+    }
+    setDemoAgentSavedDuringOpen(false);
   }
 
   async function loadDemoAgentCards() {
@@ -357,6 +374,12 @@ function App() {
       setDemoAgentPreview(body.agentCard);
       setDemoAgentCards(body.agentCards);
       setDemoAgentWarnings(body.warnings);
+      setDemoAgentSavedDuringOpen(true);
+      setIsDemoBuilderOpen(false);
+      if (messages.length > 0) {
+        startNewConversation();
+      }
+      await checkAgentHealth();
     } catch (caughtError) {
       setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to add demo Agent Card");
     }
@@ -378,6 +401,7 @@ function App() {
       if (demoAgentPreview?.agentId === agentId) {
         setDemoAgentPreview(null);
       }
+      await checkAgentHealth();
     } catch (caughtError) {
       setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete demo Agent Card");
     }
@@ -493,6 +517,7 @@ function App() {
               type="button"
               className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"}`}
               onClick={() => {
+                setIsDemoBuilderOpen(false);
                 setIsHealthPanelOpen((current) => !current);
                 if (!health && !isHealthLoading) {
                   void checkAgentHealth();
@@ -507,13 +532,15 @@ function App() {
               type="button"
               className="secondary-button"
               onClick={() => {
+                setIsHealthPanelOpen(false);
+                setDemoAgentSavedDuringOpen(false);
                 setIsDemoBuilderOpen((current) => !current);
                 if (!isDemoBuilderOpen) {
                   void loadDemoAgentCards();
                 }
               }}
             >
-              Create demo agent
+              Create external demo agent
             </button>
           </div>
         </header>
@@ -551,7 +578,7 @@ function App() {
                         <span>{agent.latencyMs} ms / {new Date(agent.checkedAt).toLocaleTimeString()}</span>
                       </div>
                       <span className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</span>
-                      <small>{agent.agentId === "mock-identity-provider" ? "Infrastructure dependency" : `Agent Card ${agent.details.agentCardAvailable ? "yes" : "no"}`}</small>
+                      <small>{agent.agentId === "mock-identity-provider" ? "Infrastructure dependency" : agent.url.startsWith("session://demo-agent/") ? "Session demo agent" : `Agent Card ${agent.details.agentCardAvailable ? "yes" : "no"}`}</small>
                       {agent.error ? <p>{agent.error}</p> : null}
                     </article>
                   ))}
@@ -564,19 +591,25 @@ function App() {
         ) : null}
 
         {isDemoBuilderOpen ? (
-          <section className="demo-agent-builder" aria-label="Demo Agent Card Builder">
+          <section className="demo-agent-builder" aria-label="Create External Demo Agent">
             <div className="agent-health-header">
               <div>
-                <h2>Demo Agent Card Builder</h2>
-                <p>AI-assisted generation coming next</p>
+                <h2>Create External Demo Agent</h2>
+                <p>Create a session-only Agent Card that represents a vendor/domain-owned agent. It is stored only for this browser session and uses a safe mock runtime.</p>
               </div>
-              <button type="button" onClick={() => void loadDemoAgentCards()}>Refresh</button>
+              <button type="button" onClick={closeDemoBuilder}>Close</button>
             </div>
             {demoAgentError ? <p className="error">{demoAgentError}</p> : null}
             <div className="demo-agent-form">
               <label>
                 <span>System</span>
                 <input value={demoAgentInput.system} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, system: event.target.value })} placeholder="Confluence" />
+                <small>The product/domain this agent owns, for example Salesforce, Slack, Datadog, Okta.</small>
+              </label>
+              <label>
+                <span>Agent slug</span>
+                <input value={demoAgentInput.agentSlug} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, agentSlug: event.target.value })} placeholder="salesforce-access" />
+                <small>Optional. Generates IDs like demo-salesforce-access-agent. Leave blank for a unique generated ID.</small>
               </label>
               <label>
                 <span>Agent name</span>
@@ -589,6 +622,12 @@ function App() {
               <label>
                 <span>Capability</span>
                 <input value={demoAgentInput.capability} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, capability: event.target.value })} placeholder="confluence.issue.diagnose" />
+                <small>The stable routing key the orchestrator uses to select this agent. Example: salesforce.access.diagnose.</small>
+              </label>
+              <label>
+                <span>Required scope</span>
+                <input value={demoAgentInput.requiredScope} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, requiredScope: event.target.value })} placeholder="confluence.diagnose" />
+                <small>Permission encoded into the A2A JWT. The target agent should only accept tokens with this scope.</small>
               </label>
               <label>
                 <span>Risk level</span>
@@ -598,10 +637,17 @@ function App() {
                   <option value="high">high</option>
                   <option value="sensitive">sensitive</option>
                 </select>
+                <small>Low/medium are suitable for read-only diagnosis. High/sensitive actions should require approval or be blocked by policy.</small>
               </label>
               <label>
                 <span>Resource types</span>
                 <input value={demoAgentInput.resourceTypes} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, resourceTypes: event.target.value })} />
+                <small>The objects this agent understands, for example incident, user, repository, service. Used as routing context.</small>
+              </label>
+              <label className="wide-field">
+                <span>Supporting capabilities</span>
+                <input value={demoAgentInput.supportingCapabilities} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, supportingCapabilities: event.target.value })} placeholder="oauth.scope.compare, api.health.diagnose" />
+                <small>The agent does not directly call another agent. It can request delegated help, and the orchestrator validates policy, prevents loops, and mediates the task.</small>
               </label>
               <label>
                 <span>Examples</span>
@@ -611,7 +657,21 @@ function App() {
             <div className="demo-agent-actions">
               <button type="button" onClick={() => void generateDemoAgentPreview()}>Generate preview</button>
               <button type="button" onClick={() => void addDemoAgentToSession()}>Add to session</button>
+              <button type="button" onClick={() => {
+                setDemoAgentInput({ ...demoAgentInput, agentSlug: "" });
+                setDemoAgentPreview(null);
+                setDemoAgentWarnings([]);
+              }}>New draft</button>
             </div>
+            {demoAgentPreview ? (
+              <div className="demo-agent-auth-note">
+                <strong>Generated agentId</strong>
+                <span>{demoAgentPreview.agentId}</span>
+                <strong>Audience</strong>
+                <span>{demoAgentPreview.auth.audience}</span>
+                <small>JWT audience for this agent. Tokens issued for another audience should not be accepted.</small>
+              </div>
+            ) : null}
             {demoAgentWarnings.length > 0 ? (
               <ul className="demo-agent-warnings">
                 {demoAgentWarnings.map((warning) => <li key={warning}>{warning}</li>)}
@@ -629,7 +689,8 @@ function App() {
             </div>
             {demoAgentPreview ? (
               <div className="demo-agent-preview">
-                <h2>/.well-known/agent-card.json</h2>
+                <h2>/.well-known/agent-card.json preview</h2>
+                <p className="muted-note">In this demo the orchestrator stores this Agent Card in your session. A real vendor agent would host this JSON from its own domain.</p>
                 <JsonBlock value={demoAgentPreview} />
               </div>
             ) : null}

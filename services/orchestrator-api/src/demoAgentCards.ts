@@ -1,13 +1,18 @@
+import { randomUUID } from "node:crypto";
 import type { AgentCard } from "./agentCards";
 
 export type DemoAgentCardInput = {
   system: string;
+  agentSlug?: string;
+  agentId?: string;
   agentName?: string;
   description?: string;
   capability?: string;
+  requiredScope?: string;
   riskLevel?: "low" | "medium" | "high" | "sensitive";
   resourceTypes?: string[];
   examples?: string[];
+  supportingCapabilities?: string[];
 };
 
 const cardsBySession = new Map<string, AgentCard[]>();
@@ -27,6 +32,24 @@ function slug(value: string): string {
 
 function scopeName(value: string): string {
   return slug(value).replace(/-/g, "_");
+}
+
+function randomId(): string {
+  return randomUUID().replace(/-/g, "").slice(0, 5);
+}
+
+function demoAgentId(input: DemoAgentCardInput, systemSlug: string): string {
+  const explicitAgentId = input.agentId?.trim();
+  if (explicitAgentId?.startsWith("demo-") && explicitAgentId.endsWith("-agent")) {
+    return `demo-${slug(explicitAgentId.slice("demo-".length, -"agent".length))}-agent`;
+  }
+
+  const agentSlug = input.agentSlug?.trim();
+  if (agentSlug) {
+    return `demo-${slug(agentSlug)}-agent`;
+  }
+
+  return `demo-${systemSlug}-${randomId()}-agent`;
 }
 
 function listFromInput(value: string[] | undefined, fallback: string[]): string[] {
@@ -62,8 +85,9 @@ export function buildDemoAgentCard(input: DemoAgentCardInput): AgentCard {
   const systemSlug = slug(rawSystem);
   const systemScope = scopeName(rawSystem);
   const displaySystem = titleCase(rawSystem);
-  const agentId = `demo-${systemSlug}-agent`;
+  const agentId = demoAgentId(input, systemSlug);
   const capability = input.capability?.trim() || `${systemScope}.issue.diagnose`;
+  const requiredScope = input.requiredScope?.trim() || `${systemScope}.diagnose`;
   const requestedAction = capability;
   const riskLevel = highRiskRequestedAction(requestedAction) && input.riskLevel !== "sensitive"
     ? "high"
@@ -85,10 +109,11 @@ export function buildDemoAgentCard(input: DemoAgentCardInput): AgentCard {
         name: `Diagnose ${displaySystem} issue`,
         description: `Diagnose ${displaySystem} issues using demo agent-card metadata.`,
         examples: listFromInput(input.examples, []),
-        requiredScopes: [`${systemScope}.diagnose`],
+        requiredScopes: [requiredScope],
         capabilities: [capability],
+        supportingCapabilities: listFromInput(input.supportingCapabilities, []),
         requestedAction,
-        requiredPermission: `${systemScope}.diagnose`,
+        requiredPermission: requiredScope,
         riskLevel,
         owner: `Demo ${displaySystem} Team`,
         scope: {

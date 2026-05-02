@@ -668,7 +668,8 @@ function createDemoAgentResponse(card: AgentCard, skill?: AgentCardSkill): A2AAg
           agentId: card.agentId,
           capability: skill?.capabilities?.[0],
           requiredScopes: skill?.requiredScopes ?? [],
-          riskLevel: skill?.riskLevel ?? "low"
+          riskLevel: skill?.riskLevel ?? "low",
+          supportingCapabilities: skill?.supportingCapabilities ?? []
         }
       }
     ],
@@ -695,12 +696,19 @@ function demoInputFromRequestBody(value: unknown): DemoAgentCardInput {
       : Array.isArray(record.systems) && typeof record.systems[0] === "string"
         ? record.systems[0]
         : "",
+    agentSlug: typeof record.agentSlug === "string" ? record.agentSlug : undefined,
+    agentId: typeof record.agentId === "string" ? record.agentId : undefined,
     agentName: typeof record.agentName === "string" ? record.agentName : typeof record.name === "string" ? record.name : undefined,
     description: typeof record.description === "string" ? record.description : undefined,
     capability: typeof record.capability === "string"
       ? record.capability
       : Array.isArray(firstSkill?.capabilities) && typeof firstSkill.capabilities[0] === "string"
         ? firstSkill.capabilities[0]
+        : undefined,
+    requiredScope: typeof record.requiredScope === "string"
+      ? record.requiredScope
+      : Array.isArray(firstSkill?.requiredScopes) && typeof firstSkill.requiredScopes[0] === "string"
+        ? firstSkill.requiredScopes[0]
         : undefined,
     riskLevel: record.riskLevel === "low" || record.riskLevel === "medium" || record.riskLevel === "high" || record.riskLevel === "sensitive"
       ? record.riskLevel
@@ -720,6 +728,13 @@ function demoInputFromRequestBody(value: unknown): DemoAgentCardInput {
         ? record.examples.split(",")
         : Array.isArray(firstSkill?.examples)
           ? firstSkill.examples.filter((item): item is string => typeof item === "string")
+          : undefined,
+    supportingCapabilities: Array.isArray(record.supportingCapabilities)
+      ? record.supportingCapabilities.filter((item): item is string => typeof item === "string")
+      : typeof record.supportingCapabilities === "string"
+        ? record.supportingCapabilities.split(",")
+        : Array.isArray(firstSkill?.supportingCapabilities)
+          ? firstSkill.supportingCapabilities.filter((item): item is string => typeof item === "string")
           : undefined
   };
 }
@@ -733,9 +748,25 @@ function requireSessionToken(request: IncomingMessage, response: ServerResponse)
   return token;
 }
 
-async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
+async function checkSessionDemoAgentHealth(card: AgentCard): Promise<AgentHealthCheck> {
+  return {
+    agentId: card.agentId,
+    url: card.endpoint,
+    status: "ok",
+    latencyMs: 0,
+    checkedAt: new Date().toISOString(),
+    details: {
+      healthEndpoint: "/health",
+      agentCardAvailable: true
+    }
+  };
+}
+
+async function buildAgentsHealthResponse(sessionToken?: string): Promise<AgentsHealthResponse> {
+  const sessionDemoCards = sessionToken ? listDemoAgentCards(sessionToken) : [];
   const agents = await Promise.all([
     ...getExecutableAgentCards().map((card) => checkAgentHealth(card)),
+    ...sessionDemoCards.map((card) => checkSessionDemoAgentHealth(card)),
     checkMockIdentityProviderHealth()
   ]);
 
@@ -1396,11 +1427,22 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       classification,
       securityDecision: taskSecurityDecision,
       requestedScope,
-      cards: requestAgentCards
+      cards: requestAgentCards,
+      authMode: isDemoAgentCard(card) ? a2aAuthMode : undefined
     });
     a2aTasks.push(a2aTask);
 
     if (isDemoAgentCard(card)) {
+      a2aTask.context.auth = {
+        ...a2aTask.context.auth,
+        authMode: a2aAuthMode,
+        audience: card.auth.audience,
+        scope: requestedScope,
+        tokenIssued: false,
+        validationReason: "Session demo agent uses a safe mock runtime; JWT validation is documented but not enforced by a live HTTP service."
+      };
+      orchestratorTrace.push(trace("SESSION_DEMO_JWT_DOCUMENTED", `Session demo agent uses audience ${card.auth.audience} and scope ${requestedScope ?? "none"}; raw token not exposed.`));
+      orchestratorTrace.push(trace("SESSION_DEMO_TOKEN_METADATA_RECEIVED", "Session demo agent mock runtime received token metadata; raw token not exposed."));
       a2aResponses.push(createDemoAgentResponse(card, skillMetadata));
       orchestratorTrace.push(trace("DEMO_AGENT_EXECUTED", `Returned safe mock response for ${agent.agentId}; no user-defined endpoint was fetched.`));
       continue;
@@ -1546,7 +1588,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    sendJson(response, 200, await buildAgentsHealthResponse());
+    sendJson(response, 200, await buildAgentsHealthResponse(getSessionToken(request)));
     return;
   }
 

@@ -145,11 +145,13 @@ h2 {
 .demo-agent-builder {
   display: grid;
   gap: 12px;
-  border: 1px solid #d7e0e4;
+  border: 2px solid #235789;
   border-radius: 8px;
   padding: 12px;
   background: #ffffff;
   overflow: auto;
+  max-height: min(72vh, 760px);
+  box-shadow: 0 18px 40px rgba(25, 44, 54, 0.18);
 }
 
 .demo-agent-form {
@@ -164,11 +166,19 @@ h2 {
   min-width: 0;
 }
 
-.demo-agent-form span {
+.demo-agent-form span,
+.demo-agent-auth-note strong {
   color: #526b76;
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.demo-agent-form small,
+.demo-agent-auth-note small {
+  color: #526b76;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .demo-agent-form input,
@@ -188,6 +198,26 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.demo-agent-auth-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 10px;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f7fafb;
+}
+
+.demo-agent-auth-note span {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.demo-agent-auth-note small {
+  grid-column: 1 / -1;
 }
 
 .demo-agent-actions button,
