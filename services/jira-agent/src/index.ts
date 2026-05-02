@@ -7,7 +7,7 @@ import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
-const port = Number(process.env.PORT ?? 4101);
+const port = Number(process.env.JIRA_AGENT_PORT ?? 4101);
 type JiraOperationRequirement = {
   operation: string;
   requiredScopes: string[];

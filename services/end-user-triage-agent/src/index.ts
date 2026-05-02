@@ -5,7 +5,7 @@ import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
-const port = Number(process.env.PORT ?? 4106);
+const port = Number(process.env.END_USER_TRIAGE_AGENT_PORT ?? 4106);
 const agentCard = {
   agentId: "end-user-triage-agent",
   name: "End User Triage Agent",

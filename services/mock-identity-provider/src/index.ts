@@ -8,10 +8,11 @@ import { StaticAgentCardRegistry } from "../../orchestrator-api/src/agentCardReg
 import { buildDiscoveredA2AResourceRegistry, type DiscoveredA2AResourceRegistry } from "./agentCardScopeRegistry";
 import { getOAuthApplication, oauthApplications, sensitiveScopesNeverIssuedByMockIdp, type OAuthApplicationRegistration } from "./config/oauthApplications";
 import { authenticateOAuthClient } from "./security/clientAuthentication";
+import { evaluateSourceIpAllowlist } from "./security/sourceIpAllowlist";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
-const port = Number(process.env.PORT ?? 4110);
+const port = Number(process.env.MOCK_IDENTITY_PROVIDER_PORT ?? 4110);
 const issuer = process.env.A2A_ISSUER ?? "http://localhost:4110";
 const deniedScopes = new Set<string>(sensitiveScopesNeverIssuedByMockIdp);
 const agentCardRegistry = new StaticAgentCardRegistry();
@@ -201,17 +202,17 @@ async function issueToken(
   };
 }
 
-async function handleToken(request: IncomingMessage, response: ServerResponse): Promise<void> {
+async function handleToken(request: IncomingMessage, response: ServerResponse, sourceIp?: string): Promise<void> {
   const body = await readJsonBody<TokenRequest>(request);
   const validation = await validateTokenRequest(body);
 
   if (!validation.ok) {
-    auditTokenAttempt(body, validation.authMethod ?? "unknown", "denied", validation.error);
+    auditTokenAttempt(body, validation.authMethod ?? "unknown", "denied", validation.error, sourceIp);
     sendJson(response, validation.status, { error: validation.error }, request);
     return;
   }
 
-  auditTokenAttempt(body, validation.authMethod, "allowed");
+  auditTokenAttempt(body, validation.authMethod, "allowed", undefined, sourceIp);
   sendJson(
     response,
     200,
@@ -236,10 +237,11 @@ function auditTokenAttempt(
   body: TokenRequest,
   authMethod: "client_secret_post" | "private_key_jwt" | "unknown",
   result: "allowed" | "denied",
-  denialReason?: string
+  denialReason?: string,
+  sourceIp?: string
 ): void {
   console.log(
-    `[mock-idp] token_request timestamp=${new Date().toISOString()} client_id=${body.client_id ?? "unknown"} audience=${body.audience ?? "unknown"} scope=${body.scope ?? "unknown"} authMethod=${authMethod} result=${result}${denialReason ? ` reason=${denialReason}` : ""} delegated_by=${body.delegated_by ?? "none"} delegation_depth=${body.delegation_depth ?? 0}`
+    `[mock-idp] token_request timestamp=${new Date().toISOString()} sourceIp=${sourceIp ?? "unknown"} client_id=${body.client_id ?? "unknown"} audience=${body.audience ?? "unknown"} scope=${body.scope ?? "unknown"} authMethod=${authMethod} result=${result}${denialReason ? ` reason=${denialReason}` : ""} delegated_by=${body.delegated_by ?? "none"} delegation_depth=${body.delegation_depth ?? 0}`
   );
 }
 
@@ -296,7 +298,16 @@ async function start(): Promise<void> {
     }
 
     if (request.method === "POST" && request.url === "/oauth/token") {
-      await handleToken(request, response);
+      const sourceIpCheck = evaluateSourceIpAllowlist(request);
+      if (!sourceIpCheck.ok) {
+        console.warn(
+          `[mock-idp] token_request_network_denied timestamp=${new Date().toISOString()} sourceIp=${sourceIpCheck.sourceIp} reason=${sourceIpCheck.reason}`
+        );
+        sendJson(response, 403, { error: "source_ip_not_allowed" }, request);
+        return;
+      }
+
+      await handleToken(request, response, sourceIpCheck.sourceIp);
       return;
     }
 

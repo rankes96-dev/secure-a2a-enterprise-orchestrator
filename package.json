@@ -12,6 +12,7 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "verify:a2a-token": "tsx scripts/verify-a2a-token.ts",
+    "verify:mock-idp-ip-allowlist": "tsx scripts/verify-mock-idp-ip-allowlist.ts",
     "generate:orchestrator-client-key": "tsx scripts/generate-orchestrator-client-key.ts"
   },
   "devDependencies": {

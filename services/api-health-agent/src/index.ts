@@ -5,7 +5,7 @@ import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
-const port = Number(process.env.PORT ?? 4105);
+const port = Number(process.env.API_HEALTH_AGENT_PORT ?? 4105);
 const agentCard = {
   agentId: "api-health-agent",
   name: "API Health Agent",
