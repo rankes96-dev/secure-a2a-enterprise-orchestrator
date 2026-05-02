@@ -14,6 +14,7 @@
     "verify:a2a-token": "tsx scripts/verify-a2a-token.ts",
     "verify:mock-idp-ip-allowlist": "tsx scripts/verify-mock-idp-ip-allowlist.ts",
     "verify:private-key-jwt-replay": "tsx scripts/verify-private-key-jwt-replay.ts",
+    "verify:session-demo-agent": "tsx scripts/verify-session-demo-agent.ts",
     "generate:orchestrator-client-key": "tsx scripts/generate-orchestrator-client-key.ts"
   },
   "devDependencies": {
