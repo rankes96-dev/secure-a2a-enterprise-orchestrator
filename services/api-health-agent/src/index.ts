@@ -1,11 +1,12 @@
 import dotenv from "dotenv";
 import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
-import { formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
+import { assertSecureA2AAuthMode, formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? process.env.API_HEALTH_AGENT_PORT ?? 4105);
+assertSecureA2AAuthMode("api-health-agent");
 const agentCard = {
   agentId: "api-health-agent",
   name: "API Health Agent",

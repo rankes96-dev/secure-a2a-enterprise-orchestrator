@@ -120,7 +120,8 @@ async function verifyHealth(cookie: string, card: DemoAgentCard): Promise<void> 
   const agent = response.body.agents.find((item) => item.agentId === card.agentId);
   assertCondition(Boolean(agent), "created demo agent missing from health");
   assertCondition(agent!.status === "ok", "created demo agent health should be ok");
-  assertCondition(agent!.url.startsWith("session://demo-agent/"), "created demo agent health URL should be session://");
+  assertCondition(agent!.endpointType === "session" || agent!.url?.startsWith("session://demo-agent/"), "created demo agent health endpoint should be session");
+  assertCondition(!agent!.url || agent!.url.startsWith("session://demo-agent/"), "created demo agent health URL should be hidden or session://");
   console.log("demo agent health: ok");
 }
 

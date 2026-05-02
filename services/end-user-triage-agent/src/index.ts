@@ -1,11 +1,12 @@
 import dotenv from "dotenv";
 import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
-import { formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
+import { assertSecureA2AAuthMode, formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? process.env.END_USER_TRIAGE_AGENT_PORT ?? 4106);
+assertSecureA2AAuthMode("end-user-triage-agent");
 const agentCard = {
   agentId: "end-user-triage-agent",
   name: "End User Triage Agent",

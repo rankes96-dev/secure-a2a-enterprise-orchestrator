@@ -311,7 +311,23 @@ function App() {
     : "Agents: check health";
 
   function canDeleteHealthAgent(agent: AgentsHealthResponse["agents"][number]): boolean {
-    return agent.url.startsWith("session://demo-agent/");
+    return agent.endpointType === "session";
+  }
+
+  function healthEndpointLabel(agent: AgentsHealthResponse["agents"][number]): string {
+    if (agent.agentId === "mock-identity-provider") {
+      return "Infrastructure dependency";
+    }
+
+    if (agent.endpointType === "session") {
+      return "Session demo agent";
+    }
+
+    if (agent.endpointType === "internal") {
+      return "Internal Railway service";
+    }
+
+    return `Agent Card ${agent.details.agentCardAvailable ? "yes" : "no"}`;
   }
 
   function resetDemoAgentDraft() {
@@ -706,7 +722,7 @@ function App() {
                           </button>
                         ) : null}
                       </div>
-                      <small>{agent.agentId === "mock-identity-provider" ? "Infrastructure dependency" : agent.url.startsWith("session://demo-agent/") ? "Session demo agent" : `Agent Card ${agent.details.agentCardAvailable ? "yes" : "no"}`}</small>
+                      <small>{healthEndpointLabel(agent)}</small>
                       {agent.error ? <p>{agent.error}</p> : null}
                     </article>
                   ))}
