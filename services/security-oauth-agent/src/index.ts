@@ -7,7 +7,7 @@ import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
-const port = Number(process.env.SECURITY_OAUTH_AGENT_PORT ?? 4104);
+const port = Number(process.env.PORT ?? process.env.SECURITY_OAUTH_AGENT_PORT ?? 4104);
 type OAuthTokenRecord = {
   app: string;
   system: string;

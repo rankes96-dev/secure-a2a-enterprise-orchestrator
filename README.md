@@ -423,6 +423,12 @@ Session demo agents can be removed from the current browser session from the hea
 
 ## Deployment Readiness Notes
 
+For repeatable Vercel + Railway setup, see:
+
+```text
+docs/deployment-vercel-railway.md
+```
+
 High-level Vercel/Railway shape:
 
 - Vercel hosts only `apps/web-ui`.

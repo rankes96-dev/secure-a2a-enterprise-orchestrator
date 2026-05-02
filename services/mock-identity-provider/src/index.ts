@@ -13,7 +13,7 @@ import { evaluateSourceIpAllowlist } from "./security/sourceIpAllowlist";
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url), quiet: true });
 
-const port = Number(process.env.MOCK_IDENTITY_PROVIDER_PORT ?? 4110);
+const port = Number(process.env.PORT ?? process.env.MOCK_IDENTITY_PROVIDER_PORT ?? 4110);
 const issuer = process.env.A2A_ISSUER ?? "http://localhost:4110";
 const deniedScopes = new Set<string>(sensitiveScopesNeverIssuedByMockIdp);
 const agentCardRegistry = new StaticAgentCardRegistry();

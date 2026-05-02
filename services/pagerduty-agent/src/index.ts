@@ -5,7 +5,7 @@ import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
-const port = Number(process.env.PAGERDUTY_AGENT_PORT ?? 4103);
+const port = Number(process.env.PORT ?? process.env.PAGERDUTY_AGENT_PORT ?? 4103);
 const agentCard = {
   agentId: "pagerduty-agent",
   name: "PagerDuty Agent",
