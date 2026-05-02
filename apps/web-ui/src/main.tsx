@@ -215,6 +215,40 @@ const supportingHelpOptions = [
   { value: "security_policy", label: "Security policy evaluation" }
 ];
 
+async function friendlyApiError(response: Response, fallback: string): Promise<string> {
+  const text = await response.text();
+  let body: { error?: string; details?: string[]; limit?: number } | undefined;
+
+  try {
+    body = text ? JSON.parse(text) as { error?: string; details?: string[]; limit?: number } : undefined;
+  } catch {
+    body = undefined;
+  }
+
+  if (response.status === 429 || body?.error === "Too many requests") {
+    return "Too many requests. Wait a minute and try again.";
+  }
+
+  if (body?.error === "demo_agent_limit_reached") {
+    return `You can create up to ${body.limit ?? 5} external demo agents in this session. Delete one before adding another.`;
+  }
+
+  if (body?.error === "invalid_demo_agent_input") {
+    const details = body.details?.length ? ` ${body.details.join(" ")}` : "";
+    return `Demo agent input is invalid.${details}`;
+  }
+
+  if (body?.error === "Session required") {
+    return "Your browser session expired. Refresh the page and try again.";
+  }
+
+  if (body?.error) {
+    return `${fallback}: ${body.error}`;
+  }
+
+  return text ? `${fallback}: ${text}` : `${fallback} (${response.status})`;
+}
+
 function createMessageId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -304,7 +338,7 @@ function App() {
       });
 
       if (!response.ok) {
-        throw new Error(`Agent health returned ${response.status} with body ${await response.text()}`);
+        throw new Error(await friendlyApiError(response, "Failed to check agent health"));
       }
 
       setHealth((await response.json()) as AgentsHealthResponse);
@@ -333,7 +367,7 @@ function App() {
       });
 
       if (!response.ok) {
-        throw new Error(`Delete returned ${response.status} with body ${await response.text()}`);
+        throw new Error(await friendlyApiError(response, "Failed to delete demo agent"));
       }
 
       const body = await response.json() as { deleted: boolean; agentId: string; remainingAgents: string[] };
@@ -358,7 +392,7 @@ function App() {
     });
 
     if (!response.ok) {
-      throw new Error(`Session request returned ${response.status}`);
+      throw new Error(await friendlyApiError(response, "Failed to create browser session"));
     }
   }
 
@@ -399,7 +433,7 @@ function App() {
         credentials: "include"
       });
       if (!response.ok) {
-        throw new Error(`Demo cards returned ${response.status} with body ${await response.text()}`);
+        throw new Error(await friendlyApiError(response, "Failed to load demo Agent Cards"));
       }
       const body = await response.json() as { agentCards: DemoAgentCard[] };
       setDemoAgentCards(body.agentCards);
@@ -420,7 +454,7 @@ function App() {
         body: JSON.stringify(demoRequestBody())
       });
       if (!response.ok) {
-        throw new Error(`Generate returned ${response.status} with body ${await response.text()}`);
+        throw new Error(await friendlyApiError(response, "Failed to generate demo Agent Card"));
       }
       const body = await response.json() as { agentCard: DemoAgentCard; warnings: string[] };
       setDemoAgentPreview(body.agentCard);
@@ -443,7 +477,7 @@ function App() {
         body: JSON.stringify(demoAgentPreview ?? demoRequestBody())
       });
       if (!response.ok) {
-        throw new Error(`Add returned ${response.status} with body ${await response.text()}`);
+        throw new Error(await friendlyApiError(response, "Failed to add demo Agent Card"));
       }
       const body = await response.json() as { agentCard: DemoAgentCard; agentCards: DemoAgentCard[]; warnings: string[] };
       setDemoAgentCards(body.agentCards);
@@ -474,7 +508,7 @@ function App() {
         credentials: "include"
       });
       if (!response.ok) {
-        throw new Error(`Delete returned ${response.status} with body ${await response.text()}`);
+        throw new Error(await friendlyApiError(response, "Failed to delete demo Agent Card"));
       }
       const body = await response.json() as { agentCards: DemoAgentCard[] };
       setDemoAgentCards(body.agentCards);
@@ -694,8 +728,6 @@ function App() {
               </div>
               <button type="button" onClick={closeDemoBuilder}>Close</button>
             </div>
-            {demoAgentError ? <p className="error">{demoAgentError}</p> : null}
-            {demoAgentSuccessMessage ? <p className="demo-agent-success">{demoAgentSuccessMessage}</p> : null}
             <h2>Describe the external agent</h2>
             <div className="demo-agent-form">
               <label>
@@ -822,6 +854,12 @@ function App() {
                 resetDemoAgentDraft();
               }}>New draft</button>
             </div>
+            {(demoAgentError || demoAgentSuccessMessage) ? (
+              <div className="demo-agent-feedback" role={demoAgentError ? "alert" : "status"}>
+                {demoAgentError ? <p className="demo-agent-error">{demoAgentError}</p> : null}
+                {demoAgentSuccessMessage ? <p className="demo-agent-success">{demoAgentSuccessMessage}</p> : null}
+              </div>
+            ) : null}
             {demoAgentPreview ? (
               <div className="demo-agent-auth-note">
                 <strong>Generated A2A security metadata</strong>
