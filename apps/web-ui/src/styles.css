@@ -287,6 +287,10 @@ h2 {
   gap: 8px;
 }
 
+.demo-agent-feedback {
+  margin-top: 2px;
+}
+
 .demo-agent-auth-note {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -325,14 +329,22 @@ h2 {
   cursor: pointer;
 }
 
+.demo-agent-error,
 .demo-agent-success {
   margin-bottom: 0;
   border-left: 3px solid #1d6d3d;
+  border-radius: 6px;
   padding: 8px 10px;
   color: #1d6d3d;
   background: #eef8f0;
   font-size: 13px;
   font-weight: 800;
+}
+
+.demo-agent-error {
+  border-left-color: #b4232c;
+  color: #8f1d25;
+  background: #fff1f2;
 }
 
 .demo-agent-warnings {

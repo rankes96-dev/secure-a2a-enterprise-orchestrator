@@ -728,8 +728,6 @@ function App() {
               </div>
               <button type="button" onClick={closeDemoBuilder}>Close</button>
             </div>
-            {demoAgentError ? <p className="error">{demoAgentError}</p> : null}
-            {demoAgentSuccessMessage ? <p className="demo-agent-success">{demoAgentSuccessMessage}</p> : null}
             <h2>Describe the external agent</h2>
             <div className="demo-agent-form">
               <label>
@@ -856,6 +854,12 @@ function App() {
                 resetDemoAgentDraft();
               }}>New draft</button>
             </div>
+            {(demoAgentError || demoAgentSuccessMessage) ? (
+              <div className="demo-agent-feedback" role={demoAgentError ? "alert" : "status"}>
+                {demoAgentError ? <p className="demo-agent-error">{demoAgentError}</p> : null}
+                {demoAgentSuccessMessage ? <p className="demo-agent-success">{demoAgentSuccessMessage}</p> : null}
+              </div>
+            ) : null}
             {demoAgentPreview ? (
               <div className="demo-agent-auth-note">
                 <strong>Generated A2A security metadata</strong>

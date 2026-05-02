@@ -101,6 +101,7 @@ HOST=0.0.0.0
 ALLOWED_ORIGINS=https://<vercel-app>.vercel.app
 SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_SAMESITE=None
+TRUST_PROXY_HEADERS=false
 MAX_DEMO_AGENTS_PER_SESSION=5
 SESSION_RATE_LIMIT_WINDOW_MS=60000
 SESSION_RATE_LIMIT_MAX_REQUESTS=20
@@ -128,6 +129,8 @@ AI_PROVIDER=openrouter
 OPENROUTER_API_KEY=optional
 OPENROUTER_MODEL=openai/gpt-4o-mini
 ```
+
+Keep `TRUST_PROXY_HEADERS=false` unless Railway or another trusted proxy is configured to sanitize incoming forwarded headers before they reach the orchestrator. `MAX_DEMO_AGENTS_PER_SESSION` limits public demo abuse.
 
 Agent URLs configured on orchestrator:
 

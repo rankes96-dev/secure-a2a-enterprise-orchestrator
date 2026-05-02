@@ -85,6 +85,10 @@ type ConversationState = {
 const conversations = new Map<string, ConversationState>();
 
 function clientIp(request: { headers: Record<string, string | string[] | undefined>; socket: { remoteAddress?: string } }): string {
+  if (process.env.TRUST_PROXY_HEADERS !== "true") {
+    return request.socket.remoteAddress || "unknown";
+  }
+
   const forwardedFor = request.headers["x-forwarded-for"];
   const firstForwarded = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
   return firstForwarded?.split(",")[0]?.trim() || request.socket.remoteAddress || "unknown";
