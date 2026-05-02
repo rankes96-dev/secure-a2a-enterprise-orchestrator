@@ -102,6 +102,7 @@ ALLOWED_ORIGINS=https://<vercel-app>.vercel.app
 SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_SAMESITE=None
 TRUST_PROXY_HEADERS=false
+SHOW_INTERNAL_HEALTH_URLS=false
 MAX_DEMO_AGENTS_PER_SESSION=5
 SESSION_RATE_LIMIT_WINDOW_MS=60000
 SESSION_RATE_LIMIT_MAX_REQUESTS=20
@@ -111,6 +112,7 @@ HEALTH_RATE_LIMIT_WINDOW_MS=60000
 HEALTH_RATE_LIMIT_MAX_REQUESTS=30
 
 A2A_AUTH_MODE=oauth2_client_credentials_jwt
+REQUIRE_SECURE_A2A_AUTH=true
 A2A_IDP_URL=https://<mock-idp>.up.railway.app
 A2A_JWKS_URI=https://<mock-idp>.up.railway.app/.well-known/jwks.json
 
@@ -130,7 +132,7 @@ OPENROUTER_API_KEY=optional
 OPENROUTER_MODEL=openai/gpt-4o-mini
 ```
 
-Keep `TRUST_PROXY_HEADERS=false` unless Railway or another trusted proxy is configured to sanitize incoming forwarded headers before they reach the orchestrator. `MAX_DEMO_AGENTS_PER_SESSION` limits public demo abuse.
+Keep `TRUST_PROXY_HEADERS=false` unless Railway or another trusted proxy is configured to sanitize incoming forwarded headers before they reach the orchestrator. Keep `SHOW_INTERNAL_HEALTH_URLS=false` for public demos so `/agents/health` does not expose internal service URLs. `MAX_DEMO_AGENTS_PER_SESSION` limits public demo abuse.
 
 Agent URLs configured on orchestrator:
 
@@ -143,7 +145,16 @@ API_HEALTH_AGENT_URL=https://<api-health-agent>.up.railway.app/task
 END_USER_TRIAGE_AGENT_URL=https://<end-user-triage-agent>.up.railway.app/task
 ```
 
-When using Railway private networking, use the private/internal URL equivalents for these agent URLs and for `A2A_IDP_URL` where possible.
+When using Railway private networking, use the private/internal URL equivalents for these agent URLs and for `A2A_IDP_URL` where possible. Each agent should define its own `*_AGENT_URL` so `/agent-card` advertises the correct internal task endpoint, for example:
+
+```env
+JIRA_AGENT_URL=http://jira-agent.railway.internal:4101/task
+GITHUB_AGENT_URL=http://github-agent.railway.internal:4102/task
+PAGERDUTY_AGENT_URL=http://pagerduty-agent.railway.internal:4103/task
+SECURITY_OAUTH_AGENT_URL=http://security-oauth-agent.railway.internal:4104/task
+API_HEALTH_AGENT_URL=http://api-health-agent.railway.internal:4105/task
+END_USER_TRIAGE_AGENT_URL=http://end-user-triage-agent.railway.internal:4106/task
+```
 
 ## Mock IdP Env
 
@@ -189,10 +200,13 @@ For each local mock agent:
 HOST=0.0.0.0
 PORT=<service port or Railway PORT>
 A2A_AUTH_MODE=oauth2_client_credentials_jwt
+REQUIRE_SECURE_A2A_AUTH=true
 A2A_ISSUER=https://<mock-idp>.up.railway.app
 A2A_JWKS_URI=https://<mock-idp>.up.railway.app/.well-known/jwks.json
 INTERNAL_SERVICE_TOKEN=<same long random value across orchestrator, Mock IdP, and agents>
 ```
+
+In public demos, set `REQUIRE_SECURE_A2A_AUTH=true` on the orchestrator and all agents. `A2A_AUTH_MODE=oauth2_client_credentials_jwt` must be set consistently on those services. Agents need `A2A_ISSUER` and `A2A_JWKS_URI` matching the Mock IdP token issuer. `INTERNAL_SERVICE_TOKEN` is required for orchestrator-to-Mock-IdP internal demo agent registration; on agents it is fallback/dev compatibility when using `mock_internal_token`.
 
 Suggested local service ports:
 
@@ -244,6 +258,14 @@ The verification scripts that call HTTP endpoints assume local services are alre
 5. Ask: `I cannot login to my Salesforce account`.
 6. Confirm the selected demo agent has `tokenIssued=true` and `tokenAuthMethod=private_key_jwt`.
 7. Run the built-in Jira, GitHub, and PagerDuty scenarios.
+
+Successful Jira secure JWT scenario:
+
+- Input: `Jira says I don't have permission to create a ticket in the FIN project`
+- Expected selected agents: `jira-agent` primary and `security-oauth-agent` supporting
+- Expected trace: scoped JWT requested for `jira-agent`, `tokenIssued=true`, `tokenAuthMethod=private_key_jwt`
+- Expected agent validation trace: `A2A_JWT_VALIDATED`
+- Expected final answer: mentions Jira project permission and `Create Issues` in the `FIN` project
 
 No raw JWT, access token, client assertion, private key, client secret, or Authorization header should appear in the UI or logs.
 

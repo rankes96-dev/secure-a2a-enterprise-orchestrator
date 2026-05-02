@@ -1,4 +1,4 @@
-import type { AgentName } from "@a2a/shared";
+import { currentA2AAuthMode, type AgentName } from "@a2a/shared";
 
 export type AgentCardSkill = {
   id: string;
@@ -49,6 +49,8 @@ export type AgentCard = {
   skills: AgentCardSkill[];
 };
 
+const agentCardAuthType = currentA2AAuthMode();
+
 const staticAgentCards: AgentCard[] = [
   {
     agentId: "end-user-triage-agent",
@@ -56,7 +58,7 @@ const staticAgentCards: AgentCard[] = [
     description: "Interprets non-technical user complaints and converts them into support context.",
     systems: ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday"],
     endpoint: process.env.END_USER_TRIAGE_AGENT_URL ?? "http://localhost:4106/task",
-    auth: { type: "mock_internal_token", audience: "end-user-triage-agent" },
+    auth: { type: agentCardAuthType, audience: "end-user-triage-agent" },
     skills: [
       {
         id: "end_user.triage",
@@ -87,7 +89,7 @@ const staticAgentCards: AgentCard[] = [
     description: "External Jira support agent that owns Jira-specific troubleshooting knowledge.",
     systems: ["Jira"],
     endpoint: process.env.JIRA_AGENT_URL ?? "http://localhost:4101/task",
-    auth: { type: "mock_internal_token", audience: "jira-agent" },
+    auth: { type: agentCardAuthType, audience: "jira-agent" },
     skills: [
       {
         id: "jira.diagnose_user_permission_issue",
@@ -128,7 +130,7 @@ const staticAgentCards: AgentCard[] = [
     description: "External GitHub support agent that owns GitHub API/repository troubleshooting knowledge.",
     systems: ["GitHub"],
     endpoint: process.env.GITHUB_AGENT_URL ?? "http://localhost:4102/task",
-    auth: { type: "mock_internal_token", audience: "github-agent" },
+    auth: { type: agentCardAuthType, audience: "github-agent" },
     skills: [
       {
         id: "github.diagnose_repo_access_issue",
@@ -173,7 +175,7 @@ const staticAgentCards: AgentCard[] = [
     description: "External PagerDuty support agent that owns alert/incident ingestion troubleshooting knowledge.",
     systems: ["PagerDuty"],
     endpoint: process.env.PAGERDUTY_AGENT_URL ?? "http://localhost:4103/task",
-    auth: { type: "mock_internal_token", audience: "pagerduty-agent" },
+    auth: { type: agentCardAuthType, audience: "pagerduty-agent" },
     skills: [
       {
         id: "pagerduty.diagnose_alert_ingestion_failure",
@@ -197,7 +199,7 @@ const staticAgentCards: AgentCard[] = [
     description: "Security agent that evaluates OAuth, token, scope, permission and policy-sensitive actions.",
     systems: ["Security", "OAuth", "Identity"],
     endpoint: process.env.SECURITY_OAUTH_AGENT_URL ?? "http://localhost:4104/task",
-    auth: { type: "mock_internal_token", audience: "security-oauth-agent" },
+    auth: { type: agentCardAuthType, audience: "security-oauth-agent" },
     skills: [
       {
         id: "security.compare_oauth_scopes",
@@ -247,7 +249,7 @@ const staticAgentCards: AgentCard[] = [
     description: "API health agent that evaluates rate limits, latency, connectivity, 5xx, DNS, TLS, and webhook delivery.",
     systems: ["API", "GitHub", "PagerDuty", "Jira", "SAP", "Confluence", "Monday"],
     endpoint: process.env.API_HEALTH_AGENT_URL ?? "http://localhost:4105/task",
-    auth: { type: "mock_internal_token", audience: "api-health-agent" },
+    auth: { type: agentCardAuthType, audience: "api-health-agent" },
     skills: [
       { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"], requestedAction: "api.health.read", requiredPermission: "apihealth.read", requiredScopes: ["apihealth.read"], priority: 70, owner: "API Reliability Team", scope: { resourceTypes: ["api", "rate_limit"] }, riskLevel: "low" },
       {

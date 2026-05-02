@@ -1,18 +1,19 @@
 import dotenv from "dotenv";
 import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
-import { formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
+import { assertSecureA2AAuthMode, formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? process.env.API_HEALTH_AGENT_PORT ?? 4105);
+const a2aAuthMode = assertSecureA2AAuthMode("api-health-agent");
 const agentCard = {
   agentId: "api-health-agent",
   name: "API Health Agent",
   description: "API health agent that evaluates rate limits, latency, connectivity, 5xx, DNS, TLS, and webhook delivery.",
   systems: ["API", "GitHub", "PagerDuty", "Jira", "SAP", "Confluence", "Monday"],
   endpoint: process.env.API_HEALTH_AGENT_URL ?? "http://localhost:4105/task",
-  auth: { type: "mock_internal_token", audience: "api-health-agent" },
+  auth: { type: a2aAuthMode, audience: "api-health-agent" },
   skills: [
     { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"], requestedAction: "api.health.read", requiredPermission: "apihealth.read", requiredScopes: ["apihealth.read"], priority: 70, owner: "API Reliability Team", scope: { resourceTypes: ["api", "rate_limit"] }, riskLevel: "low" },
     {

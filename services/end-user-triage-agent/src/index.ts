@@ -1,18 +1,19 @@
 import dotenv from "dotenv";
 import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
-import { formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
+import { assertSecureA2AAuthMode, formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? process.env.END_USER_TRIAGE_AGENT_PORT ?? 4106);
+const a2aAuthMode = assertSecureA2AAuthMode("end-user-triage-agent");
 const agentCard = {
   agentId: "end-user-triage-agent",
   name: "End User Triage Agent",
   description: "Interprets non-technical user complaints and converts them into support context.",
   systems: ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday"],
   endpoint: process.env.END_USER_TRIAGE_AGENT_URL ?? "http://localhost:4106/task",
-  auth: { type: "mock_internal_token", audience: "end-user-triage-agent" },
+  auth: { type: a2aAuthMode, audience: "end-user-triage-agent" },
   skills: [
     {
       id: "end_user.triage",

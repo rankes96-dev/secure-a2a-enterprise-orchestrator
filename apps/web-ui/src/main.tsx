@@ -309,9 +309,28 @@ function App() {
   const healthLabel = health
     ? `Agents: ${health.summary.healthy}/${health.summary.total} healthy`
     : "Agents: check health";
+  const authModeLabel = health?.orchestrator.authMode === "oauth2_client_credentials_jwt"
+    ? "Secure A2A JWT mode"
+    : "Local mock mode";
 
   function canDeleteHealthAgent(agent: AgentsHealthResponse["agents"][number]): boolean {
-    return agent.url.startsWith("session://demo-agent/");
+    return agent.endpointType === "session";
+  }
+
+  function healthEndpointLabel(agent: AgentsHealthResponse["agents"][number]): string {
+    if (agent.agentId === "mock-identity-provider") {
+      return "Infrastructure dependency";
+    }
+
+    if (agent.endpointType === "session") {
+      return "Session demo agent";
+    }
+
+    if (agent.endpointType === "internal") {
+      return "Internal Railway service";
+    }
+
+    return `Agent Card ${agent.details.agentCardAvailable ? "yes" : "no"}`;
   }
 
   function resetDemoAgentDraft() {
@@ -626,7 +645,10 @@ function App() {
             <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
               New conversation
             </button>
-            <div className="status">Local mock mode</div>
+            <div className="status">
+              {authModeLabel}
+              {health?.orchestrator.secureAuthRequired ? " / Secure auth required" : ""}
+            </div>
             <button
               type="button"
               className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"} ${isHealthPanelOpen ? "active-panel-button" : ""}`}
@@ -706,7 +728,7 @@ function App() {
                           </button>
                         ) : null}
                       </div>
-                      <small>{agent.agentId === "mock-identity-provider" ? "Infrastructure dependency" : agent.url.startsWith("session://demo-agent/") ? "Session demo agent" : `Agent Card ${agent.details.agentCardAvailable ? "yes" : "no"}`}</small>
+                      <small>{healthEndpointLabel(agent)}</small>
                       {agent.error ? <p>{agent.error}</p> : null}
                     </article>
                   ))}

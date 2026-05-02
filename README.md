@@ -272,9 +272,11 @@ Public demo guardrails:
 ```env
 TRUST_PROXY_HEADERS=false
 MAX_DEMO_AGENTS_PER_SESSION=5
+SHOW_INTERNAL_HEALTH_URLS=false
+REQUIRE_SECURE_A2A_AUTH=false
 ```
 
-Keep `TRUST_PROXY_HEADERS=false` unless the deployment is behind a trusted proxy that sanitizes incoming forwarded headers. `MAX_DEMO_AGENTS_PER_SESSION` limits public demo abuse.
+Keep `TRUST_PROXY_HEADERS=false` unless the deployment is behind a trusted proxy that sanitizes incoming forwarded headers. Keep `SHOW_INTERNAL_HEALTH_URLS=false` for public demos so `/agents/health` does not expose internal service URLs. Set `REQUIRE_SECURE_A2A_AUTH=true` for public secure demos to prevent fallback to `mock_internal_token`. `MAX_DEMO_AGENTS_PER_SESSION` limits public demo abuse.
 
 Source IP allowlist for the token endpoint:
 

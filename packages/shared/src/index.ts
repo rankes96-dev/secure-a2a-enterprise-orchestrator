@@ -336,7 +336,8 @@ export type AgentHealthStatus = "ok" | "down" | "degraded";
 
 export interface AgentHealthCheck {
   agentId: string;
-  url: string;
+  url?: string;
+  endpointType: "internal" | "public" | "session" | "unknown";
   status: AgentHealthStatus;
   latencyMs: number;
   checkedAt: string;
@@ -352,6 +353,8 @@ export interface AgentsHealthResponse {
     agentId: "servicenow-orchestrator-agent";
     status: "ok";
     timestamp: string;
+    authMode: A2AAuthMode;
+    secureAuthRequired: boolean;
   };
   agents: AgentHealthCheck[];
   summary: {

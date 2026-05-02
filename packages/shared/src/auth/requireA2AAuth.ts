@@ -23,6 +23,24 @@ export type RequireA2AAuthResult =
       response: A2AAgentResponse;
     };
 
+export function currentA2AAuthMode(): A2AAuthMode {
+  return process.env.A2A_AUTH_MODE === "oauth2_client_credentials_jwt" ? "oauth2_client_credentials_jwt" : "mock_internal_token";
+}
+
+export function secureA2AAuthRequired(): boolean {
+  return process.env.REQUIRE_SECURE_A2A_AUTH === "true";
+}
+
+export function assertSecureA2AAuthMode(serviceName: string): A2AAuthMode {
+  const authMode = currentA2AAuthMode();
+
+  if (secureA2AAuthRequired() && authMode !== "oauth2_client_credentials_jwt") {
+    throw new Error(`[${serviceName}] REQUIRE_SECURE_A2A_AUTH=true requires A2A_AUTH_MODE=oauth2_client_credentials_jwt.`);
+  }
+
+  return authMode;
+}
+
 function blocked(agentId: string, statusCode: 401 | 403, summary: string): RequireA2AAuthResult {
   return {
     ok: false,
@@ -71,7 +89,7 @@ export function formatA2AAuthTraceDetail(auth?: A2ATask["context"]["auth"]): str
 }
 
 export async function requireA2AAuth(input: RequireA2AAuthInput): Promise<RequireA2AAuthResult> {
-  const authMode = input.authMode ?? process.env.A2A_AUTH_MODE ?? "mock_internal_token";
+  const authMode = input.authMode ?? currentA2AAuthMode();
 
   if (authMode !== "oauth2_client_credentials_jwt") {
     return validateInternalServiceToken(input.request, input.agentId);

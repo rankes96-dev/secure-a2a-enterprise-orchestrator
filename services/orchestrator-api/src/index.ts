@@ -19,6 +19,7 @@ import type {
   SecurityDecision,
   SelectedAgent
 } from "@a2a/shared";
+import { assertSecureA2AAuthMode, secureA2AAuthRequired } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 import { combineAgentCards, discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards";
 import { routeWithAI } from "./aiRouter";
@@ -38,7 +39,8 @@ const port = Number(process.env.PORT ?? 4000);
 const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 const orchestratorAgentId = "servicenow-orchestrator-agent";
 const MAX_DELEGATION_DEPTH = 1;
-const a2aAuthMode = process.env.A2A_AUTH_MODE === "oauth2_client_credentials_jwt" ? "oauth2_client_credentials_jwt" : "mock_internal_token";
+const a2aAuthMode = assertSecureA2AAuthMode("orchestrator-api");
+const secureAuthRequired = secureA2AAuthRequired();
 
 type RateLimitConfig = {
   name: string;
@@ -634,7 +636,7 @@ async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>
     if (!response.ok) {
       return {
         agentId: card.agentId,
-        url: healthUrl,
+        ...healthEndpointMetadata(healthUrl),
         status: "down",
         latencyMs,
         checkedAt,
@@ -651,7 +653,7 @@ async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>
 
     return {
       agentId: card.agentId,
-      url: healthUrl,
+      ...healthEndpointMetadata(healthUrl),
       status,
       latencyMs,
       checkedAt,
@@ -664,7 +666,7 @@ async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>
   } catch (error) {
     return {
       agentId: card.agentId,
-      url: healthUrl,
+      ...healthEndpointMetadata(healthUrl),
       status: "down",
       latencyMs: Math.max(0, Math.round(performance.now() - startTime)),
       checkedAt,
@@ -694,7 +696,7 @@ async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
     if (!response.ok) {
       return {
         agentId: "mock-identity-provider",
-        url: healthUrl,
+        ...healthEndpointMetadata(healthUrl),
         status: "down",
         latencyMs,
         checkedAt,
@@ -711,7 +713,7 @@ async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
 
     return {
       agentId: "mock-identity-provider",
-      url: healthUrl,
+      ...healthEndpointMetadata(healthUrl),
       status,
       latencyMs,
       checkedAt,
@@ -724,7 +726,7 @@ async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
   } catch (error) {
     return {
       agentId: "mock-identity-provider",
-      url: healthUrl,
+      ...healthEndpointMetadata(healthUrl),
       status: "down",
       latencyMs: Math.max(0, Math.round(performance.now() - startTime)),
       checkedAt,
@@ -902,6 +904,44 @@ function maxDemoAgentsPerSession(): number {
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 5;
 }
 
+function showInternalHealthUrls(): boolean {
+  return process.env.SHOW_INTERNAL_HEALTH_URLS === "true";
+}
+
+function healthEndpointType(endpoint: string): AgentHealthCheck["endpointType"] {
+  if (endpoint.startsWith("session://demo-agent/")) {
+    return "session";
+  }
+
+  try {
+    const parsed = new URL(endpoint);
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname.endsWith(".internal") ||
+      hostname.endsWith(".railway.internal") ||
+      /^10\./.test(hostname) ||
+      /^192\.168\./.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
+    ) {
+      return "internal";
+    }
+
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? "public" : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function healthEndpointMetadata(endpoint: string): Pick<AgentHealthCheck, "endpointType" | "url"> {
+  return {
+    endpointType: healthEndpointType(endpoint),
+    ...(showInternalHealthUrls() ? { url: endpoint } : {})
+  };
+}
+
 function deleteRuntimeDemoAgent(agentId: string, sessionToken?: string): { ok: true; deleted: boolean } | { ok: false; status: number; error: string } {
   if (agentId === orchestratorAgentId) {
     return { ok: false, status: 403, error: "cannot_delete_orchestrator" };
@@ -920,7 +960,7 @@ function deleteRuntimeDemoAgent(agentId: string, sessionToken?: string): { ok: t
 async function checkSessionDemoAgentHealth(card: AgentCard): Promise<AgentHealthCheck> {
   return {
     agentId: card.agentId,
-    url: card.endpoint,
+    ...healthEndpointMetadata(card.endpoint),
     status: "ok",
     latencyMs: 0,
     checkedAt: new Date().toISOString(),
@@ -943,7 +983,9 @@ async function buildAgentsHealthResponse(sessionToken?: string): Promise<AgentsH
     orchestrator: {
       agentId: orchestratorAgentId,
       status: "ok",
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      authMode: a2aAuthMode,
+      secureAuthRequired
     },
     agents,
     summary: {
