@@ -115,6 +115,16 @@ async function verifyReplayProtection(authMethod: OAuthClientAuthMethod): Promis
   const second = await postToken(body);
   const secondBody = second.body as { error?: string };
 
+  if (first.status < 200 || first.status >= 300) {
+    throw new Error(`Replay verification first request failed with ${first.status}: ${first.rawBody}`);
+  }
+  
+  if (second.status !== 401 || secondBody.error !== "invalid_client_assertion_replay") {
+    throw new Error(
+      `Replay verification expected 401 invalid_client_assertion_replay, got ${second.status}: ${second.rawBody}`
+    );
+  }
+
   return {
     tested: true,
     firstRequestStatus: first.status,
