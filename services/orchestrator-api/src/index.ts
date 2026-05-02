@@ -280,6 +280,15 @@ function buildFinalAnswer(params: {
     return questions ? `${needsMoreInfo.summary} ${questions}` : needsMoreInfo.summary;
   }
 
+  const secureJwtBlocked = params.agentResponses.find((response) =>
+    (response.status === "blocked" || response.status === "error") &&
+    response.trace?.some((entry) => entry.action === "SESSION_DEMO_EXECUTION_BLOCKED")
+  );
+
+  if (secureJwtBlocked) {
+    return "Secure A2A execution was blocked because scoped JWT issuance failed.";
+  }
+
   const diagnosed = params.agentResponses.filter((response) => response.status === "diagnosed");
   const blockedDecision = params.securityDecisions?.find((decision) => decision.decision === "Blocked");
 
@@ -731,6 +740,44 @@ function createDemoAgentResponse(card: AgentCard, skill?: AgentCardSkill): A2AAg
         agent: card.agentId,
         action: "demo_agent_card_selected",
         detail: "Returned safe mock response for a session-scoped demo Agent Card.",
+        timestamp: new Date().toISOString()
+      }
+    ]
+  };
+}
+
+function createDemoAgentJwtBlockedResponse(params: {
+  card: AgentCard;
+  requestedScope?: string;
+  validationReason?: string;
+}): A2AAgentResponse {
+  return {
+    agentId: params.card.agentId,
+    status: "blocked",
+    summary: "Session demo agent was selected, but secure JWT issuance failed.",
+    probableCause: "The Mock IdP did not allow the generated audience/scope or the demo agent was not registered.",
+    recommendedActions: [
+      "Verify the demo Agent Card was registered with the Mock IdP.",
+      "Verify INTERNAL_SERVICE_TOKEN matches between orchestrator and Mock IdP.",
+      "Retry after refreshing the session demo agent."
+    ],
+    evidence: [
+      {
+        title: "Session demo agent JWT issuance failed",
+        data: {
+          agentId: params.card.agentId,
+          audience: params.card.auth.audience,
+          requestedScope: params.requestedScope,
+          tokenIssued: false,
+          validationReason: params.validationReason
+        }
+      }
+    ],
+    trace: [
+      {
+        agent: "orchestrator",
+        action: "SESSION_DEMO_EXECUTION_BLOCKED",
+        detail: "Blocked session demo agent mock execution because scoped JWT issuance failed.",
         timestamp: new Date().toISOString()
       }
     ]
@@ -1544,15 +1591,23 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           orchestratorTrace.push(trace("SESSION_DEMO_TOKEN_METADATA_RECEIVED", "Session demo agent mock runtime received token metadata; raw token not exposed."));
         } catch (error) {
           const detail = error instanceof Error ? error.message : "Unknown token issuance failure";
+          const validationReason = `Scoped JWT issuance failed for the session demo agent: ${detail}`;
           a2aTask.context.auth = {
             ...a2aTask.context.auth,
             authMode: a2aAuthMode,
             audience: card.auth.audience,
             scope: requestedScope,
             tokenIssued: false,
-            validationReason: `Scoped JWT issuance failed for the session demo agent: ${detail}`
+            validationReason
           };
           orchestratorTrace.push(trace("SESSION_DEMO_JWT_ISSUANCE_FAILED", `Session demo agent token issuance failed for audience ${card.auth.audience} and scope ${requestedScope ?? "none"}. Raw token not exposed.`));
+          orchestratorTrace.push(trace("SESSION_DEMO_EXECUTION_BLOCKED", "Blocked session demo agent mock execution because scoped JWT issuance failed."));
+          a2aResponses.push(createDemoAgentJwtBlockedResponse({
+            card,
+            requestedScope,
+            validationReason
+          }));
+          continue;
         }
       } else {
         a2aTask.context.auth = {
