@@ -309,6 +309,9 @@ function App() {
   const healthLabel = health
     ? `Agents: ${health.summary.healthy}/${health.summary.total} healthy`
     : "Agents: check health";
+  const authModeLabel = health?.orchestrator.authMode === "oauth2_client_credentials_jwt"
+    ? "Secure A2A JWT mode"
+    : "Local mock mode";
 
   function canDeleteHealthAgent(agent: AgentsHealthResponse["agents"][number]): boolean {
     return agent.endpointType === "session";
@@ -642,7 +645,10 @@ function App() {
             <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
               New conversation
             </button>
-            <div className="status">Local mock mode</div>
+            <div className="status">
+              {authModeLabel}
+              {health?.orchestrator.secureAuthRequired ? " / Secure auth required" : ""}
+            </div>
             <button
               type="button"
               className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"} ${isHealthPanelOpen ? "active-panel-button" : ""}`}

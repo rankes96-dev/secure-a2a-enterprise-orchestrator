@@ -6,14 +6,14 @@ import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? process.env.PAGERDUTY_AGENT_PORT ?? 4103);
-assertSecureA2AAuthMode("pagerduty-agent");
+const a2aAuthMode = assertSecureA2AAuthMode("pagerduty-agent");
 const agentCard = {
   agentId: "pagerduty-agent",
   name: "PagerDuty Agent",
   description: "External PagerDuty support agent that owns alert/incident ingestion troubleshooting knowledge.",
   systems: ["PagerDuty"],
   endpoint: process.env.PAGERDUTY_AGENT_URL ?? "http://localhost:4103/task",
-  auth: { type: "mock_internal_token", audience: "pagerduty-agent" },
+  auth: { type: a2aAuthMode, audience: "pagerduty-agent" },
   skills: [
     {
       id: "pagerduty.diagnose_alert_ingestion_failure",

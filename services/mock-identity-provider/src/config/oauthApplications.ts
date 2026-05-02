@@ -41,6 +41,32 @@ function parseAllowedAuthMethods(): OAuthClientAuthMethod[] {
   return methods.length > 0 ? methods : ["client_secret_post"];
 }
 
+const orchestratorAllowedAuthMethods = parseAllowedAuthMethods();
+const orchestratorPrivateKeyJwtEnabled = process.env.ORCHESTRATOR_PRIVATE_KEY_JWT_ENABLED === "true";
+const orchestratorPublicJwkJson = process.env.ORCHESTRATOR_PUBLIC_JWK_JSON;
+
+function validatePrivateKeyJwtRegistration(): void {
+  if (!orchestratorPrivateKeyJwtEnabled || !orchestratorAllowedAuthMethods.includes("private_key_jwt")) {
+    return;
+  }
+
+  if (!orchestratorPublicJwkJson?.trim()) {
+    throw new Error("[mock-idp] ORCHESTRATOR_PUBLIC_JWK_JSON is required when ORCHESTRATOR_PRIVATE_KEY_JWT_ENABLED=true and private_key_jwt is allowed.");
+  }
+
+  try {
+    const parsed = JSON.parse(orchestratorPublicJwkJson) as { kty?: unknown };
+    if (!parsed || typeof parsed !== "object" || typeof parsed.kty !== "string") {
+      throw new Error("JWK must be a JSON object with kty.");
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "invalid JSON";
+    throw new Error(`[mock-idp] ORCHESTRATOR_PUBLIC_JWK_JSON is invalid: ${detail}`);
+  }
+}
+
+validatePrivateKeyJwtRegistration();
+
 export const oauthApplications: OAuthApplicationRegistration[] = [
   {
     clientId: "servicenow-orchestrator-agent",
@@ -51,14 +77,14 @@ export const oauthApplications: OAuthApplicationRegistration[] = [
     ownerAgentId: "servicenow-orchestrator-agent",
     scopePolicy: "agent_card_registry",
     tokenTtlSeconds: Number(process.env.A2A_TOKEN_TTL_SECONDS ?? 300),
-    allowedAuthMethods: parseAllowedAuthMethods(),
+    allowedAuthMethods: orchestratorAllowedAuthMethods,
     privateKeyJwt: {
-      enabled: process.env.ORCHESTRATOR_PRIVATE_KEY_JWT_ENABLED === "true",
+      enabled: orchestratorPrivateKeyJwtEnabled,
       expectedAudience:
         process.env.ORCHESTRATOR_PRIVATE_KEY_JWT_AUDIENCE ??
         `${process.env.A2A_ISSUER ?? "http://localhost:4110"}/oauth/token`,
       // The Mock IdP stores only the orchestrator public key, never the private key.
-      publicJwkJson: process.env.ORCHESTRATOR_PUBLIC_JWK_JSON
+      publicJwkJson: orchestratorPublicJwkJson
     }
   }
 ];

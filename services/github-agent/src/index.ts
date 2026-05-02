@@ -8,7 +8,7 @@ import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? process.env.GITHUB_AGENT_PORT ?? 4102);
-assertSecureA2AAuthMode("github-agent");
+const a2aAuthMode = assertSecureA2AAuthMode("github-agent");
 type GitHubRateLimitEvent = {
   integration: string;
   operation: string;
@@ -30,7 +30,7 @@ const agentCard = {
   description: "External GitHub support agent that owns GitHub API/repository troubleshooting knowledge.",
   systems: ["GitHub"],
   endpoint: process.env.GITHUB_AGENT_URL ?? "http://localhost:4102/task",
-  auth: { type: "mock_internal_token", audience: "github-agent" },
+  auth: { type: a2aAuthMode, audience: "github-agent" },
   skills: [
     {
       id: "github.diagnose_repo_access_issue",

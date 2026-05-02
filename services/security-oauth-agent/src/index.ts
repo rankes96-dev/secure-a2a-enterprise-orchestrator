@@ -8,7 +8,7 @@ import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? process.env.SECURITY_OAUTH_AGENT_PORT ?? 4104);
-assertSecureA2AAuthMode("security-oauth-agent");
+const a2aAuthMode = assertSecureA2AAuthMode("security-oauth-agent");
 type OAuthTokenRecord = {
   app: string;
   system: string;
@@ -21,7 +21,7 @@ const agentCard = {
   description: "Security agent that evaluates OAuth, token, scope, permission and policy-sensitive actions.",
   systems: ["Security", "OAuth", "Identity"],
   endpoint: process.env.SECURITY_OAUTH_AGENT_URL ?? "http://localhost:4104/task",
-  auth: { type: "mock_internal_token", audience: "security-oauth-agent" },
+  auth: { type: a2aAuthMode, audience: "security-oauth-agent" },
   skills: [
     {
       id: "security.compare_oauth_scopes",

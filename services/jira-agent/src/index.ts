@@ -8,7 +8,7 @@ import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? process.env.JIRA_AGENT_PORT ?? 4101);
-assertSecureA2AAuthMode("jira-agent");
+const a2aAuthMode = assertSecureA2AAuthMode("jira-agent");
 type JiraOperationRequirement = {
   operation: string;
   requiredScopes: string[];
@@ -20,7 +20,7 @@ const agentCard = {
   description: "External Jira support agent that owns Jira-specific troubleshooting knowledge.",
   systems: ["Jira"],
   endpoint: process.env.JIRA_AGENT_URL ?? "http://localhost:4101/task",
-  auth: { type: "mock_internal_token", audience: "jira-agent" },
+  auth: { type: a2aAuthMode, audience: "jira-agent" },
   skills: [
     {
       id: "jira.diagnose_user_permission_issue",
