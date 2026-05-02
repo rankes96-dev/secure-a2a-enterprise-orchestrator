@@ -447,6 +447,7 @@ High-level Vercel/Railway shape:
 - Put `ORCHESTRATOR_PUBLIC_JWK_JSON` only on the Mock IdP.
 - Use `STATE_STORE_DRIVER=upstash`.
 - Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+- Set public-demo guardrails such as `MAX_DEMO_AGENTS_PER_SESSION`, `SESSION_RATE_LIMIT_*`, `DEMO_AGENT_RATE_LIMIT_*`, and `HEALTH_RATE_LIMIT_*`.
 - Prefer Railway private/internal service URLs between backend services when available.
 - If the Mock IdP is public, keep `/oauth/token` protected by `private_key_jwt`, replay protection, and optional IP allowlist.
 

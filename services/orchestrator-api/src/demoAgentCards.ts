@@ -19,7 +19,8 @@ export type DemoAgentCardInput = {
 };
 
 const cardsBySession = new Map<string, AgentCard[]>();
-const highRiskTerms = ["grant", "admin", "delete", "resolve", "escalate", "override", "rotate", "disable", "write"];
+const highRiskTerms = ["grant", "admin", "delete", "resolve", "escalate", "override", "rotate", "disable", "write", "token", "secret", "credential"];
+const unsafeScopeTerms = ["admin", "write", "delete", "grant", "rotate", "disable", "token", "secret", "credential"];
 const supportingHelpCapabilityByOption = new Map<string, string>([
   ["oauth_scope_compare", "oauth.scope.compare"],
   ["oauth scope comparison", "oauth.scope.compare"],
@@ -76,6 +77,40 @@ function highRiskRequestedAction(value: string): boolean {
   return highRiskTerms.some((term) => normalized.includes(term));
 }
 
+function unsafeScope(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return unsafeScopeTerms.some((term) => normalized.includes(term));
+}
+
+function validateStringLength(
+  details: string[],
+  field: string,
+  value: string | undefined,
+  maxLength: number,
+  options?: { required?: boolean }
+): void {
+  const trimmed = value?.trim() ?? "";
+  if (options?.required && !trimmed) {
+    details.push(`${field} is required.`);
+    return;
+  }
+
+  if (trimmed.length > maxLength) {
+    details.push(`${field} must be ${maxLength} characters or fewer.`);
+  }
+}
+
+function validateStringList(details: string[], field: string, values: string[] | undefined, maxItems: number, maxItemLength: number): void {
+  const items = values ?? [];
+  if (items.length > maxItems) {
+    details.push(`${field} must contain ${maxItems} items or fewer.`);
+  }
+
+  if (items.some((item) => item.trim().length > maxItemLength)) {
+    details.push(`${field} items must be ${maxItemLength} characters or fewer.`);
+  }
+}
+
 function capabilityFromGoal(systemScope: string, goal?: string): string {
   const normalized = (goal ?? "").toLowerCase();
 
@@ -118,6 +153,30 @@ export function deleteDemoAgentCard(sessionToken: string, agentId: string): bool
   const next = current.filter((card) => card.agentId !== agentId);
   cardsBySession.set(sessionToken, next);
   return next.length !== current.length;
+}
+
+export function validateDemoAgentInput(input: DemoAgentCardInput): string[] {
+  const details: string[] = [];
+
+  validateStringLength(details, "system", input.system, 60, { required: true });
+  validateStringLength(details, "agentSlug", input.agentSlug, 80);
+  validateStringLength(details, "agentId", input.agentId, 120);
+  validateStringLength(details, "agentName", input.agentName, 120);
+  validateStringLength(details, "description", input.description, 500);
+  validateStringLength(details, "diagnosisGoal", input.diagnosisGoal, 240);
+  validateStringLength(details, "purposeText", input.purposeText, 240);
+  validateStringLength(details, "capability", input.capability, 120);
+  validateStringLength(details, "requiredScope", input.requiredScope, 120);
+  validateStringList(details, "resourceTypes", input.resourceTypes, 10, 40);
+  validateStringList(details, "examples", input.examples, 5, 160);
+  validateStringList(details, "supportingCapabilities", input.supportingCapabilities, 10, 80);
+  validateStringList(details, "supportingHelpOptions", input.supportingHelpOptions, 10, 80);
+
+  if (input.requiredScope && unsafeScope(input.requiredScope)) {
+    details.push("requiredScope contains unsafe terms for the public demo.");
+  }
+
+  return details;
 }
 
 export function buildDemoAgentCard(input: DemoAgentCardInput): AgentCard {
@@ -193,7 +252,7 @@ export function validateDemoAgentCard(card: AgentCard): string[] {
       warnings.push(`Skill ${skill.id} contains high-risk action terms and should be high or sensitive risk.`);
     }
 
-    if (skill.requiredScopes?.some((scope) => /(?:admin|write|delete|grant|rotate|disable)/i.test(scope))) {
+    if (skill.requiredScopes?.some((scope) => unsafeScope(scope))) {
       warnings.push(`Skill ${skill.id} uses a high-risk scope; demo defaults should be diagnostic/read-only.`);
     }
   }

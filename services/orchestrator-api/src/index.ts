@@ -30,17 +30,42 @@ import { interpretFollowUp } from "./followUpInterpreter";
 import { createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
-import { addDemoAgentCard, buildDemoAgentCard, deleteDemoAgentCard, listDemoAgentCards, validateDemoAgentCard, type DemoAgentCardInput } from "./demoAgentCards";
+import { addDemoAgentCard, buildDemoAgentCard, deleteDemoAgentCard, listDemoAgentCards, validateDemoAgentCard, validateDemoAgentInput, type DemoAgentCardInput } from "./demoAgentCards";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
 const port = Number(process.env.PORT ?? 4000);
-const rateLimitWindowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
-const rateLimitMaxRequests = Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 30);
 const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 const orchestratorAgentId = "servicenow-orchestrator-agent";
 const MAX_DELEGATION_DEPTH = 1;
 const a2aAuthMode = process.env.A2A_AUTH_MODE === "oauth2_client_credentials_jwt" ? "oauth2_client_credentials_jwt" : "mock_internal_token";
+
+type RateLimitConfig = {
+  name: string;
+  windowMs: number;
+  maxRequests: number;
+};
+
+const resolveRateLimit: RateLimitConfig = {
+  name: "resolve",
+  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
+  maxRequests: Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 30)
+};
+const sessionRateLimit: RateLimitConfig = {
+  name: "session",
+  windowMs: Number(process.env.SESSION_RATE_LIMIT_WINDOW_MS ?? 60_000),
+  maxRequests: Number(process.env.SESSION_RATE_LIMIT_MAX_REQUESTS ?? 20)
+};
+const demoAgentRateLimit: RateLimitConfig = {
+  name: "demo-agent",
+  windowMs: Number(process.env.DEMO_AGENT_RATE_LIMIT_WINDOW_MS ?? 60_000),
+  maxRequests: Number(process.env.DEMO_AGENT_RATE_LIMIT_MAX_REQUESTS ?? 20)
+};
+const healthRateLimit: RateLimitConfig = {
+  name: "health",
+  windowMs: Number(process.env.HEALTH_RATE_LIMIT_WINDOW_MS ?? 60_000),
+  maxRequests: Number(process.env.HEALTH_RATE_LIMIT_MAX_REQUESTS ?? 30)
+};
 
 type ConversationState = {
   conversationId: string;
@@ -65,17 +90,17 @@ function clientIp(request: { headers: Record<string, string | string[] | undefin
   return firstForwarded?.split(",")[0]?.trim() || request.socket.remoteAddress || "unknown";
 }
 
-function allowByRateLimit(request: Parameters<typeof clientIp>[0], response: Parameters<typeof sendJson>[0]): boolean {
+function allowByRateLimit(request: Parameters<typeof clientIp>[0], response: Parameters<typeof sendJson>[0], config: RateLimitConfig = resolveRateLimit): boolean {
   const now = Date.now();
-  const key = clientIp(request);
+  const key = `${config.name}:${clientIp(request)}`;
   const bucket = rateLimitBuckets.get(key);
 
   if (!bucket || bucket.resetAt <= now) {
-    rateLimitBuckets.set(key, { count: 1, resetAt: now + rateLimitWindowMs });
+    rateLimitBuckets.set(key, { count: 1, resetAt: now + config.windowMs });
     return true;
   }
 
-  if (bucket.count >= rateLimitMaxRequests) {
+  if (bucket.count >= config.maxRequests) {
     sendJson(response, 429, { error: "Too many requests" });
     return false;
   }
@@ -866,6 +891,11 @@ function remainingActiveAgentIds(sessionToken?: string): string[] {
     ...getExecutableAgentCards().map((card) => card.agentId),
     ...(sessionToken ? listDemoAgentCards(sessionToken).map((card) => card.agentId) : [])
   ].sort();
+}
+
+function maxDemoAgentsPerSession(): number {
+  const parsed = Number(process.env.MAX_DEMO_AGENTS_PER_SESSION ?? 5);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 5;
 }
 
 function deleteRuntimeDemoAgent(agentId: string, sessionToken?: string): { ok: true; deleted: boolean } | { ok: false; status: number; error: string } {
@@ -1766,12 +1796,20 @@ async function start(): Promise<void> {
       return;
     }
 
+    if (!allowByRateLimit(request, response, healthRateLimit)) {
+      return;
+    }
+
     sendJson(response, 200, await buildAgentsHealthResponse(getSessionToken(request)));
     return;
   }
 
   if (request.method === "DELETE" && request.url?.startsWith("/agents/")) {
     if (!requireClientAccess(request, response)) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
       return;
     }
 
@@ -1806,6 +1844,10 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/session") {
+    if (!allowByRateLimit(request, response, sessionRateLimit)) {
+      return;
+    }
+
     if (getSessionToken(request)) {
       sendJson(response, 200, { ok: true }, request);
       return;
@@ -1829,6 +1871,10 @@ async function start(): Promise<void> {
       return;
     }
 
+    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+      return;
+    }
+
     sendJson(response, 200, { agentCards: listDemoAgentCards(sessionToken) }, request);
     return;
   }
@@ -1839,9 +1885,14 @@ async function start(): Promise<void> {
       return;
     }
 
+    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+      return;
+    }
+
     const input = demoInputFromRequestBody(await readJsonBody<unknown>(request));
-    if (!input.system.trim()) {
-      sendJson(response, 400, { error: "system is required" }, request);
+    const inputErrors = validateDemoAgentInput(input);
+    if (inputErrors.length > 0) {
+      sendJson(response, 400, { error: "invalid_demo_agent_input", details: inputErrors }, request);
       return;
     }
 
@@ -1856,13 +1907,26 @@ async function start(): Promise<void> {
       return;
     }
 
+    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+      return;
+    }
+
     const input = demoInputFromRequestBody(await readJsonBody<unknown>(request));
-    if (!input.system.trim()) {
-      sendJson(response, 400, { error: "system is required" }, request);
+    const inputErrors = validateDemoAgentInput(input);
+    if (inputErrors.length > 0) {
+      sendJson(response, 400, { error: "invalid_demo_agent_input", details: inputErrors }, request);
       return;
     }
 
     const builtAgentCard = buildDemoAgentCard(input);
+    const existingCards = listDemoAgentCards(sessionToken);
+    const replacingExistingCard = existingCards.some((card) => card.agentId === builtAgentCard.agentId);
+    const limit = maxDemoAgentsPerSession();
+    if (!replacingExistingCard && existingCards.length >= limit) {
+      sendJson(response, 400, { error: "demo_agent_limit_reached", limit }, request);
+      return;
+    }
+
     const warnings = validateDemoAgentCard(builtAgentCard);
     const registrationWarning = await registerDemoAgentWithMockIdp(builtAgentCard);
     if (registrationWarning) {
@@ -1883,6 +1947,10 @@ async function start(): Promise<void> {
       return;
     }
 
+    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+      return;
+    }
+
     const agentId = decodeURIComponent(request.url.slice("/demo-agent-cards/".length));
     sendJson(response, 200, {
       deleted: deleteDemoAgentCard(sessionToken, agentId),
@@ -1900,7 +1968,7 @@ async function start(): Promise<void> {
     return;
   }
 
-  if (!allowByRateLimit(request, response)) {
+  if (!allowByRateLimit(request, response, resolveRateLimit)) {
     return;
   }
 

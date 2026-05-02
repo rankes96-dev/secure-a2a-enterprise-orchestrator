@@ -101,6 +101,13 @@ HOST=0.0.0.0
 ALLOWED_ORIGINS=https://<vercel-app>.vercel.app
 SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_SAMESITE=None
+MAX_DEMO_AGENTS_PER_SESSION=5
+SESSION_RATE_LIMIT_WINDOW_MS=60000
+SESSION_RATE_LIMIT_MAX_REQUESTS=20
+DEMO_AGENT_RATE_LIMIT_WINDOW_MS=60000
+DEMO_AGENT_RATE_LIMIT_MAX_REQUESTS=20
+HEALTH_RATE_LIMIT_WINDOW_MS=60000
+HEALTH_RATE_LIMIT_MAX_REQUESTS=30
 
 A2A_AUTH_MODE=oauth2_client_credentials_jwt
 A2A_IDP_URL=https://<mock-idp>.up.railway.app
@@ -283,6 +290,14 @@ Check:
 - the Upstash token has access to the selected database
 
 Redis values must store only safe metadata. Do not store raw tokens or secrets.
+
+### Demo agent creation blocked
+
+Check:
+
+- `MAX_DEMO_AGENTS_PER_SESSION` is high enough for the demo path
+- `DEMO_AGENT_RATE_LIMIT_MAX_REQUESTS` and `SESSION_RATE_LIMIT_MAX_REQUESTS` are not too low for live demos
+- generated advanced scopes do not contain public-demo unsafe terms such as `admin`, `write`, `delete`, `token`, `secret`, or `credential`
 
 ### Health down
 
