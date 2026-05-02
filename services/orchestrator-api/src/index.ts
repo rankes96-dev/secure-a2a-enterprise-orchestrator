@@ -517,6 +517,14 @@ function endpointForPath(endpoint: string, pathname: "/health" | "/agent-card"):
   return url.toString();
 }
 
+function mockIdentityProviderHealthUrl(): string {
+  const url = new URL(process.env.A2A_IDP_URL ?? "http://localhost:4110");
+  url.pathname = "/health";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
 async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>[number]): Promise<AgentHealthCheck> {
   const checkedAt = new Date().toISOString();
   const healthUrl = endpointForPath(card.endpoint, "/health");
@@ -577,8 +585,71 @@ async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>
   }
 }
 
+async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
+  const checkedAt = new Date().toISOString();
+  const healthUrl = mockIdentityProviderHealthUrl();
+  const startTime = performance.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
+
+  try {
+    const response = await fetch(healthUrl, { signal: controller.signal });
+    const body = await response.text();
+    const latencyMs = Math.max(0, Math.round(performance.now() - startTime));
+
+    if (!response.ok) {
+      return {
+        agentId: "mock-identity-provider",
+        url: healthUrl,
+        status: "down",
+        latencyMs,
+        checkedAt,
+        details: {
+          healthEndpoint: "/health",
+          agentCardAvailable: false
+        },
+        error: `Health endpoint returned ${response.status}${body ? ` with body ${body}` : ""}`
+      };
+    }
+
+    const parsed = body ? JSON.parse(body) as { status?: unknown } : {};
+    const status = parsed.status === "ok" ? "ok" : "degraded";
+
+    return {
+      agentId: "mock-identity-provider",
+      url: healthUrl,
+      status,
+      latencyMs,
+      checkedAt,
+      details: {
+        healthEndpoint: "/health",
+        agentCardAvailable: false
+      },
+      error: status === "degraded" ? `Unexpected health payload: ${body}` : undefined
+    };
+  } catch (error) {
+    return {
+      agentId: "mock-identity-provider",
+      url: healthUrl,
+      status: "down",
+      latencyMs: Math.max(0, Math.round(performance.now() - startTime)),
+      checkedAt,
+      details: {
+        healthEndpoint: "/health",
+        agentCardAvailable: false
+      },
+      error: error instanceof Error ? error.message : "Unknown health check failure"
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
-  const agents = await Promise.all(getExecutableAgentCards().map((card) => checkAgentHealth(card)));
+  const agents = await Promise.all([
+    ...getExecutableAgentCards().map((card) => checkAgentHealth(card)),
+    checkMockIdentityProviderHealth()
+  ]);
 
   return {
     orchestrator: {

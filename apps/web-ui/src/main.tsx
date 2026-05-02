@@ -370,7 +370,13 @@ function App() {
             <div className="agent-health-header">
               <div>
                 <h2>Agent Health</h2>
-                <p>Orchestrator: {health?.orchestrator.status ?? "unknown"}{health?.orchestrator.timestamp ? ` / ${new Date(health.orchestrator.timestamp).toLocaleTimeString()}` : ""}</p>
+                <p className="orchestrator-health-line">
+                  Orchestrator:
+                  <span className={`orchestrator-health-badge ${health?.orchestrator.status === "ok" ? "health-ok" : "health-down"}`}>
+                  {health?.orchestrator.status ?? "unknown"}
+                  </span>
+                  {health?.orchestrator.timestamp ? ` / ${new Date(health.orchestrator.timestamp).toLocaleTimeString()}` : ""}
+                  </p>
               </div>
               <button type="button" onClick={() => void checkAgentHealth()} disabled={isHealthLoading}>
                 {isHealthLoading ? "Checking..." : "Refresh health"}
@@ -392,7 +398,7 @@ function App() {
                         <span>{agent.latencyMs} ms / {new Date(agent.checkedAt).toLocaleTimeString()}</span>
                       </div>
                       <span className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</span>
-                      <small>Agent Card {agent.details.agentCardAvailable ? "yes" : "no"}</small>
+                      <small>{agent.agentId === "mock-identity-provider" ? "Infrastructure dependency" : `Agent Card ${agent.details.agentCardAvailable ? "yes" : "no"}`}</small>
                       {agent.error ? <p>{agent.error}</p> : null}
                     </article>
                   ))}

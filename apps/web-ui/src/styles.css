@@ -183,6 +183,29 @@ h2 {
   font-size: 12px;
   font-weight: 800;
 }
+.orchestrator-health-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.orchestrator-health-badge {
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.orchestrator-health-badge.health-ok {
+  color: #1d6d3d;
+  background: #eef8f0;
+}
+
+.orchestrator-health-badge.health-down {
+  color: #a1272d;
+  background: #fff0f1;
+}
 
 .health-ok {
   color: #1d6d3d;

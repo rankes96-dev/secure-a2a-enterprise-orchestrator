@@ -1,6 +1,7 @@
 import { importJWK, jwtVerify, type JWK } from "jose";
 import type { OAuthClientAuthMethod } from "@a2a/shared";
 import type { OAuthApplicationRegistration } from "../config/oauthApplications";
+import { clientAssertionReplayStore } from "./clientAssertionReplayStore";
 
 export type TokenRequestClientAuthFields = {
   client_id?: string;
@@ -78,6 +79,15 @@ export async function authenticateOAuthClient(params: {
 
       if (typeof payload.iat !== "number" || typeof payload.exp !== "number" || payload.exp - payload.iat > 120) {
         return { ok: false, status: 401, error: "invalid_client_assertion", authMethod: "private_key_jwt" };
+      }
+
+      const replayCheck = clientAssertionReplayStore.checkAndStore({
+        clientId: body.client_id,
+        jti: payload.jti,
+        expiresAtEpochSeconds: payload.exp
+      });
+      if (!replayCheck.ok) {
+        return { ok: false, status: 401, error: "invalid_client_assertion_replay", authMethod: "private_key_jwt" };
       }
 
       return { ok: true, authMethod: "private_key_jwt" };
