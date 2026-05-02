@@ -27,10 +27,10 @@ External:
 
 ## Vercel Setup
 
-Project root:
+Root Directory:
 
 ```text
-apps/web-ui
+repository root
 ```
 
 Build command:
@@ -45,6 +45,8 @@ Output directory:
 apps/web-ui/dist
 ```
 
+If Root Directory is set to `apps/web-ui` instead, use build command `npm run build` and output directory `dist`.
+
 Environment:
 
 ```env
@@ -56,6 +58,8 @@ Do not put server secrets in Vercel. The web UI should only know the orchestrato
 ## Railway Setup
 
 Create one Railway service per backend workspace. Each service uses the same GitHub repo but a different workspace command.
+
+Railway should install dependencies from the repository root so npm workspaces and `packages/shared` are available. Each backend service should use workspace-specific build/start commands.
 
 This demo intentionally starts TypeScript services with `tsx`. The build command is a typecheck gate; the start command runs the TypeScript entrypoint directly.
 

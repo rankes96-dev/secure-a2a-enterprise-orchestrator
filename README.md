@@ -157,6 +157,7 @@ In production, the external vendor/domain agent would host this JSON and expose 
 ```text
 session://demo-agent/{agentId}/task
 ```
+
 Because session demo agents are not real HTTP services, they do not perform live JWT validation. The demo proves JWT issuance from generated Agent Card metadata, while real vendor agents would validate the Bearer JWT on their own endpoint.
 
 The public demo does not let users provide arbitrary external endpoints.
