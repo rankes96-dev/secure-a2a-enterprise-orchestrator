@@ -1,3 +1,5 @@
+import { InMemoryStateStore, type StateStore } from "@a2a/shared";
+
 export type ReplayCheckResult =
   | { ok: true }
   | { ok: false; reason: "replay_detected" };
@@ -6,44 +8,43 @@ type ReplayEntry = {
   expiresAtEpochSeconds: number;
 };
 
-export class InMemoryClientAssertionReplayStore {
-  private readonly entries = new Map<string, ReplayEntry>();
+export class ClientAssertionReplayStore {
+  constructor(private readonly stateStore: StateStore) {}
 
-  checkAndStore(params: {
+  async checkAndStore(params: {
     clientId: string;
     jti: string;
     expiresAtEpochSeconds: number;
-  }): ReplayCheckResult {
+  }): Promise<ReplayCheckResult> {
     const now = Math.floor(Date.now() / 1000);
-    this.removeExpired(now);
+    const ttlSeconds = params.expiresAtEpochSeconds - now;
+
+    if (ttlSeconds <= 0) {
+      return { ok: true };
+    }
 
     const key = this.keyFor(params.clientId, params.jti);
-    const existing = this.entries.get(key);
-    if (existing && existing.expiresAtEpochSeconds > now) {
+    const entry: ReplayEntry = {
+      expiresAtEpochSeconds: params.expiresAtEpochSeconds
+    };
+
+    if (this.stateStore.setIfNotExists) {
+      const stored = await this.stateStore.setIfNotExists(key, entry, ttlSeconds);
+      return stored ? { ok: true } : { ok: false, reason: "replay_detected" };
+    }
+
+    const existing = await this.stateStore.get<ReplayEntry>(key);
+    if (existing) {
       return { ok: false, reason: "replay_detected" };
     }
 
-    if (params.expiresAtEpochSeconds > now) {
-      this.entries.set(key, {
-        expiresAtEpochSeconds: params.expiresAtEpochSeconds
-      });
-    }
-
-    this.removeExpired(now);
+    await this.stateStore.set(key, entry, ttlSeconds);
     return { ok: true };
   }
 
   private keyFor(clientId: string, jti: string): string {
     return `client_assertion_jti:${clientId}:${jti}`;
   }
-
-  private removeExpired(nowEpochSeconds: number): void {
-    for (const [key, entry] of this.entries) {
-      if (entry.expiresAtEpochSeconds <= nowEpochSeconds) {
-        this.entries.delete(key);
-      }
-    }
-  }
 }
 
-export const clientAssertionReplayStore = new InMemoryClientAssertionReplayStore();
+export const clientAssertionReplayStore = new ClientAssertionReplayStore(new InMemoryStateStore());

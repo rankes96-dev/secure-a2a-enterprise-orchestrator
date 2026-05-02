@@ -81,7 +81,7 @@ export async function authenticateOAuthClient(params: {
         return { ok: false, status: 401, error: "invalid_client_assertion", authMethod: "private_key_jwt" };
       }
 
-      const replayCheck = clientAssertionReplayStore.checkAndStore({
+      const replayCheck = await clientAssertionReplayStore.checkAndStore({
         clientId: body.client_id,
         jti: payload.jti,
         expiresAtEpochSeconds: payload.exp

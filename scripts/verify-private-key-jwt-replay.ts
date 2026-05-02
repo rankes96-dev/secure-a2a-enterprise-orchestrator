@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { exportJWK, generateKeyPair, SignJWT, type JWK, type KeyLike } from "jose";
-import { InMemoryClientAssertionReplayStore } from "../services/mock-identity-provider/src/security/clientAssertionReplayStore";
+import { InMemoryStateStore } from "@a2a/shared";
+import { ClientAssertionReplayStore } from "../services/mock-identity-provider/src/security/clientAssertionReplayStore";
 import { authenticateOAuthClient } from "../services/mock-identity-provider/src/security/clientAuthentication";
 import type { OAuthApplicationRegistration } from "../services/mock-identity-provider/src/config/oauthApplications";
 
@@ -12,34 +13,54 @@ function assertCondition(condition: boolean, message: string): void {
   }
 }
 
-function verifyReplayStoreCases(): void {
+async function verifyInMemoryStateStoreCases(): Promise<void> {
+  const store = new InMemoryStateStore();
+
+  await store.set("state:plain", { value: "stored" });
+  const stored = await store.get<{ value: string }>("state:plain");
+  assertCondition(stored?.value === "stored", "get should return a stored value");
+
+  await store.del("state:plain");
+  assertCondition(await store.get("state:plain") === null, "del should remove a stored value");
+
+  assertCondition(await store.setIfNotExists("state:nx", { value: 1 }, 60), "setIfNotExists should store a missing key");
+  assertCondition(!(await store.setIfNotExists("state:nx", { value: 2 }, 60)), "setIfNotExists should reject an existing key");
+
+  await store.set("state:expired", { value: "expired" }, 0);
+  assertCondition(await store.get("state:expired") === null, "get should ignore expired keys");
+  assertCondition(await store.setIfNotExists("state:expired", { value: "new" }, 60), "expired keys should not block setIfNotExists");
+
+  console.log("in-memory state store cases: ok");
+}
+
+async function verifyReplayStoreCases(): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  const store = new InMemoryClientAssertionReplayStore();
+  const store = new ClientAssertionReplayStore(new InMemoryStateStore());
   const jti = randomUUID();
 
-  assertCondition(store.checkAndStore({ clientId: "client-a", jti, expiresAtEpochSeconds: now + 60 }).ok, "first jti use should be allowed");
+  assertCondition((await store.checkAndStore({ clientId: "client-a", jti, expiresAtEpochSeconds: now + 60 })).ok, "first jti use should be allowed");
 
-  const replay = store.checkAndStore({ clientId: "client-a", jti, expiresAtEpochSeconds: now + 60 });
+  const replay = await store.checkAndStore({ clientId: "client-a", jti, expiresAtEpochSeconds: now + 60 });
   assertCondition(!replay.ok && replay.reason === "replay_detected", "same client/jti replay should be blocked");
 
   assertCondition(
-    store.checkAndStore({ clientId: "client-b", jti, expiresAtEpochSeconds: now + 60 }).ok,
+    (await store.checkAndStore({ clientId: "client-b", jti, expiresAtEpochSeconds: now + 60 })).ok,
     "same jti should be scoped by client id"
   );
 
   const expiringJti = randomUUID();
   assertCondition(
-    store.checkAndStore({ clientId: "client-a", jti: expiringJti, expiresAtEpochSeconds: now - 1 }).ok,
+    (await store.checkAndStore({ clientId: "client-a", jti: expiringJti, expiresAtEpochSeconds: now - 1 })).ok,
     "expired jti should not block storing"
   );
   assertCondition(
-    store.checkAndStore({ clientId: "client-a", jti: expiringJti, expiresAtEpochSeconds: now + 60 }).ok,
+    (await store.checkAndStore({ clientId: "client-a", jti: expiringJti, expiresAtEpochSeconds: now + 60 })).ok,
     "expired jti should be cleaned and reusable"
   );
 
   for (let index = 0; index < 5; index += 1) {
     assertCondition(
-      store.checkAndStore({ clientId: "client-a", jti: randomUUID(), expiresAtEpochSeconds: now + 60 }).ok,
+      (await store.checkAndStore({ clientId: "client-a", jti: randomUUID(), expiresAtEpochSeconds: now + 60 })).ok,
       "unique jtis should be allowed"
     );
   }
@@ -124,7 +145,8 @@ async function verifyAuthenticationReplayCase(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  verifyReplayStoreCases();
+  await verifyInMemoryStateStoreCases();
+  await verifyReplayStoreCases();
   await verifyAuthenticationReplayCase();
 }
 
