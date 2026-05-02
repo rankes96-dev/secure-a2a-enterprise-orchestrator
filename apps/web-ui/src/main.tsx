@@ -171,9 +171,8 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
     <section className="chat-panel" aria-label="Conversation">
       {messages.map((chatMessage) => (
         <article
-          className={`message ${chatMessage.role === "user" ? "user-message" : "assistant-message"} ${
-            chatMessage.status === "loading" ? "loading" : ""
-          }`}
+          className={`message ${chatMessage.role === "user" ? "user-message" : "assistant-message"} ${chatMessage.status === "loading" ? "loading" : ""
+            }`}
           key={chatMessage.id}
         >
           {chatMessage.content}
@@ -266,7 +265,7 @@ function App() {
       {
         id: loadingMessageId,
         role: "assistant",
-            content: "Starting A2A task conversation...",
+        content: "Starting A2A task conversation...",
         timestamp: now,
         status: "loading"
       }
@@ -282,7 +281,7 @@ function App() {
         credentials: "include",
         body: JSON.stringify({ message: trimmedIssueText, conversationId })
       });
-      
+
       if (!apiResponse.ok) {
         throw new Error(`Orchestrator returned ${apiResponse.status} with body ${await apiResponse.text()}`);
       }
@@ -293,12 +292,12 @@ function App() {
         currentMessages.map((chatMessage) =>
           chatMessage.id === loadingMessageId
             ? {
-                ...chatMessage,
-                content: resolvedResponse.finalAnswer,
-                timestamp: new Date().toISOString(),
-                status: "done",
-                metadata: resolvedResponse
-              }
+              ...chatMessage,
+              content: resolvedResponse.finalAnswer,
+              timestamp: new Date().toISOString(),
+              status: "done",
+              metadata: resolvedResponse
+            }
             : chatMessage
         )
       );
@@ -309,11 +308,11 @@ function App() {
         currentMessages.map((chatMessage) =>
           chatMessage.id === loadingMessageId
             ? {
-                ...chatMessage,
-                content: `Unable to resolve issue: ${errorMessage}`,
-                timestamp: new Date().toISOString(),
-                status: "done"
-              }
+              ...chatMessage,
+              content: `Unable to resolve issue: ${errorMessage}`,
+              timestamp: new Date().toISOString(),
+              status: "done"
+            }
             : chatMessage
         )
       );
@@ -373,10 +372,10 @@ function App() {
                 <p className="orchestrator-health-line">
                   Orchestrator:
                   <span className={`orchestrator-health-badge ${health?.orchestrator.status === "ok" ? "health-ok" : "health-down"}`}>
-                  {health?.orchestrator.status ?? "unknown"}
+                    {health?.orchestrator.status ?? "unknown"}
                   </span>
                   {health?.orchestrator.timestamp ? ` / ${new Date(health.orchestrator.timestamp).toLocaleTimeString()}` : ""}
-                  </p>
+                </p>
               </div>
               <button type="button" onClick={() => void checkAgentHealth()} disabled={isHealthLoading}>
                 {isHealthLoading ? "Checking..." : "Refresh health"}
