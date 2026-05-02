@@ -37,19 +37,13 @@ export type CapabilityMatch = {
 };
 
 export type AgentCard = {
-  agentId:
-    | "jira-agent"
-    | "github-agent"
-    | "pagerduty-agent"
-    | "security-oauth-agent"
-    | "api-health-agent"
-    | "end-user-triage-agent";
+  agentId: string;
   name: string;
   description: string;
   systems: string[];
   endpoint: string;
   auth: {
-    type: "mock_internal_token";
+    type: "mock_internal_token" | "oauth2_client_credentials_jwt";
     audience: string;
   };
   skills: AgentCardSkill[];
@@ -409,20 +403,28 @@ export function getAgentCards(): AgentCard[] {
   return agentCards;
 }
 
-export function getAgentCard(agentId: string): AgentCard | undefined {
-  return agentCards.find((card) => card.agentId === agentId);
+export function getAgentCard(agentId: string, cards: AgentCard[] = agentCards): AgentCard | undefined {
+  return cards.find((card) => card.agentId === agentId);
 }
 
-export function getExecutableAgentCards(): AgentCard[] {
-  return agentCards.filter((card) => Boolean(card.endpoint));
+export function getExecutableAgentCards(cards: AgentCard[] = agentCards): AgentCard[] {
+  return cards.filter((card) => Boolean(card.endpoint));
 }
 
-export function isExecutableAgentCard(agentId: string): agentId is AgentName {
-  return Boolean(getAgentCard(agentId)?.endpoint);
+export function isExecutableAgentCard(agentId: string, cards: AgentCard[] = agentCards): agentId is AgentName {
+  return Boolean(getAgentCard(agentId, cards)?.endpoint);
 }
 
-export function findAgentSkillByCapability(capability: string): { agent: AgentCard; skill: AgentCardSkill } | undefined {
-  return findAgentSkillsByCapability(capability)[0];
+export function combineAgentCards(...cardGroups: AgentCard[][]): AgentCard[] {
+  const byId = new Map<string, AgentCard>();
+  for (const card of cardGroups.flat()) {
+    byId.set(card.agentId, card);
+  }
+  return [...byId.values()];
+}
+
+export function findAgentSkillByCapability(capability: string, context: CapabilityMatchContext = {}, cards: AgentCard[] = getExecutableAgentCards()): { agent: AgentCard; skill: AgentCardSkill } | undefined {
+  return findAgentSkillsByCapability(capability, context, cards)[0];
 }
 
 function scopeContains(scopeValues: string[] | undefined, value: string | undefined): boolean {
@@ -431,10 +433,10 @@ function scopeContains(scopeValues: string[] | undefined, value: string | undefi
   return Boolean(normalized && scopeValues?.some((scopeValue) => normalized.includes(scopeValue.toLowerCase()) || scopeValue.toLowerCase().includes(normalized)));
 }
 
-export function findAgentSkillsByCapability(capability: string, context: CapabilityMatchContext = {}): CapabilityMatch[] {
+export function findAgentSkillsByCapability(capability: string, context: CapabilityMatchContext = {}, cards: AgentCard[] = getExecutableAgentCards()): CapabilityMatch[] {
   // Target system is context. Capability is routing. Policy is authorization.
   // `systems[]` on an Agent Card remains descriptive; skill capability equality is the required route key.
-  return getExecutableAgentCards()
+  return getExecutableAgentCards(cards)
     .flatMap((agent) => agent.skills.map((skill) => ({ agent, skill })))
     .filter(({ skill }) => skill.capabilities?.includes(capability))
     .map(({ agent, skill }) => {

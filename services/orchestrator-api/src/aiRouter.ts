@@ -13,7 +13,7 @@ import type {
   SelectedAgent,
   SkippedAgent
 } from "@a2a/shared";
-import { findAgentSkillsByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard, type CapabilityMatch } from "./agentCards";
+import { findAgentSkillsByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard, type AgentCard, type CapabilityMatch } from "./agentCards";
 import { getAiConfig } from "./config/aiConfig";
 import { interpretRequest } from "./requestInterpreter";
 
@@ -90,11 +90,19 @@ function asOptionalErrorCode(value: unknown, fallback?: ErrorCode): ErrorCode | 
   return typeof value === "string" && errorCodes.includes(value as ErrorCode) ? (value as ErrorCode) : fallback;
 }
 
-function completeSkippedAgents(selectedAgents: SelectedAgent[], explicitSkipped: SkippedAgent[] = []): SkippedAgent[] {
+type RoutingContext = {
+  agentCards?: AgentCard[];
+};
+
+function cardsForContext(context: RoutingContext = {}): AgentCard[] {
+  return context.agentCards ?? getExecutableAgentCards();
+}
+
+function completeSkippedAgents(selectedAgents: SelectedAgent[], explicitSkipped: SkippedAgent[] = [], context: RoutingContext = {}): SkippedAgent[] {
   const selectedIds = new Set(selectedAgents.map((agent) => agent.agentId));
   const explicitById = new Map(explicitSkipped.map((agent) => [agent.agentId, agent.reason]));
 
-  return getExecutableAgentCards()
+  return getExecutableAgentCards(cardsForContext(context))
     .filter((card) => !selectedIds.has(card.agentId))
     .map((card) => ({
       agentId: card.agentId,
@@ -212,7 +220,7 @@ function candidateSummary(match: CapabilityMatch): CapabilityRouteCandidate {
   };
 }
 
-function chooseCapabilityMatches(interpretation: RequestInterpretation): CapabilityRouteSelection {
+function chooseCapabilityMatches(interpretation: RequestInterpretation, context: RoutingContext = {}): CapabilityRouteSelection {
   const capability = interpretation.requestedCapability;
 
   if (!capability || capability === "unknown") {
@@ -222,7 +230,7 @@ function chooseCapabilityMatches(interpretation: RequestInterpretation): Capabil
   const matches = findAgentSkillsByCapability(capability, {
     targetSystemText: interpretation.targetSystemText,
     targetResourceType: interpretation.targetResourceType
-  });
+  }, cardsForContext(context));
   const filtered = matches.filter(({ skill }) =>
     interpretation.intentType === "security_sensitive_action" || (!skill.sensitive && skill.riskLevel !== "sensitive")
   );
@@ -265,7 +273,7 @@ function chooseCapabilityMatches(interpretation: RequestInterpretation): Capabil
       const supporting = findAgentSkillsByCapability(capability, {
         targetSystemText: interpretation.targetSystemText,
         targetResourceType: interpretation.targetResourceType
-      }).find(({ agent, skill }) => !selectedKeys.has(`${agent.agentId}:${skill.id}`));
+      }, cardsForContext(context)).find(({ agent, skill }) => !selectedKeys.has(`${agent.agentId}:${skill.id}`));
 
       if (!supporting) {
         continue;
@@ -295,7 +303,7 @@ function chooseCapabilityMatches(interpretation: RequestInterpretation): Capabil
   };
 }
 
-function chooseEnterpriseTriageRoute(interpretation: RequestInterpretation): CapabilityRouteSelection {
+function chooseEnterpriseTriageRoute(interpretation: RequestInterpretation, context: RoutingContext = {}): CapabilityRouteSelection {
   const canTriage =
     interpretation.scope === "enterprise_support" &&
     (!interpretation.requestedCapability || interpretation.requestedCapability === "unknown") &&
@@ -308,7 +316,7 @@ function chooseEnterpriseTriageRoute(interpretation: RequestInterpretation): Cap
   const match = findAgentSkillsByCapability("enterprise.issue.triage", {
     targetSystemText: interpretation.targetSystemText,
     targetResourceType: interpretation.targetResourceType
-  })[0];
+  }, cardsForContext(context))[0];
 
   if (!match) {
     return { selectedAgents: [] };
@@ -327,18 +335,59 @@ function chooseEnterpriseTriageRoute(interpretation: RequestInterpretation): Cap
   };
 }
 
-export function selectBestCapabilityRoute(interpretation: RequestInterpretation): CapabilityRouteSelection {
-  return chooseCapabilityMatches(interpretation);
+function chooseDemoAgentTextRoute(message: string, interpretation: RequestInterpretation, context: RoutingContext = {}): CapabilityRouteSelection {
+  const lowerMessage = message.toLowerCase();
+  const demoMatches = getExecutableAgentCards(cardsForContext(context))
+    .filter((card) => card.endpoint.startsWith("session://demo-agent/"))
+    .flatMap((agent) => agent.skills.map((skill) => ({ agent, skill })))
+    .filter(({ agent, skill }) => {
+      const systemMatched = agent.systems.some((system) => lowerMessage.includes(system.toLowerCase()));
+      const targetMatched = agent.systems.some((system) => interpretation.targetSystemText?.toLowerCase().includes(system.toLowerCase()));
+      const capabilityMatched = (skill.capabilities ?? []).some((capability) =>
+        lowerMessage.includes(capability.toLowerCase()) ||
+        capability.split(/[._-]+/).filter((part) => part.length > 3).some((part) => lowerMessage.includes(part.toLowerCase()))
+      );
+      return (systemMatched || targetMatched) && capabilityMatched;
+    })
+    .map(({ agent, skill }) => ({
+      agent,
+      skill,
+      score: 80 + (skill.priority ?? 0),
+      reason: "session demo Agent Card matched system and capability text"
+    }))
+    .sort((left, right) => right.score - left.score || left.agent.agentId.localeCompare(right.agent.agentId));
+
+  const match = demoMatches[0];
+  if (!match) {
+    return { selectedAgents: [] };
+  }
+
+  return {
+    selectedAgents: [
+      select(match.agent.agentId, "primary", match.skill.id, `Matched session demo Agent Card skill ${match.skill.id}. ${match.reason}.`, {
+        matchedCapability: match.skill.capabilities?.[0],
+        matchScore: match.score,
+        owner: match.skill.owner,
+        targetSystemText: interpretation.targetSystemText
+      })
+    ],
+    candidates: [candidateSummary(match)]
+  };
 }
 
-export function routeByCapability(interpretation: RequestInterpretation): SelectedAgent[] {
-  return selectBestCapabilityRoute(interpretation).selectedAgents;
+export function selectBestCapabilityRoute(interpretation: RequestInterpretation, context: RoutingContext = {}): CapabilityRouteSelection {
+  return chooseCapabilityMatches(interpretation, context);
+}
+
+export function routeByCapability(interpretation: RequestInterpretation, context: RoutingContext = {}): SelectedAgent[] {
+  return selectBestCapabilityRoute(interpretation, context).selectedAgents;
 }
 
 export function routeWithRules(
   message: string,
   reason = "Capability routing fallback was used.",
-  requestInterpretation?: RequestInterpretation
+  requestInterpretation?: RequestInterpretation,
+  context: RoutingContext = {}
 ): RoutingDecision {
   const interpretation = requestInterpretation;
 
@@ -357,7 +406,7 @@ export function routeWithRules(
     return {
       classification,
       selectedAgents: [],
-      skippedAgents: completeSkippedAgents([]),
+      skippedAgents: completeSkippedAgents([], [], context),
       routingSource: "rules_fallback",
       routingConfidence: "low",
       routingReasoningSummary: "No request interpretation was available.",
@@ -378,7 +427,7 @@ export function routeWithRules(
         supportMode: "end_user_support"
       },
       selectedAgents: [],
-      skippedAgents: getExecutableAgentCards().map((card) => ({
+      skippedAgents: getExecutableAgentCards(cardsForContext(context)).map((card) => ({
         agentId: card.agentId,
         reason: "Request is outside enterprise support scope."
       })),
@@ -390,14 +439,14 @@ export function routeWithRules(
     };
   }
 
-  const capabilityRoute = selectBestCapabilityRoute(interpretation);
+  const capabilityRoute = selectBestCapabilityRoute(interpretation, context);
   const selectedAgents = capabilityRoute.selectedAgents;
 
   if (capabilityRoute.ambiguous) {
     return {
       classification,
       selectedAgents: [],
-      skippedAgents: completeSkippedAgents([]),
+      skippedAgents: completeSkippedAgents([], [], context),
       routingSource: "rules_fallback",
       routingConfidence: "medium",
       routingReasoningSummary: "Multiple agents can handle this capability. Please choose the target system or owner.",
@@ -416,7 +465,7 @@ export function routeWithRules(
         supportMode: "end_user_support"
       },
       selectedAgents: [],
-      skippedAgents: completeSkippedAgents([]),
+      skippedAgents: completeSkippedAgents([], [], context),
       routingSource: "rules_fallback",
       routingConfidence: interpretation.confidence,
       routingReasoningSummary: interpretation.reason,
@@ -425,13 +474,28 @@ export function routeWithRules(
     };
   }
 
-  const triageRoute = selectedAgents.length === 0 ? chooseEnterpriseTriageRoute(interpretation) : { selectedAgents: [] };
+  const demoTextRoute = selectedAgents.length === 0 ? chooseDemoAgentTextRoute(message, interpretation, context) : { selectedAgents: [] };
+
+  if (demoTextRoute.selectedAgents.length > 0) {
+    return {
+      classification,
+      selectedAgents: demoTextRoute.selectedAgents,
+      skippedAgents: completeSkippedAgents(demoTextRoute.selectedAgents, [], context),
+      routingSource: "rules_fallback",
+      routingConfidence: "medium",
+      routingReasoningSummary: "Matched a session-scoped demo Agent Card by system and capability text.",
+      resolutionStatus: "resolved",
+      requestInterpretation: interpretation
+    };
+  }
+
+  const triageRoute = selectedAgents.length === 0 ? chooseEnterpriseTriageRoute(interpretation, context) : { selectedAgents: [] };
 
   if (triageRoute.selectedAgents.length > 0) {
     return {
       classification,
       selectedAgents: triageRoute.selectedAgents,
-      skippedAgents: completeSkippedAgents(triageRoute.selectedAgents),
+      skippedAgents: completeSkippedAgents(triageRoute.selectedAgents, [], context),
       routingSource: "rules_fallback",
       routingConfidence: interpretation.confidence === "high" ? "medium" : interpretation.confidence,
       routingReasoningSummary: "No specialist Agent Card capability matched; routed to generic enterprise triage.",
@@ -444,7 +508,7 @@ export function routeWithRules(
     return {
       classification,
       selectedAgents,
-      skippedAgents: completeSkippedAgents(selectedAgents),
+      skippedAgents: completeSkippedAgents(selectedAgents, [], context),
       routingSource: "rules_fallback",
       routingConfidence: interpretation.confidence,
       routingReasoningSummary: `Matched requested capability ${interpretation.requestedCapability} to Agent Card metadata.`,
@@ -456,7 +520,7 @@ export function routeWithRules(
   return {
     classification,
     selectedAgents: [],
-    skippedAgents: completeSkippedAgents([]),
+    skippedAgents: completeSkippedAgents([], [], context),
     routingSource: "rules_fallback",
     routingConfidence: interpretation.confidence === "high" ? "medium" : interpretation.confidence,
     routingReasoningSummary: interpretation.reason || "No Agent Card capability matched the interpreted request.",
@@ -498,7 +562,7 @@ function parseAgentList(value: unknown): SelectedAgent[] {
     }));
 }
 
-function normalizeRoutingDecision(value: unknown, fallback: RoutingDecision, aiProvider: "openrouter" | "openai", aiModel: string): RoutingDecision {
+function normalizeRoutingDecision(value: unknown, fallback: RoutingDecision, aiProvider: "openrouter" | "openai", aiModel: string, context: RoutingContext = {}): RoutingDecision {
   const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   const classification = normalizeClassification(record.classification, fallback.classification, aiProvider, aiModel);
   const selectedAgents = parseAgentList(record.selectedAgents);
@@ -506,7 +570,7 @@ function normalizeRoutingDecision(value: unknown, fallback: RoutingDecision, aiP
   return {
     classification,
     selectedAgents,
-    skippedAgents: completeSkippedAgents(selectedAgents),
+    skippedAgents: completeSkippedAgents(selectedAgents, [], context),
     routingSource: "ai",
     routingConfidence: asEnum(record.routingConfidence, ["low", "medium", "high"] as const, "medium"),
     routingReasoningSummary:
@@ -520,14 +584,14 @@ type ValidationResult =
   | { ok: true; decision: RoutingDecision }
   | { ok: false; reasons: string[] };
 
-function validateRoutingDecision(decision: RoutingDecision, fallback: RoutingDecision): ValidationResult {
+function validateRoutingDecision(decision: RoutingDecision, fallback: RoutingDecision, context: RoutingContext = {}): ValidationResult {
   const reasons: string[] = [];
   const selectedById = new Map<AgentName, SelectedAgent>();
 
   for (const agent of decision.selectedAgents) {
-    const card = getAgentCard(agent.agentId);
+    const card = getAgentCard(agent.agentId, cardsForContext(context));
 
-    if (!card || !isExecutableAgentCard(agent.agentId)) {
+    if (!card || !isExecutableAgentCard(agent.agentId, cardsForContext(context))) {
       reasons.push(`unknown agentId: ${agent.agentId}`);
       continue;
     }
@@ -572,13 +636,13 @@ function validateRoutingDecision(decision: RoutingDecision, fallback: RoutingDec
     decision: {
       ...decision,
       selectedAgents,
-      skippedAgents: completeSkippedAgents(selectedAgents),
+      skippedAgents: completeSkippedAgents(selectedAgents, [], context),
       resolutionStatus: decision.resolutionStatus === "unsupported" ? "unsupported" : "resolved"
     }
   };
 }
 
-async function callOpenRouter(message: string, interpretation: RequestInterpretation, apiKey: string, model: string): Promise<string | undefined> {
+async function callOpenRouter(message: string, interpretation: RequestInterpretation, apiKey: string, model: string, context: RoutingContext = {}): Promise<string | undefined> {
   const openRouter = new OpenRouter({ apiKey });
   const result = await openRouter.chat.send({
     chatRequest: {
@@ -590,7 +654,7 @@ async function callOpenRouter(message: string, interpretation: RequestInterpreta
           content: JSON.stringify({
             message,
             requestInterpretation: interpretation,
-            agentCards: getExecutableAgentCards()
+            agentCards: getExecutableAgentCards(cardsForContext(context))
           })
         }
       ],
@@ -604,7 +668,7 @@ async function callOpenRouter(message: string, interpretation: RequestInterpreta
   return typeof content === "string" ? content : undefined;
 }
 
-async function callOpenAi(message: string, interpretation: RequestInterpretation, apiKey: string, model: string): Promise<string | undefined> {
+async function callOpenAi(message: string, interpretation: RequestInterpretation, apiKey: string, model: string, context: RoutingContext = {}): Promise<string | undefined> {
   const client = new OpenAI({ apiKey });
   const completion = await client.chat.completions.create({
     model,
@@ -616,7 +680,7 @@ async function callOpenAi(message: string, interpretation: RequestInterpretation
         content: JSON.stringify({
           message,
           requestInterpretation: interpretation,
-          agentCards: getExecutableAgentCards()
+          agentCards: getExecutableAgentCards(cardsForContext(context))
         })
       }
     ],
@@ -626,9 +690,9 @@ async function callOpenAi(message: string, interpretation: RequestInterpretation
   return completion.choices[0]?.message.content ?? undefined;
 }
 
-export async function routeWithAI(message: string): Promise<RoutingDecision> {
+export async function routeWithAI(message: string, context: RoutingContext = {}): Promise<RoutingDecision> {
   const requestInterpretation = await interpretRequest(message);
-  const fallback = routeWithRules(message, "Capability routing fallback was used.", requestInterpretation);
+  const fallback = routeWithRules(message, "Capability routing fallback was used.", requestInterpretation, context);
   const forceSecondaryAiRouter = process.env.FORCE_SECONDARY_AI_ROUTER === "true";
   const shouldCallSecondaryRouter =
     fallback.resolutionStatus !== "unsupported" &&
@@ -656,8 +720,8 @@ export async function routeWithAI(message: string): Promise<RoutingDecision> {
     console.info("[router] calling secondary AI router");
     const content =
       aiConfig.provider === "openrouter"
-        ? await callOpenRouter(message, requestInterpretation, aiConfig.apiKey, aiConfig.model)
-        : await callOpenAi(message, requestInterpretation, aiConfig.apiKey, aiConfig.model);
+        ? await callOpenRouter(message, requestInterpretation, aiConfig.apiKey, aiConfig.model, context)
+        : await callOpenAi(message, requestInterpretation, aiConfig.apiKey, aiConfig.model, context);
 
     if (!content) {
       console.warn("[router] secondary AI router returned empty content; using capability fallback");
@@ -667,13 +731,13 @@ export async function routeWithAI(message: string): Promise<RoutingDecision> {
       };
     }
 
-    const normalized = normalizeRoutingDecision(JSON.parse(content), fallback, aiConfig.provider, aiConfig.model);
-    const validation = validateRoutingDecision(normalized, fallback);
+    const normalized = normalizeRoutingDecision(JSON.parse(content), fallback, aiConfig.provider, aiConfig.model, context);
+    const validation = validateRoutingDecision(normalized, fallback, context);
 
     if (!validation.ok) {
       const reason = validation.reasons.join(" ");
       console.warn(`[router] Secondary AI routing validation failed; using capability fallback: ${reason}`);
-      return routeWithRules(message, `Secondary AI routing validation failed; capability fallback was used. ${reason}`, requestInterpretation);
+      return routeWithRules(message, `Secondary AI routing validation failed; capability fallback was used. ${reason}`, requestInterpretation, context);
     }
 
     console.info(
@@ -683,6 +747,6 @@ export async function routeWithAI(message: string): Promise<RoutingDecision> {
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown AI router error";
     console.warn(`[router] Secondary AI routing failed; using capability fallback: ${detail}`);
-    return routeWithRules(message, `Secondary AI routing failed; capability fallback was used. ${detail}`, requestInterpretation);
+    return routeWithRules(message, `Secondary AI routing failed; capability fallback was used. ${detail}`, requestInterpretation, context);
   }
 }

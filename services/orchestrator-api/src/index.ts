@@ -20,16 +20,17 @@ import type {
   SelectedAgent
 } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
-import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCardSkill } from "./agentCards";
+import { combineAgentCards, discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards";
 import { routeWithAI } from "./aiRouter";
 import { getAiConfig } from "./config/aiConfig";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
 import { getA2AAccessToken } from "./security/tokenClient";
 import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext";
 import { interpretFollowUp } from "./followUpInterpreter";
-import { createSessionCookie, hasValidSession } from "./security/sessionManager";
+import { createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
+import { addDemoAgentCard, buildDemoAgentCard, deleteDemoAgentCard, listDemoAgentCards, validateDemoAgentCard, type DemoAgentCardInput } from "./demoAgentCards";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -317,8 +318,8 @@ function primarySecurityDecision(decisions: SecurityDecision[]): SecurityDecisio
   );
 }
 
-function getSkillMetadata(agentId: AgentName, skillId?: string): AgentCardSkill | undefined {
-  return getAgentCard(agentId)?.skills.find((skill) => skill.id === skillId);
+function getSkillMetadata(agentId: AgentName, skillId?: string, cards?: AgentCard[]): AgentCardSkill | undefined {
+  return getAgentCard(agentId, cards)?.skills.find((skill) => skill.id === skillId);
 }
 
 function requestedActionForSkill(skill?: AgentCardSkill): string | undefined {
@@ -352,8 +353,9 @@ function createA2ATask(params: {
   requestedByAgent?: string;
   delegationContext?: Record<string, unknown>;
   authMode?: A2ATask["context"]["authMode"];
+  cards?: AgentCard[];
 }): A2ATask {
-  const card = getAgentCard(params.toAgent);
+  const card = getAgentCard(params.toAgent, params.cards);
 
   return {
     taskId: createTaskId(),
@@ -391,8 +393,8 @@ function createA2ATask(params: {
   };
 }
 
-function shouldUseJwtForAgent(agentId: string): boolean {
-  return a2aAuthMode === "oauth2_client_credentials_jwt" && Boolean(getAgentCard(agentId));
+function shouldUseJwtForAgent(agentId: string, cards?: AgentCard[]): boolean {
+  return a2aAuthMode === "oauth2_client_credentials_jwt" && Boolean(getAgentCard(agentId, cards));
 }
 
 async function prepareA2ARequestAuth(params: {
@@ -405,8 +407,9 @@ async function prepareA2ARequestAuth(params: {
   requestedByAgent?: string;
   executionSteps: ExecutionTraceStep[];
   traceEntries: AgentTraceEntry[];
+  cards?: AgentCard[];
 }): Promise<Record<string, string>> {
-  if (!shouldUseJwtForAgent(params.task.toAgent)) {
+  if (!shouldUseJwtForAgent(params.task.toAgent, params.cards)) {
     return {
       "x-internal-service-token": process.env.INTERNAL_SERVICE_TOKEN ?? ""
     };
@@ -645,6 +648,91 @@ async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
   }
 }
 
+function isDemoAgentCard(card: AgentCard | undefined): boolean {
+  return Boolean(card?.endpoint.startsWith("session://demo-agent/"));
+}
+
+function createDemoAgentResponse(card: AgentCard, skill?: AgentCardSkill): A2AAgentResponse {
+  return {
+    agentId: card.agentId,
+    status: "diagnosed",
+    summary: "Demo agent selected from session Agent Card.",
+    probableCause: "This demo agent advertised the requested capability through its Agent Card.",
+    recommendedActions: [
+      "Replace this demo response with a vendor-owned agent endpoint in production."
+    ],
+    evidence: [
+      {
+        title: "Session Agent Card capability match",
+        data: {
+          agentId: card.agentId,
+          capability: skill?.capabilities?.[0],
+          requiredScopes: skill?.requiredScopes ?? [],
+          riskLevel: skill?.riskLevel ?? "low"
+        }
+      }
+    ],
+    trace: [
+      {
+        agent: card.agentId,
+        action: "demo_agent_card_selected",
+        detail: "Returned safe mock response for a session-scoped demo Agent Card.",
+        timestamp: new Date().toISOString()
+      }
+    ]
+  };
+}
+
+function demoInputFromRequestBody(value: unknown): DemoAgentCardInput {
+  const record = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  const firstSkill = Array.isArray(record.skills) && typeof record.skills[0] === "object" && record.skills[0] !== null
+    ? record.skills[0] as Record<string, unknown>
+    : undefined;
+
+  return {
+    system: typeof record.system === "string"
+      ? record.system
+      : Array.isArray(record.systems) && typeof record.systems[0] === "string"
+        ? record.systems[0]
+        : "",
+    agentName: typeof record.agentName === "string" ? record.agentName : typeof record.name === "string" ? record.name : undefined,
+    description: typeof record.description === "string" ? record.description : undefined,
+    capability: typeof record.capability === "string"
+      ? record.capability
+      : Array.isArray(firstSkill?.capabilities) && typeof firstSkill.capabilities[0] === "string"
+        ? firstSkill.capabilities[0]
+        : undefined,
+    riskLevel: record.riskLevel === "low" || record.riskLevel === "medium" || record.riskLevel === "high" || record.riskLevel === "sensitive"
+      ? record.riskLevel
+      : firstSkill?.riskLevel === "low" || firstSkill?.riskLevel === "medium" || firstSkill?.riskLevel === "high" || firstSkill?.riskLevel === "sensitive"
+        ? firstSkill.riskLevel
+        : undefined,
+    resourceTypes: Array.isArray(record.resourceTypes)
+      ? record.resourceTypes.filter((item): item is string => typeof item === "string")
+      : typeof record.resourceTypes === "string"
+        ? record.resourceTypes.split(",")
+        : firstSkill?.scope && typeof firstSkill.scope === "object" && Array.isArray((firstSkill.scope as { resourceTypes?: unknown }).resourceTypes)
+          ? ((firstSkill.scope as { resourceTypes?: unknown[] }).resourceTypes ?? []).filter((item): item is string => typeof item === "string")
+          : undefined,
+    examples: Array.isArray(record.examples)
+      ? record.examples.filter((item): item is string => typeof item === "string")
+      : typeof record.examples === "string"
+        ? record.examples.split(",")
+        : Array.isArray(firstSkill?.examples)
+          ? firstSkill.examples.filter((item): item is string => typeof item === "string")
+          : undefined
+  };
+}
+
+function requireSessionToken(request: IncomingMessage, response: ServerResponse): string | undefined {
+  const token = getSessionToken(request);
+  if (!token) {
+    sendJson(response, 401, { error: "Session required" }, request);
+    return undefined;
+  }
+  return token;
+}
+
 async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
   const agents = await Promise.all([
     ...getExecutableAgentCards().map((card) => checkAgentHealth(card)),
@@ -667,8 +755,9 @@ async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
   };
 }
 
-async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveResponse> {
+async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string): Promise<ResolveResponse> {
   const conversationState = getOrCreateConversationState(requestBody.conversationId);
+  const requestAgentCards = combineAgentCards(getExecutableAgentCards(), sessionToken ? listDemoAgentCards(sessionToken) : []);
   appendConversationMessage(conversationState, "user", requestBody.message);
   const followUp = await interpretFollowUp({
     currentMessage: requestBody.message,
@@ -678,7 +767,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     previousIncidentContext: conversationState.lastIncidentContext
   });
   const effectiveMessage = buildEffectiveMessageForRouting(conversationState, requestBody.message, followUp);
-  const routingDecision = await routeWithAI(effectiveMessage);
+  const routingDecision = await routeWithAI(effectiveMessage, { agentCards: requestAgentCards });
   const classification = routingDecision.classification;
   const conversationId = conversationState.conversationId;
   const incidentInterpretation =
@@ -1008,7 +1097,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   async function processRequestedDelegations(agentResponse: A2AAgentResponse, parentTask: A2ATask): Promise<void> {
     for (const delegation of agentResponse.requestedDelegations ?? []) {
       const fromAgent = agentResponse.agentId;
-      const targetCard = getAgentCard(delegation.targetAgentId);
+      const targetCard = getAgentCard(delegation.targetAgentId, requestAgentCards);
       const targetSkill = targetCard?.skills.find((skill) => skill.id === delegation.skillId);
       const currentDepth = parentTask.delegationDepth ?? 0;
       const nextDepth = currentDepth + 1;
@@ -1176,7 +1265,8 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         delegationDepth: nextDepth,
         parentTaskId: parentTask.taskId,
         requestedByAgent: fromAgent,
-        delegationContext: delegation.context
+            delegationContext: delegation.context,
+            cards: requestAgentCards
       });
       a2aTasks.push(delegatedTask);
 
@@ -1190,7 +1280,8 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
           parentTaskId: parentTask.taskId,
           requestedByAgent: fromAgent,
           executionSteps: delegationExecutionSteps,
-          traceEntries: orchestratorTrace
+          traceEntries: orchestratorTrace,
+          cards: requestAgentCards
         });
         const response = await postJson<AgentResponse | A2AAgentResponse>(targetCard!.endpoint, delegatedTask, headers);
         const normalizedResponse = normalizeAgentResponse(delegation.targetAgentId, response);
@@ -1237,17 +1328,19 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   }
 
   for (const agent of routingDecision.selectedAgents) {
-    const card = getAgentCard(agent.agentId);
+    const card = getAgentCard(agent.agentId, requestAgentCards);
 
     if (!card?.endpoint) {
       continue;
     }
 
-    const skillMetadata = getSkillMetadata(agent.agentId, agent.skillId);
+    const skillMetadata = getSkillMetadata(agent.agentId, agent.skillId, requestAgentCards);
     const requestedAction = requestedActionForSkill(skillMetadata);
     let taskSecurityDecision: SecurityDecision | undefined;
 
-    if (requestedAction) {
+    if (isDemoAgentCard(card)) {
+      orchestratorTrace.push(trace("DEMO_AGENT_POLICY_SKIPPED", `Session demo agent ${agent.agentId} is executed as a local mock response only.`));
+    } else if (requestedAction) {
       const policyDecision = evaluateSecurityPolicy({
         callerAgentId: orchestratorAgentId,
         targetAgentId: agent.agentId,
@@ -1302,19 +1395,28 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       message: requestBody.message,
       classification,
       securityDecision: taskSecurityDecision,
-      requestedScope
+      requestedScope,
+      cards: requestAgentCards
     });
     a2aTasks.push(a2aTask);
 
+    if (isDemoAgentCard(card)) {
+      a2aResponses.push(createDemoAgentResponse(card, skillMetadata));
+      orchestratorTrace.push(trace("DEMO_AGENT_EXECUTED", `Returned safe mock response for ${agent.agentId}; no user-defined endpoint was fetched.`));
+      continue;
+    }
+
+    const executableCard = card;
     try {
       const headers = await prepareA2ARequestAuth({
         task: a2aTask,
-        targetAudience: card.auth.audience,
+        targetAudience: executableCard.auth.audience,
         requestedScope,
         executionSteps: delegationExecutionSteps,
-        traceEntries: orchestratorTrace
+        traceEntries: orchestratorTrace,
+        cards: requestAgentCards
       });
-      const response = await postJson<AgentResponse | A2AAgentResponse>(card.endpoint, a2aTask, headers);
+      const response = await postJson<AgentResponse | A2AAgentResponse>(executableCard.endpoint, a2aTask, headers);
       const normalizedResponse = normalizeAgentResponse(agent.agentId, response);
       a2aResponses.push(normalizedResponse);
       await processRequestedDelegations(normalizedResponse, a2aTask);
@@ -1463,6 +1565,11 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/session") {
+    if (getSessionToken(request)) {
+      sendJson(response, 200, { ok: true }, request);
+      return;
+    }
+
     sendJson(
       response,
       200,
@@ -1472,6 +1579,68 @@ async function start(): Promise<void> {
         "set-cookie": createSessionCookie()
       }
     );
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/demo-agent-cards") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    sendJson(response, 200, { agentCards: listDemoAgentCards(sessionToken) }, request);
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/demo-agent-cards/generate") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    const input = demoInputFromRequestBody(await readJsonBody<unknown>(request));
+    if (!input.system.trim()) {
+      sendJson(response, 400, { error: "system is required" }, request);
+      return;
+    }
+
+    const agentCard = buildDemoAgentCard(input);
+    sendJson(response, 200, { agentCard, warnings: validateDemoAgentCard(agentCard) }, request);
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/demo-agent-cards") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    const input = demoInputFromRequestBody(await readJsonBody<unknown>(request));
+    if (!input.system.trim()) {
+      sendJson(response, 400, { error: "system is required" }, request);
+      return;
+    }
+
+    const agentCard = addDemoAgentCard(sessionToken, buildDemoAgentCard(input));
+    sendJson(response, 200, {
+      agentCard,
+      agentCards: listDemoAgentCards(sessionToken),
+      warnings: validateDemoAgentCard(agentCard)
+    }, request);
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url?.startsWith("/demo-agent-cards/")) {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    const agentId = decodeURIComponent(request.url.slice("/demo-agent-cards/".length));
+    sendJson(response, 200, {
+      deleted: deleteDemoAgentCard(sessionToken, agentId),
+      agentCards: listDemoAgentCards(sessionToken)
+    }, request);
     return;
   }
 
@@ -1495,7 +1664,7 @@ async function start(): Promise<void> {
     return;
   }
 
-  sendJson(response, 200, await resolveIssue(requestBody));
+  sendJson(response, 200, await resolveIssue(requestBody, getSessionToken(request)));
   });
 }
 

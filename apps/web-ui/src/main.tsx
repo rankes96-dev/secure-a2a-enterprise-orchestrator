@@ -154,6 +154,52 @@ type ChatMessage = {
   metadata?: ResolveResponse;
 };
 
+type DemoAgentCard = {
+  agentId: string;
+  name: string;
+  description: string;
+  systems: string[];
+  endpoint: string;
+  auth: { type: string; audience: string };
+  skills: Array<{
+    id: string;
+    name: string;
+    description: string;
+    examples?: string[];
+    requiredScopes?: string[];
+    capabilities?: string[];
+    requestedAction?: string;
+    requiredPermission?: string;
+    riskLevel?: "low" | "medium" | "high" | "sensitive";
+    owner?: string;
+    scope?: {
+      systems?: string[];
+      resourceTypes?: string[];
+    };
+    sensitive?: boolean;
+  }>;
+};
+
+type DemoAgentCardInput = {
+  system: string;
+  agentName: string;
+  description: string;
+  capability: string;
+  riskLevel: "low" | "medium" | "high" | "sensitive";
+  resourceTypes: string;
+  examples: string;
+};
+
+const emptyDemoAgentInput: DemoAgentCardInput = {
+  system: "",
+  agentName: "",
+  description: "",
+  capability: "",
+  riskLevel: "low",
+  resourceTypes: "incident, ticket, account",
+  examples: ""
+};
+
 function createMessageId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -193,6 +239,12 @@ function App() {
   const [healthError, setHealthError] = useState("");
   const [isHealthLoading, setIsHealthLoading] = useState(false);
   const [isHealthPanelOpen, setIsHealthPanelOpen] = useState(false);
+  const [isDemoBuilderOpen, setIsDemoBuilderOpen] = useState(false);
+  const [demoAgentInput, setDemoAgentInput] = useState<DemoAgentCardInput>(emptyDemoAgentInput);
+  const [demoAgentPreview, setDemoAgentPreview] = useState<DemoAgentCard | null>(null);
+  const [demoAgentCards, setDemoAgentCards] = useState<DemoAgentCard[]>([]);
+  const [demoAgentWarnings, setDemoAgentWarnings] = useState<string[]>([]);
+  const [demoAgentError, setDemoAgentError] = useState("");
   const [activeScenarioCategory, setActiveScenarioCategory] = useState(scenarios[0].category);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
@@ -238,6 +290,96 @@ function App() {
 
     if (!response.ok) {
       throw new Error(`Session request returned ${response.status}`);
+    }
+  }
+
+  function demoRequestBody() {
+    return {
+      ...demoAgentInput,
+      resourceTypes: demoAgentInput.resourceTypes.split(",").map((item) => item.trim()).filter(Boolean),
+      examples: demoAgentInput.examples.split(",").map((item) => item.trim()).filter(Boolean)
+    };
+  }
+
+  async function loadDemoAgentCards() {
+    setDemoAgentError("");
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/demo-agent-cards`, {
+        method: "GET",
+        credentials: "include"
+      });
+      if (!response.ok) {
+        throw new Error(`Demo cards returned ${response.status} with body ${await response.text()}`);
+      }
+      const body = await response.json() as { agentCards: DemoAgentCard[] };
+      setDemoAgentCards(body.agentCards);
+    } catch (caughtError) {
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to load demo Agent Cards");
+    }
+  }
+
+  async function generateDemoAgentPreview() {
+    setDemoAgentError("");
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/demo-agent-cards/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(demoRequestBody())
+      });
+      if (!response.ok) {
+        throw new Error(`Generate returned ${response.status} with body ${await response.text()}`);
+      }
+      const body = await response.json() as { agentCard: DemoAgentCard; warnings: string[] };
+      setDemoAgentPreview(body.agentCard);
+      setDemoAgentWarnings(body.warnings);
+    } catch (caughtError) {
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to generate demo Agent Card");
+    }
+  }
+
+  async function addDemoAgentToSession() {
+    setDemoAgentError("");
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/demo-agent-cards`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(demoAgentPreview ?? demoRequestBody())
+      });
+      if (!response.ok) {
+        throw new Error(`Add returned ${response.status} with body ${await response.text()}`);
+      }
+      const body = await response.json() as { agentCard: DemoAgentCard; agentCards: DemoAgentCard[]; warnings: string[] };
+      setDemoAgentPreview(body.agentCard);
+      setDemoAgentCards(body.agentCards);
+      setDemoAgentWarnings(body.warnings);
+    } catch (caughtError) {
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to add demo Agent Card");
+    }
+  }
+
+  async function deleteDemoAgent(agentId: string) {
+    setDemoAgentError("");
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/demo-agent-cards/${encodeURIComponent(agentId)}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+      if (!response.ok) {
+        throw new Error(`Delete returned ${response.status} with body ${await response.text()}`);
+      }
+      const body = await response.json() as { agentCards: DemoAgentCard[] };
+      setDemoAgentCards(body.agentCards);
+      if (demoAgentPreview?.agentId === agentId) {
+        setDemoAgentPreview(null);
+      }
+    } catch (caughtError) {
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete demo Agent Card");
     }
   }
 
@@ -361,6 +503,18 @@ function App() {
               <span>{isHealthLoading ? "Checking agent health..." : healthLabel}</span>
               <small>{isHealthPanelOpen ? "Click to close" : "Click for details"}</small>
             </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setIsDemoBuilderOpen((current) => !current);
+                if (!isDemoBuilderOpen) {
+                  void loadDemoAgentCards();
+                }
+              }}
+            >
+              Create demo agent
+            </button>
           </div>
         </header>
 
@@ -405,6 +559,79 @@ function App() {
               </>
             ) : !healthError ? (
               <p className="muted-note">Checking agent health...</p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {isDemoBuilderOpen ? (
+          <section className="demo-agent-builder" aria-label="Demo Agent Card Builder">
+            <div className="agent-health-header">
+              <div>
+                <h2>Demo Agent Card Builder</h2>
+                <p>AI-assisted generation coming next</p>
+              </div>
+              <button type="button" onClick={() => void loadDemoAgentCards()}>Refresh</button>
+            </div>
+            {demoAgentError ? <p className="error">{demoAgentError}</p> : null}
+            <div className="demo-agent-form">
+              <label>
+                <span>System</span>
+                <input value={demoAgentInput.system} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, system: event.target.value })} placeholder="Confluence" />
+              </label>
+              <label>
+                <span>Agent name</span>
+                <input value={demoAgentInput.agentName} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, agentName: event.target.value })} placeholder="Demo Confluence Agent" />
+              </label>
+              <label className="wide-field">
+                <span>Description</span>
+                <input value={demoAgentInput.description} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, description: event.target.value })} placeholder="Demo agent that diagnoses Confluence issues." />
+              </label>
+              <label>
+                <span>Capability</span>
+                <input value={demoAgentInput.capability} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, capability: event.target.value })} placeholder="confluence.issue.diagnose" />
+              </label>
+              <label>
+                <span>Risk level</span>
+                <select value={demoAgentInput.riskLevel} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, riskLevel: event.target.value as DemoAgentCardInput["riskLevel"] })}>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="sensitive">sensitive</option>
+                </select>
+              </label>
+              <label>
+                <span>Resource types</span>
+                <input value={demoAgentInput.resourceTypes} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, resourceTypes: event.target.value })} />
+              </label>
+              <label>
+                <span>Examples</span>
+                <input value={demoAgentInput.examples} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, examples: event.target.value })} placeholder="Confluence page sync fails" />
+              </label>
+            </div>
+            <div className="demo-agent-actions">
+              <button type="button" onClick={() => void generateDemoAgentPreview()}>Generate preview</button>
+              <button type="button" onClick={() => void addDemoAgentToSession()}>Add to session</button>
+            </div>
+            {demoAgentWarnings.length > 0 ? (
+              <ul className="demo-agent-warnings">
+                {demoAgentWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+              </ul>
+            ) : null}
+            <div className="demo-agent-list">
+              <h2>Session demo agents</h2>
+              {demoAgentCards.length ? demoAgentCards.map((card) => (
+                <article key={card.agentId}>
+                  <strong>{card.agentId}</strong>
+                  <span>{card.skills[0]?.capabilities?.[0] ?? "no capability"}</span>
+                  <button type="button" onClick={() => void deleteDemoAgent(card.agentId)}>Delete</button>
+                </article>
+              )) : <p className="muted-note">No session demo Agent Cards yet.</p>}
+            </div>
+            {demoAgentPreview ? (
+              <div className="demo-agent-preview">
+                <h2>/.well-known/agent-card.json</h2>
+                <JsonBlock value={demoAgentPreview} />
+              </div>
             ) : null}
           </section>
         ) : null}

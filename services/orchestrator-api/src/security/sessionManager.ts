@@ -30,6 +30,23 @@ function cleanupExpiredSessions(): void {
   }
 }
 
+function sessionTokenFromRequest(request: IncomingMessage): string | undefined {
+  const cookieHeader = request.headers.cookie;
+
+  if (!cookieHeader) {
+    return undefined;
+  }
+
+  const cookies = new Map(
+    cookieHeader.split(";").map((cookie) => {
+      const [name, ...valueParts] = cookie.trim().split("=");
+      return [name, valueParts.join("=")];
+    })
+  );
+
+  return cookies.get(sessionCookieName);
+}
+
 export function createSessionCookie(): string {
   cleanupExpiredSessions();
   const token = randomUUID();
@@ -48,31 +65,24 @@ export function createSessionCookie(): string {
     .join("; ");
 }
 
-export function hasValidSession(request: IncomingMessage): boolean {
-  const cookieHeader = request.headers.cookie;
-
-  if (!cookieHeader) {
-    return false;
-  }
-
-  const cookies = new Map(
-    cookieHeader.split(";").map((cookie) => {
-      const [name, ...valueParts] = cookie.trim().split("=");
-      return [name, valueParts.join("=")];
-    })
-  );
-  const token = cookies.get(sessionCookieName);
+export function getSessionToken(request: IncomingMessage): string | undefined {
+  cleanupExpiredSessions();
+  const token = sessionTokenFromRequest(request);
 
   if (!token) {
-    return false;
+    return undefined;
   }
 
   const session = sessions.get(token);
 
   if (!session || session.expiresAt <= Date.now()) {
     sessions.delete(token);
-    return false;
+    return undefined;
   }
 
-  return true;
+  return token;
+}
+
+export function hasValidSession(request: IncomingMessage): boolean {
+  return Boolean(getSessionToken(request));
 }
