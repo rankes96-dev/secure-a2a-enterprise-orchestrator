@@ -56,7 +56,7 @@ The current demo includes:
 - scoped tokens
 - delegation-aware JWT claims
 - shared JWT validation helpers
-- agent-side JWT validation through shared auth helpers when `A2A_AUTH_MODE=oauth2_client_credentials_jwt`
+- agent-side JWT validation support through shared auth helpers, used by local agents when `A2A_AUTH_MODE=oauth2_client_credentials_jwt`
 - replay protection for `private_key_jwt` `client_assertion` `jti`
 - generic `StateStore` abstraction
 - `InMemoryStateStore`
@@ -96,6 +96,17 @@ Local ports:
 - API Health Agent: `http://localhost:4105`
 - End-user Triage Agent: `http://localhost:4106`
 - Mock Identity Provider: `http://localhost:4110`
+
+Full secure JWT local mode:
+
+```env
+A2A_AUTH_MODE=oauth2_client_credentials_jwt
+ORCHESTRATOR_TOKEN_AUTH_METHOD=private_key_jwt
+ORCHESTRATOR_PRIVATE_KEY_JWT_ENABLED=true
+INTERNAL_SERVICE_TOKEN=<same long random value across orchestrator, Mock IdP, and agents>
+```
+
+Generate local keys with `npm run generate:orchestrator-client-key`, then copy `ORCHESTRATOR_PRIVATE_JWK_JSON` to the orchestrator environment and `ORCHESTRATOR_PUBLIC_JWK_JSON` to the Mock IdP environment.
 
 ## AI Routing
 
@@ -146,6 +157,7 @@ In production, the external vendor/domain agent would host this JSON and expose 
 ```text
 session://demo-agent/{agentId}/task
 ```
+Because session demo agents are not real HTTP services, they do not perform live JWT validation. The demo proves JWT issuance from generated Agent Card metadata, while real vendor agents would validate the Bearer JWT on their own endpoint.
 
 The public demo does not let users provide arbitrary external endpoints.
 
@@ -172,6 +184,31 @@ When `A2A_AUTH_MODE=oauth2_client_credentials_jwt` and `ORCHESTRATOR_TOKEN_AUTH_
 8. Session demo agents do not call a live external service, but they still demonstrate real JWT issuance metadata before returning a safe mock response.
 
 `mock_internal_token` remains available for local/simple mode.
+
+## Redis / Upstash State Store
+
+The project includes a generic `StateStore` abstraction with:
+
+- `InMemoryStateStore` for local development
+- `UpstashStateStore` for Redis-backed cloud/demo deployments
+
+`StateStore` is used for temporary security/runtime state such as:
+
+- `private_key_jwt` `client_assertion` replay protection
+- storing used `jti` values with TTL
+- future session-scoped demo Agent Cards
+- future rate limit buckets, session state, or token cache if needed
+
+In-memory state is fine for local development, but it is lost on restart and does not work across multiple cloud instances. Upstash Redis provides shared TTL-based state for Railway/Vercel-style deployments.
+
+Redis keys should store only safe metadata. Never store raw JWTs, access tokens, client assertions, private keys, client secrets, or Authorization headers.
+
+```env
+STATE_STORE_DRIVER=memory
+STATE_STORE_KEY_PREFIX=a2a
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+```
 
 ## Mock Identity Provider
 
@@ -266,6 +303,15 @@ The script validates session creation, demo Agent Card generation, health inclus
 - missing Authorization header fails
 - invalid bearer fails
 - private key JWT replay is blocked when that method is selected
+
+## Recommended Demo Path
+
+1. Open Agent Health.
+2. Create an external demo agent for Salesforce access diagnosis.
+3. Show the generated A2A metadata and `/.well-known/agent-card.json` preview.
+4. Ask: `I cannot login to my Salesforce account`.
+5. Show the selected demo agent, `tokenIssued=true`, `tokenAuthMethod=private_key_jwt`, and trace.
+6. Run the built-in Jira, GitHub, and PagerDuty scenarios.
 
 ## Try It
 
@@ -385,6 +431,8 @@ High-level Vercel/Railway shape:
 - Put `ORCHESTRATOR_PUBLIC_JWK_JSON` only on the Mock IdP.
 - Use `STATE_STORE_DRIVER=upstash`.
 - Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+- Prefer Railway private/internal service URLs between backend services when available.
+- If the Mock IdP is public, keep `/oauth/token` protected by `private_key_jwt`, replay protection, and optional IP allowlist.
 
 Do not put server secrets in the frontend.
 
@@ -395,6 +443,7 @@ Do not put server secrets in the frontend.
 - Public demo users cannot provide arbitrary external endpoints.
 - No raw JWTs, access tokens, client assertions, Authorization headers, private keys, client secrets, API keys, or cookies should be logged or shown.
 - Sensitive, write, admin, grant, delete, rotate, disable, token, secret, or credential scopes should require approval or be blocked.
+- The demo may recommend or prepare operational actions, but write/high-risk actions should be `NeedsApproval` or `Blocked` unless an explicit approval workflow is implemented.
 - This is a secure architecture demo, not a production identity provider or production authorization system.
 
 ## Architecture Narrative
