@@ -96,6 +96,13 @@ h2 {
   cursor: pointer;
 }
 
+.secondary-button.active-panel-button {
+  color: #ffffff;
+  background: #235789;
+  border-color: #235789;
+  box-shadow: 0 0 0 3px rgba(35, 87, 137, 0.12);
+}
+
 .health-summary {
   display: grid;
   gap: 1px;
@@ -107,6 +114,18 @@ h2 {
   white-space: nowrap;
   cursor: pointer;
   text-align: center;
+}
+
+.health-summary.active-panel-button {
+  color: #ffffff;
+  background: #1d6d3d;
+  border-color: #1d6d3d;
+  box-shadow: 0 0 0 3px rgba(29, 109, 61, 0.12);
+}
+
+.health-summary.active-panel-button small {
+  color: #172026;
+  opacity: 0.9;
 }
 
 .health-summary small {
@@ -137,6 +156,7 @@ h2 {
   display: grid;
   gap: 10px;
   border: 1px solid #d7e0e4;
+  border-left: 4px solid #1d6d3d;
   border-radius: 8px;
   padding: 12px;
   background: #ffffff;
@@ -146,12 +166,22 @@ h2 {
   display: grid;
   gap: 12px;
   border: 2px solid #235789;
+  border-left-width: 6px;
   border-radius: 8px;
   padding: 12px;
   background: #ffffff;
   overflow: auto;
   max-height: min(72vh, 760px);
   box-shadow: 0 18px 40px rgba(25, 44, 54, 0.18);
+}
+
+.active-panel-eyebrow {
+  margin-bottom: 4px;
+  color: #235789;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
 .demo-agent-form {
@@ -295,6 +325,16 @@ h2 {
   cursor: pointer;
 }
 
+.demo-agent-success {
+  margin-bottom: 0;
+  border-left: 3px solid #1d6d3d;
+  padding: 8px 10px;
+  color: #1d6d3d;
+  background: #eef8f0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .demo-agent-warnings {
   margin: 0;
   border-left: 3px solid #8a5a00;
@@ -314,13 +354,19 @@ h2 {
 
 .demo-agent-list article {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
   border: 1px solid #d7e0e4;
   border-radius: 8px;
   padding: 8px;
   background: #fbfcfd;
+}
+
+.demo-agent-list article.recently-added-demo-agent {
+  border-color: #1d6d3d;
+  background: #f2fbf4;
+  box-shadow: 0 0 0 3px rgba(29, 109, 61, 0.08);
 }
 
 .demo-agent-list strong,

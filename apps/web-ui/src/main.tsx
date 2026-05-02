@@ -263,7 +263,9 @@ function App() {
   const [demoAgentCards, setDemoAgentCards] = useState<DemoAgentCard[]>([]);
   const [demoAgentWarnings, setDemoAgentWarnings] = useState<string[]>([]);
   const [demoAgentError, setDemoAgentError] = useState("");
-  const [demoAgentSavedDuringOpen, setDemoAgentSavedDuringOpen] = useState(false);
+  const [demoAgentSuccessMessage, setDemoAgentSuccessMessage] = useState("");
+  const [recentlyAddedDemoAgentId, setRecentlyAddedDemoAgentId] = useState("");
+  const demoAgentListRef = useRef<HTMLDivElement | null>(null);
   const [activeScenarioCategory, setActiveScenarioCategory] = useState(scenarios[0].category);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
@@ -276,6 +278,18 @@ function App() {
 
   function canDeleteHealthAgent(agent: AgentsHealthResponse["agents"][number]): boolean {
     return agent.url.startsWith("session://demo-agent/");
+  }
+
+  function resetDemoAgentDraft() {
+    setDemoAgentInput(emptyDemoAgentInput);
+    setDemoAgentPreview(null);
+    setDemoAgentWarnings([]);
+    setDemoAgentError("");
+  }
+
+  function clearDemoAgentStatus() {
+    setDemoAgentSuccessMessage("");
+    setRecentlyAddedDemoAgentId("");
   }
 
   async function checkAgentHealth() {
@@ -359,6 +373,7 @@ function App() {
   }
 
   function toggleSupportingHelpOption(option: string) {
+    clearDemoAgentStatus();
     setDemoAgentInput((current) => {
       const enabled = current.supportingHelpOptions.includes(option);
       return {
@@ -372,10 +387,7 @@ function App() {
 
   function closeDemoBuilder() {
     setIsDemoBuilderOpen(false);
-    if (demoAgentSavedDuringOpen && messages.length > 0) {
-      startNewConversation();
-    }
-    setDemoAgentSavedDuringOpen(false);
+    clearDemoAgentStatus();
   }
 
   async function loadDemoAgentCards() {
@@ -398,6 +410,7 @@ function App() {
 
   async function generateDemoAgentPreview() {
     setDemoAgentError("");
+    clearDemoAgentStatus();
     try {
       await ensureSession();
       const response = await fetch(`${API_URL}/demo-agent-cards/generate`, {
@@ -419,6 +432,8 @@ function App() {
 
   async function addDemoAgentToSession() {
     setDemoAgentError("");
+    setDemoAgentSuccessMessage("");
+    setRecentlyAddedDemoAgentId("");
     try {
       await ensureSession();
       const response = await fetch(`${API_URL}/demo-agent-cards`, {
@@ -431,15 +446,19 @@ function App() {
         throw new Error(`Add returned ${response.status} with body ${await response.text()}`);
       }
       const body = await response.json() as { agentCard: DemoAgentCard; agentCards: DemoAgentCard[]; warnings: string[] };
-      setDemoAgentPreview(body.agentCard);
       setDemoAgentCards(body.agentCards);
       setDemoAgentWarnings(body.warnings);
-      setDemoAgentSavedDuringOpen(true);
-      setIsDemoBuilderOpen(false);
+      setDemoAgentSuccessMessage("External demo agent added to this session.");
+      setRecentlyAddedDemoAgentId(body.agentCard.agentId);
+      setDemoAgentInput(emptyDemoAgentInput);
+      setDemoAgentPreview(null);
       if (messages.length > 0) {
         startNewConversation();
       }
       await checkAgentHealth();
+      window.setTimeout(() => {
+        demoAgentListRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 0);
     } catch (caughtError) {
       setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to add demo Agent Card");
     }
@@ -447,6 +466,7 @@ function App() {
 
   async function deleteSessionDemoAgent(agentId: string) {
     setDemoAgentError("");
+    clearDemoAgentStatus();
     try {
       await ensureSession();
       const response = await fetch(`${API_URL}/demo-agent-cards/${encodeURIComponent(agentId)}`, {
@@ -575,7 +595,7 @@ function App() {
             <div className="status">Local mock mode</div>
             <button
               type="button"
-              className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"}`}
+              className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"} ${isHealthPanelOpen ? "active-panel-button" : ""}`}
               onClick={() => {
                 setIsDemoBuilderOpen(false);
                 setIsHealthPanelOpen((current) => !current);
@@ -590,17 +610,16 @@ function App() {
             </button>
             <button
               type="button"
-              className="secondary-button"
+              className={`secondary-button ${isDemoBuilderOpen ? "active-panel-button" : ""}`}
               onClick={() => {
                 setIsHealthPanelOpen(false);
-                setDemoAgentSavedDuringOpen(false);
                 setIsDemoBuilderOpen((current) => !current);
                 if (!isDemoBuilderOpen) {
                   void loadDemoAgentCards();
                 }
               }}
             >
-              Create external demo agent
+              {isDemoBuilderOpen ? "Creating external demo agent" : "Create external demo agent"}
             </button>
           </div>
         </header>
@@ -609,6 +628,7 @@ function App() {
           <section className="agent-health-panel" aria-label="Agent health">
             <div className="agent-health-header">
               <div>
+                <p className="active-panel-eyebrow">Active panel&nbsp;&nbsp; Agent Health</p>
                 <h2>Agent Health</h2>
                 <p className="orchestrator-health-line">
                   Orchestrator:
@@ -668,32 +688,46 @@ function App() {
           <section className="demo-agent-builder" aria-label="Create External Demo Agent">
             <div className="agent-health-header">
               <div>
+                <p className="active-panel-eyebrow">Active panel&nbsp;&nbsp; External Demo Agent Builder</p>
                 <h2>Create External Demo Agent</h2>
                 <p>Simulate a vendor/domain-owned external agent. Fill in simple fields, and the demo generates the Agent Card JSON that a real external system would publish at /.well-known/agent-card.json.</p>
               </div>
               <button type="button" onClick={closeDemoBuilder}>Close</button>
             </div>
             {demoAgentError ? <p className="error">{demoAgentError}</p> : null}
+            {demoAgentSuccessMessage ? <p className="demo-agent-success">{demoAgentSuccessMessage}</p> : null}
             <h2>Describe the external agent</h2>
             <div className="demo-agent-form">
               <label>
                 <span>System / product</span>
-                <input value={demoAgentInput.system} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, system: event.target.value })} placeholder="Salesforce" />
+                <input value={demoAgentInput.system} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, system: event.target.value });
+                }} placeholder="Salesforce" />
                 <small>The product or domain this external agent owns, for example Salesforce, Slack, Datadog, Okta.</small>
               </label>
               <label>
                 <span>Agent name</span>
-                <input value={demoAgentInput.agentName} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, agentName: event.target.value })} placeholder="Salesforce Access Agent" />
+                <input value={demoAgentInput.agentName} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, agentName: event.target.value });
+                }} placeholder="Salesforce Access Agent" />
                 <small>Friendly name shown in the demo.</small>
               </label>
               <label className="wide-field">
                 <span>What can this agent diagnose?</span>
-                <input value={demoAgentInput.diagnosisGoal} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, diagnosisGoal: event.target.value })} placeholder="Diagnose Salesforce access issues" />
+                <input value={demoAgentInput.diagnosisGoal} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, diagnosisGoal: event.target.value });
+                }} placeholder="Diagnose Salesforce access issues" />
                 <small>The demo uses this to generate safe routing metadata such as capability and requested action.</small>
               </label>
               <label>
                 <span>Risk level</span>
-                <select value={demoAgentInput.riskLevel} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, riskLevel: event.target.value as DemoAgentCardInput["riskLevel"] })}>
+                <select value={demoAgentInput.riskLevel} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, riskLevel: event.target.value as DemoAgentCardInput["riskLevel"] });
+                }}>
                   <option value="low">low</option>
                   <option value="medium">medium</option>
                   <option value="high">high</option>
@@ -703,16 +737,25 @@ function App() {
               </label>
               <label>
                 <span>Resource types</span>
-                <input value={demoAgentInput.resourceTypes} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, resourceTypes: event.target.value })} />
+                <input value={demoAgentInput.resourceTypes} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, resourceTypes: event.target.value });
+                }} />
                 <small>Objects this agent understands, for example user, account, incident, repository, service.</small>
               </label>
               <label>
                 <span>Description</span>
-                <input value={demoAgentInput.description} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, description: event.target.value })} placeholder="Demo agent that diagnoses Salesforce issues." />
+                <input value={demoAgentInput.description} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, description: event.target.value });
+                }} placeholder="Demo agent that diagnoses Salesforce issues." />
               </label>
               <label>
                 <span>Examples</span>
-                <input value={demoAgentInput.examples} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, examples: event.target.value })} placeholder="Salesforce login fails, cannot access account" />
+                <input value={demoAgentInput.examples} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, examples: event.target.value });
+                }} placeholder="Salesforce login fails, cannot access account" />
               </label>
               <div className="wide-field demo-agent-checkboxes">
                 <span>Can this agent ask another agent for help?</span>
@@ -732,7 +775,10 @@ function App() {
                     <input
                       type="checkbox"
                       checked={demoAgentInput.supportingHelpOptions.length === 0}
-                      onChange={() => setDemoAgentInput({ ...demoAgentInput, supportingHelpOptions: [] })}
+                      onChange={() => {
+                        clearDemoAgentStatus();
+                        setDemoAgentInput({ ...demoAgentInput, supportingHelpOptions: [] });
+                      }}
                     />
                     <span>None</span>
                   </label>
@@ -743,17 +789,26 @@ function App() {
                 <div className="demo-agent-form nested-demo-agent-form">
                   <label>
                     <span>Agent slug</span>
-                    <input value={demoAgentInput.agentSlug} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, agentSlug: event.target.value })} placeholder="salesforce-access" />
+                    <input value={demoAgentInput.agentSlug} onChange={(event) => {
+                      clearDemoAgentStatus();
+                      setDemoAgentInput({ ...demoAgentInput, agentSlug: event.target.value });
+                    }} placeholder="salesforce-access" />
                     <small>Optional. Generates IDs like demo-salesforce-access-agent. Leave blank for a unique generated ID.</small>
                   </label>
                   <label>
                     <span>Capability override</span>
-                    <input value={demoAgentInput.capability} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, capability: event.target.value })} placeholder="salesforce.access.diagnose" />
+                    <input value={demoAgentInput.capability} onChange={(event) => {
+                      clearDemoAgentStatus();
+                      setDemoAgentInput({ ...demoAgentInput, capability: event.target.value });
+                    }} placeholder="salesforce.access.diagnose" />
                     <small>Stable routing key generated by default from the diagnosis goal.</small>
                   </label>
                   <label>
                     <span>Required scope override</span>
-                    <input value={demoAgentInput.requiredScope} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, requiredScope: event.target.value })} placeholder="salesforce.diagnose" />
+                    <input value={demoAgentInput.requiredScope} onChange={(event) => {
+                      clearDemoAgentStatus();
+                      setDemoAgentInput({ ...demoAgentInput, requiredScope: event.target.value });
+                    }} placeholder="salesforce.diagnose" />
                     <small>Permission encoded into the A2A JWT. Generated by default from the system.</small>
                   </label>
                 </div>
@@ -763,9 +818,8 @@ function App() {
               <button type="button" onClick={() => void generateDemoAgentPreview()}>Generate preview</button>
               <button type="button" onClick={() => void addDemoAgentToSession()}>Add to session</button>
               <button type="button" onClick={() => {
-                setDemoAgentInput({ ...demoAgentInput, agentSlug: "" });
-                setDemoAgentPreview(null);
-                setDemoAgentWarnings([]);
+                clearDemoAgentStatus();
+                resetDemoAgentDraft();
               }}>New draft</button>
             </div>
             {demoAgentPreview ? (
@@ -791,12 +845,18 @@ function App() {
                 {demoAgentWarnings.map((warning) => <li key={warning}>{warning}</li>)}
               </ul>
             ) : null}
-            <div className="demo-agent-list">
+            <div className="demo-agent-list" ref={demoAgentListRef}>
               <h2>Session demo agents</h2>
               {demoAgentCards.length ? demoAgentCards.map((card) => (
-                <article key={card.agentId}>
+                <article className={recentlyAddedDemoAgentId === card.agentId ? "recently-added-demo-agent" : ""} key={card.agentId}>
                   <strong>{card.agentId}</strong>
                   <span>{card.skills[0]?.capabilities?.[0] ?? "no capability"}</span>
+                  <button type="button" onClick={() => {
+                    setDemoAgentPreview(card);
+                    setDemoAgentWarnings([]);
+                    setDemoAgentError("");
+                    setDemoAgentSuccessMessage("");
+                  }}>View JSON</button>
                   <button type="button" onClick={() => void deleteSessionDemoAgent(card.agentId)}>Delete</button>
                 </article>
               )) : <p className="muted-note">No session demo Agent Cards yet.</p>}
