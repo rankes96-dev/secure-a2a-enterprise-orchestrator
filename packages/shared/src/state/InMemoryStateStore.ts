@@ -26,6 +26,11 @@ export class InMemoryStateStore implements StateStore {
 
   async set<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {
     this.removeExpired();
+    if (ttlSeconds !== undefined && Math.floor(ttlSeconds) <= 0) {
+      this.entries.delete(key);
+      return;
+    }
+
     this.entries.set(key, {
       value,
       expiresAtMs: this.expiresAtMs(ttlSeconds)
@@ -38,6 +43,10 @@ export class InMemoryStateStore implements StateStore {
 
   async setIfNotExists<T>(key: string, value: T, ttlSeconds?: number): Promise<boolean> {
     this.removeExpired();
+    if (ttlSeconds !== undefined && Math.floor(ttlSeconds) <= 0) {
+      this.entries.delete(key);
+      return true;
+    }
 
     const existing = this.entries.get(key);
     if (existing && !this.isExpired(existing)) {

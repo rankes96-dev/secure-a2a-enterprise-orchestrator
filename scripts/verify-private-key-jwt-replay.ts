@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
+import dotenv from "dotenv";
 import { exportJWK, generateKeyPair, SignJWT, type JWK, type KeyLike } from "jose";
-import { InMemoryStateStore } from "@a2a/shared";
+import { createStateStoreFromEnv, InMemoryStateStore } from "@a2a/shared";
 import { ClientAssertionReplayStore } from "../services/mock-identity-provider/src/security/clientAssertionReplayStore";
 import { authenticateOAuthClient } from "../services/mock-identity-provider/src/security/clientAuthentication";
 import type { OAuthApplicationRegistration } from "../services/mock-identity-provider/src/config/oauthApplications";
 
 const jwtBearerAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+
+dotenv.config({ path: new URL("../services/mock-identity-provider/.env", import.meta.url), quiet: true });
+dotenv.config({ path: new URL("../services/orchestrator-api/.env", import.meta.url), quiet: true });
 
 function assertCondition(condition: boolean, message: string): void {
   if (!condition) {
@@ -66,6 +70,35 @@ async function verifyReplayStoreCases(): Promise<void> {
   }
 
   console.log("replay store cases: ok");
+}
+
+async function verifyOptionalUpstashStateStoreCases(): Promise<void> {
+  if (
+    process.env.STATE_STORE_DRIVER !== "upstash" ||
+    !process.env.UPSTASH_REDIS_REST_URL ||
+    !process.env.UPSTASH_REDIS_REST_TOKEN
+  ) {
+    console.log("upstash state store cases: skipped");
+    return;
+  }
+
+  const store = createStateStoreFromEnv();
+  const testId = randomUUID();
+  const plainKey = `verify:state:${testId}:plain`;
+  const nxKey = `verify:state:${testId}:nx`;
+
+  await store.set(plainKey, { value: "stored" }, 60);
+  const stored = await store.get<{ value: string }>(plainKey);
+  assertCondition(stored?.value === "stored", "Upstash get should return a stored value");
+
+  assertCondition(await store.setIfNotExists?.(nxKey, { value: 1 }, 60) === true, "Upstash setIfNotExists should store a missing key");
+  assertCondition(await store.setIfNotExists?.(nxKey, { value: 2 }, 60) === false, "Upstash setIfNotExists should reject an existing key");
+
+  await store.del(plainKey);
+  await store.del(nxKey);
+  assertCondition(await store.get(plainKey) === null, "Upstash del should remove a stored value");
+
+  console.log("upstash state store cases: ok");
 }
 
 async function createClientAssertion(params: {
@@ -147,6 +180,7 @@ async function verifyAuthenticationReplayCase(): Promise<void> {
 async function main(): Promise<void> {
   await verifyInMemoryStateStoreCases();
   await verifyReplayStoreCases();
+  await verifyOptionalUpstashStateStoreCases();
   await verifyAuthenticationReplayCase();
 }
 

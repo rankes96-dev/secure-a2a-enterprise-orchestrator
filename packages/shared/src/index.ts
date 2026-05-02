@@ -366,3 +366,5 @@ export * from "./auth/verifyA2AToken";
 export * from "./auth/requireA2AAuth";
 export * from "./state/StateStore";
 export * from "./state/InMemoryStateStore";
+export * from "./state/UpstashStateStore";
+export * from "./state/createStateStore";

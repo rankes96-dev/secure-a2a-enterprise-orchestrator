@@ -1,4 +1,4 @@
-import { InMemoryStateStore, type StateStore } from "@a2a/shared";
+import { createStateStoreFromEnv, type StateStore } from "@a2a/shared";
 
 export type ReplayCheckResult =
   | { ok: true }
@@ -47,4 +47,15 @@ export class ClientAssertionReplayStore {
   }
 }
 
-export const clientAssertionReplayStore = new ClientAssertionReplayStore(new InMemoryStateStore());
+let defaultReplayStore: ClientAssertionReplayStore | undefined;
+
+export const clientAssertionReplayStore = {
+  async checkAndStore(params: {
+    clientId: string;
+    jti: string;
+    expiresAtEpochSeconds: number;
+  }): Promise<ReplayCheckResult> {
+    defaultReplayStore ??= new ClientAssertionReplayStore(createStateStoreFromEnv());
+    return defaultReplayStore.checkAndStore(params);
+  }
+};

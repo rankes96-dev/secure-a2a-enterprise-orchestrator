@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import type { OAuthClientAuthMethod } from "@a2a/shared";
 
 dotenv.config({ path: new URL("../../.env", import.meta.url) });
+dotenv.config({ path: new URL("../../../orchestrator-api/.env", import.meta.url), quiet: true });
 
 export type { OAuthClientAuthMethod };
 
