@@ -20,15 +20,17 @@ import type {
   SelectedAgent
 } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
-import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCardSkill } from "./agentCards";
+import { combineAgentCards, discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards";
 import { routeWithAI } from "./aiRouter";
 import { getAiConfig } from "./config/aiConfig";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
+import { getA2AAccessToken } from "./security/tokenClient";
 import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext";
 import { interpretFollowUp } from "./followUpInterpreter";
-import { createSessionCookie, hasValidSession } from "./security/sessionManager";
+import { createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
+import { addDemoAgentCard, buildDemoAgentCard, deleteDemoAgentCard, listDemoAgentCards, validateDemoAgentCard, type DemoAgentCardInput } from "./demoAgentCards";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -38,6 +40,7 @@ const rateLimitMaxRequests = Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 30);
 const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 const orchestratorAgentId = "servicenow-orchestrator-agent";
 const MAX_DELEGATION_DEPTH = 1;
+const a2aAuthMode = process.env.A2A_AUTH_MODE === "oauth2_client_credentials_jwt" ? "oauth2_client_credentials_jwt" : "mock_internal_token";
 
 type ConversationState = {
   conversationId: string;
@@ -277,6 +280,15 @@ function buildFinalAnswer(params: {
     return questions ? `${needsMoreInfo.summary} ${questions}` : needsMoreInfo.summary;
   }
 
+  const secureJwtBlocked = params.agentResponses.find((response) =>
+    (response.status === "blocked" || response.status === "error") &&
+    response.trace?.some((entry) => entry.action === "SESSION_DEMO_EXECUTION_BLOCKED")
+  );
+
+  if (secureJwtBlocked) {
+    return "Secure A2A execution was blocked because scoped JWT issuance failed.";
+  }
+
   const diagnosed = params.agentResponses.filter((response) => response.status === "diagnosed");
   const blockedDecision = params.securityDecisions?.find((decision) => decision.decision === "Blocked");
 
@@ -315,8 +327,8 @@ function primarySecurityDecision(decisions: SecurityDecision[]): SecurityDecisio
   );
 }
 
-function getSkillMetadata(agentId: AgentName, skillId?: string): AgentCardSkill | undefined {
-  return getAgentCard(agentId)?.skills.find((skill) => skill.id === skillId);
+function getSkillMetadata(agentId: AgentName, skillId?: string, cards?: AgentCard[]): AgentCardSkill | undefined {
+  return getAgentCard(agentId, cards)?.skills.find((skill) => skill.id === skillId);
 }
 
 function requestedActionForSkill(skill?: AgentCardSkill): string | undefined {
@@ -349,8 +361,10 @@ function createA2ATask(params: {
   parentTaskId?: string;
   requestedByAgent?: string;
   delegationContext?: Record<string, unknown>;
+  authMode?: A2ATask["context"]["authMode"];
+  cards?: AgentCard[];
 }): A2ATask {
-  const card = getAgentCard(params.toAgent);
+  const card = getAgentCard(params.toAgent, params.cards);
 
   return {
     taskId: createTaskId(),
@@ -374,11 +388,122 @@ function createA2ATask(params: {
       targetAgentId: params.toAgent,
       targetAudience: card?.auth.audience,
       requestedScope: params.requestedScope,
-      authMode: "mock_internal_token",
+      authMode: params.authMode ?? "mock_internal_token",
+      auth: {
+        authMode: params.authMode ?? "mock_internal_token",
+        audience: card?.auth.audience,
+        scope: params.requestedScope,
+        tokenIssued: false
+      },
       delegationContext: params.delegationContext
       // TODO: replace mock_internal_token with OAuth 2.0 Client Credentials, JWT access tokens,
       // audience/issuer/scope/JWKS validation, and optional mTLS or DPoP.
     }
+  };
+}
+
+function shouldUseJwtForAgent(agentId: string, cards?: AgentCard[]): boolean {
+  return a2aAuthMode === "oauth2_client_credentials_jwt" && Boolean(getAgentCard(agentId, cards));
+}
+
+async function prepareA2ARequestAuth(params: {
+  task: A2ATask;
+  targetAudience?: string;
+  requestedScope?: string;
+  delegatedBy?: string;
+  delegationDepth?: number;
+  parentTaskId?: string;
+  requestedByAgent?: string;
+  executionSteps: ExecutionTraceStep[];
+  traceEntries: AgentTraceEntry[];
+  cards?: AgentCard[];
+}): Promise<Record<string, string>> {
+  if (!shouldUseJwtForAgent(params.task.toAgent, params.cards)) {
+    return {
+      "x-internal-service-token": process.env.INTERNAL_SERVICE_TOKEN ?? ""
+    };
+  }
+
+  if (!params.targetAudience || !params.requestedScope) {
+    const missingAudience = !params.targetAudience;
+    const action = missingAudience ? "missing_a2a_audience_metadata" : "missing_a2a_scope_metadata";
+    const detail = missingAudience
+      ? "Cannot issue A2A JWT because target agent is missing audience metadata."
+      : "Cannot issue A2A JWT because selected skill is missing required scope metadata.";
+    params.executionSteps.push({
+      ...executionStep("orchestrator", action, detail),
+      taskId: params.task.taskId,
+      conversationId: params.task.conversationId,
+      fromAgent: params.task.fromAgent,
+      toAgent: params.task.toAgent,
+      skillId: params.task.skillId
+    });
+    params.traceEntries.push(trace(action, detail));
+    throw new Error(detail);
+  }
+
+  const isDelegatedToken = Boolean(params.delegatedBy) || (params.delegationDepth ?? 0) > 0;
+  const requestAction = isDelegatedToken ? "request_delegated_a2a_access_token" : "request_a2a_access_token";
+  const attachAction = isDelegatedToken ? "attach_delegated_a2a_bearer_token" : "attach_a2a_bearer_token";
+  const requestDetail = isDelegatedToken
+    ? `Requested delegated scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope} delegated by ${params.delegatedBy ?? "unknown"} at depth ${params.delegationDepth ?? 0}`
+    : `Requested scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope}`;
+  const attachDetail = isDelegatedToken
+    ? "Attached delegated Bearer token metadata to A2A request; raw token not logged"
+    : "Attached Bearer token metadata to A2A request; raw token not logged";
+
+  params.executionSteps.push({
+    ...executionStep("orchestrator", requestAction, requestDetail),
+    taskId: params.task.taskId,
+    conversationId: params.task.conversationId,
+    fromAgent: params.task.fromAgent,
+    toAgent: params.task.toAgent,
+    skillId: params.task.skillId,
+    delegationDepth: params.task.delegationDepth
+  });
+  params.traceEntries.push({
+    ...trace(requestAction, requestDetail),
+    fromAgent: params.task.fromAgent,
+    toAgent: params.task.toAgent,
+    mediatedBy: params.task.mediatedBy,
+    skillId: params.task.skillId,
+    delegationDepth: params.task.delegationDepth
+  });
+
+  const issued = await getA2AAccessToken({
+    audience: params.targetAudience,
+    scope: params.requestedScope,
+    delegatedBy: params.delegatedBy,
+    delegationDepth: params.delegationDepth,
+    parentTaskId: params.parentTaskId,
+    requestedByAgent: params.requestedByAgent
+  });
+  params.task.context.authMode = "oauth2_client_credentials_jwt";
+  params.task.context.auth = {
+    ...issued.metadata,
+    authMode: "oauth2_client_credentials_jwt"
+  };
+
+  params.executionSteps.push({
+    ...executionStep("orchestrator", attachAction, attachDetail),
+    taskId: params.task.taskId,
+    conversationId: params.task.conversationId,
+    fromAgent: params.task.fromAgent,
+    toAgent: params.task.toAgent,
+    skillId: params.task.skillId,
+    delegationDepth: params.task.delegationDepth
+  });
+  params.traceEntries.push({
+    ...trace(attachAction, attachDetail),
+    fromAgent: params.task.fromAgent,
+    toAgent: params.task.toAgent,
+    mediatedBy: params.task.mediatedBy,
+    skillId: params.task.skillId,
+    delegationDepth: params.task.delegationDepth
+  });
+
+  return {
+    authorization: `Bearer ${issued.accessToken}`
   };
 }
 
@@ -402,6 +527,67 @@ function endpointForPath(endpoint: string, pathname: "/health" | "/agent-card"):
   url.search = "";
   url.hash = "";
   return url.toString();
+}
+
+function mockIdentityProviderHealthUrl(): string {
+  const url = new URL(process.env.A2A_IDP_URL ?? "http://localhost:4110");
+  url.pathname = "/health";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function mockIdentityProviderDemoRegistrationUrl(): string {
+  const url = new URL(process.env.A2A_IDP_URL ?? "http://localhost:4110");
+  url.pathname = "/internal/demo-agent-registrations";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function demoAgentAllowedScopes(card: AgentCard): string[] {
+  return [...new Set(card.skills.flatMap((skill) => skill.requiredScopes ?? (skill.requiredPermission ? [skill.requiredPermission] : [])).filter(Boolean))];
+}
+
+async function registerDemoAgentWithMockIdp(card: AgentCard): Promise<string | undefined> {
+  if (!isDemoAgentCard(card)) {
+    return undefined;
+  }
+
+  const internalToken = process.env.INTERNAL_SERVICE_TOKEN;
+  if (!internalToken) {
+    return "Mock IdP demo registration skipped because INTERNAL_SERVICE_TOKEN is not configured.";
+  }
+
+  const allowedScopes = demoAgentAllowedScopes(card);
+  if (!card.auth.audience || allowedScopes.length === 0) {
+    return "Mock IdP demo registration skipped because generated audience or scope metadata is missing.";
+  }
+
+  try {
+    const response = await fetch(mockIdentityProviderDemoRegistrationUrl(), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-internal-service-token": internalToken
+      },
+      body: JSON.stringify({
+        agentId: card.agentId,
+        audience: card.auth.audience,
+        allowedScopes,
+        ttlSeconds: 3600
+      })
+    });
+
+    if (!response.ok) {
+      return `Mock IdP demo registration failed with ${response.status}.`;
+    }
+
+    return undefined;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "unknown error";
+    return `Mock IdP demo registration failed: ${detail}`;
+  }
 }
 
 async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>[number]): Promise<AgentHealthCheck> {
@@ -464,8 +650,260 @@ async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>
   }
 }
 
-async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
-  const agents = await Promise.all(getExecutableAgentCards().map((card) => checkAgentHealth(card)));
+async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
+  const checkedAt = new Date().toISOString();
+  const healthUrl = mockIdentityProviderHealthUrl();
+  const startTime = performance.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
+
+  try {
+    const response = await fetch(healthUrl, { signal: controller.signal });
+    const body = await response.text();
+    const latencyMs = Math.max(0, Math.round(performance.now() - startTime));
+
+    if (!response.ok) {
+      return {
+        agentId: "mock-identity-provider",
+        url: healthUrl,
+        status: "down",
+        latencyMs,
+        checkedAt,
+        details: {
+          healthEndpoint: "/health",
+          agentCardAvailable: false
+        },
+        error: `Health endpoint returned ${response.status}${body ? ` with body ${body}` : ""}`
+      };
+    }
+
+    const parsed = body ? JSON.parse(body) as { status?: unknown } : {};
+    const status = parsed.status === "ok" ? "ok" : "degraded";
+
+    return {
+      agentId: "mock-identity-provider",
+      url: healthUrl,
+      status,
+      latencyMs,
+      checkedAt,
+      details: {
+        healthEndpoint: "/health",
+        agentCardAvailable: false
+      },
+      error: status === "degraded" ? `Unexpected health payload: ${body}` : undefined
+    };
+  } catch (error) {
+    return {
+      agentId: "mock-identity-provider",
+      url: healthUrl,
+      status: "down",
+      latencyMs: Math.max(0, Math.round(performance.now() - startTime)),
+      checkedAt,
+      details: {
+        healthEndpoint: "/health",
+        agentCardAvailable: false
+      },
+      error: error instanceof Error ? error.message : "Unknown health check failure"
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isDemoAgentCard(card: AgentCard | undefined): boolean {
+  return Boolean(card?.endpoint.startsWith("session://demo-agent/"));
+}
+
+function createDemoAgentResponse(card: AgentCard, skill?: AgentCardSkill): A2AAgentResponse {
+  return {
+    agentId: card.agentId,
+    status: "diagnosed",
+    summary: "Demo agent selected from session Agent Card.",
+    probableCause: "This demo agent advertised the requested capability through its Agent Card.",
+    recommendedActions: [
+      "Replace this demo response with a vendor-owned agent endpoint in production."
+    ],
+    evidence: [
+      {
+        title: "Session Agent Card capability match",
+        data: {
+          agentId: card.agentId,
+          capability: skill?.capabilities?.[0],
+          requiredScopes: skill?.requiredScopes ?? [],
+          riskLevel: skill?.riskLevel ?? "low",
+          supportingCapabilities: skill?.supportingCapabilities ?? []
+        }
+      }
+    ],
+    trace: [
+      {
+        agent: card.agentId,
+        action: "demo_agent_card_selected",
+        detail: "Returned safe mock response for a session-scoped demo Agent Card.",
+        timestamp: new Date().toISOString()
+      }
+    ]
+  };
+}
+
+function createDemoAgentJwtBlockedResponse(params: {
+  card: AgentCard;
+  requestedScope?: string;
+  validationReason?: string;
+}): A2AAgentResponse {
+  return {
+    agentId: params.card.agentId,
+    status: "blocked",
+    summary: "Session demo agent was selected, but secure JWT issuance failed.",
+    probableCause: "The Mock IdP did not allow the generated audience/scope or the demo agent was not registered.",
+    recommendedActions: [
+      "Verify the demo Agent Card was registered with the Mock IdP.",
+      "Verify INTERNAL_SERVICE_TOKEN matches between orchestrator and Mock IdP.",
+      "Retry after refreshing the session demo agent."
+    ],
+    evidence: [
+      {
+        title: "Session demo agent JWT issuance failed",
+        data: {
+          agentId: params.card.agentId,
+          audience: params.card.auth.audience,
+          requestedScope: params.requestedScope,
+          tokenIssued: false,
+          validationReason: params.validationReason
+        }
+      }
+    ],
+    trace: [
+      {
+        agent: "orchestrator",
+        action: "SESSION_DEMO_EXECUTION_BLOCKED",
+        detail: "Blocked session demo agent mock execution because scoped JWT issuance failed.",
+        timestamp: new Date().toISOString()
+      }
+    ]
+  };
+}
+
+function demoInputFromRequestBody(value: unknown): DemoAgentCardInput {
+  const record = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  const firstSkill = Array.isArray(record.skills) && typeof record.skills[0] === "object" && record.skills[0] !== null
+    ? record.skills[0] as Record<string, unknown>
+    : undefined;
+
+  return {
+    system: typeof record.system === "string"
+      ? record.system
+      : Array.isArray(record.systems) && typeof record.systems[0] === "string"
+        ? record.systems[0]
+        : "",
+    agentSlug: typeof record.agentSlug === "string" ? record.agentSlug : undefined,
+    agentId: typeof record.agentId === "string" ? record.agentId : undefined,
+    agentName: typeof record.agentName === "string" ? record.agentName : typeof record.name === "string" ? record.name : undefined,
+    description: typeof record.description === "string" ? record.description : undefined,
+    diagnosisGoal: typeof record.diagnosisGoal === "string"
+      ? record.diagnosisGoal
+      : typeof record.purposeText === "string"
+        ? record.purposeText
+        : typeof firstSkill?.name === "string"
+          ? firstSkill.name
+          : undefined,
+    purposeText: typeof record.purposeText === "string" ? record.purposeText : undefined,
+    capability: typeof record.capability === "string"
+      ? record.capability
+      : Array.isArray(firstSkill?.capabilities) && typeof firstSkill.capabilities[0] === "string"
+        ? firstSkill.capabilities[0]
+        : undefined,
+    requiredScope: typeof record.requiredScope === "string"
+      ? record.requiredScope
+      : Array.isArray(firstSkill?.requiredScopes) && typeof firstSkill.requiredScopes[0] === "string"
+        ? firstSkill.requiredScopes[0]
+        : undefined,
+    riskLevel: record.riskLevel === "low" || record.riskLevel === "medium" || record.riskLevel === "high" || record.riskLevel === "sensitive"
+      ? record.riskLevel
+      : firstSkill?.riskLevel === "low" || firstSkill?.riskLevel === "medium" || firstSkill?.riskLevel === "high" || firstSkill?.riskLevel === "sensitive"
+        ? firstSkill.riskLevel
+        : undefined,
+    resourceTypes: Array.isArray(record.resourceTypes)
+      ? record.resourceTypes.filter((item): item is string => typeof item === "string")
+      : typeof record.resourceTypes === "string"
+        ? record.resourceTypes.split(",")
+        : firstSkill?.scope && typeof firstSkill.scope === "object" && Array.isArray((firstSkill.scope as { resourceTypes?: unknown }).resourceTypes)
+          ? ((firstSkill.scope as { resourceTypes?: unknown[] }).resourceTypes ?? []).filter((item): item is string => typeof item === "string")
+          : undefined,
+    examples: Array.isArray(record.examples)
+      ? record.examples.filter((item): item is string => typeof item === "string")
+      : typeof record.examples === "string"
+        ? record.examples.split(",")
+        : Array.isArray(firstSkill?.examples)
+          ? firstSkill.examples.filter((item): item is string => typeof item === "string")
+          : undefined,
+    supportingCapabilities: Array.isArray(record.supportingCapabilities)
+      ? record.supportingCapabilities.filter((item): item is string => typeof item === "string")
+      : typeof record.supportingCapabilities === "string"
+        ? record.supportingCapabilities.split(",")
+        : Array.isArray(firstSkill?.supportingCapabilities)
+          ? firstSkill.supportingCapabilities.filter((item): item is string => typeof item === "string")
+          : undefined,
+    supportingHelpOptions: Array.isArray(record.supportingHelpOptions)
+      ? record.supportingHelpOptions.filter((item): item is string => typeof item === "string")
+      : typeof record.supportingHelpOptions === "string"
+        ? record.supportingHelpOptions.split(",")
+        : undefined
+  };
+}
+
+function requireSessionToken(request: IncomingMessage, response: ServerResponse): string | undefined {
+  const token = getSessionToken(request);
+  if (!token) {
+    sendJson(response, 401, { error: "Session required" }, request);
+    return undefined;
+  }
+  return token;
+}
+
+function remainingActiveAgentIds(sessionToken?: string): string[] {
+  return [
+    ...getExecutableAgentCards().map((card) => card.agentId),
+    ...(sessionToken ? listDemoAgentCards(sessionToken).map((card) => card.agentId) : [])
+  ].sort();
+}
+
+function deleteRuntimeDemoAgent(agentId: string, sessionToken?: string): { ok: true; deleted: boolean } | { ok: false; status: number; error: string } {
+  if (agentId === orchestratorAgentId) {
+    return { ok: false, status: 403, error: "cannot_delete_orchestrator" };
+  }
+
+  const sessionCards = sessionToken ? listDemoAgentCards(sessionToken) : [];
+  const sessionKnown = sessionCards.some((card) => card.agentId === agentId);
+  if (sessionKnown && sessionToken) {
+    deleteDemoAgentCard(sessionToken, agentId);
+    return { ok: true, deleted: true };
+  }
+
+  return { ok: false, status: 404, error: "session_demo_agent_not_found" };
+}
+
+async function checkSessionDemoAgentHealth(card: AgentCard): Promise<AgentHealthCheck> {
+  return {
+    agentId: card.agentId,
+    url: card.endpoint,
+    status: "ok",
+    latencyMs: 0,
+    checkedAt: new Date().toISOString(),
+    details: {
+      healthEndpoint: "/health",
+      agentCardAvailable: true
+    }
+  };
+}
+
+async function buildAgentsHealthResponse(sessionToken?: string): Promise<AgentsHealthResponse> {
+  const sessionDemoCards = sessionToken ? listDemoAgentCards(sessionToken) : [];
+  const agents = await Promise.all([
+    ...getExecutableAgentCards().map((card) => checkAgentHealth(card)),
+    ...sessionDemoCards.map((card) => checkSessionDemoAgentHealth(card)),
+    checkMockIdentityProviderHealth()
+  ]);
 
   return {
     orchestrator: {
@@ -483,8 +921,9 @@ async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
   };
 }
 
-async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveResponse> {
+async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string): Promise<ResolveResponse> {
   const conversationState = getOrCreateConversationState(requestBody.conversationId);
+  const requestAgentCards = combineAgentCards(getExecutableAgentCards(), sessionToken ? listDemoAgentCards(sessionToken) : []);
   appendConversationMessage(conversationState, "user", requestBody.message);
   const followUp = await interpretFollowUp({
     currentMessage: requestBody.message,
@@ -494,7 +933,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     previousIncidentContext: conversationState.lastIncidentContext
   });
   const effectiveMessage = buildEffectiveMessageForRouting(conversationState, requestBody.message, followUp);
-  const routingDecision = await routeWithAI(effectiveMessage);
+  const routingDecision = await routeWithAI(effectiveMessage, { agentCards: requestAgentCards });
   const classification = routingDecision.classification;
   const conversationId = conversationState.conversationId;
   const incidentInterpretation =
@@ -824,7 +1263,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   async function processRequestedDelegations(agentResponse: A2AAgentResponse, parentTask: A2ATask): Promise<void> {
     for (const delegation of agentResponse.requestedDelegations ?? []) {
       const fromAgent = agentResponse.agentId;
-      const targetCard = getAgentCard(delegation.targetAgentId);
+      const targetCard = getAgentCard(delegation.targetAgentId, requestAgentCards);
       const targetSkill = targetCard?.skills.find((skill) => skill.id === delegation.skillId);
       const currentDepth = parentTask.delegationDepth ?? 0;
       const nextDepth = currentDepth + 1;
@@ -978,6 +1417,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       }
 
       executedDelegations.add(delegationKey);
+      const delegatedRequestedScope = targetSkill?.requiredPermission ?? targetSkill?.requiredScopes?.[0];
       const delegatedTask = createA2ATask({
         conversationId: parentTask.conversationId,
         fromAgent,
@@ -986,19 +1426,30 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
         message: parentTask.userMessage,
         classification,
         securityDecision: policyDecision,
-        requestedScope: requiredPermissionForSkill(targetSkill),
+        requestedScope: delegatedRequestedScope,
         mediatedBy: orchestratorAgentId,
         delegationDepth: nextDepth,
         parentTaskId: parentTask.taskId,
         requestedByAgent: fromAgent,
-        delegationContext: delegation.context
+            delegationContext: delegation.context,
+            cards: requestAgentCards
       });
       a2aTasks.push(delegatedTask);
 
       try {
-        const response = await postJson<AgentResponse | A2AAgentResponse>(targetCard!.endpoint, delegatedTask, {
-          "x-internal-service-token": process.env.INTERNAL_SERVICE_TOKEN ?? ""
+        const headers = await prepareA2ARequestAuth({
+          task: delegatedTask,
+          targetAudience: targetCard!.auth.audience,
+          requestedScope: delegatedRequestedScope,
+          delegatedBy: fromAgent,
+          delegationDepth: nextDepth,
+          parentTaskId: parentTask.taskId,
+          requestedByAgent: fromAgent,
+          executionSteps: delegationExecutionSteps,
+          traceEntries: orchestratorTrace,
+          cards: requestAgentCards
         });
+        const response = await postJson<AgentResponse | A2AAgentResponse>(targetCard!.endpoint, delegatedTask, headers);
         const normalizedResponse = normalizeAgentResponse(delegation.targetAgentId, response);
         a2aResponses.push(normalizedResponse);
         delegationExecutionSteps.push({
@@ -1043,17 +1494,19 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
   }
 
   for (const agent of routingDecision.selectedAgents) {
-    const card = getAgentCard(agent.agentId);
+    const card = getAgentCard(agent.agentId, requestAgentCards);
 
     if (!card?.endpoint) {
       continue;
     }
 
-    const skillMetadata = getSkillMetadata(agent.agentId, agent.skillId);
+    const skillMetadata = getSkillMetadata(agent.agentId, agent.skillId, requestAgentCards);
     const requestedAction = requestedActionForSkill(skillMetadata);
     let taskSecurityDecision: SecurityDecision | undefined;
 
-    if (requestedAction) {
+    if (isDemoAgentCard(card)) {
+      orchestratorTrace.push(trace("DEMO_AGENT_POLICY_SKIPPED", `Session demo agent ${agent.agentId} is executed as a local mock response only.`));
+    } else if (requestedAction) {
       const policyDecision = evaluateSecurityPolicy({
         callerAgentId: orchestratorAgentId,
         targetAgentId: agent.agentId,
@@ -1100,6 +1553,7 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
     }
 
     const requestedScopes = requestedScopesForSkill(skillMetadata);
+    const requestedScope = requiredPermissionForSkill(skillMetadata) ?? requestedScopes[0];
     const a2aTask = createA2ATask({
       conversationId,
       toAgent: agent.agentId,
@@ -1107,14 +1561,82 @@ async function resolveIssue(requestBody: ResolveRequest): Promise<ResolveRespons
       message: requestBody.message,
       classification,
       securityDecision: taskSecurityDecision,
-      requestedScope: requiredPermissionForSkill(skillMetadata) ?? requestedScopes[0]
+      requestedScope,
+      cards: requestAgentCards,
+      authMode: isDemoAgentCard(card) ? a2aAuthMode : undefined
     });
     a2aTasks.push(a2aTask);
 
+    if (isDemoAgentCard(card)) {
+      const registrationWarning = await registerDemoAgentWithMockIdp(card);
+      if (registrationWarning) {
+        orchestratorTrace.push(trace("SESSION_DEMO_IDP_REGISTRATION_WARNING", registrationWarning));
+      }
+
+      if (a2aAuthMode === "oauth2_client_credentials_jwt") {
+        try {
+          await prepareA2ARequestAuth({
+            task: a2aTask,
+            targetAudience: card.auth.audience,
+            requestedScope,
+            executionSteps: delegationExecutionSteps,
+            traceEntries: orchestratorTrace,
+            cards: requestAgentCards
+          });
+          a2aTask.context.auth = {
+            ...a2aTask.context.auth,
+            authMode: "oauth2_client_credentials_jwt",
+            validationReason: "Scoped JWT was issued from the generated Agent Card metadata. This demo uses a mock runtime, so no live external service validated the token."
+          };
+          orchestratorTrace.push(trace("SESSION_DEMO_TOKEN_METADATA_RECEIVED", "Session demo agent mock runtime received token metadata; raw token not exposed."));
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : "Unknown token issuance failure";
+          const validationReason = `Scoped JWT issuance failed for the session demo agent: ${detail}`;
+          a2aTask.context.auth = {
+            ...a2aTask.context.auth,
+            authMode: a2aAuthMode,
+            audience: card.auth.audience,
+            scope: requestedScope,
+            tokenIssued: false,
+            validationReason
+          };
+          orchestratorTrace.push(trace("SESSION_DEMO_JWT_ISSUANCE_FAILED", `Session demo agent token issuance failed for audience ${card.auth.audience} and scope ${requestedScope ?? "none"}. Raw token not exposed.`));
+          orchestratorTrace.push(trace("SESSION_DEMO_EXECUTION_BLOCKED", "Blocked session demo agent mock execution because scoped JWT issuance failed."));
+          a2aResponses.push(createDemoAgentJwtBlockedResponse({
+            card,
+            requestedScope,
+            validationReason
+          }));
+          continue;
+        }
+      } else {
+        a2aTask.context.auth = {
+          ...a2aTask.context.auth,
+          authMode: a2aAuthMode,
+          audience: card.auth.audience,
+          scope: requestedScope,
+          tokenIssued: false,
+          validationReason: "Session demo agent used mock internal auth mode; no live external service validated a token."
+        };
+        orchestratorTrace.push(trace("SESSION_DEMO_JWT_DOCUMENTED", `Session demo agent uses audience ${card.auth.audience} and scope ${requestedScope ?? "none"}; raw token not exposed.`));
+      }
+
+      a2aResponses.push(createDemoAgentResponse(card, skillMetadata));
+      orchestratorTrace.push(trace("DEMO_AGENT_EXECUTED", `Returned safe mock response for ${agent.agentId}; no user-defined endpoint was fetched.`));
+      continue;
+    }
+
+    const executableCard = card;
     try {
-      const response = await postJson<AgentResponse | A2AAgentResponse>(card.endpoint, a2aTask, {
-        "x-internal-service-token": process.env.INTERNAL_SERVICE_TOKEN ?? ""
+      const headers = await prepareA2ARequestAuth({
+        task: a2aTask,
+        targetAudience: executableCard.auth.audience,
+        requestedScope,
+        executionSteps: delegationExecutionSteps,
+        traceEntries: orchestratorTrace,
+        cards: requestAgentCards
       });
+      const response = await postJson<AgentResponse | A2AAgentResponse>(executableCard.endpoint, a2aTask, headers);
       const normalizedResponse = normalizeAgentResponse(agent.agentId, response);
       a2aResponses.push(normalizedResponse);
       await processRequestedDelegations(normalizedResponse, a2aTask);
@@ -1244,7 +1766,28 @@ async function start(): Promise<void> {
       return;
     }
 
-    sendJson(response, 200, await buildAgentsHealthResponse());
+    sendJson(response, 200, await buildAgentsHealthResponse(getSessionToken(request)));
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url?.startsWith("/agents/")) {
+    if (!requireClientAccess(request, response)) {
+      return;
+    }
+
+    const sessionToken = getSessionToken(request);
+    const agentId = decodeURIComponent(request.url.slice("/agents/".length));
+    const result = deleteRuntimeDemoAgent(agentId, sessionToken);
+    if (!result.ok) {
+      sendJson(response, result.status, { error: result.error, agentId }, request);
+      return;
+    }
+
+    sendJson(response, 200, {
+      deleted: true,
+      agentId,
+      remainingAgents: remainingActiveAgentIds(sessionToken)
+    }, request);
     return;
   }
 
@@ -1263,6 +1806,11 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/session") {
+    if (getSessionToken(request)) {
+      sendJson(response, 200, { ok: true }, request);
+      return;
+    }
+
     sendJson(
       response,
       200,
@@ -1272,6 +1820,74 @@ async function start(): Promise<void> {
         "set-cookie": createSessionCookie()
       }
     );
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/demo-agent-cards") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    sendJson(response, 200, { agentCards: listDemoAgentCards(sessionToken) }, request);
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/demo-agent-cards/generate") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    const input = demoInputFromRequestBody(await readJsonBody<unknown>(request));
+    if (!input.system.trim()) {
+      sendJson(response, 400, { error: "system is required" }, request);
+      return;
+    }
+
+    const agentCard = buildDemoAgentCard(input);
+    sendJson(response, 200, { agentCard, warnings: validateDemoAgentCard(agentCard) }, request);
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/demo-agent-cards") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    const input = demoInputFromRequestBody(await readJsonBody<unknown>(request));
+    if (!input.system.trim()) {
+      sendJson(response, 400, { error: "system is required" }, request);
+      return;
+    }
+
+    const builtAgentCard = buildDemoAgentCard(input);
+    const warnings = validateDemoAgentCard(builtAgentCard);
+    const registrationWarning = await registerDemoAgentWithMockIdp(builtAgentCard);
+    if (registrationWarning) {
+      warnings.push(registrationWarning);
+    }
+    const agentCard = addDemoAgentCard(sessionToken, builtAgentCard);
+    sendJson(response, 200, {
+      agentCard,
+      agentCards: listDemoAgentCards(sessionToken),
+      warnings
+    }, request);
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url?.startsWith("/demo-agent-cards/")) {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    const agentId = decodeURIComponent(request.url.slice("/demo-agent-cards/".length));
+    sendJson(response, 200, {
+      deleted: deleteDemoAgentCard(sessionToken, agentId),
+      agentCards: listDemoAgentCards(sessionToken)
+    }, request);
     return;
   }
 
@@ -1295,7 +1911,7 @@ async function start(): Promise<void> {
     return;
   }
 
-  sendJson(response, 200, await resolveIssue(requestBody));
+  sendJson(response, 200, await resolveIssue(requestBody, getSessionToken(request)));
   });
 }
 

@@ -154,6 +154,67 @@ type ChatMessage = {
   metadata?: ResolveResponse;
 };
 
+type DemoAgentCard = {
+  agentId: string;
+  name: string;
+  description: string;
+  systems: string[];
+  endpoint: string;
+  auth: { type: string; audience: string };
+  skills: Array<{
+    id: string;
+    name: string;
+    description: string;
+    examples?: string[];
+    requiredScopes?: string[];
+    capabilities?: string[];
+    supportingCapabilities?: string[];
+    requestedAction?: string;
+    requiredPermission?: string;
+    riskLevel?: "low" | "medium" | "high" | "sensitive";
+    owner?: string;
+    scope?: {
+      systems?: string[];
+      resourceTypes?: string[];
+    };
+    sensitive?: boolean;
+  }>;
+};
+
+type DemoAgentCardInput = {
+  system: string;
+  agentSlug: string;
+  agentName: string;
+  description: string;
+  diagnosisGoal: string;
+  capability: string;
+  requiredScope: string;
+  riskLevel: "low" | "medium" | "high" | "sensitive";
+  resourceTypes: string;
+  examples: string;
+  supportingHelpOptions: string[];
+};
+
+const emptyDemoAgentInput: DemoAgentCardInput = {
+  system: "",
+  agentSlug: "",
+  agentName: "",
+  description: "",
+  diagnosisGoal: "",
+  capability: "",
+  requiredScope: "",
+  riskLevel: "low",
+  resourceTypes: "incident, ticket, account",
+  examples: "",
+  supportingHelpOptions: []
+};
+
+const supportingHelpOptions = [
+  { value: "oauth_scope_compare", label: "OAuth scope comparison" },
+  { value: "api_health", label: "API health / rate limit" },
+  { value: "security_policy", label: "Security policy evaluation" }
+];
+
 function createMessageId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -171,9 +232,8 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
     <section className="chat-panel" aria-label="Conversation">
       {messages.map((chatMessage) => (
         <article
-          className={`message ${chatMessage.role === "user" ? "user-message" : "assistant-message"} ${
-            chatMessage.status === "loading" ? "loading" : ""
-          }`}
+          className={`message ${chatMessage.role === "user" ? "user-message" : "assistant-message"} ${chatMessage.status === "loading" ? "loading" : ""
+            }`}
           key={chatMessage.id}
         >
           {chatMessage.content}
@@ -194,6 +254,18 @@ function App() {
   const [healthError, setHealthError] = useState("");
   const [isHealthLoading, setIsHealthLoading] = useState(false);
   const [isHealthPanelOpen, setIsHealthPanelOpen] = useState(false);
+  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
+  const [deleteAgentError, setDeleteAgentError] = useState("");
+  const [deleteAgentMessage, setDeleteAgentMessage] = useState("");
+  const [isDemoBuilderOpen, setIsDemoBuilderOpen] = useState(false);
+  const [demoAgentInput, setDemoAgentInput] = useState<DemoAgentCardInput>(emptyDemoAgentInput);
+  const [demoAgentPreview, setDemoAgentPreview] = useState<DemoAgentCard | null>(null);
+  const [demoAgentCards, setDemoAgentCards] = useState<DemoAgentCard[]>([]);
+  const [demoAgentWarnings, setDemoAgentWarnings] = useState<string[]>([]);
+  const [demoAgentError, setDemoAgentError] = useState("");
+  const [demoAgentSuccessMessage, setDemoAgentSuccessMessage] = useState("");
+  const [recentlyAddedDemoAgentId, setRecentlyAddedDemoAgentId] = useState("");
+  const demoAgentListRef = useRef<HTMLDivElement | null>(null);
   const [activeScenarioCategory, setActiveScenarioCategory] = useState(scenarios[0].category);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
@@ -203,6 +275,22 @@ function App() {
   const healthLabel = health
     ? `Agents: ${health.summary.healthy}/${health.summary.total} healthy`
     : "Agents: check health";
+
+  function canDeleteHealthAgent(agent: AgentsHealthResponse["agents"][number]): boolean {
+    return agent.url.startsWith("session://demo-agent/");
+  }
+
+  function resetDemoAgentDraft() {
+    setDemoAgentInput(emptyDemoAgentInput);
+    setDemoAgentPreview(null);
+    setDemoAgentWarnings([]);
+    setDemoAgentError("");
+  }
+
+  function clearDemoAgentStatus() {
+    setDemoAgentSuccessMessage("");
+    setRecentlyAddedDemoAgentId("");
+  }
 
   async function checkAgentHealth() {
     setHealthError("");
@@ -227,6 +315,38 @@ function App() {
     }
   }
 
+  async function deleteDemoAgent(agentId: string) {
+    const confirmed = window.confirm(`Remove demo agent ${agentId} from this orchestrator session?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleteAgentError("");
+    setDeleteAgentMessage("");
+    setDeletingAgentId(agentId);
+
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/agents/${encodeURIComponent(agentId)}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`Delete returned ${response.status} with body ${await response.text()}`);
+      }
+
+      const body = await response.json() as { deleted: boolean; agentId: string; remainingAgents: string[] };
+      setDeleteAgentMessage(`Removed ${body.agentId} from active demo agents.`);
+      await loadDemoAgentCards();
+      await checkAgentHealth();
+    } catch (caughtError) {
+      setDeleteAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete demo agent");
+    } finally {
+      setDeletingAgentId(null);
+    }
+  }
+
   useEffect(() => {
     void checkAgentHealth();
   }, []);
@@ -239,6 +359,131 @@ function App() {
 
     if (!response.ok) {
       throw new Error(`Session request returned ${response.status}`);
+    }
+  }
+
+  function demoRequestBody() {
+    return {
+      ...demoAgentInput,
+      resourceTypes: demoAgentInput.resourceTypes.split(",").map((item) => item.trim()).filter(Boolean),
+      examples: demoAgentInput.examples.split(",").map((item) => item.trim()).filter(Boolean),
+      capability: demoAgentInput.capability.trim() || undefined,
+      requiredScope: demoAgentInput.requiredScope.trim() || undefined
+    };
+  }
+
+  function toggleSupportingHelpOption(option: string) {
+    clearDemoAgentStatus();
+    setDemoAgentInput((current) => {
+      const enabled = current.supportingHelpOptions.includes(option);
+      return {
+        ...current,
+        supportingHelpOptions: enabled
+          ? current.supportingHelpOptions.filter((item) => item !== option)
+          : [...current.supportingHelpOptions, option]
+      };
+    });
+  }
+
+  function closeDemoBuilder() {
+    setIsDemoBuilderOpen(false);
+    clearDemoAgentStatus();
+  }
+
+  async function loadDemoAgentCards() {
+    setDemoAgentError("");
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/demo-agent-cards`, {
+        method: "GET",
+        credentials: "include"
+      });
+      if (!response.ok) {
+        throw new Error(`Demo cards returned ${response.status} with body ${await response.text()}`);
+      }
+      const body = await response.json() as { agentCards: DemoAgentCard[] };
+      setDemoAgentCards(body.agentCards);
+    } catch (caughtError) {
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to load demo Agent Cards");
+    }
+  }
+
+  async function generateDemoAgentPreview() {
+    setDemoAgentError("");
+    clearDemoAgentStatus();
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/demo-agent-cards/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(demoRequestBody())
+      });
+      if (!response.ok) {
+        throw new Error(`Generate returned ${response.status} with body ${await response.text()}`);
+      }
+      const body = await response.json() as { agentCard: DemoAgentCard; warnings: string[] };
+      setDemoAgentPreview(body.agentCard);
+      setDemoAgentWarnings(body.warnings);
+    } catch (caughtError) {
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to generate demo Agent Card");
+    }
+  }
+
+  async function addDemoAgentToSession() {
+    setDemoAgentError("");
+    setDemoAgentSuccessMessage("");
+    setRecentlyAddedDemoAgentId("");
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/demo-agent-cards`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(demoAgentPreview ?? demoRequestBody())
+      });
+      if (!response.ok) {
+        throw new Error(`Add returned ${response.status} with body ${await response.text()}`);
+      }
+      const body = await response.json() as { agentCard: DemoAgentCard; agentCards: DemoAgentCard[]; warnings: string[] };
+      setDemoAgentCards(body.agentCards);
+      setDemoAgentWarnings(body.warnings);
+      setDemoAgentSuccessMessage("External demo agent added to this session.");
+      setRecentlyAddedDemoAgentId(body.agentCard.agentId);
+      setDemoAgentInput(emptyDemoAgentInput);
+      setDemoAgentPreview(null);
+      if (messages.length > 0) {
+        startNewConversation();
+      }
+      await checkAgentHealth();
+      window.setTimeout(() => {
+        demoAgentListRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 0);
+    } catch (caughtError) {
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to add demo Agent Card");
+    }
+  }
+
+  async function deleteSessionDemoAgent(agentId: string) {
+    setDemoAgentError("");
+    clearDemoAgentStatus();
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/demo-agent-cards/${encodeURIComponent(agentId)}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+      if (!response.ok) {
+        throw new Error(`Delete returned ${response.status} with body ${await response.text()}`);
+      }
+      const body = await response.json() as { agentCards: DemoAgentCard[] };
+      setDemoAgentCards(body.agentCards);
+      if (demoAgentPreview?.agentId === agentId) {
+        setDemoAgentPreview(null);
+      }
+      await checkAgentHealth();
+    } catch (caughtError) {
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete demo Agent Card");
     }
   }
 
@@ -266,7 +511,7 @@ function App() {
       {
         id: loadingMessageId,
         role: "assistant",
-            content: "Starting A2A task conversation...",
+        content: "Starting A2A task conversation...",
         timestamp: now,
         status: "loading"
       }
@@ -282,7 +527,7 @@ function App() {
         credentials: "include",
         body: JSON.stringify({ message: trimmedIssueText, conversationId })
       });
-      
+
       if (!apiResponse.ok) {
         throw new Error(`Orchestrator returned ${apiResponse.status} with body ${await apiResponse.text()}`);
       }
@@ -293,12 +538,12 @@ function App() {
         currentMessages.map((chatMessage) =>
           chatMessage.id === loadingMessageId
             ? {
-                ...chatMessage,
-                content: resolvedResponse.finalAnswer,
-                timestamp: new Date().toISOString(),
-                status: "done",
-                metadata: resolvedResponse
-              }
+              ...chatMessage,
+              content: resolvedResponse.finalAnswer,
+              timestamp: new Date().toISOString(),
+              status: "done",
+              metadata: resolvedResponse
+            }
             : chatMessage
         )
       );
@@ -309,11 +554,11 @@ function App() {
         currentMessages.map((chatMessage) =>
           chatMessage.id === loadingMessageId
             ? {
-                ...chatMessage,
-                content: `Unable to resolve issue: ${errorMessage}`,
-                timestamp: new Date().toISOString(),
-                status: "done"
-              }
+              ...chatMessage,
+              content: `Unable to resolve issue: ${errorMessage}`,
+              timestamp: new Date().toISOString(),
+              status: "done"
+            }
             : chatMessage
         )
       );
@@ -350,8 +595,9 @@ function App() {
             <div className="status">Local mock mode</div>
             <button
               type="button"
-              className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"}`}
+              className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"} ${isHealthPanelOpen ? "active-panel-button" : ""}`}
               onClick={() => {
+                setIsDemoBuilderOpen(false);
                 setIsHealthPanelOpen((current) => !current);
                 if (!health && !isHealthLoading) {
                   void checkAgentHealth();
@@ -362,6 +608,19 @@ function App() {
               <span>{isHealthLoading ? "Checking agent health..." : healthLabel}</span>
               <small>{isHealthPanelOpen ? "Click to close" : "Click for details"}</small>
             </button>
+            <button
+              type="button"
+              className={`secondary-button ${isDemoBuilderOpen ? "active-panel-button" : ""}`}
+              onClick={() => {
+                setIsHealthPanelOpen(false);
+                setIsDemoBuilderOpen((current) => !current);
+                if (!isDemoBuilderOpen) {
+                  void loadDemoAgentCards();
+                }
+              }}
+            >
+              {isDemoBuilderOpen ? "Creating external demo agent" : "Create external demo agent"}
+            </button>
           </div>
         </header>
 
@@ -369,14 +628,23 @@ function App() {
           <section className="agent-health-panel" aria-label="Agent health">
             <div className="agent-health-header">
               <div>
+                <p className="active-panel-eyebrow">Active panel&nbsp;&nbsp; Agent Health</p>
                 <h2>Agent Health</h2>
-                <p>Orchestrator: {health?.orchestrator.status ?? "unknown"}{health?.orchestrator.timestamp ? ` / ${new Date(health.orchestrator.timestamp).toLocaleTimeString()}` : ""}</p>
+                <p className="orchestrator-health-line">
+                  Orchestrator:
+                  <span className={`orchestrator-health-badge ${health?.orchestrator.status === "ok" ? "health-ok" : "health-down"}`}>
+                    {health?.orchestrator.status ?? "unknown"}
+                  </span>
+                  {health?.orchestrator.timestamp ? ` / ${new Date(health.orchestrator.timestamp).toLocaleTimeString()}` : ""}
+                </p>
               </div>
               <button type="button" onClick={() => void checkAgentHealth()} disabled={isHealthLoading}>
                 {isHealthLoading ? "Checking..." : "Refresh health"}
               </button>
             </div>
             {healthError ? <p className="error">{healthError}</p> : null}
+            {deleteAgentError ? <p className="error">{deleteAgentError}</p> : null}
+            {deleteAgentMessage ? <p className="success-note">{deleteAgentMessage}</p> : null}
             {health ? (
               <>
                 <div className="health-counts">
@@ -391,8 +659,20 @@ function App() {
                         <strong>{agent.agentId}</strong>
                         <span>{agent.latencyMs} ms / {new Date(agent.checkedAt).toLocaleTimeString()}</span>
                       </div>
-                      <span className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</span>
-                      <small>Agent Card {agent.details.agentCardAvailable ? "yes" : "no"}</small>
+                      <div className="agent-health-actions">
+                        <span className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</span>
+                        {canDeleteHealthAgent(agent) ? (
+                          <button
+                            type="button"
+                            className="agent-delete-button"
+                            disabled={isHealthLoading || deletingAgentId === agent.agentId}
+                            onClick={() => void deleteDemoAgent(agent.agentId)}
+                          >
+                            {deletingAgentId === agent.agentId ? "..." : "Delete"}
+                          </button>
+                        ) : null}
+                      </div>
+                      <small>{agent.agentId === "mock-identity-provider" ? "Infrastructure dependency" : agent.url.startsWith("session://demo-agent/") ? "Session demo agent" : `Agent Card ${agent.details.agentCardAvailable ? "yes" : "no"}`}</small>
                       {agent.error ? <p>{agent.error}</p> : null}
                     </article>
                   ))}
@@ -400,6 +680,193 @@ function App() {
               </>
             ) : !healthError ? (
               <p className="muted-note">Checking agent health...</p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {isDemoBuilderOpen ? (
+          <section className="demo-agent-builder" aria-label="Create External Demo Agent">
+            <div className="agent-health-header">
+              <div>
+                <p className="active-panel-eyebrow">Active panel&nbsp;&nbsp; External Demo Agent Builder</p>
+                <h2>Create External Demo Agent</h2>
+                <p>Simulate a vendor/domain-owned external agent. Fill in simple fields, and the demo generates the Agent Card JSON that a real external system would publish at /.well-known/agent-card.json.</p>
+              </div>
+              <button type="button" onClick={closeDemoBuilder}>Close</button>
+            </div>
+            {demoAgentError ? <p className="error">{demoAgentError}</p> : null}
+            {demoAgentSuccessMessage ? <p className="demo-agent-success">{demoAgentSuccessMessage}</p> : null}
+            <h2>Describe the external agent</h2>
+            <div className="demo-agent-form">
+              <label>
+                <span>System / product</span>
+                <input value={demoAgentInput.system} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, system: event.target.value });
+                }} placeholder="Salesforce" />
+                <small>The product or domain this external agent owns, for example Salesforce, Slack, Datadog, Okta.</small>
+              </label>
+              <label>
+                <span>Agent name</span>
+                <input value={demoAgentInput.agentName} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, agentName: event.target.value });
+                }} placeholder="Salesforce Access Agent" />
+                <small>Friendly name shown in the demo.</small>
+              </label>
+              <label className="wide-field">
+                <span>What can this agent diagnose?</span>
+                <input value={demoAgentInput.diagnosisGoal} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, diagnosisGoal: event.target.value });
+                }} placeholder="Diagnose Salesforce access issues" />
+                <small>The demo uses this to generate safe routing metadata such as capability and requested action.</small>
+              </label>
+              <label>
+                <span>Risk level</span>
+                <select value={demoAgentInput.riskLevel} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, riskLevel: event.target.value as DemoAgentCardInput["riskLevel"] });
+                }}>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="sensitive">sensitive</option>
+                </select>
+                <small>Read-only diagnosis should be low/medium. High/sensitive actions should require approval or be blocked.</small>
+              </label>
+              <label>
+                <span>Resource types</span>
+                <input value={demoAgentInput.resourceTypes} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, resourceTypes: event.target.value });
+                }} />
+                <small>Objects this agent understands, for example user, account, incident, repository, service.</small>
+              </label>
+              <label>
+                <span>Description</span>
+                <input value={demoAgentInput.description} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, description: event.target.value });
+                }} placeholder="Demo agent that diagnoses Salesforce issues." />
+              </label>
+              <label>
+                <span>Examples</span>
+                <input value={demoAgentInput.examples} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, examples: event.target.value });
+                }} placeholder="Salesforce login fails, cannot access account" />
+              </label>
+              <div className="wide-field demo-agent-checkboxes">
+                <span>Can this agent ask another agent for help?</span>
+                <small>The agent does not directly call another agent. It can request delegated help, and the orchestrator validates policy, prevents loops, and mediates the task.</small>
+                <div>
+                  {supportingHelpOptions.map((option) => (
+                    <label key={option.value}>
+                      <input
+                        type="checkbox"
+                        checked={demoAgentInput.supportingHelpOptions.includes(option.value)}
+                        onChange={() => toggleSupportingHelpOption(option.value)}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={demoAgentInput.supportingHelpOptions.length === 0}
+                      onChange={() => {
+                        clearDemoAgentStatus();
+                        setDemoAgentInput({ ...demoAgentInput, supportingHelpOptions: [] });
+                      }}
+                    />
+                    <span>None</span>
+                  </label>
+                </div>
+              </div>
+              <details className="wide-field demo-agent-advanced">
+                <summary>Advanced generated metadata</summary>
+                <div className="demo-agent-form nested-demo-agent-form">
+                  <label>
+                    <span>Agent slug</span>
+                    <input value={demoAgentInput.agentSlug} onChange={(event) => {
+                      clearDemoAgentStatus();
+                      setDemoAgentInput({ ...demoAgentInput, agentSlug: event.target.value });
+                    }} placeholder="salesforce-access" />
+                    <small>Optional. Generates IDs like demo-salesforce-access-agent. Leave blank for a unique generated ID.</small>
+                  </label>
+                  <label>
+                    <span>Capability override</span>
+                    <input value={demoAgentInput.capability} onChange={(event) => {
+                      clearDemoAgentStatus();
+                      setDemoAgentInput({ ...demoAgentInput, capability: event.target.value });
+                    }} placeholder="salesforce.access.diagnose" />
+                    <small>Stable routing key generated by default from the diagnosis goal.</small>
+                  </label>
+                  <label>
+                    <span>Required scope override</span>
+                    <input value={demoAgentInput.requiredScope} onChange={(event) => {
+                      clearDemoAgentStatus();
+                      setDemoAgentInput({ ...demoAgentInput, requiredScope: event.target.value });
+                    }} placeholder="salesforce.diagnose" />
+                    <small>Permission encoded into the A2A JWT. Generated by default from the system.</small>
+                  </label>
+                </div>
+              </details>
+            </div>
+            <div className="demo-agent-actions">
+              <button type="button" onClick={() => void generateDemoAgentPreview()}>Generate preview</button>
+              <button type="button" onClick={() => void addDemoAgentToSession()}>Add to session</button>
+              <button type="button" onClick={() => {
+                clearDemoAgentStatus();
+                resetDemoAgentDraft();
+              }}>New draft</button>
+            </div>
+            {demoAgentPreview ? (
+              <div className="demo-agent-auth-note">
+                <strong>Generated A2A security metadata</strong>
+                <small>These values are generated by the demo from your form. In production, the external vendor agent would publish them in its Agent Card.</small>
+                <strong>agentId</strong>
+                <span>{demoAgentPreview.agentId}</span>
+                <strong>audience</strong>
+                <span>{demoAgentPreview.auth.audience}</span>
+                <strong>required scope</strong>
+                <span>{demoAgentPreview.skills[0]?.requiredScopes?.[0] ?? "none"}</span>
+                <strong>capability</strong>
+                <span>{demoAgentPreview.skills[0]?.capabilities?.[0] ?? "none"}</span>
+                <strong>auth mode</strong>
+                <span>{demoAgentPreview.auth.type}</span>
+                <strong>endpoint</strong>
+                <span>{demoAgentPreview.endpoint}</span>
+              </div>
+            ) : null}
+            {demoAgentWarnings.length > 0 ? (
+              <ul className="demo-agent-warnings">
+                {demoAgentWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+              </ul>
+            ) : null}
+            <div className="demo-agent-list" ref={demoAgentListRef}>
+              <h2>Session demo agents</h2>
+              {demoAgentCards.length ? demoAgentCards.map((card) => (
+                <article className={recentlyAddedDemoAgentId === card.agentId ? "recently-added-demo-agent" : ""} key={card.agentId}>
+                  <strong>{card.agentId}</strong>
+                  <span>{card.skills[0]?.capabilities?.[0] ?? "no capability"}</span>
+                  <button type="button" onClick={() => {
+                    setDemoAgentPreview(card);
+                    setDemoAgentWarnings([]);
+                    setDemoAgentError("");
+                    setDemoAgentSuccessMessage("");
+                  }}>View JSON</button>
+                  <button type="button" onClick={() => void deleteSessionDemoAgent(card.agentId)}>Delete</button>
+                </article>
+              )) : <p className="muted-note">No session demo Agent Cards yet.</p>}
+            </div>
+            {demoAgentPreview ? (
+              <div className="demo-agent-preview">
+                <h2>/.well-known/agent-card.json preview</h2>
+                <p className="muted-note">This JSON is generated by the demo. In a real A2A federation, this JSON would be hosted by the external vendor/domain agent.</p>
+                <JsonBlock value={demoAgentPreview} />
+              </div>
             ) : null}
           </section>
         ) : null}
@@ -751,6 +1218,11 @@ function App() {
                         targetAudience: task.context.targetAudience,
                         requestedScope: task.context.requestedScope,
                         authMode: task.context.authMode,
+                        auth: task.context.auth,
+                        authDelegatedBy: task.context.auth?.delegatedBy,
+                        authDelegationDepth: task.context.auth?.delegationDepth,
+                        authParentTaskId: task.context.auth?.parentTaskId,
+                        authRequestedByAgent: task.context.auth?.requestedByAgent,
                         mediatedBy: task.mediatedBy,
                         delegationDepth: task.delegationDepth,
                         parentTaskId: task.parentTaskId,

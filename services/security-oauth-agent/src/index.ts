@@ -1,12 +1,19 @@
 import dotenv from "dotenv";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { A2AAgentResponse, A2ATask, AgentTask, OAuthTokenRecord } from "@a2a/shared";
-import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } from "@a2a/shared/src/http";
+import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
+import { formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
+import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
-const port = Number(process.env.PORT ?? 4104);
+const port = Number(process.env.PORT ?? process.env.SECURITY_OAUTH_AGENT_PORT ?? 4104);
+type OAuthTokenRecord = {
+  app: string;
+  system: string;
+  currentScopes: string[];
+};
+
 const agentCard = {
   agentId: "security-oauth-agent",
   name: "Security OAuth Agent",
@@ -91,11 +98,21 @@ startJsonServer(port, async (request, response) => {
     return;
   }
 
-  if (!requireInternalServiceToken(request, response)) {
+  const task = await readJsonBody<A2ATask | AgentTask>(request);
+  const auth = await requireA2AAuth({
+    request,
+    task,
+    agentId: agentCard.agentId,
+    expectedAudience: agentCard.auth.audience
+  });
+  if (!auth.ok) {
+    sendJson(response, auth.statusCode, auth.response, request);
     return;
   }
+  if ("context" in task && auth.taskAuth) {
+    task.context.auth = auth.taskAuth;
+  }
 
-  const task = await readJsonBody<A2ATask | AgentTask>(request);
   const legacyTask: AgentTask = {
     message: "userMessage" in task ? task.userMessage : task.message,
     classification: task.classification
@@ -129,7 +146,17 @@ startJsonServer(port, async (request, response) => {
           action: "review_github_token_posture",
           detail: "Reviewed token context after GitHub rate-limit evidence was found",
           timestamp: new Date().toISOString()
-        }
+        },
+        ...("context" in task && task.context.auth?.tokenValidated
+          ? [
+              {
+                agent: "security-oauth-agent",
+                action: "A2A_JWT_VALIDATED",
+                detail: formatA2AAuthTraceDetail(task.context.auth),
+                timestamp: new Date().toISOString()
+              }
+            ]
+          : [])
       ]
     };
 
@@ -159,7 +186,17 @@ startJsonServer(port, async (request, response) => {
         action: "compare_oauth_scopes",
         detail: missingScopes.length > 0 ? `Missing scopes: ${missingScopes.join(", ")}` : "No missing scopes found",
         timestamp: new Date().toISOString()
-      }
+      },
+      ...("context" in task && task.context.auth?.tokenValidated
+        ? [
+            {
+              agent: "security-oauth-agent",
+              action: "A2A_JWT_VALIDATED",
+              detail: formatA2AAuthTraceDetail(task.context.auth),
+              timestamp: new Date().toISOString()
+            }
+          ]
+        : [])
     ]
   };
 

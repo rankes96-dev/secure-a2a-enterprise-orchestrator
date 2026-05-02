@@ -1,12 +1,18 @@
 import dotenv from "dotenv";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { A2AAgentResponse, A2ATask, AgentTask, JiraOperationRequirement } from "@a2a/shared";
-import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } from "@a2a/shared/src/http";
+import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
+import { formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
+import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
-const port = Number(process.env.PORT ?? 4101);
+const port = Number(process.env.PORT ?? process.env.JIRA_AGENT_PORT ?? 4101);
+type JiraOperationRequirement = {
+  operation: string;
+  requiredScopes: string[];
+};
+
 const agentCard = {
   agentId: "jira-agent",
   name: "Jira Agent",
@@ -82,11 +88,21 @@ startJsonServer(port, async (request, response) => {
     return;
   }
 
-  if (!requireInternalServiceToken(request, response)) {
+  const task = await readJsonBody<A2ATask | AgentTask>(request);
+  const auth = await requireA2AAuth({
+    request,
+    task,
+    agentId: agentCard.agentId,
+    expectedAudience: agentCard.auth.audience
+  });
+  if (!auth.ok) {
+    sendJson(response, auth.statusCode, auth.response, request);
     return;
   }
+  if ("context" in task && auth.taskAuth) {
+    task.context.auth = auth.taskAuth;
+  }
 
-  const task = await readJsonBody<A2ATask | AgentTask>(request);
   const message = taskMessage(task);
   const requirements = await loadRequirements();
   const operation = task.classification.operation ?? "create_issue";
@@ -163,7 +179,17 @@ startJsonServer(port, async (request, response) => {
         action: "lookup_operation_requirements",
         detail: `Found required scopes for ${requirement.operation}`,
         timestamp: new Date().toISOString()
-      }
+      },
+      ...("context" in task && task.context.auth?.tokenValidated
+        ? [
+            {
+              agent: "jira-agent",
+              action: "A2A_JWT_VALIDATED",
+              detail: formatA2AAuthTraceDetail(task.context.auth),
+              timestamp: new Date().toISOString()
+            }
+          ]
+        : [])
     ]
   };
 

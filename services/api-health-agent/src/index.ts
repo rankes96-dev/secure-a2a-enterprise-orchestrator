@@ -1,10 +1,11 @@
 import dotenv from "dotenv";
 import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
-import { readJsonBody, requireInternalServiceToken, sendJson, startJsonServer } from "@a2a/shared/src/http";
+import { formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
+import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 
-const port = Number(process.env.PORT ?? 4105);
+const port = Number(process.env.PORT ?? process.env.API_HEALTH_AGENT_PORT ?? 4105);
 const agentCard = {
   agentId: "api-health-agent",
   name: "API Health Agent",
@@ -59,11 +60,21 @@ startJsonServer(port, async (request, response) => {
     return;
   }
 
-  if (!requireInternalServiceToken(request, response)) {
+  const task = await readJsonBody<A2ATask | AgentTask>(request);
+  const auth = await requireA2AAuth({
+    request,
+    task,
+    agentId: agentCard.agentId,
+    expectedAudience: agentCard.auth.audience
+  });
+  if (!auth.ok) {
+    sendJson(response, auth.statusCode, auth.response, request);
     return;
   }
+  if ("context" in task && auth.taskAuth) {
+    task.context.auth = auth.taskAuth;
+  }
 
-  const task = await readJsonBody<A2ATask | AgentTask>(request);
   const isGitHubRateLimit = task.classification.system === "GitHub" && task.classification.issueType === "RATE_LIMIT";
 
   const result: A2AAgentResponse = {
@@ -96,7 +107,17 @@ startJsonServer(port, async (request, response) => {
         action: isGitHubRateLimit ? "check_rate_limit_health" : "check_api_health",
         detail: isGitHubRateLimit ? "Confirmed API health signal is rate-limit exhaustion" : "No scenario-specific API health mock found",
         timestamp: new Date().toISOString()
-      }
+      },
+      ...("context" in task && task.context.auth?.tokenValidated
+        ? [
+            {
+              agent: "api-health-agent",
+              action: "A2A_JWT_VALIDATED",
+              detail: formatA2AAuthTraceDetail(task.context.auth),
+              timestamp: new Date().toISOString()
+            }
+          ]
+        : [])
     ]
   };
 

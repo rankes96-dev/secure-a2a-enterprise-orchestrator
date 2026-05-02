@@ -13,7 +13,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -95,6 +96,13 @@ h2 {
   cursor: pointer;
 }
 
+.secondary-button.active-panel-button {
+  color: #ffffff;
+  background: #235789;
+  border-color: #235789;
+  box-shadow: 0 0 0 3px rgba(35, 87, 137, 0.12);
+}
+
 .health-summary {
   display: grid;
   gap: 1px;
@@ -105,13 +113,26 @@ h2 {
   font-weight: 800;
   white-space: nowrap;
   cursor: pointer;
-  text-align: left;
+  text-align: center;
+}
+
+.health-summary.active-panel-button {
+  color: #ffffff;
+  background: #1d6d3d;
+  border-color: #1d6d3d;
+  box-shadow: 0 0 0 3px rgba(29, 109, 61, 0.12);
+}
+
+.health-summary.active-panel-button small {
+  color: #172026;
+  opacity: 0.9;
 }
 
 .health-summary small {
   font-size: 10px;
   font-weight: 700;
   opacity: 0.78;
+  text-align: center;
 }
 
 .health-summary.all-healthy {
@@ -135,9 +156,233 @@ h2 {
   display: grid;
   gap: 10px;
   border: 1px solid #d7e0e4;
+  border-left: 4px solid #1d6d3d;
   border-radius: 8px;
   padding: 12px;
   background: #ffffff;
+}
+
+.demo-agent-builder {
+  display: grid;
+  gap: 12px;
+  border: 2px solid #235789;
+  border-left-width: 6px;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+  overflow: auto;
+  max-height: min(72vh, 760px);
+  box-shadow: 0 18px 40px rgba(25, 44, 54, 0.18);
+}
+
+.active-panel-eyebrow {
+  margin-bottom: 4px;
+  color: #235789;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.demo-agent-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.demo-agent-form label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.demo-agent-form span,
+.demo-agent-auth-note strong {
+  color: #526b76;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.demo-agent-form small,
+.demo-agent-auth-note small {
+  color: #526b76;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.demo-agent-form input,
+.demo-agent-form select {
+  min-width: 0;
+  border: 1px solid #c7d2d8;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.nested-demo-agent-form {
+  margin-top: 10px;
+}
+
+.demo-agent-advanced {
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.demo-agent-advanced summary {
+  color: #2d4650;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.demo-agent-checkboxes {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.demo-agent-checkboxes > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.demo-agent-checkboxes label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #c7d2d8;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #ffffff;
+}
+
+.demo-agent-checkboxes label span {
+  color: #253d47;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.demo-agent-checkboxes input {
+  min-width: auto;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
+
+.demo-agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.demo-agent-auth-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 10px;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f7fafb;
+}
+
+.demo-agent-auth-note strong:first-child {
+  grid-column: 1 / -1;
+  color: #253d47;
+  font-size: 13px;
+}
+
+.demo-agent-auth-note span {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.demo-agent-auth-note small {
+  grid-column: 1 / -1;
+}
+
+.demo-agent-actions button,
+.demo-agent-list button {
+  border: 1px solid #b7c7ce;
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: #253d47;
+  background: #f6f9fa;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.demo-agent-success {
+  margin-bottom: 0;
+  border-left: 3px solid #1d6d3d;
+  padding: 8px 10px;
+  color: #1d6d3d;
+  background: #eef8f0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.demo-agent-warnings {
+  margin: 0;
+  border-left: 3px solid #8a5a00;
+  color: #6d4b00;
+  font-size: 12px;
+}
+
+.demo-agent-list {
+  display: grid;
+  gap: 8px;
+}
+
+.demo-agent-list h2,
+.demo-agent-preview h2 {
+  margin-bottom: 0;
+}
+
+.demo-agent-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fbfcfd;
+}
+
+.demo-agent-list article.recently-added-demo-agent {
+  border-color: #1d6d3d;
+  background: #f2fbf4;
+  box-shadow: 0 0 0 3px rgba(29, 109, 61, 0.08);
+}
+
+.demo-agent-list strong,
+.demo-agent-list span {
+  overflow-wrap: anywhere;
+}
+
+.demo-agent-list span {
+  color: #526b76;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.demo-agent-preview {
+  display: grid;
+  gap: 8px;
 }
 
 .agent-health-header {
@@ -182,6 +427,29 @@ h2 {
   font-size: 12px;
   font-weight: 800;
 }
+.orchestrator-health-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.orchestrator-health-badge {
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.orchestrator-health-badge.health-ok {
+  color: #1d6d3d;
+  background: #eef8f0;
+}
+
+.orchestrator-health-badge.health-down {
+  color: #a1272d;
+  background: #fff0f1;
+}
 
 .health-ok {
   color: #1d6d3d;
@@ -221,6 +489,10 @@ h2 {
   min-width: 0;
 }
 
+.agent-health-actions {
+  justify-items: end;
+}
+
 .agent-health-row strong {
   overflow-wrap: anywhere;
 }
@@ -242,6 +514,23 @@ h2 {
   color: #a1272d;
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+.agent-delete-button {
+  border: 1px solid #e1a0a8;
+  border-radius: 6px;
+  padding: 3px 7px;
+  color: #a1272d;
+  background: #fff0f1;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.agent-delete-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .health-pill.health-ok {
@@ -435,6 +724,13 @@ h2 {
 .error {
   color: #a1272d;
   font-weight: 700;
+}
+
+.success-note {
+  margin-bottom: 0;
+  color: #1d6d3d;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .details {

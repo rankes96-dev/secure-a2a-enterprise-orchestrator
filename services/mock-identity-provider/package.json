@@ -1,5 +1,5 @@
 {
-  "name": "orchestrator-api",
+  "name": "mock-identity-provider",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,9 +11,7 @@
   },
   "dependencies": {
     "@a2a/shared": "0.1.0",
-    "@openrouter/sdk": "^0.12.24",
     "dotenv": "^17.4.2",
-    "jose": "^5.10.0",
-    "openai": "^6.35.0"
+    "jose": "^5.10.0"
   }
 }
