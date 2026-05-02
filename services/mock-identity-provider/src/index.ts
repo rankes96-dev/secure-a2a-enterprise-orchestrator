@@ -38,8 +38,17 @@ type SigningKey = {
   kid: string;
 };
 
+type DemoAgentRegistration = {
+  agentId: string;
+  audience: string;
+  allowedScopes: Set<string>;
+  expiresAtEpochSeconds: number;
+};
+
 let signingKey: SigningKey;
 let resourceRegistry: DiscoveredA2AResourceRegistry;
+const demoAgentRegistrations = new Map<string, DemoAgentRegistration>();
+const unsafeDemoScopePattern = /(?:admin|write|delete|grant|rotate|disable|token|secret|credential)/i;
 
 async function createSigningKey(): Promise<SigningKey> {
   // This is a local demo key. Production would use persisted signing keys and rotation.
@@ -60,6 +69,92 @@ async function createSigningKey(): Promise<SigningKey> {
 
 function parseScopes(scope: string): string[] {
   return scope.split(/\s+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function cleanupExpiredDemoRegistrations(): void {
+  const now = Math.floor(Date.now() / 1000);
+  for (const [audience, registration] of demoAgentRegistrations.entries()) {
+    if (registration.expiresAtEpochSeconds <= now) {
+      demoAgentRegistrations.delete(audience);
+    }
+  }
+}
+
+function demoRegistrationFor(audience: string): DemoAgentRegistration | undefined {
+  cleanupExpiredDemoRegistrations();
+  return demoAgentRegistrations.get(audience);
+}
+
+function demoRegistrationAllows(audience: string, scopes: string[]): boolean {
+  const registration = demoRegistrationFor(audience);
+  return Boolean(registration && scopes.every((scope) => registration.allowedScopes.has(scope)));
+}
+
+function validateDemoRegistrationBody(value: unknown): { ok: true; registration: DemoAgentRegistration } | { ok: false; status: number; error: string } {
+  const body = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  const agentId = typeof body.agentId === "string" ? body.agentId.trim() : "";
+  const audience = typeof body.audience === "string" ? body.audience.trim() : "";
+  const allowedScopes = Array.isArray(body.allowedScopes)
+    ? body.allowedScopes.filter((scope): scope is string => typeof scope === "string").map((scope) => scope.trim()).filter(Boolean)
+    : [];
+  const requestedTtlSeconds = typeof body.ttlSeconds === "number" && Number.isFinite(body.ttlSeconds)
+    ? Math.floor(body.ttlSeconds)
+    : 3600;
+
+  if (!agentId.startsWith("demo-")) {
+    return { ok: false, status: 400, error: "invalid_demo_agent_id" };
+  }
+
+  if (audience !== agentId) {
+    return { ok: false, status: 400, error: "invalid_demo_audience" };
+  }
+
+  if (allowedScopes.length === 0) {
+    return { ok: false, status: 400, error: "missing_allowed_scopes" };
+  }
+
+  const unsafeScope = allowedScopes.find((scope) => unsafeDemoScopePattern.test(scope));
+  if (unsafeScope) {
+    return { ok: false, status: 400, error: `unsafe_demo_scope: ${unsafeScope}` };
+  }
+
+  const ttlSeconds = Math.max(1, Math.min(requestedTtlSeconds, 3600));
+  return {
+    ok: true,
+    registration: {
+      agentId,
+      audience,
+      allowedScopes: new Set(allowedScopes),
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + ttlSeconds
+    }
+  };
+}
+
+async function handleDemoAgentRegistration(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const expectedToken = process.env.INTERNAL_SERVICE_TOKEN;
+  if (!expectedToken || request.headers["x-internal-service-token"] !== expectedToken) {
+    sendJson(response, expectedToken ? 401 : 503, { error: expectedToken ? "unauthorized" : "internal_service_token_not_configured" }, request);
+    return;
+  }
+
+  const validation = validateDemoRegistrationBody(await readJsonBody<unknown>(request));
+  if (!validation.ok) {
+    sendJson(response, validation.status, { error: validation.error }, request);
+    return;
+  }
+
+  cleanupExpiredDemoRegistrations();
+  demoAgentRegistrations.set(validation.registration.audience, validation.registration);
+  console.log(
+    `[mock-idp] demo_agent_registered timestamp=${new Date().toISOString()} agentId=${validation.registration.agentId} audience=${validation.registration.audience} scopes=${[...validation.registration.allowedScopes].join(" ")} expiresAt=${validation.registration.expiresAtEpochSeconds}`
+  );
+  sendJson(response, 200, {
+    ok: true,
+    agentId: validation.registration.agentId,
+    audience: validation.registration.audience,
+    allowedScopes: [...validation.registration.allowedScopes],
+    expiresAtEpochSeconds: validation.registration.expiresAtEpochSeconds
+  }, request);
 }
 
 type TokenValidationResult =
@@ -99,7 +194,9 @@ async function validateTokenRequest(body: TokenRequest): Promise<TokenValidation
     return { ok: false, status: 400, error: "missing_audience_or_scope", authMethod: clientAuth.authMethod };
   }
 
-  if (!resourceRegistry.audiences.has(body.audience)) {
+  const isStaticAudience = resourceRegistry.audiences.has(body.audience);
+  const isDemoAudience = body.audience.startsWith("demo-");
+  if (!isStaticAudience && !demoRegistrationFor(body.audience)) {
     return { ok: false, status: 403, error: `audience_not_allowed: ${body.audience}`, authMethod: clientAuth.authMethod };
   }
 
@@ -108,7 +205,11 @@ async function validateTokenRequest(body: TokenRequest): Promise<TokenValidation
     return { ok: false, status: 403, error: `scope_denied: ${denied}`, authMethod: clientAuth.authMethod };
   }
 
-  const unsupported = scopes.find((scope) => !resourceRegistry.scopes.has(scope));
+  if (isDemoAudience && !demoRegistrationAllows(body.audience, scopes)) {
+    return { ok: false, status: 403, error: "demo_scope_not_allowed", authMethod: clientAuth.authMethod };
+  }
+
+  const unsupported = isStaticAudience ? scopes.find((scope) => !resourceRegistry.scopes.has(scope)) : undefined;
   if (unsupported) {
     return { ok: false, status: 403, error: `scope_not_allowed: ${unsupported}`, authMethod: clientAuth.authMethod };
   }
@@ -295,6 +396,11 @@ async function start(): Promise<void> {
         },
         request
       );
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/internal/demo-agent-registrations") {
+      await handleDemoAgentRegistration(request, response);
       return;
     }
 

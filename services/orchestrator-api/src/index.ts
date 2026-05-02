@@ -528,6 +528,59 @@ function mockIdentityProviderHealthUrl(): string {
   return url.toString();
 }
 
+function mockIdentityProviderDemoRegistrationUrl(): string {
+  const url = new URL(process.env.A2A_IDP_URL ?? "http://localhost:4110");
+  url.pathname = "/internal/demo-agent-registrations";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function demoAgentAllowedScopes(card: AgentCard): string[] {
+  return [...new Set(card.skills.flatMap((skill) => skill.requiredScopes ?? (skill.requiredPermission ? [skill.requiredPermission] : [])).filter(Boolean))];
+}
+
+async function registerDemoAgentWithMockIdp(card: AgentCard): Promise<string | undefined> {
+  if (!isDemoAgentCard(card)) {
+    return undefined;
+  }
+
+  const internalToken = process.env.INTERNAL_SERVICE_TOKEN;
+  if (!internalToken) {
+    return "Mock IdP demo registration skipped because INTERNAL_SERVICE_TOKEN is not configured.";
+  }
+
+  const allowedScopes = demoAgentAllowedScopes(card);
+  if (!card.auth.audience || allowedScopes.length === 0) {
+    return "Mock IdP demo registration skipped because generated audience or scope metadata is missing.";
+  }
+
+  try {
+    const response = await fetch(mockIdentityProviderDemoRegistrationUrl(), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-internal-service-token": internalToken
+      },
+      body: JSON.stringify({
+        agentId: card.agentId,
+        audience: card.auth.audience,
+        allowedScopes,
+        ttlSeconds: 3600
+      })
+    });
+
+    if (!response.ok) {
+      return `Mock IdP demo registration failed with ${response.status}.`;
+    }
+
+    return undefined;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "unknown error";
+    return `Mock IdP demo registration failed: ${detail}`;
+  }
+}
+
 async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>[number]): Promise<AgentHealthCheck> {
   const checkedAt = new Date().toISOString();
   const healthUrl = endpointForPath(card.endpoint, "/health");
@@ -700,6 +753,14 @@ function demoInputFromRequestBody(value: unknown): DemoAgentCardInput {
     agentId: typeof record.agentId === "string" ? record.agentId : undefined,
     agentName: typeof record.agentName === "string" ? record.agentName : typeof record.name === "string" ? record.name : undefined,
     description: typeof record.description === "string" ? record.description : undefined,
+    diagnosisGoal: typeof record.diagnosisGoal === "string"
+      ? record.diagnosisGoal
+      : typeof record.purposeText === "string"
+        ? record.purposeText
+        : typeof firstSkill?.name === "string"
+          ? firstSkill.name
+          : undefined,
+    purposeText: typeof record.purposeText === "string" ? record.purposeText : undefined,
     capability: typeof record.capability === "string"
       ? record.capability
       : Array.isArray(firstSkill?.capabilities) && typeof firstSkill.capabilities[0] === "string"
@@ -735,7 +796,12 @@ function demoInputFromRequestBody(value: unknown): DemoAgentCardInput {
         ? record.supportingCapabilities.split(",")
         : Array.isArray(firstSkill?.supportingCapabilities)
           ? firstSkill.supportingCapabilities.filter((item): item is string => typeof item === "string")
-          : undefined
+          : undefined,
+    supportingHelpOptions: Array.isArray(record.supportingHelpOptions)
+      ? record.supportingHelpOptions.filter((item): item is string => typeof item === "string")
+      : typeof record.supportingHelpOptions === "string"
+        ? record.supportingHelpOptions.split(",")
+        : undefined
   };
 }
 
@@ -1433,16 +1499,51 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     a2aTasks.push(a2aTask);
 
     if (isDemoAgentCard(card)) {
-      a2aTask.context.auth = {
-        ...a2aTask.context.auth,
-        authMode: a2aAuthMode,
-        audience: card.auth.audience,
-        scope: requestedScope,
-        tokenIssued: false,
-        validationReason: "Session demo agent uses a safe mock runtime; JWT validation is documented but not enforced by a live HTTP service."
-      };
-      orchestratorTrace.push(trace("SESSION_DEMO_JWT_DOCUMENTED", `Session demo agent uses audience ${card.auth.audience} and scope ${requestedScope ?? "none"}; raw token not exposed.`));
-      orchestratorTrace.push(trace("SESSION_DEMO_TOKEN_METADATA_RECEIVED", "Session demo agent mock runtime received token metadata; raw token not exposed."));
+      const registrationWarning = await registerDemoAgentWithMockIdp(card);
+      if (registrationWarning) {
+        orchestratorTrace.push(trace("SESSION_DEMO_IDP_REGISTRATION_WARNING", registrationWarning));
+      }
+
+      if (a2aAuthMode === "oauth2_client_credentials_jwt") {
+        try {
+          await prepareA2ARequestAuth({
+            task: a2aTask,
+            targetAudience: card.auth.audience,
+            requestedScope,
+            executionSteps: delegationExecutionSteps,
+            traceEntries: orchestratorTrace,
+            cards: requestAgentCards
+          });
+          a2aTask.context.auth = {
+            ...a2aTask.context.auth,
+            authMode: "oauth2_client_credentials_jwt",
+            validationReason: "Scoped JWT was issued from the generated Agent Card metadata. This demo uses a mock runtime, so no live external service validated the token."
+          };
+          orchestratorTrace.push(trace("SESSION_DEMO_TOKEN_METADATA_RECEIVED", "Session demo agent mock runtime received token metadata; raw token not exposed."));
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : "Unknown token issuance failure";
+          a2aTask.context.auth = {
+            ...a2aTask.context.auth,
+            authMode: a2aAuthMode,
+            audience: card.auth.audience,
+            scope: requestedScope,
+            tokenIssued: false,
+            validationReason: `Scoped JWT issuance failed for the session demo agent: ${detail}`
+          };
+          orchestratorTrace.push(trace("SESSION_DEMO_JWT_ISSUANCE_FAILED", `Session demo agent token issuance failed for audience ${card.auth.audience} and scope ${requestedScope ?? "none"}. Raw token not exposed.`));
+        }
+      } else {
+        a2aTask.context.auth = {
+          ...a2aTask.context.auth,
+          authMode: a2aAuthMode,
+          audience: card.auth.audience,
+          scope: requestedScope,
+          tokenIssued: false,
+          validationReason: "Session demo agent used mock internal auth mode; no live external service validated a token."
+        };
+        orchestratorTrace.push(trace("SESSION_DEMO_JWT_DOCUMENTED", `Session demo agent uses audience ${card.auth.audience} and scope ${requestedScope ?? "none"}; raw token not exposed.`));
+      }
+
       a2aResponses.push(createDemoAgentResponse(card, skillMetadata));
       orchestratorTrace.push(trace("DEMO_AGENT_EXECUTED", `Returned safe mock response for ${agent.agentId}; no user-defined endpoint was fetched.`));
       continue;
@@ -1663,11 +1764,17 @@ async function start(): Promise<void> {
       return;
     }
 
-    const agentCard = addDemoAgentCard(sessionToken, buildDemoAgentCard(input));
+    const builtAgentCard = buildDemoAgentCard(input);
+    const warnings = validateDemoAgentCard(builtAgentCard);
+    const registrationWarning = await registerDemoAgentWithMockIdp(builtAgentCard);
+    if (registrationWarning) {
+      warnings.push(registrationWarning);
+    }
+    const agentCard = addDemoAgentCard(sessionToken, builtAgentCard);
     sendJson(response, 200, {
       agentCard,
       agentCards: listDemoAgentCards(sessionToken),
-      warnings: validateDemoAgentCard(agentCard)
+      warnings
     }, request);
     return;
   }

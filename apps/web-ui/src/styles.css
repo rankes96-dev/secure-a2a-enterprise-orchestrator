@@ -194,6 +194,63 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.nested-demo-agent-form {
+  margin-top: 10px;
+}
+
+.demo-agent-advanced {
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.demo-agent-advanced summary {
+  color: #2d4650;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.demo-agent-checkboxes {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.demo-agent-checkboxes > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.demo-agent-checkboxes label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #c7d2d8;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #ffffff;
+}
+
+.demo-agent-checkboxes label span {
+  color: #253d47;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.demo-agent-checkboxes input {
+  min-width: auto;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
+
 .demo-agent-actions {
   display: flex;
   flex-wrap: wrap;
@@ -208,6 +265,12 @@ h2 {
   border-radius: 8px;
   padding: 10px;
   background: #f7fafb;
+}
+
+.demo-agent-auth-note strong:first-child {
+  grid-column: 1 / -1;
+  color: #253d47;
+  font-size: 13px;
 }
 
 .demo-agent-auth-note span {

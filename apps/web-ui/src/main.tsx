@@ -186,12 +186,13 @@ type DemoAgentCardInput = {
   agentSlug: string;
   agentName: string;
   description: string;
+  diagnosisGoal: string;
   capability: string;
   requiredScope: string;
   riskLevel: "low" | "medium" | "high" | "sensitive";
   resourceTypes: string;
   examples: string;
-  supportingCapabilities: string;
+  supportingHelpOptions: string[];
 };
 
 const emptyDemoAgentInput: DemoAgentCardInput = {
@@ -199,13 +200,20 @@ const emptyDemoAgentInput: DemoAgentCardInput = {
   agentSlug: "",
   agentName: "",
   description: "",
+  diagnosisGoal: "",
   capability: "",
   requiredScope: "",
   riskLevel: "low",
   resourceTypes: "incident, ticket, account",
   examples: "",
-  supportingCapabilities: ""
+  supportingHelpOptions: []
 };
+
+const supportingHelpOptions = [
+  { value: "oauth_scope_compare", label: "OAuth scope comparison" },
+  { value: "api_health", label: "API health / rate limit" },
+  { value: "security_policy", label: "Security policy evaluation" }
+];
 
 function createMessageId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -306,8 +314,21 @@ function App() {
       ...demoAgentInput,
       resourceTypes: demoAgentInput.resourceTypes.split(",").map((item) => item.trim()).filter(Boolean),
       examples: demoAgentInput.examples.split(",").map((item) => item.trim()).filter(Boolean),
-      supportingCapabilities: demoAgentInput.supportingCapabilities.split(",").map((item) => item.trim()).filter(Boolean)
+      capability: demoAgentInput.capability.trim() || undefined,
+      requiredScope: demoAgentInput.requiredScope.trim() || undefined
     };
+  }
+
+  function toggleSupportingHelpOption(option: string) {
+    setDemoAgentInput((current) => {
+      const enabled = current.supportingHelpOptions.includes(option);
+      return {
+        ...current,
+        supportingHelpOptions: enabled
+          ? current.supportingHelpOptions.filter((item) => item !== option)
+          : [...current.supportingHelpOptions, option]
+      };
+    });
   }
 
   function closeDemoBuilder() {
@@ -595,39 +616,27 @@ function App() {
             <div className="agent-health-header">
               <div>
                 <h2>Create External Demo Agent</h2>
-                <p>Create a session-only Agent Card that represents a vendor/domain-owned agent. It is stored only for this browser session and uses a safe mock runtime.</p>
+                <p>Simulate a vendor/domain-owned external agent. Fill in simple fields, and the demo generates the Agent Card JSON that a real external system would publish at /.well-known/agent-card.json.</p>
               </div>
               <button type="button" onClick={closeDemoBuilder}>Close</button>
             </div>
             {demoAgentError ? <p className="error">{demoAgentError}</p> : null}
+            <h2>Describe the external agent</h2>
             <div className="demo-agent-form">
               <label>
-                <span>System</span>
-                <input value={demoAgentInput.system} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, system: event.target.value })} placeholder="Confluence" />
-                <small>The product/domain this agent owns, for example Salesforce, Slack, Datadog, Okta.</small>
-              </label>
-              <label>
-                <span>Agent slug</span>
-                <input value={demoAgentInput.agentSlug} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, agentSlug: event.target.value })} placeholder="salesforce-access" />
-                <small>Optional. Generates IDs like demo-salesforce-access-agent. Leave blank for a unique generated ID.</small>
+                <span>System / product</span>
+                <input value={demoAgentInput.system} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, system: event.target.value })} placeholder="Salesforce" />
+                <small>The product or domain this external agent owns, for example Salesforce, Slack, Datadog, Okta.</small>
               </label>
               <label>
                 <span>Agent name</span>
-                <input value={demoAgentInput.agentName} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, agentName: event.target.value })} placeholder="Demo Confluence Agent" />
+                <input value={demoAgentInput.agentName} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, agentName: event.target.value })} placeholder="Salesforce Access Agent" />
+                <small>Friendly name shown in the demo.</small>
               </label>
               <label className="wide-field">
-                <span>Description</span>
-                <input value={demoAgentInput.description} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, description: event.target.value })} placeholder="Demo agent that diagnoses Confluence issues." />
-              </label>
-              <label>
-                <span>Capability</span>
-                <input value={demoAgentInput.capability} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, capability: event.target.value })} placeholder="confluence.issue.diagnose" />
-                <small>The stable routing key the orchestrator uses to select this agent. Example: salesforce.access.diagnose.</small>
-              </label>
-              <label>
-                <span>Required scope</span>
-                <input value={demoAgentInput.requiredScope} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, requiredScope: event.target.value })} placeholder="confluence.diagnose" />
-                <small>Permission encoded into the A2A JWT. The target agent should only accept tokens with this scope.</small>
+                <span>What can this agent diagnose?</span>
+                <input value={demoAgentInput.diagnosisGoal} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, diagnosisGoal: event.target.value })} placeholder="Diagnose Salesforce access issues" />
+                <small>The demo uses this to generate safe routing metadata such as capability and requested action.</small>
               </label>
               <label>
                 <span>Risk level</span>
@@ -637,22 +646,65 @@ function App() {
                   <option value="high">high</option>
                   <option value="sensitive">sensitive</option>
                 </select>
-                <small>Low/medium are suitable for read-only diagnosis. High/sensitive actions should require approval or be blocked by policy.</small>
+                <small>Read-only diagnosis should be low/medium. High/sensitive actions should require approval or be blocked.</small>
               </label>
               <label>
                 <span>Resource types</span>
                 <input value={demoAgentInput.resourceTypes} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, resourceTypes: event.target.value })} />
-                <small>The objects this agent understands, for example incident, user, repository, service. Used as routing context.</small>
+                <small>Objects this agent understands, for example user, account, incident, repository, service.</small>
               </label>
-              <label className="wide-field">
-                <span>Supporting capabilities</span>
-                <input value={demoAgentInput.supportingCapabilities} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, supportingCapabilities: event.target.value })} placeholder="oauth.scope.compare, api.health.diagnose" />
-                <small>The agent does not directly call another agent. It can request delegated help, and the orchestrator validates policy, prevents loops, and mediates the task.</small>
+              <label>
+                <span>Description</span>
+                <input value={demoAgentInput.description} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, description: event.target.value })} placeholder="Demo agent that diagnoses Salesforce issues." />
               </label>
               <label>
                 <span>Examples</span>
-                <input value={demoAgentInput.examples} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, examples: event.target.value })} placeholder="Confluence page sync fails" />
+                <input value={demoAgentInput.examples} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, examples: event.target.value })} placeholder="Salesforce login fails, cannot access account" />
               </label>
+              <div className="wide-field demo-agent-checkboxes">
+                <span>Can this agent ask another agent for help?</span>
+                <small>The agent does not directly call another agent. It can request delegated help, and the orchestrator validates policy, prevents loops, and mediates the task.</small>
+                <div>
+                  {supportingHelpOptions.map((option) => (
+                    <label key={option.value}>
+                      <input
+                        type="checkbox"
+                        checked={demoAgentInput.supportingHelpOptions.includes(option.value)}
+                        onChange={() => toggleSupportingHelpOption(option.value)}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={demoAgentInput.supportingHelpOptions.length === 0}
+                      onChange={() => setDemoAgentInput({ ...demoAgentInput, supportingHelpOptions: [] })}
+                    />
+                    <span>None</span>
+                  </label>
+                </div>
+              </div>
+              <details className="wide-field demo-agent-advanced">
+                <summary>Advanced generated metadata</summary>
+                <div className="demo-agent-form nested-demo-agent-form">
+                  <label>
+                    <span>Agent slug</span>
+                    <input value={demoAgentInput.agentSlug} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, agentSlug: event.target.value })} placeholder="salesforce-access" />
+                    <small>Optional. Generates IDs like demo-salesforce-access-agent. Leave blank for a unique generated ID.</small>
+                  </label>
+                  <label>
+                    <span>Capability override</span>
+                    <input value={demoAgentInput.capability} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, capability: event.target.value })} placeholder="salesforce.access.diagnose" />
+                    <small>Stable routing key generated by default from the diagnosis goal.</small>
+                  </label>
+                  <label>
+                    <span>Required scope override</span>
+                    <input value={demoAgentInput.requiredScope} onChange={(event) => setDemoAgentInput({ ...demoAgentInput, requiredScope: event.target.value })} placeholder="salesforce.diagnose" />
+                    <small>Permission encoded into the A2A JWT. Generated by default from the system.</small>
+                  </label>
+                </div>
+              </details>
             </div>
             <div className="demo-agent-actions">
               <button type="button" onClick={() => void generateDemoAgentPreview()}>Generate preview</button>
@@ -665,11 +717,20 @@ function App() {
             </div>
             {demoAgentPreview ? (
               <div className="demo-agent-auth-note">
-                <strong>Generated agentId</strong>
+                <strong>Generated A2A security metadata</strong>
+                <small>These values are generated by the demo from your form. In production, the external vendor agent would publish them in its Agent Card.</small>
+                <strong>agentId</strong>
                 <span>{demoAgentPreview.agentId}</span>
-                <strong>Audience</strong>
+                <strong>audience</strong>
                 <span>{demoAgentPreview.auth.audience}</span>
-                <small>JWT audience for this agent. Tokens issued for another audience should not be accepted.</small>
+                <strong>required scope</strong>
+                <span>{demoAgentPreview.skills[0]?.requiredScopes?.[0] ?? "none"}</span>
+                <strong>capability</strong>
+                <span>{demoAgentPreview.skills[0]?.capabilities?.[0] ?? "none"}</span>
+                <strong>auth mode</strong>
+                <span>{demoAgentPreview.auth.type}</span>
+                <strong>endpoint</strong>
+                <span>{demoAgentPreview.endpoint}</span>
               </div>
             ) : null}
             {demoAgentWarnings.length > 0 ? (
@@ -690,7 +751,7 @@ function App() {
             {demoAgentPreview ? (
               <div className="demo-agent-preview">
                 <h2>/.well-known/agent-card.json preview</h2>
-                <p className="muted-note">In this demo the orchestrator stores this Agent Card in your session. A real vendor agent would host this JSON from its own domain.</p>
+                <p className="muted-note">This JSON is generated by the demo. In a real A2A federation, this JSON would be hosted by the external vendor/domain agent.</p>
                 <JsonBlock value={demoAgentPreview} />
               </div>
             ) : null}

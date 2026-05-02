@@ -7,16 +7,30 @@ export type DemoAgentCardInput = {
   agentId?: string;
   agentName?: string;
   description?: string;
+  diagnosisGoal?: string;
+  purposeText?: string;
   capability?: string;
   requiredScope?: string;
   riskLevel?: "low" | "medium" | "high" | "sensitive";
   resourceTypes?: string[];
   examples?: string[];
   supportingCapabilities?: string[];
+  supportingHelpOptions?: string[];
 };
 
 const cardsBySession = new Map<string, AgentCard[]>();
 const highRiskTerms = ["grant", "admin", "delete", "resolve", "escalate", "override", "rotate", "disable", "write"];
+const supportingHelpCapabilityByOption = new Map<string, string>([
+  ["oauth_scope_compare", "oauth.scope.compare"],
+  ["oauth scope comparison", "oauth.scope.compare"],
+  ["oauth.scope.compare", "oauth.scope.compare"],
+  ["api_health", "api.health.diagnose"],
+  ["api health / rate limit", "api.health.diagnose"],
+  ["api.health.diagnose", "api.health.diagnose"],
+  ["security_policy", "security.policy.evaluate"],
+  ["security policy evaluation", "security.policy.evaluate"],
+  ["security.policy.evaluate", "security.policy.evaluate"]
+]);
 
 function titleCase(value: string): string {
   return value
@@ -62,6 +76,32 @@ function highRiskRequestedAction(value: string): boolean {
   return highRiskTerms.some((term) => normalized.includes(term));
 }
 
+function capabilityFromGoal(systemScope: string, goal?: string): string {
+  const normalized = (goal ?? "").toLowerCase();
+
+  if (/(?:access|permission|login|auth|sign[-\s]?in|sso|mfa)/.test(normalized)) {
+    return `${systemScope}.access.diagnose`;
+  }
+
+  if (/(?:api|rate|limit|quota|health|latency|timeout|availability)/.test(normalized)) {
+    return `${systemScope}.api_health.diagnose`;
+  }
+
+  if (/(?:alert|monitor|incident|notification|page|on[-\s]?call)/.test(normalized)) {
+    return `${systemScope}.monitoring.diagnose`;
+  }
+
+  return `${systemScope}.issue.diagnose`;
+}
+
+function supportingCapabilitiesFor(input: DemoAgentCardInput): string[] {
+  const mapped = (input.supportingHelpOptions ?? [])
+    .map((option) => supportingHelpCapabilityByOption.get(option.trim().toLowerCase()))
+    .filter((value): value is string => Boolean(value));
+
+  return listFromInput([...(input.supportingCapabilities ?? []), ...mapped], []);
+}
+
 export function listDemoAgentCards(sessionToken: string): AgentCard[] {
   return [...(cardsBySession.get(sessionToken) ?? [])];
 }
@@ -85,8 +125,9 @@ export function buildDemoAgentCard(input: DemoAgentCardInput): AgentCard {
   const systemSlug = slug(rawSystem);
   const systemScope = scopeName(rawSystem);
   const displaySystem = titleCase(rawSystem);
+  const diagnosisGoal = input.diagnosisGoal?.trim() || input.purposeText?.trim();
   const agentId = demoAgentId(input, systemSlug);
-  const capability = input.capability?.trim() || `${systemScope}.issue.diagnose`;
+  const capability = input.capability?.trim() || capabilityFromGoal(systemScope, diagnosisGoal);
   const requiredScope = input.requiredScope?.trim() || `${systemScope}.diagnose`;
   const requestedAction = capability;
   const riskLevel = highRiskRequestedAction(requestedAction) && input.riskLevel !== "sensitive"
@@ -106,12 +147,14 @@ export function buildDemoAgentCard(input: DemoAgentCardInput): AgentCard {
     skills: [
       {
         id: `${systemScope}.diagnose`,
-        name: `Diagnose ${displaySystem} issue`,
-        description: `Diagnose ${displaySystem} issues using demo agent-card metadata.`,
-        examples: listFromInput(input.examples, []),
+        name: diagnosisGoal || `Diagnose ${displaySystem} issue`,
+        description: diagnosisGoal
+          ? `${diagnosisGoal} using generated demo agent-card metadata.`
+          : `Diagnose ${displaySystem} issues using demo agent-card metadata.`,
+        examples: listFromInput(input.examples, diagnosisGoal ? [diagnosisGoal] : []),
         requiredScopes: [requiredScope],
         capabilities: [capability],
-        supportingCapabilities: listFromInput(input.supportingCapabilities, []),
+        supportingCapabilities: supportingCapabilitiesFor(input),
         requestedAction,
         requiredPermission: requiredScope,
         riskLevel,
