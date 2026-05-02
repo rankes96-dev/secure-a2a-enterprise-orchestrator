@@ -254,6 +254,9 @@ function App() {
   const [healthError, setHealthError] = useState("");
   const [isHealthLoading, setIsHealthLoading] = useState(false);
   const [isHealthPanelOpen, setIsHealthPanelOpen] = useState(false);
+  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
+  const [deleteAgentError, setDeleteAgentError] = useState("");
+  const [deleteAgentMessage, setDeleteAgentMessage] = useState("");
   const [isDemoBuilderOpen, setIsDemoBuilderOpen] = useState(false);
   const [demoAgentInput, setDemoAgentInput] = useState<DemoAgentCardInput>(emptyDemoAgentInput);
   const [demoAgentPreview, setDemoAgentPreview] = useState<DemoAgentCard | null>(null);
@@ -270,6 +273,10 @@ function App() {
   const healthLabel = health
     ? `Agents: ${health.summary.healthy}/${health.summary.total} healthy`
     : "Agents: check health";
+
+  function canDeleteHealthAgent(agent: AgentsHealthResponse["agents"][number]): boolean {
+    return agent.url.startsWith("session://demo-agent/");
+  }
 
   async function checkAgentHealth() {
     setHealthError("");
@@ -291,6 +298,38 @@ function App() {
       setHealthError(caughtError instanceof Error ? caughtError.message : "Failed to check agent health");
     } finally {
       setIsHealthLoading(false);
+    }
+  }
+
+  async function deleteDemoAgent(agentId: string) {
+    const confirmed = window.confirm(`Remove demo agent ${agentId} from this orchestrator session?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleteAgentError("");
+    setDeleteAgentMessage("");
+    setDeletingAgentId(agentId);
+
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/agents/${encodeURIComponent(agentId)}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(`Delete returned ${response.status} with body ${await response.text()}`);
+      }
+
+      const body = await response.json() as { deleted: boolean; agentId: string; remainingAgents: string[] };
+      setDeleteAgentMessage(`Removed ${body.agentId} from active demo agents.`);
+      await loadDemoAgentCards();
+      await checkAgentHealth();
+    } catch (caughtError) {
+      setDeleteAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete demo agent");
+    } finally {
+      setDeletingAgentId(null);
     }
   }
 
@@ -406,7 +445,7 @@ function App() {
     }
   }
 
-  async function deleteDemoAgent(agentId: string) {
+  async function deleteSessionDemoAgent(agentId: string) {
     setDemoAgentError("");
     try {
       await ensureSession();
@@ -584,6 +623,8 @@ function App() {
               </button>
             </div>
             {healthError ? <p className="error">{healthError}</p> : null}
+            {deleteAgentError ? <p className="error">{deleteAgentError}</p> : null}
+            {deleteAgentMessage ? <p className="success-note">{deleteAgentMessage}</p> : null}
             {health ? (
               <>
                 <div className="health-counts">
@@ -598,7 +639,19 @@ function App() {
                         <strong>{agent.agentId}</strong>
                         <span>{agent.latencyMs} ms / {new Date(agent.checkedAt).toLocaleTimeString()}</span>
                       </div>
-                      <span className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</span>
+                      <div className="agent-health-actions">
+                        <span className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</span>
+                        {canDeleteHealthAgent(agent) ? (
+                          <button
+                            type="button"
+                            className="agent-delete-button"
+                            disabled={isHealthLoading || deletingAgentId === agent.agentId}
+                            onClick={() => void deleteDemoAgent(agent.agentId)}
+                          >
+                            {deletingAgentId === agent.agentId ? "..." : "Delete"}
+                          </button>
+                        ) : null}
+                      </div>
                       <small>{agent.agentId === "mock-identity-provider" ? "Infrastructure dependency" : agent.url.startsWith("session://demo-agent/") ? "Session demo agent" : `Agent Card ${agent.details.agentCardAvailable ? "yes" : "no"}`}</small>
                       {agent.error ? <p>{agent.error}</p> : null}
                     </article>
@@ -744,7 +797,7 @@ function App() {
                 <article key={card.agentId}>
                   <strong>{card.agentId}</strong>
                   <span>{card.skills[0]?.capabilities?.[0] ?? "no capability"}</span>
-                  <button type="button" onClick={() => void deleteDemoAgent(card.agentId)}>Delete</button>
+                  <button type="button" onClick={() => void deleteSessionDemoAgent(card.agentId)}>Delete</button>
                 </article>
               )) : <p className="muted-note">No session demo Agent Cards yet.</p>}
             </div>

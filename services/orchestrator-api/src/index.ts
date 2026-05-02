@@ -814,6 +814,28 @@ function requireSessionToken(request: IncomingMessage, response: ServerResponse)
   return token;
 }
 
+function remainingActiveAgentIds(sessionToken?: string): string[] {
+  return [
+    ...getExecutableAgentCards().map((card) => card.agentId),
+    ...(sessionToken ? listDemoAgentCards(sessionToken).map((card) => card.agentId) : [])
+  ].sort();
+}
+
+function deleteRuntimeDemoAgent(agentId: string, sessionToken?: string): { ok: true; deleted: boolean } | { ok: false; status: number; error: string } {
+  if (agentId === orchestratorAgentId) {
+    return { ok: false, status: 403, error: "cannot_delete_orchestrator" };
+  }
+
+  const sessionCards = sessionToken ? listDemoAgentCards(sessionToken) : [];
+  const sessionKnown = sessionCards.some((card) => card.agentId === agentId);
+  if (sessionKnown && sessionToken) {
+    deleteDemoAgentCard(sessionToken, agentId);
+    return { ok: true, deleted: true };
+  }
+
+  return { ok: false, status: 404, error: "session_demo_agent_not_found" };
+}
+
 async function checkSessionDemoAgentHealth(card: AgentCard): Promise<AgentHealthCheck> {
   return {
     agentId: card.agentId,
@@ -1690,6 +1712,27 @@ async function start(): Promise<void> {
     }
 
     sendJson(response, 200, await buildAgentsHealthResponse(getSessionToken(request)));
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url?.startsWith("/agents/")) {
+    if (!requireClientAccess(request, response)) {
+      return;
+    }
+
+    const sessionToken = getSessionToken(request);
+    const agentId = decodeURIComponent(request.url.slice("/agents/".length));
+    const result = deleteRuntimeDemoAgent(agentId, sessionToken);
+    if (!result.ok) {
+      sendJson(response, result.status, { error: result.error, agentId }, request);
+      return;
+    }
+
+    sendJson(response, 200, {
+      deleted: true,
+      agentId,
+      remainingAgents: remainingActiveAgentIds(sessionToken)
+    }, request);
     return;
   }
 
