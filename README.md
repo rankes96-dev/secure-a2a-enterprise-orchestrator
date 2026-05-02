@@ -196,7 +196,7 @@ The project includes a generic `StateStore` abstraction with:
 
 - `private_key_jwt` `client_assertion` replay protection
 - storing used `jti` values with TTL
-- future session-scoped demo Agent Cards
+- future session/demo state if the session-scoped Agent Card registry is moved from in-memory storage to Redis for cloud scaling
 - future rate limit buckets, session state, or token cache if needed
 
 In-memory state is fine for local development, but it is lost on restart and does not work across multiple cloud instances. Upstash Redis provides shared TTL-based state for Railway/Vercel-style deployments.
@@ -209,6 +209,15 @@ STATE_STORE_KEY_PREFIX=a2a
 UPSTASH_REDIS_REST_URL=
 UPSTASH_REDIS_REST_TOKEN=
 ```
+For upstash
+
+```env
+STATE_STORE_DRIVER=upstash
+STATE_STORE_KEY_PREFIX=a2a
+UPSTASH_REDIS_REST_URL=https://...
+UPSTASH_REDIS_REST_TOKEN=...
+```
+Use these values only in backend environments such as Railway or local .env files. Never expose Upstash credentials to the Vercel frontend.
 
 ## Mock Identity Provider
 
