@@ -736,6 +736,43 @@ h2 {
   align-items: end;
 }
 
+.onboarding-wizard-steps {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-wizard-steps li {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid #dbe3e8;
+  border-radius: 12px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.onboarding-wizard-steps span {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #14213d;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.onboarding-wizard-steps strong {
+  color: #253d47;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
 .zero-trust-form label {
   display: grid;
   gap: 5px;
@@ -836,6 +873,13 @@ h2 {
   border-radius: 10px;
   padding: 10px;
   background: #fbfcfd;
+}
+
+.zero-trust-verified-values small {
+  color: #526b76;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .agent-health-panel {
@@ -2851,7 +2895,8 @@ pre {
   }
 
   .zero-trust-form,
-  .zero-trust-verified-values {
+  .zero-trust-verified-values,
+  .onboarding-wizard-steps {
     grid-template-columns: 1fr;
   }
 }

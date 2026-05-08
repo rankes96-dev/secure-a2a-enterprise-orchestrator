@@ -1,5 +1,5 @@
 import { SignJWT } from "jose";
-import { agentId, agentIssuer, clientId, requestedScopes, supportedCapabilities, tokenEndpointAuthMethod } from "./config.js";
+import { agentDeclaredCapabilities, agentId, agentIssuer, clientId, requestedScopes, tokenEndpointAuthMethod } from "./config.js";
 import { getSigningKey } from "./keys.js";
 
 export type OnboardingChallenge = {
@@ -54,7 +54,7 @@ export async function createSignedTrustResponse(challenge: OnboardingChallenge):
     issuer,
     clientId,
     audience: agentId,
-    supportedCapabilities,
+    agentDeclaredCapabilities,
     requestedScopes,
     tokenEndpointAuthMethod
   })

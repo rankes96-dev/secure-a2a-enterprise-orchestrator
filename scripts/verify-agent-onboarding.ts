@@ -75,6 +75,15 @@ async function verifyValidOnboarding(): Promise<void> {
   if (result.trustLevel !== "trusted_metadata_only") {
     throw new Error(`expected trustLevel trusted_metadata_only, got ${JSON.stringify(result.trustLevel)}`);
   }
+  const discoveredAgent = asRecord(result.discoveredAgent);
+  const declaredCapabilities = Array.isArray(discoveredAgent.agentDeclaredCapabilities) ? discoveredAgent.agentDeclaredCapabilities : [];
+  if (!declaredCapabilities.includes("jira.issue.create")) {
+    throw new Error(`discoveredAgent did not expose agent-declared capabilities: ${JSON.stringify(body)}`);
+  }
+  if (!Array.isArray(discoveredAgent.requestedScopes) || !discoveredAgent.requestedScopes.includes("read:jira-work")) {
+    throw new Error(`discoveredAgent did not expose requested scopes: ${JSON.stringify(body)}`);
+  }
+
   const agentProof = asRecord(result.agentProof);
   if (agentProof.signedResponseVerified !== true || agentProof.nonceMatched !== true) {
     throw new Error(`agent proof did not pass: ${JSON.stringify(body)}`);
@@ -90,8 +99,9 @@ async function verifyValidOnboarding(): Promise<void> {
   if (resourcePermissionProof.principal !== "svc-a2a-jira-agent") {
     throw new Error(`resource permissions not loaded: ${JSON.stringify(body)}`);
   }
-  const approvedCapabilities = Array.isArray(result.approvedCapabilities) ? result.approvedCapabilities.map((item) => asRecord(item)) : [];
-  const blockedCapabilities = Array.isArray(result.blockedCapabilities) ? result.blockedCapabilities.map((item) => asRecord(item)) : [];
+  const capabilityDecision = asRecord(result.capabilityDecision);
+  const approvedCapabilities = Array.isArray(capabilityDecision.approvedCapabilities) ? capabilityDecision.approvedCapabilities.map((item) => asRecord(item)) : [];
+  const blockedCapabilities = Array.isArray(capabilityDecision.blockedCapabilities) ? capabilityDecision.blockedCapabilities.map((item) => asRecord(item)) : [];
   if (!approvedCapabilities.some((item) => item.capability === "jira.issue.diagnose_creation_failure")) {
     throw new Error(`jira.issue.diagnose_creation_failure was not approved: ${JSON.stringify(body)}`);
   }

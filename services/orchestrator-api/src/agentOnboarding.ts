@@ -33,7 +33,7 @@ export type ExternalAgentTrustResponse = {
   clientId: string;
   audience: string;
   nonce: string;
-  supportedCapabilities: string[];
+  agentDeclaredCapabilities: string[];
   requestedScopes: string[];
   tokenEndpointAuthMethod: "private_key_jwt" | "client_secret_post" | "unknown";
   jwksUri: string;
@@ -62,7 +62,7 @@ export type TrustedOnboardedAgent = {
   clientId: string;
   audience: string;
   requestedScopes: string[];
-  supportedCapabilities: string[];
+  agentDeclaredCapabilities: string[];
   grantedScopes: string[];
   approvedCapabilities: DerivedCapability[];
   blockedCapabilities: DerivedCapability[];
@@ -103,19 +103,27 @@ export type AgentOnboardingValidationResult =
       onboardingId: string;
       status: "trusted_metadata_only";
       trustLevel: AgentTrustLevel;
+      discoveredAgent: {
+        agentId: string;
+        issuer: string;
+        clientId: string;
+        audience: string;
+        requestedScopes: string[];
+        agentDeclaredCapabilities: string[];
+      };
       agent: {
         agentId: string;
         issuer: string;
-          clientId: string;
-          audience: string;
+        clientId: string;
+        audience: string;
       };
       agentProof: AgentProof;
       oauthApplicationProof: OAuthApplicationProof;
       resourcePermissionProof: ResourcePermissionProof;
-      requestedScopes: string[];
-      supportedCapabilities: string[];
-      approvedCapabilities: DerivedCapability[];
-      blockedCapabilities: DerivedCapability[];
+      capabilityDecision: {
+        approvedCapabilities: DerivedCapability[];
+        blockedCapabilities: DerivedCapability[];
+      };
       checks: AgentOnboardingCheck[];
       message: string;
       trustedAgent: TrustedOnboardedAgent;
@@ -176,7 +184,7 @@ function requestedScopeForCapability(capability: string): string | undefined {
 }
 
 function deriveApprovedCapabilities(params: {
-  supportedCapabilities: string[];
+  agentDeclaredCapabilities: string[];
   requestedScopes: string[];
   grantedScopes: string[];
   resourceRegistration: ResourcePermissionRegistration;
@@ -188,7 +196,7 @@ function deriveApprovedCapabilities(params: {
   const approvedCapabilities: DerivedCapability[] = [];
   const blockedCapabilities: DerivedCapability[] = [];
 
-  for (const capability of params.supportedCapabilities) {
+  for (const capability of params.agentDeclaredCapabilities) {
     const requiredScope = requestedScopeForCapability(capability);
     if (requiredScope && !requestedScopes.has(requiredScope)) {
       blockedCapabilities.push({ capability, reason: `agent did not request required OAuth scope ${requiredScope}` });
@@ -297,7 +305,7 @@ export function startAgentOnboarding(ownerKey: string, value: unknown): AgentOnb
     details.push(...binding.details);
   }
 
-  const resourcePermissions = evaluateResourcePermissions(trustResponse.clientId, trustResponse.supportedCapabilities);
+  const resourcePermissions = evaluateResourcePermissions(trustResponse.clientId, trustResponse.agentDeclaredCapabilities);
   addCheck(checks, "resource_permissions_loaded", Boolean(resourcePermissions.registration));
   if (!resourcePermissions.registration) {
     details.push(`resource permissions not registered for clientId ${trustResponse.clientId}`);
@@ -317,7 +325,7 @@ export function startAgentOnboarding(ownerKey: string, value: unknown): AgentOnb
   }
 
   const derivedCapabilities = deriveApprovedCapabilities({
-    supportedCapabilities: trustResponse.supportedCapabilities,
+    agentDeclaredCapabilities: trustResponse.agentDeclaredCapabilities,
     requestedScopes: trustResponse.requestedScopes,
     grantedScopes: binding.grantedScopes,
     resourceRegistration,
@@ -332,7 +340,7 @@ export function startAgentOnboarding(ownerKey: string, value: unknown): AgentOnb
     clientId: trustResponse.clientId,
     audience: trustResponse.audience,
     requestedScopes: [...trustResponse.requestedScopes],
-    supportedCapabilities: [...trustResponse.supportedCapabilities],
+    agentDeclaredCapabilities: [...trustResponse.agentDeclaredCapabilities],
     grantedScopes: [...binding.grantedScopes],
     approvedCapabilities: [...derivedCapabilities.approvedCapabilities],
     blockedCapabilities: [...derivedCapabilities.blockedCapabilities],
@@ -349,6 +357,14 @@ export function startAgentOnboarding(ownerKey: string, value: unknown): AgentOnb
     onboardingId: challenge.onboardingId,
     status: "trusted_metadata_only",
     trustLevel: "trusted_metadata_only",
+    discoveredAgent: {
+      agentId: trustResponse.agentId,
+      issuer: trustResponse.issuer,
+      clientId: trustResponse.clientId,
+      audience: trustResponse.audience,
+      requestedScopes: [...trustResponse.requestedScopes],
+      agentDeclaredCapabilities: [...trustResponse.agentDeclaredCapabilities]
+    },
     agent: {
       agentId: trustResponse.agentId,
       issuer: trustResponse.issuer,
@@ -371,10 +387,10 @@ export function startAgentOnboarding(ownerKey: string, value: unknown): AgentOnb
       effectivePermissions: [...resourceRegistration.effectivePermissions],
       deniedPermissions: [...resourceRegistration.deniedPermissions]
     },
-    requestedScopes: [...trustResponse.requestedScopes],
-    supportedCapabilities: [...trustResponse.supportedCapabilities],
-    approvedCapabilities: [...derivedCapabilities.approvedCapabilities],
-    blockedCapabilities: [...derivedCapabilities.blockedCapabilities],
+    capabilityDecision: {
+      approvedCapabilities: [...derivedCapabilities.approvedCapabilities],
+      blockedCapabilities: [...derivedCapabilities.blockedCapabilities]
+    },
     checks,
     message: "External agent identity verified. Approved capabilities were derived from signed agent declarations, OAuth application grants, resource-system permissions, and gateway policy.",
     trustedAgent

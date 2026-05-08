@@ -8,7 +8,7 @@ This service represents an external Jira agent. It exposes public discovery meta
 
 - The Agent Card/discovery document is a declaration, not trust.
 - The agent proves control by signing an onboarding response with its private key.
-- Requested scopes and supported capabilities are returned only after a nonce-bound gateway challenge.
+- Requested scopes and agent-declared capabilities are returned only after a nonce-bound gateway challenge.
 - The gateway must still derive approved capabilities from OAuth grants and resource permissions.
 - The gateway can verify the signed trust response using the agent JWKS.
 - Runtime task execution requires a scoped A2A JWT and validates it before returning a diagnosis.

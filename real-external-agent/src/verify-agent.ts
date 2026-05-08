@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { agentId, agentIssuer, clientId, requestedScopes, supportedCapabilities, tokenEndpointAuthMethod } from "./config.js";
+import { agentDeclaredCapabilities, agentId, agentIssuer, clientId, requestedScopes, tokenEndpointAuthMethod } from "./config.js";
 
 const baseUrl = agentIssuer();
 
@@ -97,8 +97,8 @@ async function verifyOnboarding(jwksUri: string): Promise<void> {
   assertCondition(payload.issuer === baseUrl, "trust response issuer mismatch");
   assertCondition(payload.clientId === clientId, "trust response clientId mismatch");
   assertCondition(payload.audience === agentId, "trust response audience mismatch");
-  assertCondition(Array.isArray(payload.supportedCapabilities), "missing supported capabilities");
-  assertCondition(supportedCapabilities.every((capability) => (payload.supportedCapabilities as unknown[]).includes(capability)), "supported capabilities mismatch");
+  assertCondition(Array.isArray(payload.agentDeclaredCapabilities), "missing agent-declared capabilities");
+  assertCondition(agentDeclaredCapabilities.every((capability) => (payload.agentDeclaredCapabilities as unknown[]).includes(capability)), "agent-declared capabilities mismatch");
   assertCondition(Array.isArray(payload.requestedScopes), "missing requested scopes");
   assertCondition(requestedScopes.every((scope) => (payload.requestedScopes as unknown[]).includes(scope)), "requested scopes mismatch");
   assertCondition(payload.tokenEndpointAuthMethod === tokenEndpointAuthMethod, "trust response token auth method mismatch");

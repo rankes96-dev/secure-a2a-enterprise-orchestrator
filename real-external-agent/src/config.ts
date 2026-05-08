@@ -1,7 +1,7 @@
 export const agentId = "external-jira-agent";
 export const clientId = "jira-agent-client";
 export const requestedScopes = ["read:jira-work", "read:jira-user"];
-export const supportedCapabilities = [
+export const agentDeclaredCapabilities = [
   "jira.issue.diagnose_creation_failure",
   "jira.permission.inspect",
   "jira.issue.create"

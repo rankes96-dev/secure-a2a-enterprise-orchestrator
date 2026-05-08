@@ -41,7 +41,7 @@ export function getResourcePermissionRegistration(clientId: string): ResourcePer
   return resourcePermissionRegistrations.find((registration) => registration.clientId === clientId);
 }
 
-export function evaluateResourcePermissions(clientId: string, supportedCapabilities: string[]): {
+export function evaluateResourcePermissions(clientId: string, agentDeclaredCapabilities: string[]): {
   registration?: ResourcePermissionRegistration;
   evaluations: CapabilityPermissionEvaluation[];
 } {
@@ -51,7 +51,7 @@ export function evaluateResourcePermissions(clientId: string, supportedCapabilit
 
   return {
     registration,
-    evaluations: supportedCapabilities.map((capability) => {
+    evaluations: agentDeclaredCapabilities.map((capability) => {
       const requiredPermissions = capabilityPermissionRequirements.get(capability) ?? [];
       return {
         capability,
@@ -62,4 +62,3 @@ export function evaluateResourcePermissions(clientId: string, supportedCapabilit
     })
   };
 }
-

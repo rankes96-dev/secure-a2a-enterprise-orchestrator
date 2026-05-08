@@ -50,7 +50,7 @@ Agent Cards are declarations, not trust. The gateway must not accept user-provid
 Zero-Trust Agent Onboarding uses a Three-Way Trust Binding before promoting metadata into the trusted registry:
 
 - The gateway creates a nonce-bound onboarding challenge.
-- The external agent returns a signed trust response proving endpoint/control ownership and declaring requested scopes and supported capabilities.
+- The external agent returns a signed trust response proving endpoint/control ownership and declaring requested scopes and agent-declared capabilities.
 - The OAuth Application Registry binds `clientId`, `agentId`, issuer, audience, granted scopes, and token auth method.
 - The Resource Permission Registry verifies the app/service principal has effective resource-system permissions.
 - The gateway derives approved and blocked capabilities from agent declarations, OAuth grants, resource permissions, and policy.

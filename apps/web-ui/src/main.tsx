@@ -731,7 +731,7 @@ type TrustedOnboardedAgent = {
   clientId: string;
   audience: string;
   requestedScopes: string[];
-  supportedCapabilities: string[];
+  agentDeclaredCapabilities: string[];
   grantedScopes: string[];
   approvedCapabilities: DerivedCapability[];
   blockedCapabilities: DerivedCapability[];
@@ -747,6 +747,14 @@ type AgentOnboardingResult = {
   onboardingId: string;
   status: "trusted_metadata_only";
   trustLevel: TrustedOnboardedAgent["trustLevel"];
+  discoveredAgent: {
+    agentId: string;
+    issuer: string;
+    clientId: string;
+    audience: string;
+    requestedScopes: string[];
+    agentDeclaredCapabilities: string[];
+  };
   agent: {
     agentId: string;
     issuer: string;
@@ -769,10 +777,10 @@ type AgentOnboardingResult = {
     effectivePermissions: string[];
     deniedPermissions: string[];
   };
-  requestedScopes: string[];
-  supportedCapabilities: string[];
-  approvedCapabilities: DerivedCapability[];
-  blockedCapabilities: DerivedCapability[];
+  capabilityDecision: {
+    approvedCapabilities: DerivedCapability[];
+    blockedCapabilities: DerivedCapability[];
+  };
   checks: Array<{ name: string; status: "passed" | "failed" | "metadata_only"; detail?: string }>;
   message: string;
   trustedAgent: TrustedOnboardedAgent;
@@ -794,7 +802,7 @@ type RegisteredAgentRow = {
   source: RegisteredAgentSource;
   trustLevel?: TrustedOnboardedAgent["trustLevel"];
   requestedScopes?: string[];
-  supportedCapabilities?: string[];
+  agentDeclaredCapabilities?: string[];
   grantedScopes?: string[];
   approvedCapabilities?: DerivedCapability[];
   blockedCapabilities?: DerivedCapability[];
@@ -1034,7 +1042,7 @@ function App() {
       source: "zero-trust-onboarded" as const,
       trustLevel: agent.trustLevel,
       requestedScopes: agent.requestedScopes,
-      supportedCapabilities: agent.supportedCapabilities,
+      agentDeclaredCapabilities: agent.agentDeclaredCapabilities,
       grantedScopes: agent.grantedScopes,
       approvedCapabilities: agent.approvedCapabilities,
       blockedCapabilities: agent.blockedCapabilities,
@@ -1770,16 +1778,36 @@ function App() {
   }
 
   function renderZeroTrustOnboardingPanel() {
+    const approvedCapabilities = zeroTrustResult?.capabilityDecision.approvedCapabilities ?? [];
+    const blockedCapabilities = zeroTrustResult?.capabilityDecision.blockedCapabilities ?? [];
+    const wizardSteps = [
+      "Discover Agent",
+      "Register Gateway",
+      "Verify Agent Proof",
+      "Bind OAuth App",
+      "Verify Permissions",
+      "Review Capabilities"
+    ];
+
     return (
       <section className="zero-trust-onboarding-panel scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
         <div className="panel-header">
           <div>
             <p className="active-panel-eyebrow">Verified onboarding</p>
-            <h2>Zero-Trust Agent Onboarding</h2>
+            <h2>Connect External Agent</h2>
             <p className="muted-note">Three-Way Trust Binding verifies external agent identity, OAuth application registration and granted scopes, and resource-system effective permissions.</p>
             <p className="muted-note strong-note">Scopes are granted by the OAuth application. Capabilities are approved only after the Gateway maps scopes and permissions to allowed actions.</p>
+            <p className="muted-note strong-note">Capabilities are declared by the external agent, but approved only after OAuth scope and resource permission validation.</p>
           </div>
         </div>
+        <ol className="onboarding-wizard-steps" aria-label="External agent onboarding steps">
+          {wizardSteps.map((step, index) => (
+            <li key={step}>
+              <span>{index + 1}</span>
+              <strong>{step}</strong>
+            </li>
+          ))}
+        </ol>
         <div className="zero-trust-form">
           <label>
             <span>Agent base URL</span>
@@ -1802,11 +1830,11 @@ function App() {
             </div>
             <div>
               <span>Agent identity</span>
-              <strong>{zeroTrustResult.agent.agentId}</strong>
+              <strong>{zeroTrustResult.discoveredAgent.agentId}</strong>
             </div>
             <div>
               <span>OAuth client</span>
-              <strong>{zeroTrustResult.agent.clientId}</strong>
+              <strong>{zeroTrustResult.discoveredAgent.clientId}</strong>
             </div>
             <p>{zeroTrustResult.message}</p>
             <div className="zero-trust-checks">
@@ -1816,28 +1844,40 @@ function App() {
             </div>
             <div className="zero-trust-verified-values">
               <article>
+                <span>Discovered from external agent</span>
+                <strong>Agent: {zeroTrustResult.discoveredAgent.agentId}</strong>
+                <small>Issuer: {zeroTrustResult.discoveredAgent.issuer}</small>
+                <small>Client: {zeroTrustResult.discoveredAgent.clientId}</small>
+                <small>Requested scopes: {zeroTrustResult.discoveredAgent.requestedScopes.join(", ")}</small>
+                <small>Agent-declared capabilities: {zeroTrustResult.discoveredAgent.agentDeclaredCapabilities.join(", ")}</small>
+              </article>
+              <article>
                 <span>Agent Proof</span>
                 <strong>signed: {String(zeroTrustResult.agentProof.signedResponseVerified)} / nonce: {String(zeroTrustResult.agentProof.nonceMatched)}</strong>
               </article>
               <article>
                 <span>OAuth Application Proof</span>
-                <strong>{zeroTrustResult.oauthApplicationProof.clientBound ? "bound" : "not bound"} / scopes: {zeroTrustResult.oauthApplicationProof.grantedScopes.join(", ")}</strong>
+                <strong>{zeroTrustResult.oauthApplicationProof.clientBound ? "bound" : "not bound"}</strong>
+                <small>Client: {zeroTrustResult.oauthApplicationProof.allowedClientId ?? zeroTrustResult.discoveredAgent.clientId}</small>
+                <small>Granted scopes: {zeroTrustResult.oauthApplicationProof.grantedScopes.join(", ")}</small>
+                <small>Token auth: {zeroTrustResult.oauthApplicationProof.tokenEndpointAuthMethod ?? "unknown"}</small>
+                <small>Status: {zeroTrustResult.oauthApplicationProof.status ?? "unknown"}</small>
               </article>
               <article>
                 <span>Resource Permission Proof</span>
-                <strong>{zeroTrustResult.resourcePermissionProof.principal} / denied: {zeroTrustResult.resourcePermissionProof.deniedPermissions.join(", ") || "none"}</strong>
+                <strong>{zeroTrustResult.resourcePermissionProof.principal}</strong>
+                <small>Effective permissions: {zeroTrustResult.resourcePermissionProof.effectivePermissions.join(", ")}</small>
+                <small>Denied permissions: {zeroTrustResult.resourcePermissionProof.deniedPermissions.join(", ") || "none"}</small>
               </article>
               <article>
-                <span>Supported capabilities declared by agent</span>
-                <strong>{zeroTrustResult.supportedCapabilities.join(", ")}</strong>
-              </article>
-              <article>
-                <span>Approved capabilities derived by Gateway</span>
-                <strong>{zeroTrustResult.approvedCapabilities.map((item) => item.capability).join(", ") || "none"}</strong>
+                <span>Gateway-approved capabilities</span>
+                <strong>{approvedCapabilities.map((item) => item.capability).join(", ") || "none"}</strong>
+                {approvedCapabilities.map((item) => <small key={item.capability}>{item.capability}: {item.reason}</small>)}
               </article>
               <article>
                 <span>Blocked capabilities</span>
-                <strong>{zeroTrustResult.blockedCapabilities.map((item) => `${item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
+                <strong>{blockedCapabilities.map((item) => item.capability).join(", ") || "none"}</strong>
+                {blockedCapabilities.map((item) => <small key={item.capability}>{item.capability}: {item.reason}</small>)}
               </article>
               <article>
                 <span>Runtime execution</span>
@@ -2037,8 +2077,8 @@ function App() {
                     <strong>{agent.grantedScopes?.join(", ") || "none"}</strong>
                   </div>
                   <div>
-                    <span>Supported capabilities declared</span>
-                    <strong>{agent.supportedCapabilities?.join(", ") || "none"}</strong>
+                    <span>Agent-declared capabilities</span>
+                    <strong>{agent.agentDeclaredCapabilities?.join(", ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Approved capabilities</span>

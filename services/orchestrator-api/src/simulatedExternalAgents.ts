@@ -19,7 +19,7 @@ export function getSimulatedExternalAgentTrustResponse(challenge: AgentOnboardin
     clientId: "jira-agent-client",
     audience: "external-jira-agent",
     nonce: challenge.nonce,
-    supportedCapabilities: [
+    agentDeclaredCapabilities: [
       "jira.issue.diagnose_creation_failure",
       "jira.permission.inspect",
       "jira.issue.create"
