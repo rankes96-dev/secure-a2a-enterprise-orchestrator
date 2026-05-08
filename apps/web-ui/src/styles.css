@@ -256,7 +256,7 @@ h2 {
 
 .registry-agent-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) repeat(4, minmax(120px, 1fr)) auto;
+  grid-template-columns: minmax(180px, 1.4fr) repeat(6, minmax(110px, 1fr));
   gap: 10px;
   align-items: center;
   border: 1px solid #d7e0e4;
@@ -273,6 +273,10 @@ h2 {
 
 .registry-agent-row strong {
   overflow-wrap: anywhere;
+}
+
+.registry-agent-actions {
+  align-self: stretch;
 }
 
 .registry-agent-error {

@@ -110,6 +110,7 @@ const quickScenarioLabels = new Set([
 const allScenarios: Scenario[] = scenarios.flatMap((group) => group.items);
 const quickScenarios = allScenarios.filter((scenario) => quickScenarioLabels.has(scenario.label));
 const advancedScenarios = allScenarios.filter((scenario) => !quickScenarioLabels.has(scenario.label));
+const infrastructureAgentIds = new Set(["mock-identity-provider"]);
 
 function inferDemoFlowType(response: ResolveResponse): string {
   if (response.requestInterpretation?.scope === "out_of_scope" || response.routingReasoningSummary.toLowerCase().includes("outside the supported enterprise") || response.agentTrace.some((entry) => entry.action === "out_of_scope")) {
@@ -332,25 +333,31 @@ function App() {
     ? "Secure A2A JWT mode"
     : "Local mock mode";
   const healthAgentIds = new Set(health?.agents.map((agent) => agent.agentId) ?? []);
-  const builtInAgentsCount = health?.agents.filter((agent) => agent.endpointType !== "session").length ?? 0;
+  const demoAgentCardById = new Map(demoAgentCards.map((card) => [card.agentId, card]));
+  const builtInAgentsCount = health?.agents.filter((agent) => agent.endpointType !== "session" && !infrastructureAgentIds.has(agent.agentId)).length ?? 0;
   const sessionDemoAgentsCount = demoAgentCards.length || health?.agents.filter((agent) => agent.endpointType === "session").length || 0;
   const healthyAgentsCount = health?.summary.healthy ?? 0;
   const registeredAgentRows = [
-    ...(health?.agents.map((agent) => ({
-      agentId: agent.agentId,
-      status: agent.status,
-      endpointType: agent.endpointType,
-      latencyMs: agent.latencyMs,
-      agentCardAvailable: agent.details.agentCardAvailable,
-      error: agent.error,
-      canDelete: agent.endpointType === "session"
-    })) ?? []),
+    ...(health?.agents.map((agent) => {
+      const demoAgentCard = demoAgentCardById.get(agent.agentId);
+      return {
+        agentId: agent.agentId,
+        status: agent.status,
+        endpointType: agent.endpointType,
+        authMode: demoAgentCard?.auth?.type ?? "unknown",
+        latencyMs: agent.latencyMs,
+        agentCardAvailable: agent.details.agentCardAvailable || Boolean(demoAgentCard),
+        error: agent.error,
+        canDelete: agent.endpointType === "session"
+      };
+    }) ?? []),
     ...demoAgentCards
       .filter((card) => !healthAgentIds.has(card.agentId))
       .map((card) => ({
         agentId: card.agentId,
         status: "unknown",
         endpointType: "session" as const,
+        authMode: card.auth?.type ?? "unknown",
         latencyMs: undefined,
         agentCardAvailable: true,
         error: undefined,
@@ -964,35 +971,44 @@ function App() {
               {registeredAgentRows.map((agent) => (
                 <article className="registry-agent-row" key={agent.agentId}>
                   <div>
-                    <span>agentId</span>
+                    <span>Agent ID</span>
                     <strong>{agent.agentId}</strong>
                   </div>
                   <div>
-                    <span>status</span>
+                    <span>Status</span>
                     <strong className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</strong>
                   </div>
                   <div>
-                    <span>endpointType</span>
+                    <span>Endpoint type</span>
                     <strong>{agent.endpointType}</strong>
                   </div>
                   <div>
-                    <span>latency</span>
-                    <strong>{typeof agent.latencyMs === "number" ? `${agent.latencyMs} ms` : "unknown"}</strong>
+                    <span>Auth mode</span>
+                    <strong>{agent.authMode}</strong>
                   </div>
                   <div>
-                    <span>Agent Card available</span>
+                    <span>Agent Card</span>
                     <strong>{agent.agentCardAvailable ? "yes" : "no"}</strong>
                   </div>
-                  {agent.canDelete ? (
-                    <button
-                      type="button"
-                      className="agent-delete-button"
-                      disabled={isHealthLoading || deletingAgentId === agent.agentId}
-                      onClick={() => void deleteDemoAgent(agent.agentId)}
-                    >
-                      {deletingAgentId === agent.agentId ? "..." : "Delete"}
-                    </button>
-                  ) : null}
+                  <div>
+                    <span>Latency</span>
+                    <strong>{typeof agent.latencyMs === "number" ? `${agent.latencyMs} ms` : "unknown"}</strong>
+                  </div>
+                  <div className="registry-agent-actions">
+                    <span>Actions</span>
+                    {agent.canDelete ? (
+                      <button
+                        type="button"
+                        className="agent-delete-button"
+                        disabled={isHealthLoading || deletingAgentId === agent.agentId}
+                        onClick={() => void deleteDemoAgent(agent.agentId)}
+                      >
+                        {deletingAgentId === agent.agentId ? "..." : "Delete"}
+                      </button>
+                    ) : (
+                      <strong>None</strong>
+                    )}
+                  </div>
                   {agent.error ? <p className="registry-agent-error">{agent.error}</p> : null}
                 </article>
               ))}
