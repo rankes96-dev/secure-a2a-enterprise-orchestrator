@@ -1,4 +1,5 @@
 const API_URL = process.env.ORCHESTRATOR_API_URL ?? "http://127.0.0.1:4000";
+const API_KEY = process.env.ORCHESTRATOR_API_KEY;
 
 type AgentCard = {
   agentId: string;
@@ -53,6 +54,7 @@ const sampleAgentCard: AgentCard = {
 };
 
 let sessionCookie = "";
+type RequestAuthMode = "session" | "apiKey";
 
 function logOk(message: string): void {
   console.info(`ok - ${message}`);
@@ -63,12 +65,13 @@ async function readJson(response: Response): Promise<unknown> {
   return text ? JSON.parse(text) as unknown : {};
 }
 
-async function request(path: string, init: RequestInit = {}): Promise<{ response: Response; body: unknown }> {
+async function request(path: string, init: RequestInit = {}, authMode: RequestAuthMode = "session"): Promise<{ response: Response; body: unknown }> {
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
       ...(init.body ? { "content-type": "application/json" } : {}),
-      ...(sessionCookie ? { cookie: sessionCookie } : {}),
+      ...(authMode === "session" && sessionCookie ? { cookie: sessionCookie } : {}),
+      ...(authMode === "apiKey" && API_KEY ? { "x-api-key": API_KEY } : {}),
       ...init.headers
     }
   });
@@ -104,11 +107,11 @@ async function createSession(): Promise<void> {
   logOk("created browser session");
 }
 
-async function validateGoodCard(): Promise<void> {
+async function validateGoodCard(agentCard: AgentCard = sampleAgentCard, authMode: RequestAuthMode = "session"): Promise<void> {
   const { response, body } = await request("/agent-cards/validate", {
     method: "POST",
-    body: JSON.stringify({ agentCard: sampleAgentCard })
-  });
+    body: JSON.stringify({ agentCard })
+  }, authMode);
   requireStatus(response, body, 200, "validate good Agent Card");
 
   const result = asRecord(body);
@@ -119,11 +122,11 @@ async function validateGoodCard(): Promise<void> {
   logOk("validated good Agent Card");
 }
 
-async function importGoodCard(): Promise<void> {
+async function importGoodCard(agentCard: AgentCard = sampleAgentCard, authMode: RequestAuthMode = "session"): Promise<void> {
   const { response, body } = await request("/agent-cards/import", {
     method: "POST",
-    body: JSON.stringify({ agentCard: sampleAgentCard })
-  });
+    body: JSON.stringify({ agentCard })
+  }, authMode);
   requireStatus(response, body, 200, "import good Agent Card");
 
   const result = asRecord(body);
@@ -134,8 +137,8 @@ async function importGoodCard(): Promise<void> {
   logOk("imported good Agent Card");
 }
 
-async function listAgentCards(): Promise<AgentCard[]> {
-  const { response, body } = await request("/agent-cards");
+async function listAgentCards(authMode: RequestAuthMode = "session"): Promise<AgentCard[]> {
+  const { response, body } = await request("/agent-cards", {}, authMode);
   requireStatus(response, body, 200, "list imported Agent Cards");
 
   const result = asRecord(body);
@@ -146,32 +149,32 @@ async function listAgentCards(): Promise<AgentCard[]> {
   return result.agentCards as AgentCard[];
 }
 
-async function verifyImportedCardAppears(): Promise<void> {
-  const cards = await listAgentCards();
-  if (!cards.some((card) => card.agentId === sampleAgentCard.agentId)) {
+async function verifyImportedCardAppears(agentCard: AgentCard = sampleAgentCard, authMode: RequestAuthMode = "session"): Promise<void> {
+  const cards = await listAgentCards(authMode);
+  if (!cards.some((card) => card.agentId === agentCard.agentId)) {
     throw new Error("imported Agent Card did not appear in GET /agent-cards");
   }
 
   logOk("imported Agent Card appears in session registry");
 }
 
-async function deleteImportedCard(): Promise<void> {
-  const { response, body } = await request(`/agent-cards/${encodeURIComponent(sampleAgentCard.agentId)}`, {
+async function deleteImportedCard(agentCard: AgentCard = sampleAgentCard, authMode: RequestAuthMode = "session"): Promise<void> {
+  const { response, body } = await request(`/agent-cards/${encodeURIComponent(agentCard.agentId)}`, {
     method: "DELETE"
-  });
+  }, authMode);
   requireStatus(response, body, 200, "delete imported Agent Card");
 
   const result = asRecord(body);
-  if (result.deleted !== true || result.agentId !== sampleAgentCard.agentId) {
+  if (result.deleted !== true || result.agentId !== agentCard.agentId) {
     throw new Error(`delete response did not confirm deletion: ${JSON.stringify(body)}`);
   }
 
   logOk("deleted imported Agent Card");
 }
 
-async function verifyImportedCardGone(): Promise<void> {
-  const cards = await listAgentCards();
-  if (cards.some((card) => card.agentId === sampleAgentCard.agentId)) {
+async function verifyImportedCardGone(agentCard: AgentCard = sampleAgentCard, authMode: RequestAuthMode = "session"): Promise<void> {
+  const cards = await listAgentCards(authMode);
+  if (cards.some((card) => card.agentId === agentCard.agentId)) {
     throw new Error("deleted Agent Card still appears in GET /agent-cards");
   }
 
@@ -191,6 +194,34 @@ async function validateBadCard(label: string, agentCard: unknown): Promise<void>
   }
 
   logOk(`rejected bad Agent Card: ${label}`);
+}
+
+async function verifyApiKeyRegistryMode(): Promise<void> {
+  if (!API_KEY) {
+    logOk("skipped API-key registry verification because ORCHESTRATOR_API_KEY is not configured");
+    return;
+  }
+
+  const apiKeyAgentCard: AgentCard = {
+    ...sampleAgentCard,
+    agentId: "external-api-key-registry-agent",
+    name: "API Key Registry Agent",
+    auth: {
+      ...sampleAgentCard.auth,
+      audience: "external-api-key-registry-agent"
+    },
+    skills: sampleAgentCard.skills.map((skill) => ({
+      ...skill,
+      id: "api-key-registry-diagnose"
+    }))
+  };
+
+  await validateGoodCard(apiKeyAgentCard, "apiKey");
+  await importGoodCard(apiKeyAgentCard, "apiKey");
+  await verifyImportedCardAppears(apiKeyAgentCard, "apiKey");
+  await deleteImportedCard(apiKeyAgentCard, "apiKey");
+  await verifyImportedCardGone(apiKeyAgentCard, "apiKey");
+  logOk("verified API-key scoped Agent Card registry");
 }
 
 async function main(): Promise<void> {
@@ -218,6 +249,7 @@ async function main(): Promise<void> {
     agentId: "bad-missing-skills-agent",
     skills: undefined
   });
+  await verifyApiKeyRegistryMode();
 
   console.info("Agent Card import verification passed.");
 }

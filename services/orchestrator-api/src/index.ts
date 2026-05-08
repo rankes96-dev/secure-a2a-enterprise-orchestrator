@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type {
   A2AAgentResponse,
@@ -121,9 +121,14 @@ function allowByRateLimit(request: Parameters<typeof clientIp>[0], response: Par
   return true;
 }
 
+function clientApiKey(request: IncomingMessage): string | undefined {
+  const value = request.headers["x-api-key"];
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function hasValidClientApiKey(request: IncomingMessage): boolean {
   const expected = process.env.ORCHESTRATOR_API_KEY;
-  return Boolean(expected && request.headers["x-api-key"] === expected);
+  return Boolean(expected && clientApiKey(request) === expected);
 }
 
 function requireClientAccess(request: IncomingMessage, response: ServerResponse): boolean {
@@ -898,12 +903,19 @@ function requireSessionToken(request: IncomingMessage, response: ServerResponse)
   return token;
 }
 
-function requireAgentCardSessionToken(request: IncomingMessage, response: ServerResponse): string | undefined {
-  if (!requireClientAccess(request, response)) {
-    return undefined;
+function agentCardRegistryKey(request: IncomingMessage, response: ServerResponse): string | undefined {
+  const sessionToken = getSessionToken(request);
+  if (sessionToken) {
+    return sessionToken;
   }
 
-  return requireSessionToken(request, response);
+  const apiKey = clientApiKey(request);
+  if (apiKey && process.env.ORCHESTRATOR_API_KEY && apiKey === process.env.ORCHESTRATOR_API_KEY) {
+    return `api:${createHash("sha256").update(apiKey).digest("hex")}`;
+  }
+
+  sendJson(response, 401, { error: "Unauthorized" }, request);
+  return undefined;
 }
 
 function remainingActiveAgentIds(sessionToken?: string): string[] {
@@ -1970,8 +1982,8 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/agent-cards") {
-    const sessionToken = requireAgentCardSessionToken(request, response);
-    if (!sessionToken) {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
       return;
     }
 
@@ -1979,13 +1991,13 @@ async function start(): Promise<void> {
       return;
     }
 
-    sendJson(response, 200, { agentCards: listImportedAgentCards(sessionToken) }, request);
+    sendJson(response, 200, { agentCards: listImportedAgentCards(registryKey) }, request);
     return;
   }
 
   if (request.method === "POST" && request.url === "/agent-cards/validate") {
-    const sessionToken = requireAgentCardSessionToken(request, response);
-    if (!sessionToken) {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
       return;
     }
 
@@ -2005,8 +2017,8 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/agent-cards/import") {
-    const sessionToken = requireAgentCardSessionToken(request, response);
-    if (!sessionToken) {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
       return;
     }
 
@@ -2021,19 +2033,19 @@ async function start(): Promise<void> {
       return;
     }
 
-    const agentCard = addImportedAgentCard(sessionToken, result.agentCard);
+    const agentCard = addImportedAgentCard(registryKey, result.agentCard);
     sendJson(response, 200, {
       imported: true,
       agentCard,
-      agentCards: listImportedAgentCards(sessionToken),
+      agentCards: listImportedAgentCards(registryKey),
       warnings: result.warnings
     }, request);
     return;
   }
 
   if (request.method === "DELETE" && request.url?.startsWith("/agent-cards/")) {
-    const sessionToken = requireAgentCardSessionToken(request, response);
-    if (!sessionToken) {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
       return;
     }
 
@@ -2042,7 +2054,7 @@ async function start(): Promise<void> {
     }
 
     const agentId = decodeURIComponent(request.url.slice("/agent-cards/".length));
-    const deleted = deleteImportedAgentCard(sessionToken, agentId);
+    const deleted = deleteImportedAgentCard(registryKey, agentId);
     if (!deleted) {
       sendJson(response, 404, { error: "imported_agent_card_not_found" }, request);
       return;
@@ -2051,7 +2063,7 @@ async function start(): Promise<void> {
     sendJson(response, 200, {
       deleted: true,
       agentId,
-      agentCards: listImportedAgentCards(sessionToken)
+      agentCards: listImportedAgentCards(registryKey)
     }, request);
     return;
   }
