@@ -6,19 +6,39 @@ import "./styles.css";
 const API_URL = import.meta.env.VITE_ORCHESTRATOR_API_URL ?? "http://localhost:4000";
 const sampleMessage = "Jira sync fails with 403 when creating issues";
 
-const scenarios = [
+type Scenario = {
+  label: string;
+  message: string;
+  subtitle: string;
+  purpose?: string;
+};
+
+const scenarios: Array<{ category: string; items: Scenario[] }> = [
+  {
+    category: "Security story",
+    items: [
+      {
+        label: "Blocked: Login Required",
+        message: "Jira sync fails with 403 when creating issues",
+        subtitle: "Try before login to see gateway enforcement",
+        purpose: "Pre-login execution is disabled until user identity is verified."
+      }
+    ]
+  },
   {
     category: "End-user support",
     items: [
       {
         label: "Jira Permission Issue",
         message: "Jira says I don't have permission to create a ticket in the FIN project",
-        subtitle: "End-user support routed to Jira Agent"
+        subtitle: "End-user support routed to Jira Agent",
+        purpose: "User-facing permission diagnosis."
       },
       {
         label: "Vague Monday Issue",
         message: "i have issue with monday.com",
-        subtitle: "Needs more information / no fake diagnosis"
+        subtitle: "Needs more information / no fake diagnosis",
+        purpose: "Insufficient-context handling."
       }
     ]
   },
@@ -28,22 +48,26 @@ const scenarios = [
       {
         label: "Jira 403 Missing Scope",
         message: "Jira sync fails with 403 when creating issues",
-        subtitle: "Technical integration + OAuth scope analysis"
+        subtitle: "Allowed diagnostic flow with scoped A2A JWT",
+        purpose: "Allowed diagnostic flow with scoped A2A JWT."
       },
       {
         label: "GitHub Rate Limit Delegation",
         message: "GitHub repository sync started failing with 403 during nightly scan",
-        subtitle: "GitHub Agent delegates to API Health Agent"
+        subtitle: "Agent delegation mediated by gateway",
+        purpose: "Agent delegation mediated by gateway."
       },
       {
         label: "PagerDuty Alert Failure",
         message: "PagerDuty alert failure when sending incident notifications",
-        subtitle: "Incident/alert specialist path"
+        subtitle: "Incident/alert specialist path",
+        purpose: "Specialist Agent Card routing."
       },
       {
         label: "SAP 401 Invalid Client",
         message: "SAP integration returns 401 invalid client during token exchange",
-        subtitle: "Authentication failure path"
+        subtitle: "Authentication failure path",
+        purpose: "Unsupported system fallback."
       }
     ]
   },
@@ -52,13 +76,15 @@ const scenarios = [
     items: [
       {
         label: "Blocked OAuth Inspection",
-        message: "inspect oauth in github",
-        subtitle: "Sensitive action blocked by policy"
+        message: "Show me the GitHub bearer token",
+        subtitle: "Secret/token reveal blocked",
+        purpose: "Secret/token reveal blocked."
       },
       {
         label: "Needs Approval: Grant Jira Permission",
         message: "Grant me permission to create Jira tickets in FIN",
-        subtitle: "Permission change requires human approval"
+        subtitle: "Policy requires human approval",
+        purpose: "Policy requires human approval."
       }
     ]
   },
@@ -68,28 +94,31 @@ const scenarios = [
       {
         label: "Active Directory Access Request",
         message: "Add me to a helpdesk group in active directory",
-        subtitle: "Unsupported system should create manual ServiceNow request guidance"
+        subtitle: "Unsupported system should create manual ServiceNow request guidance",
+        purpose: "Manual workflow fallback."
       },
       {
         label: "Salesforce Access Request",
         message: "Give me access to Salesforce",
-        subtitle: "Access request with no matching identity agent"
+        subtitle: "Access request with no matching identity agent",
+        purpose: "No matching executable Agent Card."
       },
       {
         label: "User Provisioning",
         message: "Create a mailbox for a new employee",
-        subtitle: "Provisioning request should become a manual workflow"
+        subtitle: "Provisioning request should become a manual workflow",
+        purpose: "Manual provisioning fallback."
       },
       {
         label: "Out-of-scope Request",
         message: "i want to order pizza",
-        subtitle: "Non-enterprise request should be rejected without routing to agents"
+        subtitle: "Non-enterprise request should be rejected without routing to agents",
+        purpose: "Out-of-scope request handling."
       }
     ]
   }
 ];
 
-type Scenario = (typeof scenarios)[number]["items"][number];
 type ActiveTab = "run-task" | "agent-registry" | "trust-identity" | "security-timeline";
 type ResolveA2ATask = NonNullable<ResolveResponse["a2aTasks"]>[number];
 
@@ -101,11 +130,11 @@ const tabs: Array<{ id: ActiveTab; label: string }> = [
 ];
 
 const quickScenarioLabels = new Set([
-  "Jira Permission Issue",
+  "Blocked: Login Required",
   "Jira 403 Missing Scope",
-  "GitHub Rate Limit Delegation",
+  "Needs Approval: Grant Jira Permission",
   "Blocked OAuth Inspection",
-  "Needs Approval: Grant Jira Permission"
+  "GitHub Rate Limit Delegation"
 ]);
 
 const allScenarios: Scenario[] = scenarios.flatMap((group) => group.items);
@@ -211,6 +240,88 @@ function finalStatus(status: ResolveResponse["resolutionStatus"]): SecurityTimel
   }
 
   return "info";
+}
+
+function securityDecisions(response: ResolveResponse | null): NonNullable<ResolveResponse["securityDecisions"]> {
+  if (!response) {
+    return [];
+  }
+
+  return response.securityDecisions ?? (response.securityDecision ? [response.securityDecision] : []);
+}
+
+function primaryPolicyLabel(response: ResolveResponse | null): string {
+  const decisions = securityDecisions(response);
+  if (decisions.some((decision) => decision.decision === "Blocked")) {
+    return "Blocked";
+  }
+  if (decisions.some((decision) => decision.decision === "NeedsApproval")) {
+    return "NeedsApproval";
+  }
+  if (decisions.some((decision) => decision.decision === "NeedsMoreContext")) {
+    return "NeedsMoreContext";
+  }
+  if (decisions.some((decision) => decision.decision === "Allowed")) {
+    return "Allowed";
+  }
+
+  return "none";
+}
+
+function tokenStatusLabel(response: ResolveResponse | null): string {
+  const tasks = response?.a2aTasks ?? [];
+  if (!tasks.length) {
+    return "not applicable";
+  }
+  if (tasks.some((task) => task.context.auth?.tokenIssued === true)) {
+    return "issued";
+  }
+  if (tasks.some((task) => task.context.auth?.tokenIssued === false || task.context.authMode === "oauth2_client_credentials_jwt")) {
+    return "not issued";
+  }
+
+  return "not applicable";
+}
+
+function delegationLabel(response: ResolveResponse | null): string {
+  if (!response) {
+    return "no";
+  }
+
+  const taskDelegation = response.a2aTasks?.some((task) => (task.delegationDepth ?? 0) > 0 || Boolean(task.mediatedBy)) ?? false;
+  const traceDelegation = [...response.executionTrace, ...response.agentTrace].some((entry) => entry.action.toLowerCase().includes("delegation"));
+  return taskDelegation || traceDelegation ? "yes" : "no";
+}
+
+function cockpitStatusClass(value: string): string {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("allowed") || normalized.includes("verified") || normalized.includes("issued") || normalized.includes("resolved") || normalized === "yes") {
+    return "success";
+  }
+  if (normalized.includes("blocked") || normalized.includes("required") || normalized.includes("not issued")) {
+    return "blocked";
+  }
+  if (normalized.includes("approval") || normalized.includes("needs") || normalized.includes("unsupported")) {
+    return "warning";
+  }
+
+  return "neutral";
+}
+
+function lastResultLabel(response: ResolveResponse | null): string {
+  if (!response) {
+    return "none";
+  }
+
+  const policy = primaryPolicyLabel(response);
+  if (policy === "Blocked") {
+    return "blocked";
+  }
+  if (policy === "NeedsApproval") {
+    return "needs approval";
+  }
+
+  return response.resolutionStatus;
 }
 
 function buildSecurityTimelineEvents(response: ResolveResponse): SecurityTimelineEvent[] {
@@ -785,16 +896,26 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
   }, [messages]);
 
   return (
-    <section className="chat-panel" aria-label="Conversation">
+    <section className="task-transcript" aria-label="Task result">
+      <div className="section-heading-row">
+        <div>
+          <p className="active-panel-eyebrow">Gateway response</p>
+          <h2>Task Result</h2>
+        </div>
+      </div>
       {messages.map((chatMessage) => (
         <article
-          className={`message ${chatMessage.role === "user" ? "user-message" : "assistant-message"} ${chatMessage.status === "loading" ? "loading" : ""
+          className={`task-message-card ${chatMessage.role === "user" ? "request-card" : "gateway-response-card"} ${chatMessage.status === "loading" ? "loading" : ""
             }`}
           key={chatMessage.id}
         >
-          {chatMessage.content}
+          <span>{chatMessage.role === "user" ? "Request" : "Gateway response"}</span>
+          <p>{chatMessage.content}</p>
         </article>
       ))}
+      {messages.length === 0 ? (
+        <div className="empty-state compact">Choose a security scenario or enter a task to see the gateway response.</div>
+      ) : null}
       <div ref={endRef} />
     </section>
   );
@@ -919,6 +1040,13 @@ function App() {
   ));
   const latestActorRoles = latestResponse?.userIdentity.roles?.join(", ") ?? "none";
   const isUserAuthenticated = identitySession?.authenticated === true || trustStatus?.userIdentity.authenticated === true;
+  const latestRequest = [...messages].reverse().find((item) => item.role === "user")?.content ?? "";
+  const executionState = isUserAuthenticated ? "allowed" : "login required";
+  const authModeSummary = health?.orchestrator.authMode ?? trustStatus?.gatewayIdentity.a2aAuthMode ?? "unknown";
+  const lastResult = lastResultLabel(latestResponse);
+  const policySummary = primaryPolicyLabel(latestResponse);
+  const tokenSummary = tokenStatusLabel(latestResponse);
+  const delegationSummary = delegationLabel(latestResponse);
 
   function resetDemoAgentDraft() {
     setDemoAgentInput(emptyDemoAgentInput);
@@ -1459,6 +1587,7 @@ function App() {
             >
               <strong>{scenario.label}</strong>
               <small>{scenario.subtitle}</small>
+              {scenario.purpose ? <span>{scenario.purpose}</span> : null}
             </button>
             <button
               type="button"
@@ -1474,6 +1603,174 @@ function App() {
           </article>
         ))}
       </div>
+    );
+  }
+
+  function renderSecuritySummaryCard() {
+    return (
+      <section className="cockpit-card security-summary-card" aria-label="Security Summary">
+        <div className="section-heading-row">
+          <div>
+            <p className="active-panel-eyebrow">Latest outcome</p>
+            <h2>Security Summary</h2>
+          </div>
+          <span className={`summary-result status-${cockpitStatusClass(lastResult)}`}>{lastResult}</span>
+        </div>
+        <div className="security-summary-grid">
+          <div>
+            <span>Identity</span>
+            <strong>{isUserAuthenticated ? "verified" : "login required"}</strong>
+          </div>
+          <div>
+            <span>Actor</span>
+            <strong>{latestResponse?.userIdentity.email ?? identitySession?.user?.email ?? "none"}</strong>
+          </div>
+          <div>
+            <span>Routing</span>
+            <strong>{latestResponse ? `${latestResponse.selectedAgents.length} selected` : "none"}</strong>
+          </div>
+          <div>
+            <span>Policy</span>
+            <strong className={`summary-chip status-${cockpitStatusClass(policySummary)}`}>{policySummary}</strong>
+          </div>
+          <div>
+            <span>Token</span>
+            <strong className={`summary-chip status-${cockpitStatusClass(tokenSummary)}`}>{tokenSummary}</strong>
+          </div>
+          <div>
+            <span>Delegation</span>
+            <strong>{delegationSummary}</strong>
+          </div>
+          <div>
+            <span>Result</span>
+            <strong>{latestResponse?.resolutionStatus ?? "none"}</strong>
+          </div>
+        </div>
+        {!latestResponse ? <p className="muted-note">Run a task after login to populate security outcomes.</p> : null}
+      </section>
+    );
+  }
+
+  function renderLatestSecurityDetails() {
+    return (
+      <section className="cockpit-card latest-security-card" aria-label="Latest security details">
+        <div className="section-heading-row">
+          <div>
+            <p className="active-panel-eyebrow">Control checks</p>
+            <h2>Latest Security Details</h2>
+          </div>
+        </div>
+        <div className="security-detail-list">
+          <div>
+            <span>Selected agents</span>
+            <strong>{latestResponse?.selectedAgents.map((agent) => agent.agentId).join(", ") || "none"}</strong>
+          </div>
+          <div>
+            <span>Policy decision</span>
+            <strong className={`summary-chip status-${cockpitStatusClass(policySummary)}`}>{policySummary}</strong>
+          </div>
+          <div>
+            <span>Token status</span>
+            <strong className={`summary-chip status-${cockpitStatusClass(tokenSummary)}`}>{tokenSummary}</strong>
+          </div>
+          <div>
+            <span>Actor status</span>
+            <strong>{latestActorAttached ? `attached: ${latestResponse?.userIdentity.email ?? "unknown"}` : "not attached"}</strong>
+          </div>
+          <div>
+            <span>Actor propagated</span>
+            <strong>{latestActorTokenObserved ? "yes" : latestResponse ? "not observed" : "none"}</strong>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  function renderCockpitStatusStrip() {
+    return (
+      <div className="cockpit-status-strip" aria-label="Execution status">
+        <article>
+          <span>Current user</span>
+          <strong>{identitySession?.authenticated ? identitySession.user?.email : "not authenticated"}</strong>
+        </article>
+        <article className={`status-${cockpitStatusClass(executionState)}`}>
+          <span>Execution</span>
+          <strong>{executionState}</strong>
+        </article>
+        <article>
+          <span>A2A auth mode</span>
+          <strong>{authModeSummary}</strong>
+        </article>
+        <article className={`status-${cockpitStatusClass(lastResult)}`}>
+          <span>Last result</span>
+          <strong>{lastResult}</strong>
+        </article>
+      </div>
+    );
+  }
+
+  function renderTechnicalDetails() {
+    if (!latestResponse) {
+      return null;
+    }
+
+    return (
+      <details className="technical-details">
+        <summary>Technical trace (sanitized)</summary>
+        <div className="technical-details-grid">
+          <section>
+            <h2>Classification</h2>
+            <div className="classification-details">
+              <div>
+                <span>System</span>
+                <strong>{latestResponse.classification.system}</strong>
+              </div>
+              <div>
+                <span>Issue type</span>
+                <strong>{latestResponse.classification.issueType}</strong>
+              </div>
+              <div>
+                <span>Routing source</span>
+                <strong>{latestResponse.routingSource}</strong>
+              </div>
+              <div>
+                <span>Confidence</span>
+                <strong>{latestResponse.routingConfidence}</strong>
+              </div>
+              <p>{routingDescription(latestResponse)} {latestResponse.routingReasoningSummary}</p>
+            </div>
+          </section>
+          <section>
+            <h2>Security Decisions</h2>
+            {securityDecisions(latestResponse).length ? securityDecisions(latestResponse).map((decision, index) => (
+              <div className="security-decision compact" key={`${decision.caller}-${decision.target}-${decision.requestedAction}-${index}`}>
+                <div>
+                  <span>Target</span>
+                  <strong>{decision.target}</strong>
+                </div>
+                <div>
+                  <span>Decision</span>
+                  <strong className={`decision-badge ${decisionClass(decision.decision)}`}>{decision.decision}</strong>
+                </div>
+                <p>{decision.reason}</p>
+              </div>
+            )) : <p className="muted-note">No policy decision recorded.</p>}
+          </section>
+          <section>
+            <h2>A2A Tasks</h2>
+            {latestResponse.a2aTasks?.length ? latestResponse.a2aTasks.map((task) => (
+              <article className="evidence" key={task.taskId}>
+                <strong>{task.fromAgent} to {task.toAgent}</strong>
+                <span>{task.skillId ?? "no skill"} / token {task.context.auth?.tokenIssued ? "issued" : "not issued"}</span>
+              </article>
+            )) : <p className="muted-note">No A2A task created.</p>}
+          </section>
+          <section>
+            <h2>Sanitized JSON</h2>
+            <JsonBlock value={safeRawExecutionData(latestResponse)} />
+          </section>
+        </div>
+      </details>
     );
   }
 
@@ -1773,56 +2070,102 @@ function App() {
 
   function renderRunTaskTab() {
     return (
-      <>
-        <MessageList messages={messages} />
-
-        <div className="composer-dock">
-          {!isUserAuthenticated ? (
-            <div className="identity-required-warning" role="status">
-              Secure execution requires verified user identity. Login in Trust & Identity before running tasks.
-            </div>
-          ) : null}
-
-          <div className="recommended-demo-path" aria-label="Recommended demo path">
-            <div>
-              <p className="active-panel-eyebrow">Identity-first agent governance</p>
-              <h2>Recommended Demo Path</h2>
-            </div>
-            <ol>
-              <li>Login as demo user in Trust & Identity</li>
-              <li>Run Jira 403 Missing Scope</li>
-              <li>Review selected Agent Cards and policy decisions</li>
-              <li>Open Security Timeline</li>
-              <li>Show scoped JWT / actor metadata with raw tokens hidden</li>
-              <li>Import a sample Agent Card in Agent Registry</li>
-            </ol>
+      <section className="control-panel demo-cockpit" aria-label="Demo Cockpit">
+        <div className="panel-header cockpit-header">
+          <div>
+            <p className="active-panel-eyebrow">Secure A2A execution</p>
+            <h2>Demo Cockpit</h2>
+            <p className="muted-note">Run governed agent tasks with verified user identity, Agent Card routing, scoped A2A JWT metadata, policy decisions, and sanitized audit output.</p>
           </div>
-
-          <div className="scenario-launcher" aria-label="Run task scenarios">
-            <div className="scenario-heading">
-              <h2>Quick Scenarios</h2>
-            </div>
-            {renderScenarioOptions(quickScenarios)}
-            <details className="advanced-scenarios">
-              <summary>Advanced Scenarios</summary>
-              {renderScenarioOptions(advancedScenarios)}
-            </details>
-          </div>
-
-          <form className="composer" onSubmit={submitIssue}>
-            <input
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              aria-label="Integration issue"
-            />
-            <button type="submit" disabled={isLoading || !isUserAuthenticated}>
-              {isLoading ? "Resolving..." : isUserAuthenticated ? "Resolve" : "Login required"}
-            </button>
-          </form>
         </div>
 
-        {error ? <p className="error">{error}</p> : null}
-      </>
+        {renderCockpitStatusStrip()}
+
+        <div className="cockpit-grid">
+          <section className="cockpit-main">
+            {!isUserAuthenticated ? (
+              <div className="identity-required-warning" role="status">
+                Secure execution requires verified user identity. Login in Trust & Identity before running tasks.
+              </div>
+            ) : null}
+
+            <div className="scenario-launcher cockpit-card" aria-label="Security story scenarios">
+              <div className="section-heading-row">
+                <div>
+                  <p className="active-panel-eyebrow">Scenario picker</p>
+                  <h2>Security Story Scenarios</h2>
+                </div>
+              </div>
+              {renderScenarioOptions(quickScenarios)}
+              <details className="advanced-scenarios">
+                <summary>Advanced Scenarios</summary>
+                {renderScenarioOptions(advancedScenarios)}
+              </details>
+            </div>
+
+            <form className="composer cockpit-card" onSubmit={submitIssue}>
+              <div className="section-heading-row">
+                <div>
+                  <p className="active-panel-eyebrow">Task input</p>
+                  <h2>Run Secure Task</h2>
+                  <p className="muted-note">Secure task execution requires verified user identity.</p>
+                </div>
+              </div>
+              <textarea
+                value={message}
+                onChange={(event) => setMessage(event.target.value)}
+                aria-label="Integration issue"
+              />
+              <button type="submit" disabled={isLoading || !isUserAuthenticated}>
+                {isLoading ? "Running..." : isUserAuthenticated ? "Run Task" : "Login required"}
+              </button>
+            </form>
+
+            {error ? <p className="error cockpit-error">{error}</p> : null}
+
+            <MessageList messages={messages} />
+            {latestRequest && latestResponse ? (
+              <section className="cockpit-card response-summary-card">
+                <div className="section-heading-row">
+                  <div>
+                    <p className="active-panel-eyebrow">Request summary</p>
+                    <h2>Latest Request</h2>
+                  </div>
+                  <span className={`summary-result status-${cockpitStatusClass(latestResponse.resolutionStatus)}`}>{latestResponse.resolutionStatus}</span>
+                </div>
+                <p>{latestRequest}</p>
+              </section>
+            ) : null}
+          </section>
+
+          <aside className="cockpit-side">
+            {renderSecuritySummaryCard()}
+            {renderLatestSecurityDetails()}
+            <section className="cockpit-card selected-agents-card">
+              <div className="section-heading-row">
+                <div>
+                  <p className="active-panel-eyebrow">Routing</p>
+                  <h2>Selected Agents</h2>
+                </div>
+              </div>
+              {latestResponse?.selectedAgents.length ? (
+                <ul className="agent-list compact">
+                  {latestResponse.selectedAgents.map((agent) => (
+                    <li key={`${agent.agentId}-${agent.skillId ?? "default"}`}>
+                      <strong>{agent.agentId}</strong>
+                      <span>{agent.role}{agent.skillId ? ` / ${agent.skillId}` : ""}</span>
+                      <p>{agent.matchedCapability ?? agent.reason}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted-note">No agents selected yet.</p>
+              )}
+            </section>
+            {renderTechnicalDetails()}
+          </aside>
+        </div>
+      </section>
     );
   }
 
@@ -2144,6 +2487,16 @@ function App() {
         </div>
         {latestResponse ? (
           <>
+            <section className="timeline-executive-summary">
+              <p className="active-panel-eyebrow">Timeline Summary</p>
+              <div>
+                <span className="status-success">Identity verified</span>
+                <span className={`status-${cockpitStatusClass(policySummary)}`}>Policy checked</span>
+                <span className={`status-${cockpitStatusClass(tokenSummary)}`}>Scoped token {tokenSummary}</span>
+                <span className={latestResponse.a2aResponses?.length ? "status-success" : "status-neutral"}>Agent {latestResponse.a2aResponses?.length ? "executed" : "not executed"}</span>
+                <span className="status-success">Raw tokens hidden</span>
+              </div>
+            </section>
             <div className="security-timeline-summary">
               <article>
                 <span>User</span>
@@ -2220,7 +2573,7 @@ function App() {
             </div>
 
             <details className="raw-execution-data">
-              <summary>Sanitized raw execution data</summary>
+              <summary>Technical trace (sanitized)</summary>
               <JsonBlock value={safeRawExecutionData(latestResponse)} />
             </details>
           </>
@@ -2232,7 +2585,7 @@ function App() {
   }
 
   return (
-    <main className={`shell ${activeTab === "run-task" ? "" : "single-panel-shell"}`}>
+    <main className="shell single-panel-shell">
       <section className="workspace">
         <header className="topbar">
           <div>
@@ -2276,410 +2629,6 @@ function App() {
         {activeTab === "security-timeline" ? renderSecurityTimelineTab() : null}
       </section>
 
-      {activeTab === "run-task" ? (
-        <aside className="details">
-        {latestResponse ? (
-          <>
-            <section>
-              <h2>Execution Flow</h2>
-              <div className="flow-type">{inferDemoFlowType(latestResponse)}</div>
-              <p className="muted-note">Conversation ID: {latestResponse.conversationId ?? conversationId ?? "new"}</p>
-            </section>
-
-            <section>
-              <h2>User Identity</h2>
-              <div className="classification-details">
-                <div>
-                  <span>Status</span>
-                  <strong>{latestResponse.userIdentity.authenticated ? "authenticated" : "not authenticated"}</strong>
-                </div>
-                <div>
-                  <span>Email</span>
-                  <strong>{latestResponse.userIdentity.email ?? "none"}</strong>
-                </div>
-                <div>
-                  <span>Name</span>
-                  <strong>{latestResponse.userIdentity.name ?? "none"}</strong>
-                </div>
-                <div>
-                  <span>Roles</span>
-                  <strong>{latestResponse.userIdentity.roles?.join(", ") ?? "none"}</strong>
-                </div>
-                <div>
-                  <span>Actor attached</span>
-                  <strong>{latestActorAttached ? "yes" : "no"}</strong>
-                </div>
-                <div>
-                  <span>Actor email</span>
-                  <strong>{latestResponse.userIdentity.email ?? "none"}</strong>
-                </div>
-                <div>
-                  <span>Actor roles</span>
-                  <strong>{latestActorRoles}</strong>
-                </div>
-                <div>
-                  <span>Actor propagated to A2A token metadata</span>
-                  <strong>{latestActorTokenObserved ? "yes" : "not observed in latest run"}</strong>
-                </div>
-              </div>
-            </section>
-
-            {latestResponse.resolutionStatus === "unsupported" && inferDemoFlowType(latestResponse) !== "Out of scope" ? (
-              <section className="manual-workflow">
-                <h2>Manual ServiceNow Request Required</h2>
-                <p>{latestResponse.finalAnswer}</p>
-              </section>
-            ) : null}
-
-            <section>
-              <h2>Classification</h2>
-              <div className="classification-details">
-                <div>
-                  <span>System</span>
-                  <strong>{latestResponse.classification.system}</strong>
-                </div>
-                <div>
-                  <span>Error Code</span>
-                  <strong>{latestResponse.classification.errorCode ?? "none"}</strong>
-                </div>
-                <div>
-                  <span>Issue Type</span>
-                  <strong>{latestResponse.classification.issueType}</strong>
-                </div>
-                <div>
-                  <span>Operation</span>
-                  <strong>{latestResponse.classification.operation ?? "unknown"}</strong>
-                </div>
-                <div>
-                  <span>Confidence</span>
-                  <strong>{latestResponse.classification.confidence}</strong>
-                </div>
-                <div>
-                  <span>Source</span>
-                  <strong>{latestResponse.classification.classificationSource}</strong>
-                </div>
-                <div>
-                  <span>Classification AI Provider</span>
-                  <strong>{latestResponse.classification.aiProvider ?? "none"}</strong>
-                </div>
-                <div>
-                  <span>Classification AI Model</span>
-                  <strong>{latestResponse.classification.aiModel ?? "none"}</strong>
-                </div>
-                <div>
-                  <span>Reporter Type</span>
-                  <strong>{latestResponse.classification.reporterType}</strong>
-                </div>
-                <div>
-                  <span>Support Mode</span>
-                  <strong>{latestResponse.classification.supportMode}</strong>
-                </div>
-                <p>{latestResponse.classification.reasoningSummary}</p>
-              </div>
-            </section>
-
-            {latestResponse.requestInterpretation ? (
-              <section>
-                <h2>Request Interpretation</h2>
-                <div className="classification-details">
-                  <div>
-                    <span>Scope</span>
-                    <strong>{latestResponse.requestInterpretation.scope}</strong>
-                  </div>
-                  <div>
-                    <span>Intent</span>
-                    <strong>{latestResponse.requestInterpretation.intentType}</strong>
-                  </div>
-                  <div>
-                    <span>Capability</span>
-                    <strong>{latestResponse.requestInterpretation.requestedCapability ?? "unknown"}</strong>
-                  </div>
-                  <div>
-                    <span>Interpretation Source</span>
-                    <strong>{latestResponse.requestInterpretation.interpretationSource ?? "unknown"}</strong>
-                  </div>
-                  <div>
-                    <span>AI Provider</span>
-                    <strong>{latestResponse.requestInterpretation.aiProvider ?? "none"}</strong>
-                  </div>
-                  <div>
-                    <span>AI Model</span>
-                    <strong>{latestResponse.requestInterpretation.aiModel ?? "none"}</strong>
-                  </div>
-                  <div>
-                    <span>Target System</span>
-                    <strong>{latestResponse.requestInterpretation.targetSystemText ?? "Unknown"}</strong>
-                  </div>
-                  <div>
-                    <span>Resource</span>
-                    <strong>
-                      {[latestResponse.requestInterpretation.targetResourceType, latestResponse.requestInterpretation.targetResourceName].filter(Boolean).join(": ") || "Unknown"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Requires Approval</span>
-                    <strong>{latestResponse.requestInterpretation.requiresApproval ? "yes" : "no"}</strong>
-                  </div>
-                  <p>{latestResponse.requestInterpretation.reason}</p>
-                </div>
-              </section>
-            ) : null}
-
-            {latestResponse.followUpInterpretation ? (
-              <section>
-                <h2>Follow-up Context</h2>
-                <div className="classification-details">
-                  <div>
-                    <span>Follow-up</span>
-                    <strong>{latestResponse.followUpInterpretation.isFollowUp ? "yes" : "no"}</strong>
-                  </div>
-                  <div>
-                    <span>Source</span>
-                    <strong>{latestResponse.followUpInterpretation.interpretationSource ?? "unknown"}</strong>
-                  </div>
-                  <div>
-                    <span>Confidence</span>
-                    <strong>{latestResponse.followUpInterpretation.confidence}</strong>
-                  </div>
-                  <div>
-                    <span>Added Environment</span>
-                    <strong>{latestResponse.followUpInterpretation.addsEnvironment ?? "none"}</strong>
-                  </div>
-                  <div>
-                    <span>Added Error</span>
-                    <strong>{latestResponse.followUpInterpretation.addsErrorText ?? "none"}</strong>
-                  </div>
-                  <div>
-                    <span>Added Impact</span>
-                    <strong>{latestResponse.followUpInterpretation.addsImpact ?? "none"}</strong>
-                  </div>
-                  <p>{latestResponse.followUpInterpretation.reason}</p>
-                </div>
-              </section>
-            ) : null}
-
-            {latestResponse.incidentContext ? (
-              <section>
-                <h2>Incident Context</h2>
-                <div className="classification-details">
-                  <div>
-                    <span>Affected System</span>
-                    <strong>{latestResponse.incidentContext.targetSystemText ?? "Unknown"}</strong>
-                  </div>
-                  <div>
-                    <span>Environment</span>
-                    <strong>{latestResponse.incidentContext.environment ?? "Unknown"}</strong>
-                  </div>
-                  <div>
-                    <span>Symptom</span>
-                    <strong>{latestResponse.incidentContext.symptom ?? "Unknown"}</strong>
-                  </div>
-                  <div>
-                    <span>Error</span>
-                    <strong>{latestResponse.incidentContext.errorText ?? "Unknown"}</strong>
-                  </div>
-                  <div>
-                    <span>Impact</span>
-                    <strong>{latestResponse.incidentContext.impact ?? "Unknown"}</strong>
-                  </div>
-                  <div>
-                    <span>Assignment Group</span>
-                    <strong>{latestResponse.incidentContext.suggestedAssignmentGroup}</strong>
-                  </div>
-                </div>
-              </section>
-            ) : null}
-
-            <section>
-              <h2>ServiceNow Routing</h2>
-              <div className="routing-details">
-                <div>
-                  <span>Source</span>
-                  <strong>{latestResponse.routingSource}</strong>
-                </div>
-                <div>
-                  <span>Confidence</span>
-                  <strong>{latestResponse.routingConfidence}</strong>
-                </div>
-                <div>
-                  <span>Status</span>
-                  <strong>{latestResponse.resolutionStatus}</strong>
-                </div>
-                <p>
-                  {routingDescription(latestResponse)} {latestResponse.routingReasoningSummary}
-                </p>
-              </div>
-            </section>
-
-            <section className="agent-grid">
-              <div>
-                <h2>A2A Selected Agents</h2>
-                <ul className="agent-list">
-                  {latestResponse.selectedAgents.map((agent) => (
-                    <li key={agent.agentId}>
-                      <strong>{agent.agentId}</strong>
-                      <span>{agent.role}{agent.skillId ? ` / ${agent.skillId}` : ""}</span>
-                      {agent.matchedCapability || typeof agent.matchScore === "number" || agent.owner || agent.targetSystemText ? (
-                        <span>
-                          {agent.matchedCapability ? `capability=${agent.matchedCapability} ` : ""}
-                          {typeof agent.matchScore === "number" ? `score=${agent.matchScore} ` : ""}
-                          {agent.owner ? `owner=${agent.owner} ` : ""}
-                          {agent.targetSystemText ? `target=${agent.targetSystemText}` : ""}
-                        </span>
-                      ) : null}
-                      <p>{agent.reason}</p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h2>Skipped Agents</h2>
-                <ul className="agent-list">
-                  {latestResponse.skippedAgents.map((agent) => (
-                    <li key={agent.agentId}>
-                      <strong>{agent.agentId}</strong>
-                      <p>{agent.reason}</p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </section>
-
-            <section>
-              <h2>Evidence</h2>
-              {latestResponse.evidence.length > 0 ? (
-                latestResponse.evidence.map((item) => (
-                  <article className="evidence" key={`${item.agent}-${item.title}`}>
-                    <strong>{item.title}</strong>
-                    <span>{item.agent}</span>
-                    <JsonBlock value={item.data} />
-                  </article>
-                ))
-              ) : (
-                <p className="muted-note">No evidence collected because no agent was executed.</p>
-              )}
-            </section>
-
-            <section>
-              <h2>A2A Conversation Trace</h2>
-              <ol className="timeline">
-                {latestResponse.executionTrace.map((entry, index) => (
-                  <li key={`${entry.actor}-${entry.action}-${index}`}>
-                    <span>{String(index + 1).padStart(2, "0")}</span>
-                    <div>
-                      <strong>{entry.actor}</strong>
-                      <p>{entry.detail}</p>
-                      {entry.taskId || entry.skillId || entry.fromAgent || entry.toAgent || entry.mediatedBy || entry.decision || typeof entry.delegationDepth === "number" ? (
-                        <p className="trace-meta">
-                          {entry.taskId ? `taskId=${entry.taskId} ` : ""}
-                          {entry.conversationId ? `conversationId=${entry.conversationId} ` : ""}
-                          {entry.fromAgent ? `from=${entry.fromAgent} ` : ""}
-                          {entry.toAgent ? `to=${entry.toAgent} ` : ""}
-                          {entry.mediatedBy ? `mediatedBy=${entry.mediatedBy} ` : ""}
-                          {entry.skillId ? `skill=${entry.skillId} ` : ""}
-                          {entry.decision ? `decision=${entry.decision} ` : ""}
-                          {typeof entry.delegationDepth === "number" ? `delegationDepth=${entry.delegationDepth}` : ""}
-                        </p>
-                      ) : null}
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </section>
-
-            {latestResponse.a2aTasks?.length ? (
-              <section>
-                <h2>A2A Tasks</h2>
-                {latestResponse.a2aTasks.map((task) => (
-                  <article className="evidence" key={task.taskId}>
-                    <strong>{task.fromAgent} to {task.toAgent}</strong>
-                    <span>{task.skillId ?? "no skill"}</span>
-                    <JsonBlock
-                      value={{
-                        taskId: task.taskId,
-                        conversationId: task.conversationId,
-                        targetAudience: task.context.targetAudience,
-                        requestedScope: task.context.requestedScope,
-                        authMode: task.context.authMode,
-                        auth: task.context.auth,
-                        authDelegatedBy: task.context.auth?.delegatedBy,
-                        authDelegationDepth: task.context.auth?.delegationDepth,
-                        authParentTaskId: task.context.auth?.parentTaskId,
-                        authRequestedByAgent: task.context.auth?.requestedByAgent,
-                        mediatedBy: task.mediatedBy,
-                        delegationDepth: task.delegationDepth,
-                        parentTaskId: task.parentTaskId,
-                        requestedByAgent: task.requestedByAgent,
-                        securityDecision: task.context.securityDecision?.decision
-                      }}
-                    />
-                  </article>
-                ))}
-              </section>
-            ) : null}
-
-            {(latestResponse.securityDecisions?.length ?? (latestResponse.securityDecision ? 1 : 0)) > 0 ? (
-              <section>
-                <h2>Security Decisions</h2>
-                {(latestResponse.securityDecisions ?? (latestResponse.securityDecision ? [latestResponse.securityDecision] : [])).map((decision, index) => (
-                  <div className="security-decision" key={`${decision.caller}-${decision.target}-${decision.requestedAction}-${index}`}>
-                    <div>
-                      <span>Caller</span>
-                      <strong>{decision.caller}</strong>
-                    </div>
-                    <div>
-                      <span>Target</span>
-                      <strong>{decision.target}</strong>
-                    </div>
-                    <div>
-                      <span>Requested Action</span>
-                      <strong>{decision.requestedAction}</strong>
-                    </div>
-                    <div>
-                      <span>Required Permission</span>
-                      <strong>{decision.requiredPermission}</strong>
-                    </div>
-                    <div>
-                      <span>Decision</span>
-                      <strong className={`decision-badge ${decisionClass(decision.decision)}`}>
-                        {decision.decision}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Matched Policy</span>
-                      <strong>{decision.matchedPolicy}</strong>
-                    </div>
-                    <div>
-                      <span>Caller Permissions</span>
-                      <strong>{decision.callerPermissions.join(", ") || "none"}</strong>
-                    </div>
-                    <p>{decision.reason}</p>
-                  </div>
-                ))}
-              </section>
-            ) : null}
-
-            <section>
-              <h2>Raw Agent Trace</h2>
-              <ol className="trace">
-                {latestResponse.agentTrace.map((entry, index) => (
-                  <li key={`${entry.agent}-${entry.action}-${index}`}>
-                    <div className="raw-trace-header">
-                      <strong>{entry.agent}</strong>
-                      <span className="trace-separator">  </span>
-                      <span className="trace-action">{entry.action}</span>
-                    </div>
-                    <p className="raw-trace-description">{entry.detail}</p>
-                  </li>
-                ))}
-              </ol>
-            </section>
-          </>
-        ) : (
-          <div className="empty-state">Choose a scenario to run or type a message in the input field.</div>
-        )}
-        </aside>
-      ) : null}
     </main>
   );
 }
