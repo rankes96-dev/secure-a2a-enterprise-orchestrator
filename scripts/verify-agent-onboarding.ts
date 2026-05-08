@@ -54,14 +54,46 @@ async function request(path: string, init: RequestInit = {}): Promise<{ response
 
 function assertNoSecretMarkers(value: unknown): void {
   const text = JSON.stringify(value);
-  const forbidden = ["access_token", "client_assertion", "private_key", "client_secret", "Authorization", "Bearer"];
-  const found = forbidden.find((marker) => text.includes(marker));
+  const forbidden = [
+    /access_token/i,
+    /client_assertion/i,
+    /privateKey/i,
+    /"private_key"\s*:/i,
+    /clientSecret/i,
+    /"client_secret"\s*:/i,
+    /Authorization/,
+    /Bearer/
+  ];
+  const found = forbidden.find((marker) => marker.test(text));
   if (found) {
     throw new Error(`onboarding response exposed forbidden marker ${found}`);
   }
 }
 
 async function verifyValidOnboarding(): Promise<void> {
+  const discoveryResponse = await request("/agent-onboarding/discover", {
+    method: "POST",
+    body: JSON.stringify({
+      agentBaseUrl: "http://localhost:4201",
+      expectedAgentId: "external-jira-agent"
+    })
+  });
+  requireStatus(discoveryResponse.response, discoveryResponse.body, 200, "discover external agent");
+  const discoveryResult = asRecord(discoveryResponse.body);
+  if (discoveryResult.discovered !== true) {
+    throw new Error(`expected discovery to succeed: ${JSON.stringify(discoveryResponse.body)}`);
+  }
+  const discovery = asRecord(discoveryResult.discovery);
+  if (discovery.agentId !== "external-jira-agent" || discovery.issuer !== "http://localhost:4201") {
+    throw new Error(`discovery returned unexpected agent metadata: ${JSON.stringify(discoveryResponse.body)}`);
+  }
+  const gatewayRegistration = asRecord(discoveryResult.gatewayRegistration);
+  if (gatewayRegistration.clientId !== "secure-a2a-gateway-client") {
+    throw new Error(`discovery did not include Gateway registration metadata: ${JSON.stringify(discoveryResponse.body)}`);
+  }
+  assertNoSecretMarkers(discoveryResponse.body);
+  logOk("discovered external agent metadata");
+
   const { response, body } = await request("/agent-onboarding/start", {
     method: "POST",
     body: JSON.stringify({

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { evaluateResourcePermissions, type ResourcePermissionRegistration } from "./resourcePermissions";
-import { gatewayPublicIdentity, signGatewayOnboardingChallenge } from "./security/gatewayIdentity";
+import { gatewayMetadata, gatewayPublicIdentity, signGatewayOnboardingChallenge } from "./security/gatewayIdentity";
 import { validateOAuthApplicationBinding } from "./trustedOAuthApplications";
 
 export type AgentTrustLevel =
@@ -157,6 +157,27 @@ export type AgentOnboardingValidationResult =
       checks: AgentOnboardingCheck[];
     };
 
+export type AgentOnboardingDiscoveryResult =
+  | {
+      discovered: true;
+      agentBaseUrl: string;
+      expectedAgentId: string;
+      discovery: ExternalAgentDiscovery;
+      gatewayRegistration: ReturnType<typeof gatewayMetadata>;
+      connectionInstructions: {
+        admin: string[];
+        externalAgentDeveloper: string[];
+      };
+      checks: AgentOnboardingCheck[];
+    }
+  | {
+      discovered: false;
+      error: "agent_discovery_failed";
+      details: string[];
+      checks: AgentOnboardingCheck[];
+      gatewayRegistration: ReturnType<typeof gatewayMetadata>;
+    };
+
 const trustedAgentsByOwner = new Map<string, TrustedOnboardedAgent[]>();
 const httpTimeoutMs = 2_000;
 const maxDiscoveryJsonBytes = 32_000;
@@ -231,6 +252,35 @@ function createChallenge(input: AgentOnboardingRequest): AgentOnboardingChalleng
     expectedAgentId: input.expectedAgentId,
     expiresAt: new Date(Date.now() + 5 * 60_000).toISOString()
   };
+}
+
+function parseOnboardingRequest(value: unknown): AgentOnboardingRequest {
+  const input = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+
+  const rawAgentBaseUrl = cleanString(input.agentBaseUrl);
+  return {
+    agentBaseUrl: normalizeAgentBaseUrl(rawAgentBaseUrl) ?? rawAgentBaseUrl,
+    expectedAgentId: cleanString(input.expectedAgentId)
+  };
+}
+
+function validateOnboardingRequest(request: AgentOnboardingRequest): string[] {
+  const details: string[] = [];
+  if (!request.agentBaseUrl) details.push("agentBaseUrl is required.");
+  if (!request.expectedAgentId) details.push("expectedAgentId is required.");
+  if (request.agentBaseUrl && !allowedAgentBaseUrls.has(request.agentBaseUrl)) {
+    details.push(`unsupported agentBaseUrl ${request.agentBaseUrl}. This phase only supports http://localhost:4201.`);
+  }
+  if (request.agentBaseUrl) {
+    const unsafe = validateSafeExternalUrl(request.agentBaseUrl, request.agentBaseUrl);
+    if (unsafe) {
+      details.push(unsafe);
+    }
+  }
+
+  return details;
 }
 
 function publicTokenEndpointAuthMethod(method: ExternalAgentTrustResponse["tokenEndpointAuthMethod"]): TrustedOnboardedAgent["tokenEndpointAuthMethod"] {
@@ -477,28 +527,60 @@ export function addTrustedOnboardedAgent(ownerKey: string, agent: TrustedOnboard
   return agent;
 }
 
-export async function startAgentOnboarding(ownerKey: string, value: unknown): Promise<AgentOnboardingValidationResult> {
-  const input = value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-  const request: AgentOnboardingRequest = {
-    agentBaseUrl: normalizeAgentBaseUrl(cleanString(input.agentBaseUrl)) ?? cleanString(input.agentBaseUrl),
-    expectedAgentId: cleanString(input.expectedAgentId)
-  };
+export async function discoverAgentOnboarding(value: unknown): Promise<AgentOnboardingDiscoveryResult> {
+  const request = parseOnboardingRequest(value);
   const checks: AgentOnboardingCheck[] = [];
-  const details: string[] = [];
+  const details = validateOnboardingRequest(request);
+  const gatewayRegistration = gatewayMetadata();
 
-  if (!request.agentBaseUrl) details.push("agentBaseUrl is required.");
-  if (!request.expectedAgentId) details.push("expectedAgentId is required.");
-  if (request.agentBaseUrl && !allowedAgentBaseUrls.has(request.agentBaseUrl)) {
-    details.push(`unsupported agentBaseUrl ${request.agentBaseUrl}. This phase only supports http://localhost:4201.`);
+  if (details.length > 0) {
+    addCheck(checks, "safe_agent_base_url", false, details.join(" "));
+    return { discovered: false, error: "agent_discovery_failed", details, checks, gatewayRegistration };
   }
-  if (request.agentBaseUrl) {
-    const unsafe = validateSafeExternalUrl(request.agentBaseUrl, request.agentBaseUrl);
-    if (unsafe) {
-      details.push(unsafe);
-    }
+
+  checks.push({ name: "safe_agent_base_url", status: "passed" });
+  const discovered = await discoverExternalAgent(request.agentBaseUrl, request.expectedAgentId);
+  if (!discovered.discovery) {
+    checks.push({ name: "external_agent_discovery", status: "failed", detail: discovered.details.join(" ") });
+    return {
+      discovered: false,
+      error: "agent_discovery_failed",
+      details: [
+        "Discovery failed. Start real-external-agent on http://localhost:4201 and ensure it exposes GET /.well-known/a2a-agent.json.",
+        ...discovered.details
+      ],
+      checks,
+      gatewayRegistration
+    };
   }
+
+  checks.push({ name: "external_agent_discovery", status: "passed" });
+  return {
+    discovered: true,
+    agentBaseUrl: request.agentBaseUrl,
+    expectedAgentId: request.expectedAgentId,
+    discovery: discovered.discovery,
+    gatewayRegistration,
+    connectionInstructions: {
+      admin: [
+        "Copy the Gateway registration JSON into the external agent admin/config screen.",
+        "Verify the OAuth application registration and service principal permissions before completing onboarding.",
+        "Run Verify connection to require signed proof, OAuth binding, and capability derivation."
+      ],
+      externalAgentDeveloper: [
+        "Publish discovery and public JWKS endpoints.",
+        "Validate signed Gateway challenges before returning a signed trust response.",
+        "Declare requested scopes and agent capabilities in the signed trust response."
+      ]
+    },
+    checks
+  };
+}
+
+export async function startAgentOnboarding(ownerKey: string, value: unknown): Promise<AgentOnboardingValidationResult> {
+  const request = parseOnboardingRequest(value);
+  const checks: AgentOnboardingCheck[] = [];
+  const details = validateOnboardingRequest(request);
 
   if (details.length > 0) {
     addCheck(checks, "safe_agent_base_url", false, details.join(" "));

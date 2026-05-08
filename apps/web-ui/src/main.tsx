@@ -795,6 +795,39 @@ type AgentOnboardingResult = {
   trustedAgents?: TrustedOnboardedAgent[];
 };
 
+type GatewayRegistrationMetadata = {
+  gatewayId: string;
+  issuer: string;
+  clientId: string;
+  jwksUri: string;
+  supportedOnboardingMethods: string[];
+};
+
+type AgentDiscoveryMetadata = {
+  agentId: string;
+  issuer: string;
+  jwksUri: string;
+  onboardingEndpoint: string;
+  runtimeEndpoint: string;
+  auth: {
+    audience: string;
+    tokenEndpointAuthMethod: "private_key_jwt" | "client_secret_post" | "unknown";
+  };
+};
+
+type AgentOnboardingDiscoveryResult = {
+  discovered: true;
+  agentBaseUrl: string;
+  expectedAgentId: string;
+  discovery: AgentDiscoveryMetadata;
+  gatewayRegistration: GatewayRegistrationMetadata;
+  connectionInstructions: {
+    admin: string[];
+    externalAgentDeveloper: string[];
+  };
+  checks: AgentOnboardingResult["checks"];
+};
+
 type RegisteredAgentSource = "zero-trust-onboarded" | "built-in" | "infrastructure";
 
 type RegisteredAgentRow = {
@@ -988,8 +1021,12 @@ function App() {
   const [zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl] = useState("http://localhost:4201");
   const [zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId] = useState("external-jira-agent");
   const [zeroTrustOnboardedAgents, setZeroTrustOnboardedAgents] = useState<TrustedOnboardedAgent[]>([]);
+  const [zeroTrustDiscovery, setZeroTrustDiscovery] = useState<AgentOnboardingDiscoveryResult | null>(null);
   const [zeroTrustResult, setZeroTrustResult] = useState<AgentOnboardingResult | null>(null);
   const [zeroTrustError, setZeroTrustError] = useState("");
+  const [zeroTrustCopyMessage, setZeroTrustCopyMessage] = useState("");
+  const [gatewayRegistrationMetadata, setGatewayRegistrationMetadata] = useState<GatewayRegistrationMetadata | null>(null);
+  const [isZeroTrustDiscovering, setIsZeroTrustDiscovering] = useState(false);
   const [isZeroTrustOnboarding, setIsZeroTrustOnboarding] = useState(false);
   const [identitySession, setIdentitySession] = useState<IdentitySessionResponse | null>(null);
   const [trustStatus, setTrustStatus] = useState<TrustStatusResponse | null>(null);
@@ -1158,6 +1195,7 @@ function App() {
   useEffect(() => {
     void checkAgentHealth();
     void loadTrustStatus();
+    void loadGatewayRegistrationMetadata();
   }, []);
 
   useEffect(() => {
@@ -1354,9 +1392,80 @@ function App() {
     }
   }
 
+  async function loadGatewayRegistrationMetadata() {
+    try {
+      const response = await fetch(`${API_URL}/.well-known/a2a-gateway.json`, {
+        method: "GET",
+        credentials: "include"
+      });
+      if (response.ok) {
+        setGatewayRegistrationMetadata((await response.json()) as GatewayRegistrationMetadata);
+      }
+    } catch {
+      setGatewayRegistrationMetadata(null);
+    }
+  }
+
+  function resetZeroTrustConnectionState() {
+    setZeroTrustDiscovery(null);
+    setZeroTrustResult(null);
+    setZeroTrustError("");
+    setZeroTrustCopyMessage("");
+  }
+
+  async function discoverZeroTrustAgent() {
+    setZeroTrustError("");
+    setZeroTrustResult(null);
+    setZeroTrustDiscovery(null);
+    setIsZeroTrustDiscovering(true);
+
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/agent-onboarding/discover`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          agentBaseUrl: zeroTrustAgentBaseUrl,
+          expectedAgentId: zeroTrustExpectedAgentId
+        })
+      });
+      const body = await response.json() as AgentOnboardingDiscoveryResult | { discovered: false; details?: string[]; error?: string };
+      if (!response.ok || !("discovered" in body) || body.discovered !== true) {
+        const details = "details" in body && body.details?.length
+          ? body.details.join(" ")
+          : "Discovery failed. Start real-external-agent on http://localhost:4201 and ensure it exposes GET /.well-known/a2a-agent.json.";
+        throw new Error(details);
+      }
+
+      setZeroTrustDiscovery(body);
+      setGatewayRegistrationMetadata(body.gatewayRegistration);
+      guideToTarget("zero-trust-onboarding");
+    } catch (caughtError) {
+      setZeroTrustError(caughtError instanceof Error ? caughtError.message : "Discovery failed. Start real-external-agent on http://localhost:4201 and ensure it exposes GET /.well-known/a2a-agent.json.");
+      guideToTarget("zero-trust-onboarding");
+    } finally {
+      setIsZeroTrustDiscovering(false);
+    }
+  }
+
+  async function copyGatewayRegistrationJson(value: unknown) {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(value, null, 2));
+      setZeroTrustCopyMessage("Gateway registration JSON copied.");
+    } catch {
+      setZeroTrustCopyMessage("Copy failed. Select the JSON and copy it manually.");
+    }
+  }
+
   async function startZeroTrustOnboarding() {
     setZeroTrustError("");
     setZeroTrustResult(null);
+    if (!zeroTrustDiscovery) {
+      setZeroTrustError("Discover the external agent before verifying the connection.");
+      guideToTarget("zero-trust-onboarding");
+      return;
+    }
     setIsZeroTrustOnboarding(true);
 
     try {
@@ -1382,7 +1491,7 @@ function App() {
       } else {
         await loadZeroTrustOnboardedAgents();
       }
-      guideToTarget("registered-agents");
+      guideToTarget("zero-trust-onboarding");
     } catch (caughtError) {
       setZeroTrustError(caughtError instanceof Error ? caughtError.message : "Zero-trust onboarding failed");
       guideToTarget("zero-trust-onboarding");
@@ -1789,14 +1898,46 @@ function App() {
     const approvedCapabilities = zeroTrustResult?.capabilityDecision.approvedCapabilities ?? [];
     const blockedCapabilities = zeroTrustResult?.capabilityDecision.blockedCapabilities ?? [];
     const wizardSteps = [
-      "Discover Agent",
-      "Register Gateway",
-      "Verify Agent Proof",
-      "Bind OAuth App",
-      "Verify Permissions",
-      "Review Capabilities"
-    ];
-    const checkStatus = (name: string) => zeroTrustResult?.checks.find((check) => check.name === name)?.status;
+      ["Discover Agent", ["external_agent_discovery"]],
+      ["Register Gateway", ["external_agent_discovery"]],
+      ["Verify Gateway Identity", ["gateway_identity_verified", "signed_gateway_challenge_verified"]],
+      ["Verify Agent Identity", ["external_agent_contacted", "signed_agent_response_verified", "nonce_matched"]],
+      ["Bind OAuth App", ["oauth_application_bound", "requested_scopes_granted"]],
+      ["Verify Permissions", ["resource_permissions_loaded"]],
+      ["Review Capabilities", ["capabilities_derived"]]
+    ] as const;
+    const gatewayMetadata = zeroTrustDiscovery?.gatewayRegistration ?? gatewayRegistrationMetadata ?? {
+      gatewayId: "secure-a2a-gateway",
+      clientId: "secure-a2a-gateway-client",
+      issuer: "http://localhost:4000",
+      jwksUri: "http://localhost:4000/.well-known/jwks.json",
+      supportedOnboardingMethods: ["signed_gateway_challenge", "private_key_jwt"]
+    };
+    const gatewayRegistration = {
+      gatewayId: gatewayMetadata.gatewayId,
+      clientId: gatewayMetadata.clientId,
+      issuer: gatewayMetadata.issuer,
+      jwksUri: gatewayMetadata.jwksUri,
+      onboardingMethod: gatewayMetadata.supportedOnboardingMethods[0] ?? "signed_gateway_challenge"
+    };
+    const discoveryCheckStatus = (name: string) => zeroTrustDiscovery?.checks.find((check) => check.name === name)?.status;
+    const resultCheckStatus = (name: string) => zeroTrustResult?.checks.find((check) => check.name === name)?.status;
+    const checkStatus = (name: string) => resultCheckStatus(name) ?? discoveryCheckStatus(name);
+    const wizardStatus = (checkNames: readonly string[], index: number) => {
+      if (zeroTrustResult) {
+        return checkNames.every((name) => checkStatus(name) === "passed" || checkStatus(name) === "metadata_only") ? "passed" : "waiting";
+      }
+      if (zeroTrustDiscovery && index <= 1) {
+        return "passed";
+      }
+      if (!zeroTrustDiscovery && index === 0) {
+        return "active";
+      }
+      if (zeroTrustDiscovery && index === 2) {
+        return "active";
+      }
+      return "waiting";
+    };
     const progressSteps = [
       ["External agent discovery", "Fetch and validate /.well-known/a2a-agent.json.", "external_agent_discovery"],
       ["Gateway identity challenge", "Create a signed Gateway assertion for the expected external agent.", "gateway_identity_verified"],
@@ -1808,13 +1949,6 @@ function App() {
       ["Capabilities derived", "Approve or block capabilities from OAuth grants and permissions.", "capabilities_derived"],
       ["Runtime remains metadata-only", "External runtime execution stays disabled for this phase.", "runtime_execution_metadata_only"]
     ] as const;
-    const gatewayRegistration = {
-      gatewayId: "secure-a2a-gateway",
-      clientId: "secure-a2a-gateway-client",
-      issuer: "http://localhost:4000",
-      jwksUri: "http://localhost:4000/.well-known/jwks.json",
-      onboardingMethod: "signed_gateway_challenge"
-    };
 
     return (
       <section className="zero-trust-onboarding-panel scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
@@ -1822,14 +1956,15 @@ function App() {
           <div>
             <p className="active-panel-eyebrow">External agent connection</p>
             <h2>Connect External Agent</h2>
-            <p className="muted-note">Register an external agent with the Secure A2A Gateway using discovery, signed gateway challenge, signed agent response, OAuth application binding, and capability approval.</p>
+            <p className="muted-note">Connect an independently owned external agent through discovery, signed Gateway challenge, signed agent response, OAuth application binding, permission verification, and capability approval.</p>
           </div>
         </div>
         <ol className="onboarding-wizard-steps" aria-label="External agent onboarding steps">
-          {wizardSteps.map((step, index) => (
-            <li key={step}>
+          {wizardSteps.map(([step, checks], index) => (
+            <li className={`wizard-${wizardStatus(checks, index)}`} key={step}>
               <span>{index + 1}</span>
               <strong>{step}</strong>
+              <small>{wizardStatus(checks, index).replace(/_/g, " ")}</small>
             </li>
           ))}
         </ol>
@@ -1839,10 +1974,11 @@ function App() {
             <span>For BizApps / Admin</span>
             <h3>What you need to do</h3>
             <ol>
-              <li>Enter the agent base URL provided by the external agent owner.</li>
-              <li>Confirm the discovered agent identity.</li>
-              <li>Verify OAuth application binding and resource permissions.</li>
-              <li>Review approved and blocked capabilities.</li>
+              <li>Get the external agent base URL from the agent owner.</li>
+              <li>Copy/register this Gateway identity in the external agent system.</li>
+              <li>Create or verify the OAuth application in the external system.</li>
+              <li>Bind a service account / integration principal.</li>
+              <li>Run verification to check scopes, permissions, and capabilities.</li>
             </ol>
             <p>You do not manually enter scopes or capabilities. The gateway discovers agent-declared capabilities, verifies OAuth grants, checks resource permissions, and derives what is approved.</p>
           </article>
@@ -1856,6 +1992,15 @@ function App() {
               <code>POST /a2a/task</code>
             </div>
             <p>The agent must validate the signed Gateway challenge before returning a signed trust response.</p>
+            <ul className="developer-contract-list">
+              <li>publish discovery metadata</li>
+              <li>publish public JWKS</li>
+              <li>validate signed Gateway challenges</li>
+              <li>return a signed trust response</li>
+              <li>declare requested scopes</li>
+              <li>declare agent capabilities</li>
+              <li>validate scoped A2A JWT at runtime in a future phase</li>
+            </ul>
             <div className="concept-pill-row" aria-label="Required signed response concepts">
               {["agentId", "issuer", "clientId", "requestedScopes", "agentDeclaredCapabilities", "signedTrustResponse"].map((item) => (
                 <span key={item}>{item}</span>
@@ -1869,50 +2014,99 @@ function App() {
           <div>
             <span>Gateway registration to configure in the external agent</span>
             <h3>Trust the Gateway caller</h3>
+            <p>This registration is generated from this Gateway&apos;s public identity metadata. It contains only public information. Copy it into the external agent admin/config screen so the external agent can verify signed Gateway challenges.</p>
+            <small>Source: <code>/.well-known/a2a-gateway.json</code></small>
             <div className="gateway-registration-facts">
-              <div><small>Gateway Client ID</small><strong>secure-a2a-gateway-client</strong></div>
-              <div><small>Gateway Issuer</small><strong>http://localhost:4000</strong></div>
-              <div><small>Gateway JWKS URI</small><strong>http://localhost:4000/.well-known/jwks.json</strong></div>
+              <div><small>Gateway Client ID</small><strong>{gatewayRegistration.clientId}</strong></div>
+              <div><small>Gateway Issuer</small><strong>{gatewayRegistration.issuer}</strong></div>
+              <div><small>Gateway JWKS URI</small><strong>{gatewayRegistration.jwksUri}</strong></div>
+              <div><small>Onboarding method</small><strong>{gatewayRegistration.onboardingMethod}</strong></div>
               <div><small>Expected audience</small><strong>external agent id</strong></div>
             </div>
           </div>
-          <details>
+          <details open={Boolean(zeroTrustDiscovery)}>
             <summary>Gateway registration JSON</summary>
             <pre>{JSON.stringify(gatewayRegistration, null, 2)}</pre>
+            <button type="button" className="secondary-button compact-button" onClick={() => void copyGatewayRegistrationJson(gatewayRegistration)}>Copy JSON</button>
+            {zeroTrustCopyMessage ? <small>{zeroTrustCopyMessage}</small> : null}
           </details>
         </article>
+
+        <div className="demo-production-setup-grid">
+          <article>
+            <span>Demo setup</span>
+            <p>The local real-external-agent is preconfigured with:</p>
+            <code>TRUSTED_GATEWAY_ISSUER={gatewayRegistration.issuer}</code>
+            <code>TRUSTED_GATEWAY_CLIENT_ID={gatewayRegistration.clientId}</code>
+            <code>TRUSTED_GATEWAY_JWKS_URI={gatewayRegistration.jwksUri}</code>
+          </article>
+          <article>
+            <span>Production setup</span>
+            <p>An external agent owner would paste the Gateway registration JSON into their agent admin/config screen.</p>
+          </article>
+        </div>
 
         <article className="zero-trust-connection-card">
           <div>
             <span>Connection input</span>
             <h3>Start from a discovery URL</h3>
           </div>
-          <div className="zero-trust-form">
-            <label>
-              <span>Agent base URL</span>
-              <input value={zeroTrustAgentBaseUrl} onChange={(event) => setZeroTrustAgentBaseUrl(event.target.value)} />
-              <small>Example: http://localhost:4201</small>
-            </label>
-            <label>
-              <span>Expected Agent ID</span>
-              <input value={zeroTrustExpectedAgentId} onChange={(event) => setZeroTrustExpectedAgentId(event.target.value)} />
-              <small>Optional if discovery is trusted; required in this demo to prevent connecting the wrong agent.</small>
-            </label>
-            <button type="button" onClick={() => void startZeroTrustOnboarding()} disabled={isZeroTrustOnboarding}>
-              {isZeroTrustOnboarding ? "Verifying..." : "Start onboarding"}
-            </button>
-          </div>
           <div className="gateway-will-list">
             <span>The Gateway will</span>
             <ol>
               <li>fetch the external agent discovery document</li>
-              <li>send a signed gateway challenge</li>
+              <li>generate a signed Gateway challenge</li>
+              <li>send the challenge to the external agent</li>
               <li>verify the signed agent response</li>
               <li>validate OAuth application binding</li>
-              <li>derive approved capabilities</li>
+              <li>check resource permissions</li>
+              <li>derive approved and blocked capabilities</li>
             </ol>
           </div>
+          <div className="zero-trust-form">
+            <label>
+              <span>Agent base URL</span>
+              <input value={zeroTrustAgentBaseUrl} onChange={(event) => {
+                setZeroTrustAgentBaseUrl(event.target.value);
+                resetZeroTrustConnectionState();
+              }} />
+              <small>URL where the external agent publishes /.well-known/a2a-agent.json. Example: http://localhost:4201</small>
+            </label>
+            <label>
+              <span>Expected Agent ID</span>
+              <input value={zeroTrustExpectedAgentId} onChange={(event) => {
+                setZeroTrustExpectedAgentId(event.target.value);
+                resetZeroTrustConnectionState();
+              }} />
+              <small>Used in this demo to prevent connecting the wrong agent.</small>
+            </label>
+            <div className="connection-button-row">
+              <button type="button" onClick={() => void discoverZeroTrustAgent()} disabled={isZeroTrustDiscovering || isZeroTrustOnboarding}>
+                {isZeroTrustDiscovering ? "Discovering..." : "Discover agent"}
+              </button>
+              <button type="button" onClick={() => void startZeroTrustOnboarding()} disabled={isZeroTrustOnboarding || isZeroTrustDiscovering || !zeroTrustDiscovery}>
+                {isZeroTrustOnboarding ? "Verifying..." : "Verify connection"}
+              </button>
+            </div>
+          </div>
         </article>
+
+        {zeroTrustDiscovery ? (
+          <article className="discovery-result-card">
+            <span>Discovered Agent</span>
+            <h3>{zeroTrustDiscovery.discovery.agentId}</h3>
+            <div className="discovery-result-grid">
+              <div><small>Agent ID</small><strong>{zeroTrustDiscovery.discovery.agentId}</strong></div>
+              <div><small>Issuer</small><strong>{zeroTrustDiscovery.discovery.issuer}</strong></div>
+              <div><small>JWKS URI</small><strong>{zeroTrustDiscovery.discovery.jwksUri}</strong></div>
+              <div><small>Onboarding endpoint</small><strong>{zeroTrustDiscovery.discovery.onboardingEndpoint}</strong></div>
+              <div><small>Runtime endpoint</small><strong>{zeroTrustDiscovery.discovery.runtimeEndpoint}</strong></div>
+              <div><small>Runtime audience</small><strong>{zeroTrustDiscovery.discovery.auth.audience}</strong></div>
+              <div><small>Token auth method</small><strong>{zeroTrustDiscovery.discovery.auth.tokenEndpointAuthMethod}</strong></div>
+            </div>
+            <p>This discovery document is a declaration. Trust is not granted until signed challenge, OAuth binding, and permission validation pass.</p>
+          </article>
+        ) : null}
 
         <article className="why-zero-trust-card">
           <span>Why this is Zero Trust</span>
@@ -1923,6 +2117,7 @@ function App() {
             <li>Scopes are checked against OAuth application registration.</li>
             <li>Permissions are checked through a trust adapter.</li>
             <li>Capabilities are approved only after validation.</li>
+            <li>Runtime execution stays disabled until runtime JWT validation is enabled.</li>
           </ul>
         </article>
 
@@ -1971,6 +2166,28 @@ function App() {
                 <li>Capabilities were derived by the Gateway.</li>
               </ul>
             </div>
+            <div className="connection-summary-grid">
+              <article>
+                <span>Status</span>
+                <strong>{zeroTrustResult.status}</strong>
+              </article>
+              <article>
+                <span>Runtime</span>
+                <strong>disabled until runtime validation</strong>
+              </article>
+              <article>
+                <span>External agent contacted</span>
+                <strong>{zeroTrustResult.agentProof.externalAgentContacted ? "yes" : "no"}</strong>
+              </article>
+              <article>
+                <span>Discovery fetched</span>
+                <strong>{zeroTrustResult.agentProof.discoveryFetched ? "yes" : "no"}</strong>
+              </article>
+              <article>
+                <span>Raw tokens/assertions</span>
+                <strong>hidden</strong>
+              </article>
+            </div>
             <div className="zero-trust-checks">
               {zeroTrustResult.checks.map((check) => (
                 <span className={`check-${check.status}`} key={check.name}>{check.name.replace(/_/g, " ")}: {check.status}</span>
@@ -1998,6 +2215,8 @@ function App() {
                 <small>External agent contacted: {zeroTrustResult.agentProof.externalAgentContacted ? "yes" : "no"}</small>
                 <small>Discovery fetched: {zeroTrustResult.agentProof.discoveryFetched ? "yes" : "no"}</small>
                 <small>Nonce matched: {String(zeroTrustResult.agentProof.nonceMatched)}</small>
+                <small>Issuer matched: {checkStatus("issuer_matched") === "passed" ? "yes" : "not verified"}</small>
+                <small>Audience matched: {checkStatus("audience_matched") === "passed" ? "yes" : "not verified"}</small>
               </article>
               <article>
                 <span>OAuth Application Proof</span>
@@ -2015,6 +2234,7 @@ function App() {
               </article>
               <article>
                 <span>Gateway-approved capabilities</span>
+                <small>Capabilities are declared by the external agent, but approved only after OAuth scope and resource permission validation.</small>
                 <strong>{approvedCapabilities.map((item) => item.capability).join(", ") || "none"}</strong>
                 {approvedCapabilities.map((item) => <small key={item.capability}>{item.capability}: {item.reason}</small>)}
               </article>

@@ -737,9 +737,11 @@ h2 {
 
 .onboarding-guidance-card,
 .gateway-registration-card,
+.demo-production-setup-grid article,
 .zero-trust-connection-card,
 .why-zero-trust-card,
 .onboarding-progress-card,
+.discovery-result-card,
 .connection-verified-summary {
   min-width: 0;
   border: 1px solid #dbe3e8;
@@ -764,6 +766,7 @@ h2 {
 }
 
 .onboarding-guidance-card ol,
+.developer-contract-list,
 .gateway-will-list ol,
 .why-zero-trust-card ul,
 .connection-verified-summary ul {
@@ -776,6 +779,9 @@ h2 {
 }
 
 .onboarding-guidance-card p,
+.gateway-registration-card p,
+.demo-production-setup-grid p,
+.discovery-result-card p,
 .why-zero-trust-card li,
 .connection-verified-summary li,
 .gateway-will-list li {
@@ -887,6 +893,35 @@ h2 {
   background: #ffffff;
 }
 
+.onboarding-wizard-steps li small {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #526b76;
+  background: #eef3f6;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.onboarding-wizard-steps .wizard-active {
+  border-color: #9bb8d3;
+  background: #f4f9ff;
+}
+
+.onboarding-wizard-steps .wizard-active span {
+  background: #235789;
+}
+
+.onboarding-wizard-steps .wizard-passed {
+  border-color: #cfe8d4;
+  background: #f6fbf7;
+}
+
+.onboarding-wizard-steps .wizard-passed span {
+  background: #1d6d3d;
+}
+
 .onboarding-wizard-steps span {
   display: inline-grid;
   width: 24px;
@@ -916,7 +951,9 @@ h2 {
 .zero-trust-verified-values span,
 .onboarding-guidance-card > span,
 .gateway-registration-card span,
+.demo-production-setup-grid span,
 .zero-trust-connection-card > div > span,
+.discovery-result-card > span,
 .why-zero-trust-card > span,
 .onboarding-progress-card > div > span,
 .gateway-will-list > span,
@@ -952,6 +989,17 @@ h2 {
   opacity: 0.65;
 }
 
+.connection-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+
+.connection-button-row button {
+  flex: 1 1 160px;
+}
+
 .gateway-will-list {
   display: grid;
   gap: 8px;
@@ -961,10 +1009,74 @@ h2 {
   background: #f7fbff;
 }
 
+.demo-production-setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.demo-production-setup-grid article {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.demo-production-setup-grid code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: #27465a;
+  background: #eef5f9;
+  font-size: 12px;
+}
+
 .why-zero-trust-card {
   display: grid;
   gap: 10px;
   border-left: 4px solid #235789;
+}
+
+.discovery-result-card {
+  display: grid;
+  gap: 12px;
+  border-left: 4px solid #1d6d3d;
+}
+
+.discovery-result-card h3 {
+  margin: 0;
+}
+
+.discovery-result-grid,
+.connection-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.discovery-result-grid div,
+.connection-summary-grid article {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid #edf1f3;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.discovery-result-grid small,
+.connection-summary-grid span {
+  color: #526b76;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.discovery-result-grid strong,
+.connection-summary-grid strong {
+  color: #172026;
+  overflow-wrap: anywhere;
 }
 
 .onboarding-progress-card {
@@ -1018,6 +1130,10 @@ h2 {
   background: #eef3f6;
   font-size: 11px;
   font-weight: 900;
+}
+
+.onboarding-progress-list .progress-pending {
+  border-color: #dbe3e8;
 }
 
 .onboarding-progress-list .progress-passed {
@@ -3699,7 +3815,10 @@ pre {
 
 @media (max-width: 1024px) {
   .onboarding-audience-grid,
-  .gateway-registration-card {
+  .gateway-registration-card,
+  .demo-production-setup-grid,
+  .discovery-result-grid,
+  .connection-summary-grid {
     grid-template-columns: 1fr;
   }
 
