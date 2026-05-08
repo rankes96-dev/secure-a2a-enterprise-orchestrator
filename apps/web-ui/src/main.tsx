@@ -2489,6 +2489,95 @@ function parsePastedAgentCard(): unknown | undefined {
   }
 
   function renderAgentRegistryTab() {
+    const importedAgents = registeredAgentRows.filter((agent) => agent.source === "session-imported");
+    const generatedAgents = registeredAgentRows.filter((agent) => agent.source === "session-generated");
+    const builtInAgents = registeredAgentRows.filter((agent) => agent.source === "built-in");
+    const infrastructureAgents = registeredAgentRows.filter((agent) => agent.source === "infrastructure");
+    const agentGroups = [
+      {
+        title: "Imported Agent Cards",
+        description: "External agent contracts imported into this session. Metadata-only until runtime validation is enabled.",
+        agents: importedAgents,
+        defaultOpen: true,
+        emptyState: "No imported Agent Cards yet. Paste an Agent Card JSON above to validate and register metadata."
+      },
+      {
+        title: "Generated Sample Agents",
+        description: "Session-scoped sample Agent Cards generated to simulate vendor-owned external agents.",
+        agents: generatedAgents,
+        defaultOpen: generatedAgents.length > 0,
+        emptyState: "No generated sample agents yet."
+      },
+      {
+        title: "Built-in Agents",
+        description: "Local mock agents bundled with the demo.",
+        agents: builtInAgents,
+        defaultOpen: false,
+        emptyState: "No built-in agents reported by health checks."
+      },
+      {
+        title: "Infrastructure",
+        description: "Supporting services such as Mock IdP.",
+        agents: infrastructureAgents,
+        defaultOpen: false,
+        emptyState: "No infrastructure services reported by health checks."
+      }
+    ];
+
+    function renderRegisteredAgentCard(agent: (typeof registeredAgentRows)[number]) {
+      return (
+        <article className="registry-agent-card compact-agent-card" key={agent.agentId}>
+          <div className="registry-agent-card-header">
+            <div className="agent-title-block">
+              <strong>{agent.agentId}</strong>
+              <div className="registry-agent-badges">
+                <span className="source-badge">{agent.source}</span>
+                <strong className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</strong>
+                {agent.source === "session-imported" ? <small className="metadata-only-badge">metadata only</small> : null}
+              </div>
+            </div>
+            {agent.canDelete ? (
+              <button
+                type="button"
+                className="agent-delete-button danger-ghost-button"
+                disabled={isHealthLoading || deletingAgentId === agent.agentId}
+                onClick={() => void deleteRegistryAgent(agent.agentId, agent.source)}
+              >
+                {deletingAgentId === agent.agentId ? "..." : "Delete"}
+              </button>
+            ) : null}
+          </div>
+          <div className="registry-agent-compact-metadata">
+            <span><b>Auth</b> {agent.authMode}</span>
+            <span><b>Endpoint</b> {endpointTypeLabel(agent.endpointType, agent.endpointScheme)}</span>
+            <span><b>Agent Card</b> {agent.agentCardAvailable ? "yes" : "no"}</span>
+          </div>
+          <details className="agent-advanced-details">
+            <summary>Advanced details</summary>
+            <div className="registry-agent-metadata">
+              <div>
+                <span>Latency</span>
+                <strong>{typeof agent.latencyMs === "number" ? `${agent.latencyMs} ms` : "unknown"}</strong>
+              </div>
+              <div>
+                <span>Endpoint type</span>
+                <strong>{endpointTypeLabel(agent.endpointType, agent.endpointScheme)}</strong>
+              </div>
+              <div>
+                <span>Auth mode</span>
+                <strong>{agent.authMode}</strong>
+              </div>
+              <div>
+                <span>Source</span>
+                <strong>{agent.source}</strong>
+              </div>
+            </div>
+            {agent.error ? <p className="registry-agent-error">{agent.error}</p> : null}
+          </details>
+        </article>
+      );
+    }
+
     return (
       <section className="control-panel agent-registry-panel scroll-target" aria-label="Agent Registry" ref={agentRegistryRootRef} tabIndex={-1}>
         <div className="panel-header">
@@ -2524,20 +2613,24 @@ function parsePastedAgentCard(): unknown | undefined {
           </article>
         </section>
 
-        <section className="registry-section scroll-target" ref={registeredAgentsRef} tabIndex={-1}>
+        <section className="registry-section">
           <p className="active-panel-eyebrow">Section A</p>
           <h2>Registry Summary</h2>
           <div className="registry-summary-grid">
+            <article>
+              <span>Imported cards</span>
+              <strong>{importedAgents.length}</strong>
+            </article>
+            <article>
+              <span>Generated samples</span>
+              <strong>{generatedAgents.length}</strong>
+            </article>
             <article>
               <span>Built-in agents</span>
               <strong>{builtInAgentsCount}</strong>
             </article>
             <article>
-              <span>Session sample agents</span>
-              <strong>{sessionDemoAgentsCount}</strong>
-            </article>
-            <article>
-              <span>Healthy agents</span>
+              <span>Healthy services</span>
               <strong>{healthyAgentsCount}</strong>
             </article>
             <article>
@@ -2547,7 +2640,7 @@ function parsePastedAgentCard(): unknown | undefined {
           </div>
         </section>
 
-        <section className="registry-section">
+        <section className="registry-section scroll-target" ref={registeredAgentsRef} tabIndex={-1}>
           <p className="active-panel-eyebrow">Section B</p>
           <h2>Registered Agents</h2>
           {healthError ? <p className="error">{healthError}</p> : null}
@@ -2555,54 +2648,19 @@ function parsePastedAgentCard(): unknown | undefined {
           {deleteAgentMessage ? <p className="success-note">{deleteAgentMessage}</p> : null}
           {registeredAgentRows.length ? (
             <div className="registry-agent-list">
-              {registeredAgentRows.map((agent) => (
-                <article className="registry-agent-card" key={agent.agentId}>
-                  <div className="registry-agent-card-header">
+              {agentGroups.map((group) => (
+                <details className="registry-agent-group" key={group.title} open={group.defaultOpen}>
+                  <summary>
                     <div>
-                      <span>Agent ID</span>
-                      <strong>{agent.agentId}</strong>
+                      <strong>{group.title} ({group.agents.length})</strong>
+                      <span>{group.description}</span>
                     </div>
-                    <div className="registry-agent-badges">
-                      <span className="source-badge">{agent.source}</span>
-                      {agent.source === "session-imported" ? <small className="metadata-only-badge">metadata only</small> : null}
-                      <strong className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</strong>
-                    </div>
+                    <b aria-hidden="true">v</b>
+                  </summary>
+                  <div className="registry-agent-group-body">
+                    {group.agents.length ? group.agents.map(renderRegisteredAgentCard) : <p className="muted-note">{group.emptyState}</p>}
                   </div>
-                  <div className="registry-agent-metadata">
-                    <div>
-                      <span>Endpoint type</span>
-                      <strong>{endpointTypeLabel(agent.endpointType, agent.endpointScheme)}</strong>
-                    </div>
-                    <div>
-                      <span>Auth mode</span>
-                      <strong>{agent.authMode}</strong>
-                    </div>
-                    <div>
-                      <span>Agent Card</span>
-                      <strong>{agent.agentCardAvailable ? "yes" : "no"}</strong>
-                    </div>
-                    <div>
-                      <span>Latency</span>
-                      <strong>{typeof agent.latencyMs === "number" ? `${agent.latencyMs} ms` : "unknown"}</strong>
-                    </div>
-                    <div className="registry-agent-actions">
-                      <span>Actions</span>
-                      {agent.canDelete ? (
-                        <button
-                          type="button"
-                          className="agent-delete-button"
-                          disabled={isHealthLoading || deletingAgentId === agent.agentId}
-                          onClick={() => void deleteRegistryAgent(agent.agentId, agent.source)}
-                        >
-                          {deletingAgentId === agent.agentId ? "..." : "Delete"}
-                        </button>
-                      ) : (
-                        <strong>None</strong>
-                      )}
-                    </div>
-                  </div>
-                  {agent.error ? <p className="registry-agent-error">{agent.error}</p> : null}
-                </article>
+                </details>
               ))}
             </div>
           ) : (
