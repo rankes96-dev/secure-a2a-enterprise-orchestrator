@@ -1,7 +1,8 @@
-import { createRemoteJWKSet, jwtVerify } from "jose";
-import { agentDeclaredCapabilities, agentId, agentIssuer, clientId, requestedScopes, tokenEndpointAuthMethod } from "./config.js";
+import { agentDeclaredCapabilities, agentId, agentIssuer, requestedScopes, tokenEndpointAuthMethod } from "./config.js";
 
 const baseUrl = agentIssuer();
+const gatewayUrl = process.env.ORCHESTRATOR_API_URL ?? "http://127.0.0.1:4000";
+let gatewaySessionCookie = "";
 
 function ok(message: string): void {
   console.log(`ok - ${message}`);
@@ -32,6 +33,23 @@ async function postJson<T>(path: string, body: unknown, headers: Record<string, 
   return {
     response,
     body: await response.json() as T
+  };
+}
+
+async function gatewayRequest<T>(path: string, init: RequestInit = {}): Promise<{ response: Response; body: T }> {
+  const response = await fetch(`${gatewayUrl}${path}`, {
+    ...init,
+    headers: {
+      ...(init.body ? { "content-type": "application/json" } : {}),
+      ...(gatewaySessionCookie ? { cookie: gatewaySessionCookie } : {}),
+      ...init.headers
+    }
+  });
+
+  const text = await response.text();
+  return {
+    response,
+    body: (text ? JSON.parse(text) : {}) as T
   };
 }
 
@@ -68,48 +86,55 @@ async function verifyJwks(): Promise<void> {
   ok("public JWKS");
 }
 
-async function verifyOnboarding(jwksUri: string): Promise<void> {
+async function verifyOnboarding(_jwksUri: string): Promise<void> {
   const onboardingId = `verify-${Date.now()}`;
   const nonce = crypto.randomUUID();
   const challenge = {
     onboardingId,
     nonce,
-    expectedAudience: "secure-a2a-gateway",
     expectedAgentId: agentId,
     expiresAt: new Date(Date.now() + 5 * 60_000).toISOString()
   };
 
-  const { response, body } = await postJson<{ signedTrustResponse?: string; agentId?: string }>("/onboarding/challenge", challenge);
-  assertCondition(response.ok, `onboarding challenge failed with ${response.status}`);
-  assertCondition(body.agentId === agentId, "onboarding response agentId mismatch");
-  assertCondition(typeof body.signedTrustResponse === "string", "missing signed trust response");
+  const unsigned = await postJson<{ error?: string }>("/onboarding/challenge", { challenge });
+  assertCondition(unsigned.response.status === 401, "missing gateway assertion should be rejected");
+  ok("unsigned onboarding challenge rejected");
 
-  const { payload } = await jwtVerify(body.signedTrustResponse, createRemoteJWKSet(new URL(jwksUri)), {
-    issuer: baseUrl,
-    audience: "secure-a2a-gateway",
-    subject: agentId
+  const gatewayHealth = await fetch(`${gatewayUrl}/health`).catch(() => undefined);
+  if (!gatewayHealth?.ok) {
+    console.log("skip - full signed gateway onboarding requires Gateway running");
+    return;
+  }
+
+  const session = await gatewayRequest<{ ok?: boolean }>("/session", { method: "POST" });
+  assertCondition(session.response.ok, `Gateway session failed with ${session.response.status}`);
+  gatewaySessionCookie = session.response.headers.get("set-cookie")?.split(";")[0] ?? "";
+  assertCondition(Boolean(gatewaySessionCookie), "Gateway session cookie missing");
+
+  const gatewayOnboarding = await gatewayRequest<{
+    trustLevel?: string;
+    discoveredAgent?: {
+      agentDeclaredCapabilities?: string[];
+      requestedScopes?: string[];
+    };
+    checks?: Array<{ name?: string; status?: string }>;
+  }>("/agent-onboarding/start", {
+    method: "POST",
+    body: JSON.stringify({
+      agentBaseUrl: baseUrl,
+      expectedAgentId: agentId
+    })
   });
+  assertCondition(gatewayOnboarding.response.ok, `Gateway onboarding failed with ${gatewayOnboarding.response.status}: ${JSON.stringify(gatewayOnboarding.body)}`);
+  assertCondition(gatewayOnboarding.body.trustLevel === "trusted_metadata_only", "Gateway onboarding trust level mismatch");
+  assertCondition(gatewayOnboarding.body.discoveredAgent?.agentDeclaredCapabilities?.includes(agentDeclaredCapabilities[0] ?? ""), "Gateway onboarding missing agent-declared capabilities");
+  assertCondition(gatewayOnboarding.body.discoveredAgent?.requestedScopes?.includes(requestedScopes[0] ?? ""), "Gateway onboarding missing requested scopes");
+  assertCondition(gatewayOnboarding.body.checks?.some((check) => check.name === "signed_gateway_challenge_verified" && check.status === "passed"), "Gateway onboarding did not verify signed gateway challenge");
+  ok("signed gateway onboarding exchange");
 
-  assertCondition(payload.typ === "agent_onboarding_response", "trust response typ mismatch");
-  assertCondition(payload.onboardingId === onboardingId, "trust response onboardingId mismatch");
-  assertCondition(payload.nonce === nonce, "trust response nonce mismatch");
-  assertCondition(payload.agentId === agentId, "trust response agentId mismatch");
-  assertCondition(payload.issuer === baseUrl, "trust response issuer mismatch");
-  assertCondition(payload.clientId === clientId, "trust response clientId mismatch");
-  assertCondition(payload.audience === agentId, "trust response audience mismatch");
-  assertCondition(Array.isArray(payload.agentDeclaredCapabilities), "missing agent-declared capabilities");
-  assertCondition(agentDeclaredCapabilities.every((capability) => (payload.agentDeclaredCapabilities as unknown[]).includes(capability)), "agent-declared capabilities mismatch");
-  assertCondition(Array.isArray(payload.requestedScopes), "missing requested scopes");
-  assertCondition(requestedScopes.every((scope) => (payload.requestedScopes as unknown[]).includes(scope)), "requested scopes mismatch");
-  assertCondition(payload.tokenEndpointAuthMethod === tokenEndpointAuthMethod, "trust response token auth method mismatch");
-  ok("signed onboarding trust response");
+  const { body } = gatewayOnboarding;
+  assertCondition(!JSON.stringify(body).match(/access_token|client_assertion|private_key|client_secret|Authorization|Bearer/i), "Gateway onboarding response exposed sensitive material");
 
-  const rejected = await postJson<{ error?: string }>("/onboarding/challenge", {
-    ...challenge,
-    expectedAgentId: "wrong-agent"
-  });
-  assertCondition(rejected.response.status === 400, "wrong expectedAgentId should be rejected");
-  ok("invalid onboarding challenge rejected");
 }
 
 async function verifyRuntimeIfTokenProvided(): Promise<void> {

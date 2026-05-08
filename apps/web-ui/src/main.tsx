@@ -761,6 +761,12 @@ type AgentOnboardingResult = {
     clientId: string;
     audience: string;
   };
+  gatewayProof: {
+    gatewayClientId: string;
+    gatewayIssuer: string;
+    signedChallengeVerifiedByAgent: boolean;
+    rawAssertionExposed: false;
+  };
   agentProof: {
     signedResponseVerified: boolean;
     nonceMatched: boolean;
@@ -1850,6 +1856,13 @@ function App() {
                 <small>Client: {zeroTrustResult.discoveredAgent.clientId}</small>
                 <small>Requested scopes: {zeroTrustResult.discoveredAgent.requestedScopes.join(", ")}</small>
                 <small>Agent-declared capabilities: {zeroTrustResult.discoveredAgent.agentDeclaredCapabilities.join(", ")}</small>
+              </article>
+              <article>
+                <span>Gateway Proof</span>
+                <strong>{zeroTrustResult.gatewayProof.signedChallengeVerifiedByAgent ? "signed challenge verified by agent" : "not verified"}</strong>
+                <small>Gateway client: {zeroTrustResult.gatewayProof.gatewayClientId}</small>
+                <small>Gateway issuer: {zeroTrustResult.gatewayProof.gatewayIssuer}</small>
+                <small>Raw assertion: hidden</small>
               </article>
               <article>
                 <span>Agent Proof</span>

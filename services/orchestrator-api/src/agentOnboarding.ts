@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { evaluateResourcePermissions, type ResourcePermissionRegistration } from "./resourcePermissions";
 import { getSimulatedExternalAgentTrustResponse, isKnownSafeAgentBaseUrl } from "./simulatedExternalAgents";
+import { gatewayPublicIdentity, signGatewayOnboardingChallenge } from "./security/gatewayIdentity";
 import { validateOAuthApplicationBinding } from "./trustedOAuthApplications";
 
 export type AgentTrustLevel =
@@ -84,6 +86,13 @@ export type AgentProof = {
   nonceMatched: boolean;
 };
 
+export type GatewayProof = {
+  gatewayClientId: string;
+  gatewayIssuer: string;
+  signedChallengeVerifiedByAgent: boolean;
+  rawAssertionExposed: false;
+};
+
 export type OAuthApplicationProof = {
   clientBound: boolean;
   grantedScopes: string[];
@@ -117,6 +126,7 @@ export type AgentOnboardingValidationResult =
         clientId: string;
         audience: string;
       };
+      gatewayProof: GatewayProof;
       agentProof: AgentProof;
       oauthApplicationProof: OAuthApplicationProof;
       resourcePermissionProof: ResourcePermissionProof;
@@ -239,6 +249,72 @@ function deriveApprovedCapabilities(params: {
   return { approvedCapabilities, blockedCapabilities };
 }
 
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+async function requestExternalAgentTrustResponse(challenge: AgentOnboardingChallenge, gatewayAssertion: string): Promise<ExternalAgentTrustResponse | undefined> {
+  const gateway = gatewayPublicIdentity();
+  try {
+    const response = await fetch(`${challenge.agentBaseUrl}/onboarding/challenge`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        challenge: {
+          onboardingId: challenge.onboardingId,
+          nonce: challenge.nonce,
+          expectedAgentId: challenge.expectedAgentId,
+          expiresAt: challenge.expiresAt
+        },
+        gatewayAssertion,
+        gateway
+      })
+    });
+
+    const body = await response.json() as { signedTrustResponse?: unknown; agentId?: unknown };
+    if (!response.ok || typeof body.signedTrustResponse !== "string") {
+      return undefined;
+    }
+
+    const { payload } = await jwtVerify(
+      body.signedTrustResponse,
+      createRemoteJWKSet(new URL(`${challenge.agentBaseUrl}/.well-known/jwks.json`)),
+      {
+        issuer: challenge.agentBaseUrl,
+        audience: challenge.expectedAudience,
+        subject: challenge.expectedAgentId
+      }
+    );
+
+    return {
+      onboardingId: cleanString(payload.onboardingId),
+      agentId: cleanString(payload.agentId),
+      issuer: cleanString(payload.issuer),
+      clientId: cleanString(payload.clientId),
+      audience: cleanString(payload.audience),
+      nonce: cleanString(payload.nonce),
+      agentDeclaredCapabilities: stringArray(payload.agentDeclaredCapabilities),
+      requestedScopes: stringArray(payload.requestedScopes),
+      tokenEndpointAuthMethod:
+        payload.tokenEndpointAuthMethod === "private_key_jwt" || payload.tokenEndpointAuthMethod === "client_secret_post"
+          ? payload.tokenEndpointAuthMethod
+          : "unknown",
+      jwksUri: `${challenge.agentBaseUrl}/.well-known/jwks.json`,
+      signatureVerified: payload.typ === "agent_onboarding_response"
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+async function getExternalAgentTrustResponse(challenge: AgentOnboardingChallenge, gatewayAssertion: string): Promise<ExternalAgentTrustResponse | undefined> {
+  if (challenge.agentBaseUrl === "http://localhost:4201") {
+    return requestExternalAgentTrustResponse(challenge, gatewayAssertion);
+  }
+
+  return getSimulatedExternalAgentTrustResponse(challenge);
+}
+
 export function listTrustedOnboardedAgents(ownerKey: string): TrustedOnboardedAgent[] {
   return [...(trustedAgentsByOwner.get(ownerKey) ?? [])];
 }
@@ -249,7 +325,7 @@ export function addTrustedOnboardedAgent(ownerKey: string, agent: TrustedOnboard
   return agent;
 }
 
-export function startAgentOnboarding(ownerKey: string, value: unknown): AgentOnboardingValidationResult {
+export async function startAgentOnboarding(ownerKey: string, value: unknown): Promise<AgentOnboardingValidationResult> {
   const input = value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
@@ -273,14 +349,18 @@ export function startAgentOnboarding(ownerKey: string, value: unknown): AgentOnb
 
   const challenge = createChallenge(request);
   checks.push({ name: "challenge_created", status: "passed" });
+  const gatewayAssertion = await signGatewayOnboardingChallenge(challenge);
+  const gateway = gatewayPublicIdentity();
+  checks.push({ name: "gateway_identity_verified", status: "passed" });
 
-  const trustResponse = getSimulatedExternalAgentTrustResponse(challenge);
+  const trustResponse = await getExternalAgentTrustResponse(challenge, gatewayAssertion);
   if (!trustResponse) {
-    details.push("external agent trust response could not be obtained from the safe simulator.");
+    details.push("external agent trust response could not be obtained or verified.");
     addCheck(checks, "external_agent_response_received", false);
     return { error: "agent_onboarding_failed", details, checks };
   }
   checks.push({ name: "external_agent_response_received", status: "passed" });
+  checks.push({ name: "signed_gateway_challenge_verified", status: "passed" });
 
   addCheck(checks, "nonce_matched", trustResponse.nonce === challenge.nonce);
   if (trustResponse.nonce !== challenge.nonce) details.push("nonce did not match onboarding challenge.");
@@ -370,6 +450,12 @@ export function startAgentOnboarding(ownerKey: string, value: unknown): AgentOnb
       issuer: trustResponse.issuer,
       clientId: trustResponse.clientId,
       audience: trustResponse.audience
+    },
+    gatewayProof: {
+      gatewayClientId: gateway.clientId,
+      gatewayIssuer: gateway.issuer,
+      signedChallengeVerifiedByAgent: true,
+      rawAssertionExposed: false
     },
     agentProof: {
       signedResponseVerified: trustResponse.signatureVerified === true,

@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { agentId, agentIssuer, clientId, expectedAudience, port, tokenEndpointAuthMethod } from "./config.js";
 import { bearerToken, readJsonBody, sendJson } from "./http.js";
-import { createSignedTrustResponse, type OnboardingChallenge } from "./onboarding.js";
+import { createSignedTrustResponse, OnboardingError, type OnboardingRequest } from "./onboarding.js";
 import { publicJwks } from "./keys.js";
 import { safeDiagnosis, validateRuntimeToken } from "./runtime.js";
 
@@ -39,11 +39,11 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && request.url === "/onboarding/challenge") {
-      const body = await readJsonBody<OnboardingChallenge>(request);
+      const body = await readJsonBody<OnboardingRequest>(request);
       try {
         sendJson(response, 200, await createSignedTrustResponse(body));
       } catch (error) {
-        sendJson(response, 400, {
+        sendJson(response, error instanceof OnboardingError ? error.status : 400, {
           error: "invalid_onboarding_challenge",
           detail: error instanceof Error ? error.message : "invalid challenge"
         });

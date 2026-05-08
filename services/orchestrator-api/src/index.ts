@@ -38,6 +38,7 @@ import {
 import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext";
 import { interpretFollowUp } from "./followUpInterpreter";
 import { createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager";
+import { gatewayMetadata, gatewayPublicJwks } from "./security/gatewayIdentity";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
 import { listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
@@ -1729,6 +1730,16 @@ async function start(): Promise<void> {
     return;
   }
 
+  if (request.method === "GET" && request.url === "/.well-known/a2a-gateway.json") {
+    sendJson(response, 200, gatewayMetadata());
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/.well-known/jwks.json") {
+    sendJson(response, 200, await gatewayPublicJwks());
+    return;
+  }
+
   if (request.method === "GET" && request.url === "/agents/health") {
     if (!requireClientAccess(request, response)) {
       return;
@@ -1884,7 +1895,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    const result = startAgentOnboarding(registryKey, await readJsonBody<unknown>(request));
+    const result = await startAgentOnboarding(registryKey, await readJsonBody<unknown>(request));
     if ("error" in result) {
       sendJson(response, 400, result, request);
       return;

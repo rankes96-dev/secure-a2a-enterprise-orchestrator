@@ -1,13 +1,28 @@
-import { SignJWT } from "jose";
-import { agentDeclaredCapabilities, agentId, agentIssuer, clientId, requestedScopes, tokenEndpointAuthMethod } from "./config.js";
+import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
+import {
+  agentDeclaredCapabilities,
+  agentId,
+  agentIssuer,
+  clientId,
+  requestedScopes,
+  tokenEndpointAuthMethod,
+  trustedGatewayClientId,
+  trustedGatewayIssuer,
+  trustedGatewayJwksUri
+} from "./config.js";
 import { getSigningKey } from "./keys.js";
 
 export type OnboardingChallenge = {
   onboardingId?: unknown;
   nonce?: unknown;
-  expectedAudience?: unknown;
   expectedAgentId?: unknown;
   expiresAt?: unknown;
+};
+
+export type OnboardingRequest = {
+  challenge?: unknown;
+  gatewayAssertion?: unknown;
+  gateway?: unknown;
 };
 
 export type SignedTrustResponse = {
@@ -19,28 +34,81 @@ function requireString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export async function createSignedTrustResponse(challenge: OnboardingChallenge): Promise<SignedTrustResponse> {
+export class OnboardingError extends Error {
+  status: number;
+
+  constructor(message: string, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+async function verifyGatewayAssertion(request: OnboardingRequest, challenge: OnboardingChallenge): Promise<void> {
+  const assertion = requireString(request.gatewayAssertion);
+  if (!assertion) {
+    throw new OnboardingError("missing_gateway_assertion", 401);
+  }
+
+  const gateway = asRecord(request.gateway);
+  const gatewayIssuer = trustedGatewayIssuer();
+  const gatewayClientId = trustedGatewayClientId();
+  const gatewayJwksUri = trustedGatewayJwksUri();
+
+  if (gateway.issuer && gateway.issuer !== gatewayIssuer) {
+    throw new OnboardingError("untrusted_gateway_issuer", 401);
+  }
+  if (gateway.clientId && gateway.clientId !== gatewayClientId) {
+    throw new OnboardingError("untrusted_gateway_client_id", 401);
+  }
+  if (gateway.jwksUri && gateway.jwksUri !== gatewayJwksUri) {
+    throw new OnboardingError("untrusted_gateway_jwks_uri", 401);
+  }
+
+  const { payload } = await jwtVerify(assertion, createRemoteJWKSet(new URL(gatewayJwksUri)), {
+    issuer: gatewayIssuer,
+    subject: gatewayClientId,
+    audience: agentId
+  });
+
+  if (payload.typ !== "gateway_onboarding_challenge") {
+    throw new OnboardingError("invalid_gateway_assertion_type", 401);
+  }
+  if (payload.onboardingId !== challenge.onboardingId) {
+    throw new OnboardingError("gateway_assertion_onboarding_id_mismatch", 401);
+  }
+  if (payload.nonce !== challenge.nonce) {
+    throw new OnboardingError("gateway_assertion_nonce_mismatch", 401);
+  }
+  if (payload.expectedAgentId !== agentId) {
+    throw new OnboardingError("gateway_assertion_agent_id_mismatch", 401);
+  }
+}
+
+export async function createSignedTrustResponse(request: OnboardingRequest): Promise<SignedTrustResponse> {
+  const challenge = asRecord(request.challenge) as OnboardingChallenge;
   const onboardingId = requireString(challenge.onboardingId);
   const nonce = requireString(challenge.nonce);
-  const expectedAudience = requireString(challenge.expectedAudience);
   const expectedAgentId = requireString(challenge.expectedAgentId);
   const expiresAt = requireString(challenge.expiresAt);
 
   if (!onboardingId) {
-    throw new Error("missing_onboarding_id");
+    throw new OnboardingError("missing_onboarding_id");
   }
   if (!nonce) {
-    throw new Error("missing_nonce");
-  }
-  if (expectedAudience !== "secure-a2a-gateway") {
-    throw new Error("invalid_expected_audience");
+    throw new OnboardingError("missing_nonce");
   }
   if (expectedAgentId !== agentId) {
-    throw new Error("invalid_expected_agent_id");
+    throw new OnboardingError("invalid_expected_agent_id");
   }
   if (expiresAt && Number.isNaN(Date.parse(expiresAt))) {
-    throw new Error("invalid_expires_at");
+    throw new OnboardingError("invalid_expires_at");
   }
+
+  await verifyGatewayAssertion(request, challenge);
 
   const key = await getSigningKey();
   const now = Math.floor(Date.now() / 1000);

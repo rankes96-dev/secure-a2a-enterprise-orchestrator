@@ -29,3 +29,15 @@ export function mockIdpJwksUri(): string {
 export function expectedAudience(): string {
   return env("EXPECTED_AUDIENCE", agentId);
 }
+
+export function trustedGatewayIssuer(): string {
+  return env("TRUSTED_GATEWAY_ISSUER", "http://localhost:4000").replace(/\/+$/, "");
+}
+
+export function trustedGatewayClientId(): string {
+  return env("TRUSTED_GATEWAY_CLIENT_ID", "secure-a2a-gateway-client");
+}
+
+export function trustedGatewayJwksUri(): string {
+  return env("TRUSTED_GATEWAY_JWKS_URI", `${trustedGatewayIssuer()}/.well-known/jwks.json`);
+}

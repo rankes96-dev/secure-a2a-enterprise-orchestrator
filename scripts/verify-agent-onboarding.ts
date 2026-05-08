@@ -88,6 +88,13 @@ async function verifyValidOnboarding(): Promise<void> {
   if (agentProof.signedResponseVerified !== true || agentProof.nonceMatched !== true) {
     throw new Error(`agent proof did not pass: ${JSON.stringify(body)}`);
   }
+  const gatewayProof = asRecord(result.gatewayProof);
+  if (gatewayProof.signedChallengeVerifiedByAgent !== true || gatewayProof.rawAssertionExposed !== false) {
+    throw new Error(`gateway proof did not pass: ${JSON.stringify(body)}`);
+  }
+  if (gatewayProof.gatewayClientId !== "secure-a2a-gateway-client") {
+    throw new Error(`gateway proof client id mismatch: ${JSON.stringify(body)}`);
+  }
   const oauthApplicationProof = asRecord(result.oauthApplicationProof);
   if (oauthApplicationProof.clientBound !== true) {
     throw new Error(`OAuth app binding did not pass: ${JSON.stringify(body)}`);
@@ -114,7 +121,7 @@ async function verifyValidOnboarding(): Promise<void> {
   }
 
   const checks = Array.isArray(result.checks) ? result.checks.map((item) => asRecord(item)) : [];
-  for (const checkName of ["signed_agent_response_verified", "oauth_application_bound", "requested_scopes_granted", "resource_permissions_loaded", "capabilities_derived"]) {
+  for (const checkName of ["gateway_identity_verified", "signed_gateway_challenge_verified", "signed_agent_response_verified", "oauth_application_bound", "requested_scopes_granted", "resource_permissions_loaded", "capabilities_derived"]) {
     const check = checks.find((item) => item.name === checkName);
     if (check?.status !== "passed") {
       throw new Error(`${checkName} check did not pass: ${JSON.stringify(body)}`);
