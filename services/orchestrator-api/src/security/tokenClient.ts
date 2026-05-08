@@ -159,7 +159,7 @@ export async function getA2AAccessToken(input: A2ATokenRequestInput): Promise<{ 
   const responseBody = await response.text();
 
   if (!response.ok) {
-    throw new Error(`Token request failed for audience=${input.audience} scope=${input.scope}: ${response.status} ${responseBody}`);
+    throw new Error(`Token request failed for audience=${input.audience} scope=${input.scope}: ${response.status}`);
   }
 
   const token = JSON.parse(responseBody) as A2ATokenResponse;
