@@ -183,12 +183,20 @@ export function validateImportedAgentCard(value: unknown): AgentCardValidationRe
   const rawSkills = Array.isArray(record.skills) ? record.skills : undefined;
 
   if (!agentId) details.push("agentId is required.");
+  if (agentId && /\s/.test(agentId)) details.push("agentId must not contain spaces.");
+  if (agentId && agentId.length > 120) details.push("agentId must be 120 characters or fewer.");
+  if (agentId && /[A-Z]/.test(agentId)) warnings.push("agent_id_contains_uppercase");
   if (!name) details.push("name is required.");
+  if (name && name.length > 160) details.push("name must be 160 characters or fewer.");
   if (description === undefined) details.push("description must be a string.");
   if (!endpoint) details.push("endpoint is required.");
+  if (endpoint && endpoint.length > 500) details.push("endpoint must be 500 characters or fewer.");
   if (!authType) details.push("auth.type is required.");
   if (!audience) details.push("auth.audience is required.");
+  if (audience && audience.length > 200) details.push("auth.audience must be 200 characters or fewer.");
+  if (agentId && audience && audience !== agentId) warnings.push("audience_does_not_match_agent_id");
   if (!rawSkills?.length) details.push("skills must be a non-empty array.");
+  if (rawSkills && rawSkills.length > 20) details.push("skills must contain 20 items or fewer.");
 
   const endpointInfo = endpoint ? endpointMetadata(endpoint) : { endpointType: "unknown" as const, endpointScheme: "unknown" as const };
   if (endpointInfo.error) {
@@ -232,11 +240,27 @@ export function validateImportedAgentCard(value: unknown): AgentCardValidationRe
     if (!skillName) details.push(`${label}.name is required.`);
     if (skillDescription === undefined) details.push(`${label}.description must be a string.`);
     if (!capabilities?.length) details.push(`${label}.capabilities must be a non-empty string array.`);
+    if (capabilities && capabilities.length > 20) details.push(`${label}.capabilities must contain 20 items or fewer.`);
     if (!requiredScopes) details.push(`${label}.requiredScopes must be a string array.`);
+    if (requiredScopes && requiredScopes.length > 20) details.push(`${label}.requiredScopes must contain 20 items or fewer.`);
     if (!riskLevel || !riskLevels.has(riskLevel)) details.push(`${label}.riskLevel must be one of low, medium, high, sensitive.`);
 
     if (requiredScopes && requiredScopes.length === 0) {
       warnings.push(`${label}_no_required_scopes`);
+    }
+
+    for (const capability of capabilities ?? []) {
+      if (!capability.includes(".")) {
+        warnings.push(`${label}_capability_without_dot`);
+        break;
+      }
+    }
+
+    for (const requiredScope of requiredScopes ?? []) {
+      if (!requiredScope.includes(".")) {
+        warnings.push(`${label}_required_scope_without_dot`);
+        break;
+      }
     }
 
     if (capabilities && duplicates(capabilities).length > 0) {

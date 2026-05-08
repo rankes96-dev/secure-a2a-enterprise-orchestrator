@@ -64,6 +64,11 @@ const demoAgentRateLimit: RateLimitConfig = {
   windowMs: Number(process.env.DEMO_AGENT_RATE_LIMIT_WINDOW_MS ?? 60_000),
   maxRequests: Number(process.env.DEMO_AGENT_RATE_LIMIT_MAX_REQUESTS ?? 20)
 };
+const agentCardImportRateLimit: RateLimitConfig = {
+  name: "agent-card-import",
+  windowMs: Number(process.env.AGENT_CARD_IMPORT_RATE_LIMIT_WINDOW_MS ?? 60_000),
+  maxRequests: Number(process.env.AGENT_CARD_IMPORT_RATE_LIMIT_MAX_REQUESTS ?? 20)
+};
 const healthRateLimit: RateLimitConfig = {
   name: "health",
   windowMs: Number(process.env.HEALTH_RATE_LIMIT_WINDOW_MS ?? 60_000),
@@ -891,6 +896,14 @@ function requireSessionToken(request: IncomingMessage, response: ServerResponse)
     return undefined;
   }
   return token;
+}
+
+function requireAgentCardSessionToken(request: IncomingMessage, response: ServerResponse): string | undefined {
+  if (!requireClientAccess(request, response)) {
+    return undefined;
+  }
+
+  return requireSessionToken(request, response);
 }
 
 function remainingActiveAgentIds(sessionToken?: string): string[] {
@@ -1957,12 +1970,12 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/agent-cards") {
-    const sessionToken = requireSessionToken(request, response);
+    const sessionToken = requireAgentCardSessionToken(request, response);
     if (!sessionToken) {
       return;
     }
 
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
       return;
     }
 
@@ -1971,12 +1984,12 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/agent-cards/validate") {
-    const sessionToken = requireSessionToken(request, response);
+    const sessionToken = requireAgentCardSessionToken(request, response);
     if (!sessionToken) {
       return;
     }
 
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
       return;
     }
 
@@ -1992,12 +2005,12 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/agent-cards/import") {
-    const sessionToken = requireSessionToken(request, response);
+    const sessionToken = requireAgentCardSessionToken(request, response);
     if (!sessionToken) {
       return;
     }
 
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
       return;
     }
 
@@ -2014,6 +2027,31 @@ async function start(): Promise<void> {
       agentCard,
       agentCards: listImportedAgentCards(sessionToken),
       warnings: result.warnings
+    }, request);
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url?.startsWith("/agent-cards/")) {
+    const sessionToken = requireAgentCardSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
+      return;
+    }
+
+    const agentId = decodeURIComponent(request.url.slice("/agent-cards/".length));
+    const deleted = deleteImportedAgentCard(sessionToken, agentId);
+    if (!deleted) {
+      sendJson(response, 404, { error: "imported_agent_card_not_found" }, request);
+      return;
+    }
+
+    sendJson(response, 200, {
+      deleted: true,
+      agentId,
+      agentCards: listImportedAgentCards(sessionToken)
     }, request);
     return;
   }

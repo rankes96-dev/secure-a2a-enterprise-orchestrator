@@ -515,7 +515,11 @@ function App() {
     }
   }
 
-  async function deleteDemoAgent(agentId: string) {
+  async function deleteRegistryAgent(agentId: string, source: string) {
+    if (source !== "session-generated" && source !== "session-imported") {
+      return;
+    }
+
     const confirmed = window.confirm(`Remove agent ${agentId} from this orchestrator session?`);
     if (!confirmed) {
       return;
@@ -527,22 +531,25 @@ function App() {
 
     try {
       await ensureSession();
-      const response = await fetch(`${API_URL}/agents/${encodeURIComponent(agentId)}`, {
+      const response = await fetch(`${API_URL}/${source === "session-imported" ? "agent-cards" : "agents"}/${encodeURIComponent(agentId)}`, {
         method: "DELETE",
         credentials: "include"
       });
 
       if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to delete demo agent"));
+        throw new Error(await friendlyApiError(response, source === "session-imported" ? "Failed to delete imported Agent Card" : "Failed to delete generated sample Agent"));
       }
 
-      const body = await response.json() as { deleted: boolean; agentId: string; remainingAgents: string[] };
-      setDeleteAgentMessage(`Removed ${body.agentId} from the session registry.`);
+      const body = await response.json() as { deleted: boolean; agentId: string; remainingAgents?: string[]; agentCards?: DemoAgentCard[] };
+      if (source === "session-imported" && body.agentCards) {
+        setImportedAgentCards(body.agentCards);
+      }
+      setDeleteAgentMessage(source === "session-imported" ? "Removed imported Agent Card from this session." : "Removed generated sample Agent from this session.");
       await loadDemoAgentCards();
       await loadImportedAgentCards();
       await checkAgentHealth();
     } catch (caughtError) {
-      setDeleteAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete demo agent");
+      setDeleteAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete agent");
     } finally {
       setDeletingAgentId(null);
     }
@@ -1337,7 +1344,7 @@ function App() {
                         type="button"
                         className="agent-delete-button"
                         disabled={isHealthLoading || deletingAgentId === agent.agentId}
-                        onClick={() => void deleteDemoAgent(agent.agentId)}
+                        onClick={() => void deleteRegistryAgent(agent.agentId, agent.source)}
                       >
                         {deletingAgentId === agent.agentId ? "..." : "Delete"}
                       </button>
