@@ -768,6 +768,8 @@ type AgentOnboardingResult = {
     rawAssertionExposed: false;
   };
   agentProof: {
+    discoveryFetched: boolean;
+    externalAgentContacted: boolean;
     signedResponseVerified: boolean;
     nonceMatched: boolean;
   };
@@ -1866,7 +1868,10 @@ function App() {
               </article>
               <article>
                 <span>Agent Proof</span>
-                <strong>signed: {String(zeroTrustResult.agentProof.signedResponseVerified)} / nonce: {String(zeroTrustResult.agentProof.nonceMatched)}</strong>
+                <strong>signed response verified: {String(zeroTrustResult.agentProof.signedResponseVerified)}</strong>
+                <small>External agent contacted: {zeroTrustResult.agentProof.externalAgentContacted ? "yes" : "no"}</small>
+                <small>Discovery fetched: {zeroTrustResult.agentProof.discoveryFetched ? "yes" : "no"}</small>
+                <small>Nonce matched: {String(zeroTrustResult.agentProof.nonceMatched)}</small>
               </article>
               <article>
                 <span>OAuth Application Proof</span>

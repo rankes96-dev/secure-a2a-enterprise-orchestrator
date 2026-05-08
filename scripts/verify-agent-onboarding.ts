@@ -85,7 +85,7 @@ async function verifyValidOnboarding(): Promise<void> {
   }
 
   const agentProof = asRecord(result.agentProof);
-  if (agentProof.signedResponseVerified !== true || agentProof.nonceMatched !== true) {
+  if (agentProof.discoveryFetched !== true || agentProof.externalAgentContacted !== true || agentProof.signedResponseVerified !== true || agentProof.nonceMatched !== true) {
     throw new Error(`agent proof did not pass: ${JSON.stringify(body)}`);
   }
   const gatewayProof = asRecord(result.gatewayProof);
@@ -121,7 +121,7 @@ async function verifyValidOnboarding(): Promise<void> {
   }
 
   const checks = Array.isArray(result.checks) ? result.checks.map((item) => asRecord(item)) : [];
-  for (const checkName of ["gateway_identity_verified", "signed_gateway_challenge_verified", "signed_agent_response_verified", "oauth_application_bound", "requested_scopes_granted", "resource_permissions_loaded", "capabilities_derived"]) {
+  for (const checkName of ["safe_agent_base_url", "external_agent_discovery", "gateway_identity_verified", "external_agent_contacted", "signed_gateway_challenge_verified", "signed_agent_response_verified", "oauth_application_bound", "requested_scopes_granted", "resource_permissions_loaded", "capabilities_derived"]) {
     const check = checks.find((item) => item.name === checkName);
     if (check?.status !== "passed") {
       throw new Error(`${checkName} check did not pass: ${JSON.stringify(body)}`);
