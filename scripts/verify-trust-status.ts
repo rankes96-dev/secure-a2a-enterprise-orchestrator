@@ -100,7 +100,7 @@ function verifyBaseTrustStatus(status: Record<string, unknown>): void {
   requireString(mockIdp, "issuer", "mock IdP");
   requireString(mockIdp, "jwksUri", "mock IdP");
   requireBoolean(securityControls, "rawTokensDisplayed", false, "security controls");
-  requireBoolean(securityControls, "agentCardImportFetchesExternalUrls", false, "security controls");
+  requireBoolean(securityControls, "agentOnboardingFetchesExternalUrls", false, "security controls");
   requireBoolean(securityControls, "userIdentityRequiredForResolve", true, "security controls");
   verifyNoSensitiveStrings(status);
   logOk("verified unauthenticated trust status");

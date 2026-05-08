@@ -22,7 +22,7 @@ import type {
 } from "@a2a/shared";
 import { assertSecureA2AAuthMode, secureA2AAuthRequired } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
-import { combineAgentCards, discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards";
+import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards";
 import { routeWithAI } from "./aiRouter";
 import { getAiConfig } from "./config/aiConfig";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
@@ -40,8 +40,6 @@ import { interpretFollowUp } from "./followUpInterpreter";
 import { createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
-import { addDemoAgentCard, buildDemoAgentCard, deleteDemoAgentCard, listDemoAgentCards, validateDemoAgentCard, validateDemoAgentInput, type DemoAgentCardInput } from "./demoAgentCards";
-import { addImportedAgentCard, deleteImportedAgentCard, listImportedAgentCards, validateImportedAgentCard } from "./importedAgentCards";
 import { listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
@@ -69,15 +67,10 @@ const sessionRateLimit: RateLimitConfig = {
   windowMs: Number(process.env.SESSION_RATE_LIMIT_WINDOW_MS ?? 60_000),
   maxRequests: Number(process.env.SESSION_RATE_LIMIT_MAX_REQUESTS ?? 20)
 };
-const demoAgentRateLimit: RateLimitConfig = {
-  name: "demo-agent",
-  windowMs: Number(process.env.DEMO_AGENT_RATE_LIMIT_WINDOW_MS ?? 60_000),
-  maxRequests: Number(process.env.DEMO_AGENT_RATE_LIMIT_MAX_REQUESTS ?? 20)
-};
-const agentCardImportRateLimit: RateLimitConfig = {
-  name: "agent-card-import",
-  windowMs: Number(process.env.AGENT_CARD_IMPORT_RATE_LIMIT_WINDOW_MS ?? 60_000),
-  maxRequests: Number(process.env.AGENT_CARD_IMPORT_RATE_LIMIT_MAX_REQUESTS ?? 20)
+const agentOnboardingRateLimit: RateLimitConfig = {
+  name: "agent-onboarding",
+  windowMs: Number(process.env.AGENT_ONBOARDING_RATE_LIMIT_WINDOW_MS ?? 60_000),
+  maxRequests: Number(process.env.AGENT_ONBOARDING_RATE_LIMIT_MAX_REQUESTS ?? 20)
 };
 const healthRateLimit: RateLimitConfig = {
   name: "health",
@@ -696,8 +689,8 @@ function buildTrustStatus(sessionToken?: string) {
     },
     securityControls: {
       rawTokensDisplayed: false,
-      agentCardImportFetchesExternalUrls: false,
-      importedAgentsExecutable: false,
+      agentOnboardingFetchesExternalUrls: false,
+      externalAgentsExecutable: false,
       agentCardSecretsRejected: true,
       userIdentityRequiredForResolve: true,
       privateKeyJwtReplayProtection: privateKeyJwtReplayProtectionStatus(),
@@ -723,59 +716,6 @@ async function requestDemoUserToken(email: string): Promise<{ accessToken: strin
   }
 
   return { accessToken: body.accessToken };
-}
-
-function mockIdentityProviderDemoRegistrationUrl(): string {
-  const url = new URL(process.env.A2A_IDP_URL ?? "http://localhost:4110");
-  url.pathname = "/internal/demo-agent-registrations";
-  url.search = "";
-  url.hash = "";
-  return url.toString();
-}
-
-function demoAgentAllowedScopes(card: AgentCard): string[] {
-  return [...new Set(card.skills.flatMap((skill) => skill.requiredScopes ?? (skill.requiredPermission ? [skill.requiredPermission] : [])).filter(Boolean))];
-}
-
-async function registerDemoAgentWithMockIdp(card: AgentCard): Promise<string | undefined> {
-  if (!isDemoAgentCard(card)) {
-    return undefined;
-  }
-
-  const internalToken = process.env.INTERNAL_SERVICE_TOKEN;
-  if (!internalToken) {
-    return "Mock IdP demo registration skipped because INTERNAL_SERVICE_TOKEN is not configured.";
-  }
-
-  const allowedScopes = demoAgentAllowedScopes(card);
-  if (!card.auth.audience || allowedScopes.length === 0) {
-    return "Mock IdP demo registration skipped because generated audience or scope metadata is missing.";
-  }
-
-  try {
-    const response = await fetch(mockIdentityProviderDemoRegistrationUrl(), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-internal-service-token": internalToken
-      },
-      body: JSON.stringify({
-        agentId: card.agentId,
-        audience: card.auth.audience,
-        allowedScopes,
-        ttlSeconds: 3600
-      })
-    });
-
-    if (!response.ok) {
-      return `Mock IdP demo registration failed with ${response.status}.`;
-    }
-
-    return undefined;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "unknown error";
-    return `Mock IdP demo registration failed: ${detail}`;
-  }
 }
 
 async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>[number]): Promise<AgentHealthCheck> {
@@ -898,148 +838,6 @@ async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
   }
 }
 
-function isDemoAgentCard(card: AgentCard | undefined): boolean {
-  return Boolean(card?.endpoint.startsWith("session://demo-agent/"));
-}
-
-function createDemoAgentResponse(card: AgentCard, skill?: AgentCardSkill): A2AAgentResponse {
-  return {
-    agentId: card.agentId,
-    status: "diagnosed",
-    summary: "Demo agent selected from session Agent Card.",
-    probableCause: "This demo agent advertised the requested capability through its Agent Card.",
-    recommendedActions: [
-      "Replace this demo response with a vendor-owned agent endpoint in production."
-    ],
-    evidence: [
-      {
-        title: "Session Agent Card capability match",
-        data: {
-          agentId: card.agentId,
-          capability: skill?.capabilities?.[0],
-          requiredScopes: skill?.requiredScopes ?? [],
-          riskLevel: skill?.riskLevel ?? "low",
-          supportingCapabilities: skill?.supportingCapabilities ?? []
-        }
-      }
-    ],
-    trace: [
-      {
-        agent: card.agentId,
-        action: "demo_agent_card_selected",
-        detail: "Returned safe mock response for a session-scoped demo Agent Card.",
-        timestamp: new Date().toISOString()
-      }
-    ]
-  };
-}
-
-function createDemoAgentJwtBlockedResponse(params: {
-  card: AgentCard;
-  requestedScope?: string;
-  validationReason?: string;
-}): A2AAgentResponse {
-  return {
-    agentId: params.card.agentId,
-    status: "blocked",
-    summary: "Session demo agent was selected, but secure JWT issuance failed.",
-    probableCause: "The Mock IdP did not allow the generated audience/scope or the demo agent was not registered.",
-    recommendedActions: [
-      "Verify the demo Agent Card was registered with the Mock IdP.",
-      "Verify INTERNAL_SERVICE_TOKEN matches between orchestrator and Mock IdP.",
-      "Retry after refreshing the session demo agent."
-    ],
-    evidence: [
-      {
-        title: "Session demo agent JWT issuance failed",
-        data: {
-          agentId: params.card.agentId,
-          audience: params.card.auth.audience,
-          requestedScope: params.requestedScope,
-          tokenIssued: false,
-          validationReason: params.validationReason
-        }
-      }
-    ],
-    trace: [
-      {
-        agent: "orchestrator",
-        action: "SESSION_DEMO_EXECUTION_BLOCKED",
-        detail: "Blocked session demo agent mock execution because scoped JWT issuance failed.",
-        timestamp: new Date().toISOString()
-      }
-    ]
-  };
-}
-
-function demoInputFromRequestBody(value: unknown): DemoAgentCardInput {
-  const record = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
-  const firstSkill = Array.isArray(record.skills) && typeof record.skills[0] === "object" && record.skills[0] !== null
-    ? record.skills[0] as Record<string, unknown>
-    : undefined;
-
-  return {
-    system: typeof record.system === "string"
-      ? record.system
-      : Array.isArray(record.systems) && typeof record.systems[0] === "string"
-        ? record.systems[0]
-        : "",
-    agentSlug: typeof record.agentSlug === "string" ? record.agentSlug : undefined,
-    agentId: typeof record.agentId === "string" ? record.agentId : undefined,
-    agentName: typeof record.agentName === "string" ? record.agentName : typeof record.name === "string" ? record.name : undefined,
-    description: typeof record.description === "string" ? record.description : undefined,
-    diagnosisGoal: typeof record.diagnosisGoal === "string"
-      ? record.diagnosisGoal
-      : typeof record.purposeText === "string"
-        ? record.purposeText
-        : typeof firstSkill?.name === "string"
-          ? firstSkill.name
-          : undefined,
-    purposeText: typeof record.purposeText === "string" ? record.purposeText : undefined,
-    capability: typeof record.capability === "string"
-      ? record.capability
-      : Array.isArray(firstSkill?.capabilities) && typeof firstSkill.capabilities[0] === "string"
-        ? firstSkill.capabilities[0]
-        : undefined,
-    requiredScope: typeof record.requiredScope === "string"
-      ? record.requiredScope
-      : Array.isArray(firstSkill?.requiredScopes) && typeof firstSkill.requiredScopes[0] === "string"
-        ? firstSkill.requiredScopes[0]
-        : undefined,
-    riskLevel: record.riskLevel === "low" || record.riskLevel === "medium" || record.riskLevel === "high" || record.riskLevel === "sensitive"
-      ? record.riskLevel
-      : firstSkill?.riskLevel === "low" || firstSkill?.riskLevel === "medium" || firstSkill?.riskLevel === "high" || firstSkill?.riskLevel === "sensitive"
-        ? firstSkill.riskLevel
-        : undefined,
-    resourceTypes: Array.isArray(record.resourceTypes)
-      ? record.resourceTypes.filter((item): item is string => typeof item === "string")
-      : typeof record.resourceTypes === "string"
-        ? record.resourceTypes.split(",")
-        : firstSkill?.scope && typeof firstSkill.scope === "object" && Array.isArray((firstSkill.scope as { resourceTypes?: unknown }).resourceTypes)
-          ? ((firstSkill.scope as { resourceTypes?: unknown[] }).resourceTypes ?? []).filter((item): item is string => typeof item === "string")
-          : undefined,
-    examples: Array.isArray(record.examples)
-      ? record.examples.filter((item): item is string => typeof item === "string")
-      : typeof record.examples === "string"
-        ? record.examples.split(",")
-        : Array.isArray(firstSkill?.examples)
-          ? firstSkill.examples.filter((item): item is string => typeof item === "string")
-          : undefined,
-    supportingCapabilities: Array.isArray(record.supportingCapabilities)
-      ? record.supportingCapabilities.filter((item): item is string => typeof item === "string")
-      : typeof record.supportingCapabilities === "string"
-        ? record.supportingCapabilities.split(",")
-        : Array.isArray(firstSkill?.supportingCapabilities)
-          ? firstSkill.supportingCapabilities.filter((item): item is string => typeof item === "string")
-          : undefined,
-    supportingHelpOptions: Array.isArray(record.supportingHelpOptions)
-      ? record.supportingHelpOptions.filter((item): item is string => typeof item === "string")
-      : typeof record.supportingHelpOptions === "string"
-        ? record.supportingHelpOptions.split(",")
-        : undefined
-  };
-}
-
 function requireSessionToken(request: IncomingMessage, response: ServerResponse): string | undefined {
   const token = getSessionToken(request);
   if (!token) {
@@ -1080,29 +878,11 @@ function agentCardRegistryKey(request: IncomingMessage, response: ServerResponse
   return undefined;
 }
 
-function remainingActiveAgentIds(sessionToken?: string): string[] {
-  return [
-    ...getExecutableAgentCards().map((card) => card.agentId),
-    ...(sessionToken ? listDemoAgentCards(sessionToken).map((card) => card.agentId) : []),
-    ...(sessionToken ? listImportedAgentCards(sessionToken).map((card) => card.agentId) : []),
-    ...(sessionToken ? listTrustedOnboardedAgents(sessionToken).map((agent) => agent.agentId) : [])
-  ].sort();
-}
-
-function maxDemoAgentsPerSession(): number {
-  const parsed = Number(process.env.MAX_DEMO_AGENTS_PER_SESSION ?? 5);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 5;
-}
-
 function showInternalHealthUrls(): boolean {
   return process.env.SHOW_INTERNAL_HEALTH_URLS === "true";
 }
 
 function healthEndpointType(endpoint: string): AgentHealthCheck["endpointType"] {
-  if (endpoint.startsWith("session://demo-agent/")) {
-    return "session";
-  }
-
   try {
     const parsed = new URL(endpoint);
     const hostname = parsed.hostname.toLowerCase();
@@ -1132,47 +912,9 @@ function healthEndpointMetadata(endpoint: string): Pick<AgentHealthCheck, "endpo
   };
 }
 
-function deleteRuntimeDemoAgent(agentId: string, sessionToken?: string): { ok: true; deleted: boolean } | { ok: false; status: number; error: string } {
-  if (agentId === orchestratorAgentId) {
-    return { ok: false, status: 403, error: "cannot_delete_orchestrator" };
-  }
-
-  const sessionCards = sessionToken ? listDemoAgentCards(sessionToken) : [];
-  const sessionKnown = sessionCards.some((card) => card.agentId === agentId);
-  if (sessionKnown && sessionToken) {
-    deleteDemoAgentCard(sessionToken, agentId);
-    return { ok: true, deleted: true };
-  }
-
-  const importedCards = sessionToken ? listImportedAgentCards(sessionToken) : [];
-  const importedKnown = importedCards.some((card) => card.agentId === agentId);
-  if (importedKnown && sessionToken) {
-    deleteImportedAgentCard(sessionToken, agentId);
-    return { ok: true, deleted: true };
-  }
-
-  return { ok: false, status: 404, error: "session_demo_agent_not_found" };
-}
-
-async function checkSessionDemoAgentHealth(card: AgentCard): Promise<AgentHealthCheck> {
-  return {
-    agentId: card.agentId,
-    ...healthEndpointMetadata(card.endpoint),
-    status: "ok",
-    latencyMs: 0,
-    checkedAt: new Date().toISOString(),
-    details: {
-      healthEndpoint: "/health",
-      agentCardAvailable: true
-    }
-  };
-}
-
-async function buildAgentsHealthResponse(sessionToken?: string): Promise<AgentsHealthResponse> {
-  const sessionDemoCards = sessionToken ? listDemoAgentCards(sessionToken) : [];
+async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
   const agents = await Promise.all([
     ...getExecutableAgentCards().map((card) => checkAgentHealth(card)),
-    ...sessionDemoCards.map((card) => checkSessionDemoAgentHealth(card)),
     checkMockIdentityProviderHealth()
   ]);
 
@@ -1198,7 +940,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
   const conversationState = getOrCreateConversationState(requestBody.conversationId);
   const verifiedUser = currentUserIdentity(sessionToken);
   const responseUserIdentity = safeUserIdentity(sessionToken);
-  const requestAgentCards = combineAgentCards(getExecutableAgentCards(), sessionToken ? listDemoAgentCards(sessionToken) : []);
+  const requestAgentCards = getExecutableAgentCards();
   appendConversationMessage(conversationState, "user", requestBody.message);
   const followUp = await interpretFollowUp({
     currentMessage: requestBody.message,
@@ -1791,9 +1533,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     const requestedAction = requestedActionForSkill(skillMetadata);
     let taskSecurityDecision: SecurityDecision | undefined;
 
-    if (isDemoAgentCard(card)) {
-      orchestratorTrace.push(trace("DEMO_AGENT_POLICY_SKIPPED", `Session demo agent ${agent.agentId} is executed as a local mock response only.`));
-    } else if (requestedAction) {
+    if (requestedAction) {
       const policyDecision = evaluateSecurityPolicy({
         callerAgentId: orchestratorAgentId,
         targetAgentId: agent.agentId,
@@ -1850,69 +1590,9 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       securityDecision: taskSecurityDecision,
       requestedScope,
       cards: requestAgentCards,
-      actor: verifiedUser,
-      authMode: isDemoAgentCard(card) ? a2aAuthMode : undefined
+      actor: verifiedUser
     });
     a2aTasks.push(a2aTask);
-
-    if (isDemoAgentCard(card)) {
-      const registrationWarning = await registerDemoAgentWithMockIdp(card);
-      if (registrationWarning) {
-        orchestratorTrace.push(trace("SESSION_DEMO_IDP_REGISTRATION_WARNING", registrationWarning));
-      }
-
-      if (a2aAuthMode === "oauth2_client_credentials_jwt") {
-        try {
-          await prepareA2ARequestAuth({
-            task: a2aTask,
-            targetAudience: card.auth.audience,
-            requestedScope,
-            executionSteps: delegationExecutionSteps,
-            traceEntries: orchestratorTrace,
-            cards: requestAgentCards
-          });
-          a2aTask.context.auth = {
-            ...a2aTask.context.auth,
-            authMode: "oauth2_client_credentials_jwt",
-            validationReason: "Scoped JWT was issued from the generated Agent Card metadata. This demo uses a mock runtime, so no live external service validated the token."
-          };
-          orchestratorTrace.push(trace("SESSION_DEMO_TOKEN_METADATA_RECEIVED", "Session demo agent mock runtime received token metadata; raw token not exposed."));
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : "Unknown token issuance failure";
-          const validationReason = `Scoped JWT issuance failed for the session demo agent: ${detail}`;
-          a2aTask.context.auth = {
-            ...a2aTask.context.auth,
-            authMode: a2aAuthMode,
-            audience: card.auth.audience,
-            scope: requestedScope,
-            tokenIssued: false,
-            validationReason
-          };
-          orchestratorTrace.push(trace("SESSION_DEMO_JWT_ISSUANCE_FAILED", `Session demo agent token issuance failed for audience ${card.auth.audience} and scope ${requestedScope ?? "none"}. Raw token not exposed.`));
-          orchestratorTrace.push(trace("SESSION_DEMO_EXECUTION_BLOCKED", "Blocked session demo agent mock execution because scoped JWT issuance failed."));
-          a2aResponses.push(createDemoAgentJwtBlockedResponse({
-            card,
-            requestedScope,
-            validationReason
-          }));
-          continue;
-        }
-      } else {
-        a2aTask.context.auth = {
-          ...a2aTask.context.auth,
-          authMode: a2aAuthMode,
-          audience: card.auth.audience,
-          scope: requestedScope,
-          tokenIssued: false,
-          validationReason: "Session demo agent used mock internal auth mode; no live external service validated a token."
-        };
-        orchestratorTrace.push(trace("SESSION_DEMO_JWT_DOCUMENTED", `Session demo agent uses audience ${card.auth.audience} and scope ${requestedScope ?? "none"}; raw token not exposed.`));
-      }
-
-      a2aResponses.push(createDemoAgentResponse(card, skillMetadata));
-      orchestratorTrace.push(trace("DEMO_AGENT_EXECUTED", `Returned safe mock response for ${agent.agentId}; no user-defined endpoint was fetched.`));
-      continue;
-    }
 
     const executableCard = card;
     try {
@@ -2058,32 +1738,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    sendJson(response, 200, await buildAgentsHealthResponse(getSessionToken(request)));
-    return;
-  }
-
-  if (request.method === "DELETE" && request.url?.startsWith("/agents/")) {
-    if (!requireClientAccess(request, response)) {
-      return;
-    }
-
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
-      return;
-    }
-
-    const sessionToken = getSessionToken(request);
-    const agentId = decodeURIComponent(request.url.slice("/agents/".length));
-    const result = deleteRuntimeDemoAgent(agentId, sessionToken);
-    if (!result.ok) {
-      sendJson(response, result.status, { error: result.error, agentId }, request);
-      return;
-    }
-
-    sendJson(response, 200, {
-      deleted: true,
-      agentId,
-      remainingAgents: remainingActiveAgentIds(sessionToken)
-    }, request);
+    sendJson(response, 200, await buildAgentsHealthResponse());
     return;
   }
 
@@ -2205,136 +1860,13 @@ async function start(): Promise<void> {
     return;
   }
 
-  if (request.method === "GET" && request.url === "/demo-agent-cards") {
-    const sessionToken = requireSessionToken(request, response);
-    if (!sessionToken) {
-      return;
-    }
-
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
-      return;
-    }
-
-    sendJson(response, 200, { agentCards: listDemoAgentCards(sessionToken) }, request);
-    return;
-  }
-
-  if (request.method === "POST" && request.url === "/demo-agent-cards/generate") {
-    const sessionToken = requireSessionToken(request, response);
-    if (!sessionToken) {
-      return;
-    }
-
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
-      return;
-    }
-
-    const input = demoInputFromRequestBody(await readJsonBody<unknown>(request));
-    const inputErrors = validateDemoAgentInput(input);
-    if (inputErrors.length > 0) {
-      sendJson(response, 400, { error: "invalid_demo_agent_input", details: inputErrors }, request);
-      return;
-    }
-
-    const agentCard = buildDemoAgentCard(input);
-    sendJson(response, 200, { agentCard, warnings: validateDemoAgentCard(agentCard) }, request);
-    return;
-  }
-
-  if (request.method === "GET" && request.url === "/agent-cards") {
-    const registryKey = agentCardRegistryKey(request, response);
-    if (!registryKey) {
-      return;
-    }
-
-    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
-      return;
-    }
-
-    sendJson(response, 200, { agentCards: listImportedAgentCards(registryKey) }, request);
-    return;
-  }
-
-  if (request.method === "POST" && request.url === "/agent-cards/validate") {
-    const registryKey = agentCardRegistryKey(request, response);
-    if (!registryKey) {
-      return;
-    }
-
-    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
-      return;
-    }
-
-    const body = await readJsonBody<{ agentCard?: unknown }>(request);
-    const result = validateImportedAgentCard(body.agentCard);
-    if (!result.valid) {
-      sendJson(response, 400, result, request);
-      return;
-    }
-
-    sendJson(response, 200, result, request);
-    return;
-  }
-
-  if (request.method === "POST" && request.url === "/agent-cards/import") {
-    const registryKey = agentCardRegistryKey(request, response);
-    if (!registryKey) {
-      return;
-    }
-
-    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
-      return;
-    }
-
-    const body = await readJsonBody<{ agentCard?: unknown }>(request);
-    const result = validateImportedAgentCard(body.agentCard);
-    if (!result.valid) {
-      sendJson(response, 400, result, request);
-      return;
-    }
-
-    const agentCard = addImportedAgentCard(registryKey, result.agentCard);
-    sendJson(response, 200, {
-      imported: true,
-      agentCard,
-      agentCards: listImportedAgentCards(registryKey),
-      warnings: result.warnings
-    }, request);
-    return;
-  }
-
-  if (request.method === "DELETE" && request.url?.startsWith("/agent-cards/")) {
-    const registryKey = agentCardRegistryKey(request, response);
-    if (!registryKey) {
-      return;
-    }
-
-    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
-      return;
-    }
-
-    const agentId = decodeURIComponent(request.url.slice("/agent-cards/".length));
-    const deleted = deleteImportedAgentCard(registryKey, agentId);
-    if (!deleted) {
-      sendJson(response, 404, { error: "imported_agent_card_not_found" }, request);
-      return;
-    }
-
-    sendJson(response, 200, {
-      deleted: true,
-      agentId,
-      agentCards: listImportedAgentCards(registryKey)
-    }, request);
-    return;
-  }
-
   if (request.method === "GET" && request.url === "/agent-onboarding") {
     const registryKey = agentCardRegistryKey(request, response);
     if (!registryKey) {
       return;
     }
 
-    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
+    if (!allowByRateLimit(request, response, agentOnboardingRateLimit)) {
       return;
     }
 
@@ -2348,7 +1880,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
+    if (!allowByRateLimit(request, response, agentOnboardingRateLimit)) {
       return;
     }
 
@@ -2361,64 +1893,6 @@ async function start(): Promise<void> {
     sendJson(response, 200, {
       ...result,
       trustedAgents: listTrustedOnboardedAgents(registryKey)
-    }, request);
-    return;
-  }
-
-  if (request.method === "POST" && request.url === "/demo-agent-cards") {
-    const sessionToken = requireSessionToken(request, response);
-    if (!sessionToken) {
-      return;
-    }
-
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
-      return;
-    }
-
-    const input = demoInputFromRequestBody(await readJsonBody<unknown>(request));
-    const inputErrors = validateDemoAgentInput(input);
-    if (inputErrors.length > 0) {
-      sendJson(response, 400, { error: "invalid_demo_agent_input", details: inputErrors }, request);
-      return;
-    }
-
-    const builtAgentCard = buildDemoAgentCard(input);
-    const existingCards = listDemoAgentCards(sessionToken);
-    const replacingExistingCard = existingCards.some((card) => card.agentId === builtAgentCard.agentId);
-    const limit = maxDemoAgentsPerSession();
-    if (!replacingExistingCard && existingCards.length >= limit) {
-      sendJson(response, 400, { error: "demo_agent_limit_reached", limit }, request);
-      return;
-    }
-
-    const warnings = validateDemoAgentCard(builtAgentCard);
-    const registrationWarning = await registerDemoAgentWithMockIdp(builtAgentCard);
-    if (registrationWarning) {
-      warnings.push(registrationWarning);
-    }
-    const agentCard = addDemoAgentCard(sessionToken, builtAgentCard);
-    sendJson(response, 200, {
-      agentCard,
-      agentCards: listDemoAgentCards(sessionToken),
-      warnings
-    }, request);
-    return;
-  }
-
-  if (request.method === "DELETE" && request.url?.startsWith("/demo-agent-cards/")) {
-    const sessionToken = requireSessionToken(request, response);
-    if (!sessionToken) {
-      return;
-    }
-
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
-      return;
-    }
-
-    const agentId = decodeURIComponent(request.url.slice("/demo-agent-cards/".length));
-    sendJson(response, 200, {
-      deleted: deleteDemoAgentCard(sessionToken, agentId),
-      agentCards: listDemoAgentCards(sessionToken)
     }, request);
     return;
   }

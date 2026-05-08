@@ -134,11 +134,8 @@ type GuidedFocusTarget =
   | "security-summary"
   | "trust-login"
   | "agent-registry"
-  | "agent-import"
   | "zero-trust-onboarding"
-  | "agent-validation"
   | "registered-agents"
-  | "generated-agent-card"
   | "security-timeline";
 
 const tabs: Array<{ id: ActiveTab; label: string }> = [
@@ -680,7 +677,7 @@ function healthClass(status: string): string {
   return `health-${status}`;
 }
 
-function endpointMetadata(endpoint: string | undefined): { endpointType: AgentCardEndpointType; endpointScheme: AgentCardValidationSummary["endpointScheme"] } {
+function endpointMetadata(endpoint: string | undefined): { endpointType: AgentCardEndpointType; endpointScheme: AgentCardEndpointScheme } {
   if (!endpoint) {
     return { endpointType: "unknown", endpointScheme: "unknown" };
   }
@@ -703,7 +700,7 @@ function endpointMetadata(endpoint: string | undefined): { endpointType: AgentCa
   return { endpointType: "unknown", endpointScheme: "unknown" };
 }
 
-function endpointTypeLabel(endpointType: AgentCardEndpointType | "internal", endpointScheme?: AgentCardValidationSummary["endpointScheme"]): string {
+function endpointTypeLabel(endpointType: AgentCardEndpointType | "internal", endpointScheme?: AgentCardEndpointScheme): string {
   if (endpointType === "public" && endpointScheme && endpointScheme !== "unknown") {
     return `public ${endpointScheme}`;
   }
@@ -720,59 +717,8 @@ type ChatMessage = {
   metadata?: ResolveResponse;
 };
 
-type DemoAgentCard = {
-  agentId: string;
-  name: string;
-  description: string;
-  systems: string[];
-  endpoint: string;
-  auth: { type: string; audience: string };
-  skills: Array<{
-    id: string;
-    name: string;
-    description: string;
-    examples?: string[];
-    requiredScopes?: string[];
-    capabilities?: string[];
-    supportingCapabilities?: string[];
-    requestedAction?: string;
-    requiredPermission?: string;
-    riskLevel?: "low" | "medium" | "high" | "sensitive";
-    owner?: string;
-    scope?: {
-      systems?: string[];
-      resourceTypes?: string[];
-    };
-    sensitive?: boolean;
-  }>;
-};
-
 type AgentCardEndpointType = "public" | "session" | "unknown";
-
-type AgentCardValidationSummary = {
-  agentId: string;
-  name: string;
-  authType: string;
-  audience: string;
-  capabilities: string[];
-  requiredScopes: string[];
-  riskLevels: Array<"low" | "medium" | "high" | "sensitive">;
-  endpointType: AgentCardEndpointType;
-  endpointScheme: "https" | "http" | "session" | "unknown";
-};
-
-type AgentCardValidationResult =
-  | {
-      valid: true;
-      agentCard: DemoAgentCard;
-      summary: AgentCardValidationSummary;
-      warnings: string[];
-    }
-  | {
-      valid: false;
-      error: "invalid_agent_card";
-      details: string[];
-    };
+type AgentCardEndpointScheme = "https" | "http" | "session" | "unknown";
 
 type TrustedOnboardedAgent = {
   agentId: string;
@@ -806,13 +752,13 @@ type AgentOnboardingResult = {
   trustedAgents?: TrustedOnboardedAgent[];
 };
 
-type RegisteredAgentSource = "zero-trust-onboarded" | "session-imported" | "session-generated" | "built-in" | "infrastructure";
+type RegisteredAgentSource = "zero-trust-onboarded" | "built-in" | "infrastructure";
 
 type RegisteredAgentRow = {
   agentId: string;
   status: string;
   endpointType: AgentCardEndpointType | "internal";
-  endpointScheme: AgentCardValidationSummary["endpointScheme"];
+  endpointScheme: AgentCardEndpointScheme;
   authMode: string;
   latencyMs?: number;
   agentCardAvailable: boolean;
@@ -858,8 +804,8 @@ type TrustStatusResponse = {
   };
   securityControls: {
     rawTokensDisplayed: boolean;
-    agentCardImportFetchesExternalUrls: boolean;
-    importedAgentsExecutable: boolean;
+    agentOnboardingFetchesExternalUrls: boolean;
+    externalAgentsExecutable: boolean;
     agentCardSecretsRejected: boolean;
     userIdentityRequiredForResolve: boolean;
     privateKeyJwtReplayProtection: "configured" | "unknown";
@@ -918,67 +864,6 @@ const demoUserOptions = [
   { email: "admin@company.com", label: "Identity Admin", roleLabel: "identity-admin" }
 ];
 
-type DemoAgentCardInput = {
-  system: string;
-  agentSlug: string;
-  agentName: string;
-  description: string;
-  diagnosisGoal: string;
-  capability: string;
-  requiredScope: string;
-  riskLevel: "low" | "medium" | "high" | "sensitive";
-  resourceTypes: string;
-  examples: string;
-  supportingHelpOptions: string[];
-};
-
-const emptyDemoAgentInput: DemoAgentCardInput = {
-  system: "",
-  agentSlug: "",
-  agentName: "",
-  description: "",
-  diagnosisGoal: "",
-  capability: "",
-  requiredScope: "",
-  riskLevel: "low",
-  resourceTypes: "incident, ticket, account",
-  examples: "",
-  supportingHelpOptions: []
-};
-
-const sampleAgentCardJson = `{
-  "agentId": "external-salesforce-access-agent",
-  "name": "Salesforce Access Agent",
-  "description": "Diagnoses Salesforce login and permission issues.",
-  "systems": ["salesforce"],
-  "endpoint": "https://agents.example.com/salesforce/task",
-  "auth": {
-    "type": "oauth2_client_credentials_jwt",
-    "audience": "external-salesforce-access-agent"
-  },
-  "skills": [
-    {
-      "id": "salesforce-access-diagnose",
-      "name": "Diagnose Salesforce access",
-      "description": "Checks Salesforce access issues and missing permissions.",
-      "capabilities": ["salesforce.access.diagnose"],
-      "requiredScopes": ["salesforce.access.read"],
-      "riskLevel": "medium",
-      "examples": ["I cannot login to Salesforce", "User cannot access Salesforce account"],
-      "scope": {
-        "systems": ["salesforce"],
-        "resourceTypes": ["user", "account", "permission"]
-      }
-    }
-  ]
-}`;
-
-const supportingHelpOptions = [
-  { value: "oauth_scope_compare", label: "OAuth scope comparison" },
-  { value: "api_health", label: "API health / rate limit" },
-  { value: "security_policy", label: "Security policy evaluation" }
-];
-
 async function friendlyApiError(response: Response, fallback: string): Promise<string> {
   const text = await response.text();
   let body: { error?: string; details?: string[]; limit?: number } | undefined;
@@ -991,15 +876,6 @@ async function friendlyApiError(response: Response, fallback: string): Promise<s
 
   if (response.status === 429 || body?.error === "Too many requests") {
     return "Too many requests. Wait a minute and try again.";
-  }
-
-  if (body?.error === "demo_agent_limit_reached") {
-    return `You can create up to ${body.limit ?? 5} session sample agents. Delete one before adding another.`;
-  }
-
-  if (body?.error === "invalid_demo_agent_input") {
-    const details = body.details?.length ? ` ${body.details.join(" ")}` : "";
-    return `Sample Agent Card input is invalid.${details}`;
   }
 
   if (body?.error === "Session required") {
@@ -1062,23 +938,6 @@ function App() {
   const [health, setHealth] = useState<AgentsHealthResponse | null>(null);
   const [healthError, setHealthError] = useState("");
   const [isHealthLoading, setIsHealthLoading] = useState(false);
-  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
-  const [deleteAgentError, setDeleteAgentError] = useState("");
-  const [deleteAgentMessage, setDeleteAgentMessage] = useState("");
-  const [demoAgentInput, setDemoAgentInput] = useState<DemoAgentCardInput>(emptyDemoAgentInput);
-  const [demoAgentPreview, setDemoAgentPreview] = useState<DemoAgentCard | null>(null);
-  const [demoAgentCards, setDemoAgentCards] = useState<DemoAgentCard[]>([]);
-  const [importedAgentCards, setImportedAgentCards] = useState<DemoAgentCard[]>([]);
-  const [demoAgentWarnings, setDemoAgentWarnings] = useState<string[]>([]);
-  const [demoAgentError, setDemoAgentError] = useState("");
-  const [demoAgentSuccessMessage, setDemoAgentSuccessMessage] = useState("");
-  const [recentlyAddedDemoAgentId, setRecentlyAddedDemoAgentId] = useState("");
-  const [agentCardJson, setAgentCardJson] = useState("");
-  const [agentCardValidation, setAgentCardValidation] = useState<AgentCardValidationResult | null>(null);
-  const [agentCardImportError, setAgentCardImportError] = useState("");
-  const [agentCardImportSuccess, setAgentCardImportSuccess] = useState("");
-  const [isAgentCardValidating, setIsAgentCardValidating] = useState(false);
-  const [isAgentCardImporting, setIsAgentCardImporting] = useState(false);
   const [zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl] = useState("https://agents.example.com");
   const [zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId] = useState("external-salesforce-access-agent");
   const [zeroTrustOnboardedAgents, setZeroTrustOnboardedAgents] = useState<TrustedOnboardedAgent[]>([]);
@@ -1103,16 +962,10 @@ function App() {
   const demoUserSelectRef = useRef<HTMLSelectElement | null>(null);
   const loginButtonRef = useRef<HTMLButtonElement | null>(null);
   const agentRegistryRootRef = useRef<HTMLElement | null>(null);
-  const importAgentCardRef = useRef<HTMLElement | null>(null);
   const zeroTrustOnboardingRef = useRef<HTMLElement | null>(null);
-  const agentCardValidationRef = useRef<HTMLDivElement | null>(null);
   const registeredAgentsRef = useRef<HTMLElement | null>(null);
-  const generatedAgentCardRef = useRef<HTMLElement | null>(null);
   const securityTimelineRootRef = useRef<HTMLElement | null>(null);
   const timelineListRef = useRef<HTMLElement | null>(null);
-  const demoAgentListRef = useRef<HTMLDivElement | null>(null);
-  const agentCardImportRef = useRef<HTMLDivElement | null>(null);
-  const sampleAgentBuilderRef = useRef<HTMLDivElement | null>(null);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
     [messages]
@@ -1134,11 +987,7 @@ function App() {
   const userBadgeLabel = identitySession?.authenticated && identitySession.user
     ? identitySession.user.email
     : "Login required";
-  const healthAgentIds = new Set(health?.agents.map((agent) => agent.agentId) ?? []);
-  const demoAgentCardById = new Map(demoAgentCards.map((card) => [card.agentId, card]));
-  const importedAgentCardById = new Map(importedAgentCards.map((card) => [card.agentId, card]));
   const builtInAgentsCount = health?.agents.filter((agent) => agent.endpointType !== "session" && !infrastructureAgentIds.has(agent.agentId)).length ?? 0;
-  const sessionDemoAgentsCount = demoAgentCards.length || health?.agents.filter((agent) => agent.endpointType === "session").length || 0;
   const healthyAgentsCount = health?.summary.healthy ?? 0;
   const registeredAgentRows: RegisteredAgentRow[] = [
     ...zeroTrustOnboardedAgents.map((agent) => ({
@@ -1159,53 +1008,18 @@ function App() {
       executable: agent.executable,
       executionState: agent.executionState
     })),
-    ...(health?.agents.map((agent) => {
-      const demoAgentCard = demoAgentCardById.get(agent.agentId);
-      const importedAgentCard = importedAgentCardById.get(agent.agentId);
-      return {
-        agentId: agent.agentId,
-        status: agent.status,
-        endpointType: agent.endpointType,
-        endpointScheme: endpointMetadata(demoAgentCard?.endpoint ?? importedAgentCard?.endpoint).endpointScheme,
-        authMode: demoAgentCard?.auth?.type ?? importedAgentCard?.auth?.type ?? "unknown",
-        latencyMs: agent.latencyMs,
-        agentCardAvailable: agent.details.agentCardAvailable || Boolean(demoAgentCard) || Boolean(importedAgentCard),
-        error: agent.error,
-        canDelete: agent.endpointType === "session",
-        source: (infrastructureAgentIds.has(agent.agentId) ? "infrastructure" : demoAgentCard ? "session-generated" : importedAgentCard ? "session-imported" : "built-in") as RegisteredAgentSource
-      };
-    }) ?? []),
-    ...demoAgentCards
-      .filter((card) => !healthAgentIds.has(card.agentId))
-      .map((card) => ({
-        agentId: card.agentId,
-        status: "unknown",
-        endpointType: "session" as const,
-        endpointScheme: "session" as const,
-        authMode: card.auth?.type ?? "unknown",
-        latencyMs: undefined,
-        agentCardAvailable: true,
-        error: undefined,
-        canDelete: true,
-        source: "session-generated" as const
-      })),
-    ...importedAgentCards
-      .filter((card) => !healthAgentIds.has(card.agentId))
-      .map((card) => {
-        const endpoint = endpointMetadata(card.endpoint);
-        return {
-          agentId: card.agentId,
-          status: "unknown",
-          endpointType: endpoint.endpointType,
-          endpointScheme: endpoint.endpointScheme,
-          authMode: card.auth?.type ?? "unknown",
-          latencyMs: undefined,
-          agentCardAvailable: true,
-          error: undefined,
-          canDelete: true,
-          source: "session-imported" as const
-        };
-      })
+    ...(health?.agents.map((agent) => ({
+      agentId: agent.agentId,
+      status: agent.status,
+      endpointType: agent.endpointType,
+      endpointScheme: "unknown" as const,
+      authMode: "unknown",
+      latencyMs: agent.latencyMs,
+      agentCardAvailable: agent.details.agentCardAvailable,
+      error: agent.error,
+      canDelete: false,
+      source: infrastructureAgentIds.has(agent.agentId) ? "infrastructure" as const : "built-in" as const
+    })) ?? [])
   ];
   const latestActorAttached = latestResponse?.userIdentity.authenticated === true;
   const latestActorTokenObserved = Boolean(latestResponse?.a2aTasks?.some((task) =>
@@ -1267,18 +1081,6 @@ function App() {
     guideToTarget("security-timeline");
   }
 
-  function resetDemoAgentDraft() {
-    setDemoAgentInput(emptyDemoAgentInput);
-    setDemoAgentPreview(null);
-    setDemoAgentWarnings([]);
-    setDemoAgentError("");
-  }
-
-  function clearDemoAgentStatus() {
-    setDemoAgentSuccessMessage("");
-    setRecentlyAddedDemoAgentId("");
-  }
-
   async function checkAgentHealth() {
     setHealthError("");
     setIsHealthLoading(true);
@@ -1302,46 +1104,6 @@ function App() {
     }
   }
 
-  async function deleteRegistryAgent(agentId: string, source: string) {
-    if (source !== "session-generated" && source !== "session-imported") {
-      return;
-    }
-
-    const confirmed = window.confirm(`Remove agent ${agentId} from this orchestrator session?`);
-    if (!confirmed) {
-      return;
-    }
-
-    setDeleteAgentError("");
-    setDeleteAgentMessage("");
-    setDeletingAgentId(agentId);
-
-    try {
-      await ensureSession();
-      const response = await fetch(`${API_URL}/${source === "session-imported" ? "agent-cards" : "agents"}/${encodeURIComponent(agentId)}`, {
-        method: "DELETE",
-        credentials: "include"
-      });
-
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, source === "session-imported" ? "Failed to delete imported Agent Card" : "Failed to delete generated sample Agent"));
-      }
-
-      const body = await response.json() as { deleted: boolean; agentId: string; remainingAgents?: string[]; agentCards?: DemoAgentCard[] };
-      if (source === "session-imported" && body.agentCards) {
-        setImportedAgentCards(body.agentCards);
-      }
-      setDeleteAgentMessage(source === "session-imported" ? "Removed imported Agent Card from this session." : "Removed generated sample Agent from this session.");
-      await loadDemoAgentCards();
-      await loadImportedAgentCards();
-      await checkAgentHealth();
-    } catch (caughtError) {
-      setDeleteAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete agent");
-    } finally {
-      setDeletingAgentId(null);
-    }
-  }
-
   useEffect(() => {
     void checkAgentHealth();
     void loadTrustStatus();
@@ -1349,8 +1111,6 @@ function App() {
 
   useEffect(() => {
     if (activeTab === "agent-registry") {
-      void loadDemoAgentCards();
-      void loadImportedAgentCards();
       void loadZeroTrustOnboardedAgents();
       void checkAgentHealth();
     }
@@ -1395,29 +1155,13 @@ function App() {
         scrollToRef(agentRegistryRootRef);
         highlightSection(agentRegistryRootRef);
       }
-      if (pendingFocusTarget === "agent-import") {
-        scrollToRef(importAgentCardRef);
-        highlightSection(importAgentCardRef);
-      }
       if (pendingFocusTarget === "zero-trust-onboarding") {
         scrollToRef(zeroTrustOnboardingRef);
         highlightSection(zeroTrustOnboardingRef);
       }
-      if (pendingFocusTarget === "agent-validation") {
-        scrollToRef(agentCardValidationRef);
-        highlightSection(agentCardValidationRef);
-        if (agentCardValidation?.valid === false) {
-          focusElement(agentCardValidationRef);
-        }
-      }
       if (pendingFocusTarget === "registered-agents") {
         scrollToRef(registeredAgentsRef);
         highlightSection(registeredAgentsRef);
-      }
-      if (pendingFocusTarget === "generated-agent-card") {
-        const targetRef = generatedAgentCardRef.current ? generatedAgentCardRef : sampleAgentBuilderRef;
-        scrollToRef(targetRef);
-        highlightSection(targetRef);
       }
       if (pendingFocusTarget === "security-timeline") {
         const targetRef = timelineListRef.current ? timelineListRef : securityTimelineRootRef;
@@ -1428,7 +1172,7 @@ function App() {
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [activeTab, pendingFocusTarget, latestResponse, agentCardValidation, demoAgentPreview, registeredAgentRows.length, zeroTrustResult]);
+  }, [activeTab, pendingFocusTarget, latestResponse, registeredAgentRows.length, zeroTrustResult]);
 
   async function ensureSession() {
     const response = await fetch(`${API_URL}/session`, {
@@ -1438,47 +1182,6 @@ function App() {
 
     if (!response.ok) {
       throw new Error(await friendlyApiError(response, "Failed to create browser session"));
-    }
-  }
-
-  function demoRequestBody() {
-    return {
-      ...demoAgentInput,
-      resourceTypes: demoAgentInput.resourceTypes.split(",").map((item) => item.trim()).filter(Boolean),
-      examples: demoAgentInput.examples.split(",").map((item) => item.trim()).filter(Boolean),
-      capability: demoAgentInput.capability.trim() || undefined,
-      requiredScope: demoAgentInput.requiredScope.trim() || undefined
-    };
-  }
-
-  function toggleSupportingHelpOption(option: string) {
-    clearDemoAgentStatus();
-    setDemoAgentInput((current) => {
-      const enabled = current.supportingHelpOptions.includes(option);
-      return {
-        ...current,
-        supportingHelpOptions: enabled
-          ? current.supportingHelpOptions.filter((item) => item !== option)
-          : [...current.supportingHelpOptions, option]
-      };
-    });
-  }
-
-  async function loadDemoAgentCards() {
-    setDemoAgentError("");
-    try {
-      await ensureSession();
-      const response = await fetch(`${API_URL}/demo-agent-cards`, {
-        method: "GET",
-        credentials: "include"
-      });
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to load sample Agent Cards"));
-      }
-      const body = await response.json() as { agentCards: DemoAgentCard[] };
-      setDemoAgentCards(body.agentCards);
-    } catch (caughtError) {
-      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to load sample Agent Cards");
     }
   }
 
@@ -1583,23 +1286,6 @@ function App() {
     }
   }
 
-  async function loadImportedAgentCards() {
-    try {
-      await ensureSession();
-      const response = await fetch(`${API_URL}/agent-cards`, {
-        method: "GET",
-        credentials: "include"
-      });
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to load imported Agent Cards"));
-      }
-      const body = await response.json() as { agentCards: DemoAgentCard[] };
-      setImportedAgentCards(body.agentCards);
-    } catch (caughtError) {
-      setAgentCardImportError(caughtError instanceof Error ? caughtError.message : "Failed to load imported Agent Cards");
-    }
-  }
-
   async function loadZeroTrustOnboardedAgents() {
     try {
       await ensureSession();
@@ -1651,181 +1337,6 @@ function App() {
       guideToTarget("zero-trust-onboarding");
     } finally {
       setIsZeroTrustOnboarding(false);
-    }
-  }
-
-function parsePastedAgentCard(): unknown | undefined {
-    if (!agentCardJson.trim()) {
-      setAgentCardValidation({ valid: false, error: "invalid_agent_card", details: ["Paste Agent Card JSON before validating."] });
-      setAgentCardImportError("");
-      guideToTarget("agent-validation");
-      return undefined;
-    }
-
-    try {
-      return JSON.parse(agentCardJson) as unknown;
-    } catch {
-      setAgentCardValidation({ valid: false, error: "invalid_agent_card", details: ["Invalid JSON. Check the pasted Agent Card syntax."] });
-      setAgentCardImportError("");
-      guideToTarget("agent-validation");
-      return undefined;
-    }
-  }
-
-  async function validatePastedAgentCard() {
-    const parsedAgentCard = parsePastedAgentCard();
-    if (!parsedAgentCard) {
-      return;
-    }
-
-    setAgentCardImportError("");
-    setAgentCardImportSuccess("");
-    setIsAgentCardValidating(true);
-
-    try {
-      await ensureSession();
-      const response = await fetch(`${API_URL}/agent-cards/validate`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ agentCard: parsedAgentCard })
-      });
-      const body = await response.json() as AgentCardValidationResult;
-      setAgentCardValidation(body);
-      if (!response.ok && body.valid !== false) {
-        throw new Error("Failed to validate Agent Card");
-      }
-      guideToTarget("agent-validation");
-    } catch (caughtError) {
-      setAgentCardImportError(caughtError instanceof Error ? caughtError.message : "Failed to validate Agent Card");
-      guideToTarget("agent-validation");
-    } finally {
-      setIsAgentCardValidating(false);
-    }
-  }
-
-  async function importPastedAgentCard() {
-    const parsedAgentCard = parsePastedAgentCard();
-    if (!parsedAgentCard || agentCardValidation?.valid !== true) {
-      return;
-    }
-
-    setAgentCardImportError("");
-    setAgentCardImportSuccess("");
-    setIsAgentCardImporting(true);
-
-    try {
-      await ensureSession();
-      const response = await fetch(`${API_URL}/agent-cards/import`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ agentCard: parsedAgentCard })
-      });
-      const body = await response.json() as { imported?: boolean; agentCard?: DemoAgentCard; agentCards?: DemoAgentCard[]; warnings?: string[] } | AgentCardValidationResult;
-      if (!response.ok) {
-        if ("valid" in body && body.valid === false) {
-          setAgentCardValidation(body);
-        }
-        throw new Error("Failed to import Agent Card");
-      }
-      if ("agentCards" in body && body.agentCards) {
-        setImportedAgentCards(body.agentCards);
-      }
-      setAgentCardImportSuccess("Agent Card imported into this session as metadata. Execution is disabled until external runtime validation is enabled.");
-      await loadImportedAgentCards();
-      await loadDemoAgentCards();
-      await checkAgentHealth();
-      guideToTarget("registered-agents");
-    } catch (caughtError) {
-      setAgentCardImportError(caughtError instanceof Error ? caughtError.message : "Failed to import Agent Card");
-    } finally {
-      setIsAgentCardImporting(false);
-    }
-  }
-
-  function clearPastedAgentCard() {
-    setAgentCardJson("");
-    setAgentCardValidation(null);
-    setAgentCardImportError("");
-    setAgentCardImportSuccess("");
-  }
-
-  async function generateDemoAgentPreview() {
-    setDemoAgentError("");
-    clearDemoAgentStatus();
-    try {
-      await ensureSession();
-      const response = await fetch(`${API_URL}/demo-agent-cards/generate`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(demoRequestBody())
-      });
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to generate sample Agent Card"));
-      }
-      const body = await response.json() as { agentCard: DemoAgentCard; warnings: string[] };
-      setDemoAgentPreview(body.agentCard);
-      setDemoAgentWarnings(body.warnings);
-      guideToTarget("generated-agent-card");
-    } catch (caughtError) {
-      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to generate sample Agent Card");
-    }
-  }
-
-  async function addDemoAgentToSession() {
-    setDemoAgentError("");
-    setDemoAgentSuccessMessage("");
-    setRecentlyAddedDemoAgentId("");
-    try {
-      await ensureSession();
-      const response = await fetch(`${API_URL}/demo-agent-cards`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(demoAgentPreview ?? demoRequestBody())
-      });
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to add sample Agent Card"));
-      }
-      const body = await response.json() as { agentCard: DemoAgentCard; agentCards: DemoAgentCard[]; warnings: string[] };
-      setDemoAgentCards(body.agentCards);
-      setDemoAgentWarnings(body.warnings);
-      setDemoAgentSuccessMessage("Sample Agent added to this session.");
-      setRecentlyAddedDemoAgentId(body.agentCard.agentId);
-      setDemoAgentInput(emptyDemoAgentInput);
-      setDemoAgentPreview(null);
-      if (messages.length > 0) {
-        startNewConversation();
-      }
-      await checkAgentHealth();
-      guideToTarget("registered-agents");
-    } catch (caughtError) {
-      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to add sample Agent Card");
-    }
-  }
-
-  async function deleteSessionDemoAgent(agentId: string) {
-    setDemoAgentError("");
-    clearDemoAgentStatus();
-    try {
-      await ensureSession();
-      const response = await fetch(`${API_URL}/demo-agent-cards/${encodeURIComponent(agentId)}`, {
-        method: "DELETE",
-        credentials: "include"
-      });
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to delete sample Agent Card"));
-      }
-      const body = await response.json() as { agentCards: DemoAgentCard[] };
-      setDemoAgentCards(body.agentCards);
-      if (demoAgentPreview?.agentId === agentId) {
-        setDemoAgentPreview(null);
-      }
-      await checkAgentHealth();
-    } catch (caughtError) {
-      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete sample Agent Card");
     }
   }
 
@@ -2223,111 +1734,6 @@ function parsePastedAgentCard(): unknown | undefined {
     );
   }
 
-  function renderAgentCardImport() {
-    const validationSummary = agentCardValidation?.valid ? agentCardValidation.summary : null;
-    const validationWarnings = agentCardValidation?.valid ? agentCardValidation.warnings : [];
-    const validationDetails = agentCardValidation?.valid === false ? agentCardValidation.details : [];
-
-    return (
-      <section className="agent-card-import" aria-label="Import Agent Card">
-        <div className="panel-header">
-          <div>
-            <p className="active-panel-eyebrow">Paste import</p>
-            <h2>Import Agent Card</h2>
-            <p className="muted-note">Paste a standardized Agent Card JSON published by an external agent. The gateway validates capabilities, scopes, auth audience, risk level, and endpoint metadata before allowing orchestration.</p>
-            <p className="muted-note">Imported Agent Cards are registered as metadata only in this phase. The gateway validates their contract, but does not call the external endpoint or execute the agent yet.</p>
-            <p className="muted-note strong-note">Paste import is metadata-only and untrusted until bound through Zero-Trust Onboarding.</p>
-          </div>
-        </div>
-        <textarea
-          value={agentCardJson}
-          onChange={(event) => {
-            setAgentCardJson(event.target.value);
-            setAgentCardValidation(null);
-            setAgentCardImportError("");
-            setAgentCardImportSuccess("");
-          }}
-          placeholder={sampleAgentCardJson}
-          aria-label="Agent Card JSON"
-        />
-        <div className="demo-agent-actions">
-          <button type="button" onClick={() => void validatePastedAgentCard()} disabled={isAgentCardValidating || isAgentCardImporting}>
-            {isAgentCardValidating ? "Validating..." : "Validate"}
-          </button>
-          <button type="button" onClick={() => void importPastedAgentCard()} disabled={agentCardValidation?.valid !== true || isAgentCardImporting || isAgentCardValidating}>
-            {isAgentCardImporting ? "Importing..." : "Import Agent Card"}
-          </button>
-          <button type="button" onClick={clearPastedAgentCard} disabled={isAgentCardImporting || isAgentCardValidating}>Clear</button>
-          <button type="button" onClick={() => {
-            setAgentCardJson(sampleAgentCardJson);
-            setAgentCardValidation(null);
-            setAgentCardImportError("");
-            setAgentCardImportSuccess("");
-          }} disabled={isAgentCardImporting || isAgentCardValidating}>Use sample</button>
-        </div>
-        {agentCardImportError ? <p className="demo-agent-error" role="alert">{agentCardImportError}</p> : null}
-        {agentCardImportSuccess ? <p className="demo-agent-success" role="status">{agentCardImportSuccess}</p> : null}
-        {agentCardValidation ? (
-          <div className={`agent-card-validation ${agentCardValidation.valid ? "valid" : "invalid"} scroll-target`} ref={agentCardValidationRef} tabIndex={-1}>
-            <strong>{agentCardValidation.valid ? "Valid Agent Card" : "Invalid Agent Card"}</strong>
-            {validationSummary ? (
-              <div className="agent-card-summary">
-                <div>
-                  <span>Agent ID</span>
-                  <strong>{validationSummary.agentId}</strong>
-                </div>
-                <div>
-                  <span>Name</span>
-                  <strong>{validationSummary.name}</strong>
-                </div>
-                <div>
-                  <span>Auth type</span>
-                  <strong>{validationSummary.authType}</strong>
-                </div>
-                <div>
-                  <span>Audience</span>
-                  <strong>{validationSummary.audience}</strong>
-                </div>
-                <div>
-                  <span>Endpoint type</span>
-                  <strong>{endpointTypeLabel(validationSummary.endpointType, validationSummary.endpointScheme)}</strong>
-                </div>
-                <div>
-                  <span>Capabilities</span>
-                  <strong>{validationSummary.capabilities.join(", ") || "none"} (declared by card, not verified)</strong>
-                </div>
-                <div>
-                  <span>Required scopes</span>
-                  <strong>{validationSummary.requiredScopes.join(", ") || "none"} (declared by card, not verified)</strong>
-                </div>
-                <div>
-                  <span>Risk levels</span>
-                  <strong>{validationSummary.riskLevels.join(", ") || "none"}</strong>
-                </div>
-              </div>
-            ) : null}
-            {validationWarnings.length > 0 ? (
-              <div>
-                <span>Warnings</span>
-                <ul className="demo-agent-warnings">
-                  {validationWarnings.map((warning) => <li key={warning}>{warning}</li>)}
-                </ul>
-              </div>
-            ) : null}
-            {validationDetails.length > 0 ? (
-              <div>
-                <span>Details</span>
-                <ul className="demo-agent-warnings validation-details">
-                  {validationDetails.map((detail) => <li key={detail}>{detail}</li>)}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
-    );
-  }
-
   function renderZeroTrustOnboardingPanel() {
     return (
       <section className="zero-trust-onboarding-panel scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
@@ -2349,10 +1755,10 @@ function parsePastedAgentCard(): unknown | undefined {
             <input value={zeroTrustExpectedAgentId} onChange={(event) => setZeroTrustExpectedAgentId(event.target.value)} />
           </label>
           <button type="button" onClick={() => void startZeroTrustOnboarding()} disabled={isZeroTrustOnboarding}>
-            {isZeroTrustOnboarding ? "Verifying..." : "Start zero-trust onboarding"}
+            {isZeroTrustOnboarding ? "Verifying..." : "Start onboarding"}
           </button>
         </div>
-        {zeroTrustError ? <p className="demo-agent-error" role="alert">{zeroTrustError}</p> : null}
+        {zeroTrustError ? <p className="error" role="alert">{zeroTrustError}</p> : null}
         {zeroTrustResult ? (
           <div className="zero-trust-result">
             <div>
@@ -2388,198 +1794,6 @@ function parsePastedAgentCard(): unknown | undefined {
               </article>
             </div>
           </div>
-        ) : null}
-      </section>
-    );
-  }
-
-  function renderDemoAgentBuilder() {
-    return (
-      <section className="demo-agent-builder" aria-label="Generate sample Agent Card">
-        <div className="panel-header">
-          <div>
-            <p className="active-panel-eyebrow">Section C</p>
-            <h2>Generate sample Agent Card</h2>
-            <p className="muted-note">This creates a session-scoped sample Agent Card simulating a vendor-owned external agent.</p>
-          </div>
-        </div>
-        <h2>Describe the external agent</h2>
-        <div className="demo-agent-form">
-          <label>
-            <span>System / product</span>
-            <input value={demoAgentInput.system} onChange={(event) => {
-              clearDemoAgentStatus();
-              setDemoAgentInput({ ...demoAgentInput, system: event.target.value });
-            }} placeholder="Salesforce" />
-            <small>The product or domain this external agent owns, for example Salesforce, Slack, Datadog, Okta.</small>
-          </label>
-          <label>
-            <span>Agent name</span>
-            <input value={demoAgentInput.agentName} onChange={(event) => {
-              clearDemoAgentStatus();
-              setDemoAgentInput({ ...demoAgentInput, agentName: event.target.value });
-            }} placeholder="Salesforce Access Agent" />
-            <small>Friendly name shown in the Agent Registry.</small>
-          </label>
-          <label className="wide-field">
-            <span>What can this agent diagnose?</span>
-            <input value={demoAgentInput.diagnosisGoal} onChange={(event) => {
-              clearDemoAgentStatus();
-              setDemoAgentInput({ ...demoAgentInput, diagnosisGoal: event.target.value });
-            }} placeholder="Diagnose Salesforce access issues" />
-            <small>The gateway uses this to generate safe routing metadata such as capability and requested action.</small>
-          </label>
-          <label>
-            <span>Risk level</span>
-            <select value={demoAgentInput.riskLevel} onChange={(event) => {
-              clearDemoAgentStatus();
-              setDemoAgentInput({ ...demoAgentInput, riskLevel: event.target.value as DemoAgentCardInput["riskLevel"] });
-            }}>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="sensitive">sensitive</option>
-            </select>
-            <small>Read-only diagnosis should be low/medium. High/sensitive actions should require approval or be blocked.</small>
-          </label>
-          <label>
-            <span>Resource types</span>
-            <input value={demoAgentInput.resourceTypes} onChange={(event) => {
-              clearDemoAgentStatus();
-              setDemoAgentInput({ ...demoAgentInput, resourceTypes: event.target.value });
-            }} />
-            <small>Objects this agent understands, for example user, account, incident, repository, service.</small>
-          </label>
-          <label>
-            <span>Description</span>
-            <input value={demoAgentInput.description} onChange={(event) => {
-              clearDemoAgentStatus();
-              setDemoAgentInput({ ...demoAgentInput, description: event.target.value });
-            }} placeholder="Sample agent that diagnoses Salesforce issues." />
-          </label>
-          <label>
-            <span>Examples</span>
-            <input value={demoAgentInput.examples} onChange={(event) => {
-              clearDemoAgentStatus();
-              setDemoAgentInput({ ...demoAgentInput, examples: event.target.value });
-            }} placeholder="Salesforce login fails, cannot access account" />
-          </label>
-          <div className="wide-field demo-agent-checkboxes">
-            <span>Can this agent ask another agent for help?</span>
-            <small>The agent does not directly call another agent. It can request delegated help, and the orchestrator validates policy, prevents loops, and mediates the task.</small>
-            <div>
-              {supportingHelpOptions.map((option) => (
-                <label key={option.value}>
-                  <input
-                    type="checkbox"
-                    checked={demoAgentInput.supportingHelpOptions.includes(option.value)}
-                    onChange={() => toggleSupportingHelpOption(option.value)}
-                  />
-                  <span>{option.label}</span>
-                </label>
-              ))}
-              <label>
-                <input
-                  type="checkbox"
-                  checked={demoAgentInput.supportingHelpOptions.length === 0}
-                  onChange={() => {
-                    clearDemoAgentStatus();
-                    setDemoAgentInput({ ...demoAgentInput, supportingHelpOptions: [] });
-                  }}
-                />
-                <span>None</span>
-              </label>
-            </div>
-          </div>
-          <details className="wide-field demo-agent-advanced">
-            <summary>Advanced generated metadata</summary>
-            <div className="demo-agent-form nested-demo-agent-form">
-              <label>
-                <span>Agent slug</span>
-                <input value={demoAgentInput.agentSlug} onChange={(event) => {
-                  clearDemoAgentStatus();
-                  setDemoAgentInput({ ...demoAgentInput, agentSlug: event.target.value });
-                }} placeholder="salesforce-access" />
-                <small>Optional. Generates IDs like demo-salesforce-access-agent. Leave blank for a unique generated ID.</small>
-              </label>
-              <label>
-                <span>Capability override</span>
-                <input value={demoAgentInput.capability} onChange={(event) => {
-                  clearDemoAgentStatus();
-                  setDemoAgentInput({ ...demoAgentInput, capability: event.target.value });
-                }} placeholder="salesforce.access.diagnose" />
-                <small>Stable routing key generated by default from the diagnosis goal.</small>
-              </label>
-              <label>
-                <span>Required scope override</span>
-                <input value={demoAgentInput.requiredScope} onChange={(event) => {
-                  clearDemoAgentStatus();
-                  setDemoAgentInput({ ...demoAgentInput, requiredScope: event.target.value });
-                }} placeholder="salesforce.diagnose" />
-                <small>Permission encoded into the A2A JWT. Generated by default from the system.</small>
-              </label>
-            </div>
-          </details>
-        </div>
-        <div className="demo-agent-actions">
-          <button type="button" onClick={() => void generateDemoAgentPreview()}>Generate preview</button>
-          <button type="button" onClick={() => void addDemoAgentToSession()}>Add sample Agent</button>
-          <button type="button" onClick={() => {
-            clearDemoAgentStatus();
-            resetDemoAgentDraft();
-          }}>New draft</button>
-        </div>
-        {(demoAgentError || demoAgentSuccessMessage) ? (
-          <div className="demo-agent-feedback" role={demoAgentError ? "alert" : "status"}>
-            {demoAgentError ? <p className="demo-agent-error">{demoAgentError}</p> : null}
-            {demoAgentSuccessMessage ? <p className="demo-agent-success">{demoAgentSuccessMessage}</p> : null}
-          </div>
-        ) : null}
-        {demoAgentPreview ? (
-          <div className="demo-agent-auth-note">
-            <strong>Generated A2A security metadata</strong>
-            <small>These values are generated from your form. In production, the external vendor agent would publish them in its Agent Card.</small>
-            <strong>agentId</strong>
-            <span>{demoAgentPreview.agentId}</span>
-            <strong>audience</strong>
-            <span>{demoAgentPreview.auth.audience}</span>
-            <strong>required scope</strong>
-            <span>{demoAgentPreview.skills[0]?.requiredScopes?.[0] ?? "none"}</span>
-            <strong>capability</strong>
-            <span>{demoAgentPreview.skills[0]?.capabilities?.[0] ?? "none"}</span>
-            <strong>auth mode</strong>
-            <span>{demoAgentPreview.auth.type}</span>
-          </div>
-        ) : null}
-        {demoAgentWarnings.length > 0 ? (
-          <ul className="demo-agent-warnings">
-            {demoAgentWarnings.map((warning) => <li key={warning}>{warning}</li>)}
-          </ul>
-        ) : null}
-        <div className="demo-agent-list" ref={demoAgentListRef}>
-          <h2>Session sample agents</h2>
-          {demoAgentCards.length ? demoAgentCards.map((card) => (
-            <article className={recentlyAddedDemoAgentId === card.agentId ? "recently-added-demo-agent" : ""} key={card.agentId}>
-              <strong>{card.agentId}</strong>
-              <span>{card.skills[0]?.capabilities?.[0] ?? "no capability"}</span>
-              <button type="button" onClick={() => {
-                setDemoAgentPreview(card);
-                setDemoAgentWarnings([]);
-                setDemoAgentError("");
-                setDemoAgentSuccessMessage("");
-              }}>View JSON</button>
-              <button type="button" onClick={() => void deleteSessionDemoAgent(card.agentId)}>Delete</button>
-            </article>
-          )) : <p className="muted-note">No session sample Agent Cards yet.</p>}
-        </div>
-        {demoAgentPreview ? (
-          <details className="demo-agent-preview raw-agent-card-json scroll-target" ref={(element) => {
-            generatedAgentCardRef.current = element;
-          }}>
-            <summary>Raw Agent Card JSON</summary>
-            <p className="muted-note">This JSON is generated from the sample Agent Card form. In a real A2A federation, this JSON would be hosted by the external vendor/domain agent.</p>
-            <JsonBlock value={demoAgentPreview} />
-          </details>
         ) : null}
       </section>
     );
@@ -2693,8 +1907,6 @@ function parsePastedAgentCard(): unknown | undefined {
   }
 
   function renderAgentRegistryTab() {
-    const importedAgents = registeredAgentRows.filter((agent) => agent.source === "session-imported");
-    const generatedAgents = registeredAgentRows.filter((agent) => agent.source === "session-generated");
     const builtInAgents = registeredAgentRows.filter((agent) => agent.source === "built-in");
     const infrastructureAgents = registeredAgentRows.filter((agent) => agent.source === "infrastructure");
     const zeroTrustAgents = registeredAgentRows.filter((agent) => agent.source === "zero-trust-onboarded");
@@ -2703,22 +1915,8 @@ function parsePastedAgentCard(): unknown | undefined {
         title: "Zero-Trust Onboarded Agents",
         description: "External agents verified through challenge, signed trust response, and OAuth application binding.",
         agents: zeroTrustAgents,
-        defaultOpen: zeroTrustAgents.length > 0,
-        emptyState: "No zero-trust onboarded agents yet. Start the onboarding ceremony above."
-      },
-      {
-        title: "Imported Agent Cards",
-        description: "External agent contracts imported into this session. Metadata-only until runtime validation is enabled.",
-        agents: importedAgents,
         defaultOpen: true,
-        emptyState: "No imported Agent Cards yet. Paste an Agent Card JSON above to validate and register metadata."
-      },
-      {
-        title: "Generated Sample Agents",
-        description: "Session-scoped sample Agent Cards generated to simulate vendor-owned external agents.",
-        agents: generatedAgents,
-        defaultOpen: generatedAgents.length > 0,
-        emptyState: "No generated sample agents yet."
+        emptyState: "No zero-trust onboarded agents yet. Start onboarding to verify an external agent."
       },
       {
         title: "Built-in Agents",
@@ -2745,19 +1943,9 @@ function parsePastedAgentCard(): unknown | undefined {
               <div className="registry-agent-badges">
                 <span className="source-badge">{agent.source}</span>
                 <strong className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</strong>
-                {agent.source === "session-imported" || agent.source === "zero-trust-onboarded" ? <small className="metadata-only-badge">metadata only</small> : null}
+                {agent.source === "zero-trust-onboarded" ? <small className="metadata-only-badge">metadata only</small> : null}
               </div>
             </div>
-            {agent.canDelete ? (
-              <button
-                type="button"
-                className="agent-delete-button danger-ghost-button"
-                disabled={isHealthLoading || deletingAgentId === agent.agentId}
-                onClick={() => void deleteRegistryAgent(agent.agentId, agent.source)}
-              >
-                {deletingAgentId === agent.agentId ? "..." : "Delete"}
-              </button>
-            ) : null}
           </div>
           <div className="registry-agent-compact-metadata">
             {agent.source === "zero-trust-onboarded" ? <span><b>Trust</b> {agent.trustLevel}</span> : null}
@@ -2817,11 +2005,9 @@ function parsePastedAgentCard(): unknown | undefined {
         <div className="panel-header">
           <div>
             <h2>Agent Registry</h2>
-            <p className="muted-note">Import, validate, and govern external agent contracts before orchestration.</p>
+            <p className="muted-note">Onboard and govern trusted external agents through Zero-Trust verification before orchestration.</p>
           </div>
           <button type="button" className="secondary-button" onClick={() => {
-            void loadDemoAgentCards();
-            void loadImportedAgentCards();
             void loadZeroTrustOnboardedAgents();
             void checkAgentHealth();
           }} disabled={isHealthLoading}>
@@ -2829,32 +2015,7 @@ function parsePastedAgentCard(): unknown | undefined {
           </button>
         </div>
 
-        <section className="registry-action-grid" aria-label="Agent Registry primary actions">
-          <article>
-            <div>
-              <p className="active-panel-eyebrow">Trust ceremony</p>
-              <h2>Zero-Trust Onboarding</h2>
-              <p>Challenge an external agent, verify its signed response, and bind approved scopes to a registered OAuth application.</p>
-            </div>
-            <button type="button" onClick={() => guideToTarget("zero-trust-onboarding")}>Start ceremony</button>
-          </article>
-          <article>
-            <div>
-              <p className="active-panel-eyebrow">Onboard vendor agent</p>
-              <h2>Import Agent Card</h2>
-              <p>Paste an Agent Card JSON and validate auth audience, scopes, capabilities, risk, and endpoint metadata.</p>
-            </div>
-            <button type="button" onClick={() => guideToTarget("agent-import")}>Start import</button>
-          </article>
-          <article>
-            <div>
-              <p className="active-panel-eyebrow">Sample registry data</p>
-              <h2>Generate sample Agent Card</h2>
-              <p>Create a session-scoped sample Agent Card to simulate an external vendor agent contract.</p>
-            </div>
-            <button type="button" onClick={() => guideToTarget("generated-agent-card")}>Generate sample</button>
-          </article>
-        </section>
+        {renderZeroTrustOnboardingPanel()}
 
         <section className="registry-section">
           <p className="active-panel-eyebrow">Section A</p>
@@ -2863,14 +2024,6 @@ function parsePastedAgentCard(): unknown | undefined {
             <article>
               <span>Zero-trust onboarded</span>
               <strong>{zeroTrustAgents.length}</strong>
-            </article>
-            <article>
-              <span>Imported cards</span>
-              <strong>{importedAgents.length}</strong>
-            </article>
-            <article>
-              <span>Generated samples</span>
-              <strong>{generatedAgents.length}</strong>
             </article>
             <article>
               <span>Built-in agents</span>
@@ -2887,16 +2040,10 @@ function parsePastedAgentCard(): unknown | undefined {
           </div>
         </section>
 
-        <div className="registry-section">
-          {renderZeroTrustOnboardingPanel()}
-        </div>
-
         <section className="registry-section scroll-target" ref={registeredAgentsRef} tabIndex={-1}>
           <p className="active-panel-eyebrow">Section B</p>
           <h2>Registered Agents</h2>
           {healthError ? <p className="error">{healthError}</p> : null}
-          {deleteAgentError ? <p className="error">{deleteAgentError}</p> : null}
-          {deleteAgentMessage ? <p className="success-note">{deleteAgentMessage}</p> : null}
           {registeredAgentRows.length ? (
             <div className="registry-agent-list">
               {agentGroups.map((group) => (
@@ -2915,20 +2062,9 @@ function parsePastedAgentCard(): unknown | undefined {
               ))}
             </div>
           ) : (
-            <p className="muted-note">{isHealthLoading ? "Loading registered agents..." : "Import or generate an Agent Card to simulate external agent onboarding."}</p>
+            <p className="muted-note">{isHealthLoading ? "Loading registered agents..." : "Start onboarding to verify an external agent."}</p>
           )}
         </section>
-
-        <div className="registry-section scroll-target" ref={(element) => {
-          agentCardImportRef.current = element;
-          importAgentCardRef.current = element;
-        }}>
-          {renderAgentCardImport()}
-        </div>
-
-        <div className="registry-section scroll-target" ref={sampleAgentBuilderRef}>
-          {renderDemoAgentBuilder()}
-        </div>
       </section>
     );
   }
@@ -3026,8 +2162,8 @@ function parsePastedAgentCard(): unknown | undefined {
               </div>
             </div>
           )}
-          {identityError ? <p className="demo-agent-error" role="alert">{identityError}</p> : null}
-          {identityMessage ? <p className="demo-agent-success" role="status">{identityMessage}</p> : null}
+          {identityError ? <p className="error" role="alert">{identityError}</p> : null}
+          {identityMessage ? <p className="success-note" role="status">{identityMessage}</p> : null}
         </section>
 
         <section className="trust-console-section">
@@ -3104,8 +2240,8 @@ function parsePastedAgentCard(): unknown | undefined {
           <h2>Control Boundaries</h2>
           <div className="security-badge-grid">
             <span className="security-badge">Raw tokens displayed: {String(securityControls?.rawTokensDisplayed ?? false)}</span>
-            <span className="security-badge">Agent Card import fetches external URLs: {String(securityControls?.agentCardImportFetchesExternalUrls ?? false)}</span>
-            <span className="security-badge">Imported agents executable: {String(securityControls?.importedAgentsExecutable ?? false)}</span>
+            <span className="security-badge">External URL fetching: {String(securityControls?.agentOnboardingFetchesExternalUrls ?? false)}</span>
+            <span className="security-badge">External agents executable: {String(securityControls?.externalAgentsExecutable ?? false)}</span>
             <span className="security-badge positive">Agent Card secrets rejected: {String(securityControls?.agentCardSecretsRejected ?? true)}</span>
             <span className="security-badge positive">User identity required for execution: {String(securityControls?.userIdentityRequiredForResolve ?? true)}</span>
             <span className="security-badge">Replay protection: {securityControls?.privateKeyJwtReplayProtection ?? "unknown"}</span>

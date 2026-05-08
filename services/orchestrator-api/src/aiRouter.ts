@@ -39,7 +39,7 @@ const operations: IntegrationOperation[] = [
 ];
 const reporterTypes: ReporterType[] = ["end_user", "it_engineer", "unknown"];
 
-const routerPrompt = `You are a ServiceNow-style AI Orchestrator Agent.
+const routerPrompt = `You are the Secure Agent Orchestration Gateway route planner.
 You are a secondary route planner. Primary routing is capability-based and already attempted.
 
 Rules:
@@ -335,46 +335,6 @@ function chooseEnterpriseTriageRoute(interpretation: RequestInterpretation, cont
   };
 }
 
-function chooseDemoAgentTextRoute(message: string, interpretation: RequestInterpretation, context: RoutingContext = {}): CapabilityRouteSelection {
-  const lowerMessage = message.toLowerCase();
-  const demoMatches = getExecutableAgentCards(cardsForContext(context))
-    .filter((card) => card.endpoint.startsWith("session://demo-agent/"))
-    .flatMap((agent) => agent.skills.map((skill) => ({ agent, skill })))
-    .filter(({ agent, skill }) => {
-      const systemMatched = agent.systems.some((system) => lowerMessage.includes(system.toLowerCase()));
-      const targetMatched = agent.systems.some((system) => interpretation.targetSystemText?.toLowerCase().includes(system.toLowerCase()));
-      const capabilityMatched = (skill.capabilities ?? []).some((capability) =>
-        lowerMessage.includes(capability.toLowerCase()) ||
-        capability.split(/[._-]+/).filter((part) => part.length > 3).some((part) => lowerMessage.includes(part.toLowerCase()))
-      );
-      return (systemMatched || targetMatched) && capabilityMatched;
-    })
-    .map(({ agent, skill }) => ({
-      agent,
-      skill,
-      score: 80 + (skill.priority ?? 0),
-      reason: "session demo Agent Card matched system and capability text"
-    }))
-    .sort((left, right) => right.score - left.score || left.agent.agentId.localeCompare(right.agent.agentId));
-
-  const match = demoMatches[0];
-  if (!match) {
-    return { selectedAgents: [] };
-  }
-
-  return {
-    selectedAgents: [
-      select(match.agent.agentId, "primary", match.skill.id, `Matched session demo Agent Card skill ${match.skill.id}. ${match.reason}.`, {
-        matchedCapability: match.skill.capabilities?.[0],
-        matchScore: match.score,
-        owner: match.skill.owner,
-        targetSystemText: interpretation.targetSystemText
-      })
-    ],
-    candidates: [candidateSummary(match)]
-  };
-}
-
 export function selectBestCapabilityRoute(interpretation: RequestInterpretation, context: RoutingContext = {}): CapabilityRouteSelection {
   return chooseCapabilityMatches(interpretation, context);
 }
@@ -470,21 +430,6 @@ export function routeWithRules(
       routingConfidence: interpretation.confidence,
       routingReasoningSummary: interpretation.reason,
       resolutionStatus: "unsupported",
-      requestInterpretation: interpretation
-    };
-  }
-
-  const demoTextRoute = selectedAgents.length === 0 ? chooseDemoAgentTextRoute(message, interpretation, context) : { selectedAgents: [] };
-
-  if (demoTextRoute.selectedAgents.length > 0) {
-    return {
-      classification,
-      selectedAgents: demoTextRoute.selectedAgents,
-      skippedAgents: completeSkippedAgents(demoTextRoute.selectedAgents, [], context),
-      routingSource: "rules_fallback",
-      routingConfidence: "medium",
-      routingReasoningSummary: "Matched a session-scoped demo Agent Card by system and capability text.",
-      resolutionStatus: "resolved",
       requestInterpretation: interpretation
     };
   }

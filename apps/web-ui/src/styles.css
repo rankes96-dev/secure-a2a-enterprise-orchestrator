@@ -713,16 +713,6 @@ h2 {
   opacity: 0.65;
 }
 
-.agent-card-import {
-  display: grid;
-  gap: 12px;
-  border: 1px solid #d7e0e4;
-  border-left: 4px solid #d1495b;
-  border-radius: 8px;
-  padding: 16px;
-  background: #ffffff;
-}
-
 .zero-trust-onboarding-panel {
   display: grid;
   gap: 14px;
@@ -848,70 +838,6 @@ h2 {
   background: #fbfcfd;
 }
 
-.agent-card-import textarea {
-  width: 100%;
-  min-height: 260px;
-  resize: vertical;
-  border: 1px solid #c7d2d8;
-  border-radius: 8px;
-  padding: 12px;
-  color: #172026;
-  background: #fbfcfd;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.agent-card-validation {
-  display: grid;
-  gap: 12px;
-  border: 1px solid #d7e0e4;
-  border-radius: 8px;
-  padding: 12px;
-  background: #fbfcfd;
-}
-
-.agent-card-validation.valid {
-  border-left: 4px solid #1d6d3d;
-}
-
-.agent-card-validation.invalid {
-  border-left: 4px solid #a1272d;
-}
-
-.agent-card-validation > strong {
-  color: #172026;
-}
-
-.agent-card-validation span,
-.agent-card-summary span {
-  color: #526b76;
-  font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.agent-card-summary {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(140px, 1fr));
-  gap: 10px;
-}
-
-.agent-card-summary div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.agent-card-summary strong {
-  overflow-wrap: anywhere;
-}
-
-.validation-details {
-  border-left-color: #a1272d;
-  color: #8f1d25;
-}
-
 .agent-health-panel {
   display: grid;
   gap: 10px;
@@ -919,16 +845,6 @@ h2 {
   border-left: 4px solid #1d6d3d;
   border-radius: 8px;
   padding: 12px;
-  background: #ffffff;
-}
-
-.demo-agent-builder {
-  display: grid;
-  gap: 12px;
-  border: 1px solid #d7e0e4;
-  border-left: 4px solid #235789;
-  border-radius: 8px;
-  padding: 16px;
   background: #ffffff;
 }
 
@@ -941,217 +857,8 @@ h2 {
   text-transform: uppercase;
 }
 
-.demo-agent-form {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.demo-agent-form label {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.demo-agent-form span,
-.demo-agent-auth-note strong {
-  color: #526b76;
-  font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.demo-agent-form small,
-.demo-agent-auth-note small {
-  color: #526b76;
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.demo-agent-form input,
-.demo-agent-form select {
-  min-width: 0;
-  border: 1px solid #c7d2d8;
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: #ffffff;
-}
-
 .wide-field {
   grid-column: 1 / -1;
-}
-
-.nested-demo-agent-form {
-  margin-top: 10px;
-}
-
-.demo-agent-advanced {
-  border: 1px solid #d7e0e4;
-  border-radius: 8px;
-  padding: 10px;
-  background: #fbfcfd;
-}
-
-.demo-agent-advanced summary {
-  color: #2d4650;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.demo-agent-checkboxes {
-  display: grid;
-  gap: 8px;
-  border: 1px solid #d7e0e4;
-  border-radius: 8px;
-  padding: 10px;
-  background: #fbfcfd;
-}
-
-.demo-agent-checkboxes > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.demo-agent-checkboxes label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid #c7d2d8;
-  border-radius: 999px;
-  padding: 6px 10px;
-  background: #ffffff;
-}
-
-.demo-agent-checkboxes label span {
-  color: #253d47;
-  font-size: 12px;
-  font-weight: 800;
-  text-transform: none;
-}
-
-.demo-agent-checkboxes input {
-  min-width: auto;
-  width: 14px;
-  height: 14px;
-  padding: 0;
-}
-
-.demo-agent-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.demo-agent-feedback {
-  margin-top: 2px;
-}
-
-.demo-agent-auth-note {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 6px 10px;
-  border: 1px solid #d7e0e4;
-  border-radius: 8px;
-  padding: 10px;
-  background: #f7fafb;
-}
-
-.demo-agent-auth-note strong:first-child {
-  grid-column: 1 / -1;
-  color: #253d47;
-  font-size: 13px;
-}
-
-.demo-agent-auth-note span {
-  overflow-wrap: anywhere;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.demo-agent-auth-note small {
-  grid-column: 1 / -1;
-}
-
-.demo-agent-actions button,
-.demo-agent-list button {
-  border: 1px solid #b7c7ce;
-  border-radius: 8px;
-  padding: 7px 10px;
-  color: #253d47;
-  background: #f6f9fa;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.demo-agent-error,
-.demo-agent-success {
-  margin-bottom: 0;
-  border-left: 3px solid #1d6d3d;
-  border-radius: 6px;
-  padding: 8px 10px;
-  color: #1d6d3d;
-  background: #eef8f0;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.demo-agent-error {
-  border-left-color: #b4232c;
-  color: #8f1d25;
-  background: #fff1f2;
-}
-
-.demo-agent-warnings {
-  margin: 0;
-  border-left: 3px solid #8a5a00;
-  color: #6d4b00;
-  font-size: 12px;
-}
-
-.demo-agent-list {
-  display: grid;
-  gap: 8px;
-}
-
-.demo-agent-list h2,
-.demo-agent-preview h2 {
-  margin-bottom: 0;
-}
-
-.demo-agent-list article {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto;
-  gap: 8px;
-  align-items: center;
-  border: 1px solid #d7e0e4;
-  border-radius: 8px;
-  padding: 8px;
-  background: #fbfcfd;
-}
-
-.demo-agent-list article.recently-added-demo-agent {
-  border-color: #1d6d3d;
-  background: #f2fbf4;
-  box-shadow: 0 0 0 3px rgba(29, 109, 61, 0.08);
-}
-
-.demo-agent-list strong,
-.demo-agent-list span {
-  overflow-wrap: anywhere;
-}
-
-.demo-agent-list span {
-  color: #526b76;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.demo-agent-preview {
-  display: grid;
-  gap: 8px;
 }
 
 .agent-health-header {
@@ -2302,7 +2009,6 @@ pre {
 }
 
 .identity-gate-panel button,
-.registry-action-grid button,
 .scenario-run,
 .composer button,
 .identity-login-controls button:first-of-type {
@@ -2315,14 +2021,12 @@ pre {
   transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
-.identity-gate-panel button,
-.registry-action-grid button {
+.identity-gate-panel button {
   min-width: max-content;
   padding: 10px 14px;
 }
 
 .identity-gate-panel button:hover,
-.registry-action-grid button:hover,
 .scenario-run:hover:not(:disabled),
 .composer button:hover:not(:disabled) {
   transform: translateY(-1px);
@@ -2433,10 +2137,7 @@ pre {
 }
 
 .demo-cockpit .composer textarea:focus,
-.agent-card-import textarea:focus,
-.identity-login-controls select:focus,
-.demo-agent-form input:focus,
-.demo-agent-form select:focus {
+.identity-login-controls select:focus {
   outline: 3px solid rgba(20, 33, 61, 0.14);
   border-color: #14213d;
 }
@@ -2498,38 +2199,8 @@ pre {
   grid-template-columns: 1fr;
 }
 
-.registry-action-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 14px;
-}
-
-.registry-action-grid article {
-  display: grid;
-  gap: 14px;
-  align-content: space-between;
-  border: 1px solid #dbe3e8;
-  border-radius: 14px;
-  padding: 18px;
-  background: linear-gradient(180deg, #ffffff, #f8fafc);
-  box-shadow: 0 12px 32px rgba(30, 41, 59, 0.05);
-}
-
-.registry-action-grid h2 {
-  margin-bottom: 6px;
-  font-size: 18px;
-}
-
-.registry-action-grid p {
-  margin-bottom: 0;
-  color: #526b76;
-  line-height: 1.5;
-}
-
 .registry-summary-grid article,
 .registry-agent-card,
-.agent-card-import,
-.demo-agent-builder,
 .trust-console-section {
   border-radius: 12px;
   box-shadow: 0 8px 22px rgba(30, 41, 59, 0.04);
@@ -2860,9 +2531,7 @@ pre {
 
   .registry-summary-grid,
   .registry-agent-row,
-  .registry-action-grid,
   .registry-agent-metadata,
-  .agent-card-summary,
   .trust-card-grid,
   .security-timeline-summary,
   .timeline-metadata-grid,
@@ -2914,14 +2583,10 @@ pre {
   .composer,
   .agent-grid,
   .scenario-buttons,
-  .demo-agent-form,
-  .demo-agent-list article,
   .panel-header,
   .registry-summary-grid,
   .registry-agent-row,
-  .registry-action-grid,
   .registry-agent-metadata,
-  .agent-card-summary,
   .trust-card-grid,
   .security-timeline-summary,
   .timeline-metadata-grid,
@@ -3158,9 +2823,6 @@ pre {
   flex-wrap: wrap;
 }
 
-.agent-card-import textarea,
-.demo-agent-form input,
-.demo-agent-form select,
 .identity-login-controls select {
   max-width: 100%;
 }
@@ -3237,10 +2899,8 @@ pre {
   }
 
   .cockpit-status-strip,
-  .registry-action-grid,
   .registry-summary-grid,
   .registry-agent-metadata,
-  .agent-card-summary,
   .trust-card-grid,
   .security-timeline-summary,
   .timeline-metadata-grid,
@@ -3751,7 +3411,6 @@ pre {
 .control-panel,
 .cockpit-card,
 .trust-login-hero,
-.agent-card-validation,
 .registry-section,
 .visual-security-timeline {
   scroll-margin-top: 150px;
@@ -3810,7 +3469,6 @@ summary:focus-visible,
   .control-panel,
   .cockpit-card,
   .trust-login-hero,
-  .agent-card-validation,
   .registry-section,
   .visual-security-timeline {
     scroll-margin-top: 24px;

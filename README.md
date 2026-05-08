@@ -4,9 +4,9 @@ A TypeScript monorepo for a Secure Agent Orchestration Gateway that coordinates 
 
 ## Secure Agent Orchestration Gateway
 
-A vendor-neutral gateway for importing external AI agents through standardized Agent Cards and governing execution with identity, scoped JWTs, policy, delegation controls, and audit.
+A vendor-neutral gateway for onboarding external AI agents through zero-trust verification and governing execution with identity, scoped JWTs, policy, delegation controls, and audit.
 
-The current product shell includes an Agent Registry, Agent Card paste import, API-key scoped registry support, secure demo user identity, a Trust & Identity control plane, and a visual Security Timeline.
+The current product shell includes an Agent Registry, Zero-Trust Agent Onboarding, secure demo user identity, a Trust & Identity control plane, and a visual Security Timeline.
 
 ```text
 User
@@ -26,7 +26,7 @@ Mock IdP / JWKS
 ## Demo Flow
 
 1. Login as demo user.
-2. Import or generate an Agent Card.
+2. Start Zero-Trust Agent Onboarding.
 3. Run the Jira 403 scenario.
 4. Inspect Trust & Identity.
 5. Inspect Security Timeline.
@@ -34,24 +34,24 @@ Mock IdP / JWKS
 
 ## What This Demonstrates
 
-- Agent Card onboarding
+- Zero-Trust Agent Onboarding
 - User-to-gateway identity
 - Gateway-to-agent scoped JWTs
 - Policy decisions
 - Actor propagation
-- Metadata-only imported agents
+- Metadata-only zero-trust onboarded agents
 - Visual audit timeline
 - Raw token redaction
 
 ## Zero-Trust Agent Onboarding
 
-Agent Cards are declarations, not trust. A pasted Agent Card can describe an agent, but the gateway must not accept user-provided scopes or capabilities as authoritative.
+Agent Cards are declarations, not trust. The gateway must not accept user-provided scopes or capabilities as authoritative.
 
-The Zero-Trust Agent Onboarding ceremony verifies external agent identity before promoting metadata into the trusted registry:
+Zero-Trust Agent Onboarding verifies external agent identity before promoting metadata into the trusted registry:
 
 - The gateway creates a nonce-bound onboarding challenge.
 - The external agent returns a signed trust response proving endpoint/control ownership.
-- Scopes and capabilities come from the verified external agent response, not from arbitrary pasted JSON.
+- Scopes and capabilities come from the verified external agent trust response, not from arbitrary user-provided JSON.
 - The OAuth Application Registry binds `clientId`, `agentId`, issuer, audience, allowed scopes, allowed capabilities, and token auth method.
 - The gateway rejects unknown clients, disabled apps, wrong issuers/audiences, extra scopes, and extra capabilities.
 - Successful onboarding is stored as `trusted_metadata_only`.
@@ -60,7 +60,7 @@ Runtime execution for onboarded external agents remains disabled until a future 
 
 ## LinkedIn Summary
 
-Built a Secure Agent Orchestration Gateway that imports external AI agents through standardized Agent Cards and governs execution using verified user identity, scoped A2A JWTs, policy decisions, actor propagation, and a visual security timeline.
+Built a Secure Agent Orchestration Gateway that onboards external AI agents through zero-trust verification and governs execution using verified user identity, scoped A2A JWTs, policy decisions, actor propagation, and a visual security timeline.
 
 The core scenario is:
 
@@ -104,10 +104,9 @@ This demo keeps all external systems local and mock-based, but the architecture 
 The current demo includes:
 
 - Agent Card driven routing
-- Agent Registry sample Agent Card generator in the UI
-- generated `/.well-known/agent-card.json` preview
-- session-scoped sample agents
-- Mock IdP internal demo registration for generated demo audiences/scopes
+- Zero-Trust Agent Onboarding in the Agent Registry
+- OAuth application registry binding for verified external agent metadata
+- metadata-only onboarded external agents until runtime validation is enabled
 - OAuth2 Client Credentials token endpoint
 - `private_key_jwt` client authentication
 - `client_secret_post` local fallback
@@ -122,8 +121,8 @@ The current demo includes:
 - `InMemoryStateStore`
 - `UpstashStateStore`
 - source IP allowlist enforcement for `POST /oauth/token`
-- Agent Registry and health views, including Mock IdP and session sample agents
-- verification scripts for token issuance, replay protection, IP allowlist, user identity, trust status, security timeline, and session sample agents
+- Agent Registry and health views, including Zero-Trust Agent Onboarding and Mock IdP infrastructure status
+- verification scripts for token issuance, replay protection, IP allowlist, user identity, trust status, security timeline, and zero-trust onboarding
 
 ## Run Locally
 
@@ -182,52 +181,13 @@ If no API key is configured, if the AI request fails, or if the AI returns an in
 
 The AI request interpreter returns structured scope, intent, requested capability, target system text, resource text, and approval hints. The backend validates selected agent IDs, skill IDs, and capabilities against Agent Cards before invoking any local mock agent. AI can help interpret and route; it does not execute actions or make final authorization decisions.
 
-## Agent Registry Sample Agent Card Generator
+## Agent Registry Onboarding
 
-The Agent Registry includes **Generate sample Agent Card**.
+The Agent Registry exposes **Zero-Trust Agent Onboarding** as the only external onboarding path.
 
-This is not an import/paste flow. It simulates what a vendor/domain-owned external agent would normally publish from its own domain at:
+Agent Cards are declarations, not trust. Trusted onboarding verifies external agent identity through a nonce-bound challenge, simulated signed trust response, and OAuth application registry binding. The gateway accepts scopes and capabilities only from the verified external agent trust response, then checks them against the registered OAuth application.
 
-```text
-/.well-known/agent-card.json
-```
-
-The user fills simple business fields:
-
-- system/product
-- agent name
-- diagnosis goal
-- risk level
-- resource types
-- whether the agent can ask another agent for help
-
-The backend generates a safe Agent Card. The UI shows generated A2A security metadata:
-
-- `agentId`
-- `audience`
-- required scope
-- capability
-- auth mode
-- endpoint
-
-The UI also shows a `/.well-known/agent-card.json preview`.
-
-In production, the external vendor/domain agent would host this JSON and expose a real task endpoint. In this demo, the Agent Card is stored only for the current browser session through the `a2a_session` cookie and uses a safe mock runtime endpoint:
-
-```text
-session://demo-agent/{agentId}/task
-```
-
-Because session sample agents are not real HTTP services, they do not perform live JWT validation. The flow proves JWT issuance from generated Agent Card metadata, while real vendor agents would validate the Bearer JWT on their own endpoint.
-
-The public demo does not let users provide arbitrary external endpoints.
-
-When a session sample agent is selected:
-
-1. The orchestrator registers the generated audience and allowed scopes with the Mock IdP through a protected internal endpoint.
-2. The orchestrator requests a real scoped JWT for the generated audience/scope.
-3. If JWT issuance succeeds, the safe mock runtime returns a demo diagnosis.
-4. If JWT issuance fails, execution fails closed and returns a blocked response instead of a fake diagnosis.
+For this phase, successfully onboarded external agents are stored as `trusted_metadata_only`. Runtime execution for external onboarded agents remains disabled until a future runtime validation phase.
 
 Raw JWTs, access tokens, client assertions, private keys, client secrets, and Authorization headers are never displayed.
 
@@ -238,11 +198,11 @@ When `A2A_AUTH_MODE=oauth2_client_credentials_jwt` and `ORCHESTRATOR_TOKEN_AUTH_
 1. The orchestrator signs a short-lived `client_assertion` with its private key.
 2. The Mock IdP verifies the `private_key_jwt` with the registered public JWK.
 3. The Mock IdP checks the assertion `jti` replay state through `StateStore` or `UpstashStateStore`.
-4. The Mock IdP validates audience and scope from static/discovered Agent Cards or temporary session sample registrations.
+4. The Mock IdP validates audience and scope from static/discovered Agent Cards and registered OAuth application metadata.
 5. The Mock IdP issues an audience-bound, scoped A2A JWT.
 6. The orchestrator attaches `Authorization: Bearer <token>` to real agent calls.
 7. Agents validate issuer, audience, signature, expiration, delegation guardrails, and required scope through shared auth helpers.
-8. Session sample agents do not call a live external service, but they still demonstrate real JWT issuance metadata before returning a safe mock response.
+8. Zero-trust onboarded external agents remain metadata-only until runtime validation is enabled.
 
 `mock_internal_token` remains available for local/simple mode.
 
@@ -257,7 +217,7 @@ The project includes a generic `StateStore` abstraction with:
 
 - `private_key_jwt` `client_assertion` replay protection
 - storing used `jti` values with TTL
-- future session/demo state if the session-scoped Agent Card registry is moved from in-memory storage to Redis for cloud scaling
+- future onboarding/session state if the trusted registry is moved from in-memory storage to Redis for cloud scaling
 - future rate limit buckets, session state, or token cache if needed
 
 In-memory state is fine for local development, but it is lost on restart and does not work across multiple cloud instances. Upstash Redis provides shared TTL-based state for Railway/Vercel-style deployments.
@@ -288,7 +248,6 @@ The Mock IdP exposes:
 - `GET /.well-known/jwks.json`
 - `GET /debug/oauth-applications`
 - `POST /oauth/token`
-- `POST /internal/demo-agent-registrations`
 
 `POST /oauth/token` supports:
 
@@ -331,12 +290,11 @@ Public demo guardrails:
 
 ```env
 TRUST_PROXY_HEADERS=false
-MAX_DEMO_AGENTS_PER_SESSION=5
 SHOW_INTERNAL_HEALTH_URLS=false
 REQUIRE_SECURE_A2A_AUTH=false
 ```
 
-Keep `TRUST_PROXY_HEADERS=false` unless the deployment is behind a trusted proxy that sanitizes incoming forwarded headers. Keep `SHOW_INTERNAL_HEALTH_URLS=false` for public demos so `/agents/health` does not expose internal service URLs. Set `REQUIRE_SECURE_A2A_AUTH=true` for public secure demos to prevent fallback to `mock_internal_token`. `MAX_DEMO_AGENTS_PER_SESSION` limits public demo abuse.
+Keep `TRUST_PROXY_HEADERS=false` unless the deployment is behind a trusted proxy that sanitizes incoming forwarded headers. Keep `SHOW_INTERNAL_HEALTH_URLS=false` for public demos so `/agents/health` does not expose internal service URLs. Set `REQUIRE_SECURE_A2A_AUTH=true` for public secure demos to prevent fallback to `mock_internal_token`.
 
 Source IP allowlist for the token endpoint:
 
@@ -356,25 +314,15 @@ Run:
 ```bash
 npm run typecheck
 npm run build
-npm run verify:session-demo-agent
+npm run verify:agent-onboarding
+npm run verify:user-identity
+npm run verify:user-identity-required
+npm run verify:trust-status
+npm run verify:security-timeline
 npm run verify:a2a-token
 npm run verify:private-key-jwt-replay
 npm run verify:mock-idp-ip-allowlist
 ```
-
-`verify:session-demo-agent` assumes local services are already running. Expected output:
-
-```text
-session created: ok
-demo agent added: ok
-demo agent health: ok
-demo agent routing: ok
-demo agent jwt issuance: ok
-raw token redaction: ok
-fail-closed case: skipped
-```
-
-The script validates session creation, sample Agent Card generation, health inclusion, routing, JWT issuance metadata, and redaction of raw token material.
 
 `verify:a2a-token` verifies token issuance and shared JWT validation checks:
 
@@ -392,16 +340,7 @@ The script validates session creation, sample Agent Card generation, health incl
 3. Review selected Agent Cards and policy decisions.
 4. Open Security Timeline.
 5. Show scoped JWT / actor metadata with raw tokens hidden.
-6. Import a sample Agent Card in Agent Registry.
-
-## Legacy Sample Agent Path
-
-1. Open Agent Registry.
-2. Generate a sample Agent Card for Salesforce access diagnosis.
-3. Show the generated A2A metadata and `/.well-known/agent-card.json` preview.
-4. Ask: `I cannot login to my Salesforce account`.
-5. Show the selected sample agent, `tokenIssued=true`, `tokenAuthMethod=private_key_jwt`, and trace.
-6. Run the built-in Jira, GitHub, and PagerDuty scenarios.
+6. Start Zero-Trust Agent Onboarding in Agent Registry and show verified scopes/capabilities.
 
 ## Try It
 
@@ -497,10 +436,8 @@ GET /agents/health
 It shows:
 
 - static/discovered local agents
-- session sample agents
+- zero-trust onboarded external agent metadata
 - Mock Identity Provider as an infrastructure dependency
-
-Session sample agents can be removed from the current browser session from the Agent Registry. This removes only runtime session state; it does not delete source files or real external services.
 
 ## Deployment Readiness Notes
 
@@ -527,7 +464,7 @@ High-level Vercel/Railway shape:
 - Put `ORCHESTRATOR_PUBLIC_JWK_JSON` only on the Mock IdP.
 - Use `STATE_STORE_DRIVER=upstash`.
 - Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
-- Set public-demo guardrails such as `TRUST_PROXY_HEADERS=false`, `MAX_DEMO_AGENTS_PER_SESSION`, `SESSION_RATE_LIMIT_*`, `DEMO_AGENT_RATE_LIMIT_*`, and `HEALTH_RATE_LIMIT_*`.
+- Set public-demo guardrails such as `TRUST_PROXY_HEADERS=false`, `SESSION_RATE_LIMIT_*`, onboarding rate limits, and `HEALTH_RATE_LIMIT_*`.
 - Prefer Railway private/internal service URLs between backend services when available.
 - If the Mock IdP is public, keep `/oauth/token` protected by `private_key_jwt`, replay protection, and optional IP allowlist.
 
@@ -536,8 +473,8 @@ Do not put server secrets in the frontend.
 ## Important Demo Boundaries
 
 - No real Jira, GitHub, PagerDuty, Salesforce, SAP, or OAuth provider APIs are called.
-- Session sample agents use a safe mock runtime.
-- Public demo users cannot provide arbitrary external endpoints.
+- Zero-trust onboarded external agents are metadata-only until runtime validation is enabled.
+- Public demo users cannot provide arbitrary external endpoints or arbitrary trusted scopes/capabilities.
 - No raw JWTs, access tokens, client assertions, Authorization headers, private keys, client secrets, API keys, or cookies should be logged or shown.
 - Sensitive, write, admin, grant, delete, rotate, disable, token, secret, or credential scopes should require approval or be blocked.
 - The demo may recommend or prepare operational actions, but write/high-risk actions should be `NeedsApproval` or `Blocked` unless an explicit approval workflow is implemented.
