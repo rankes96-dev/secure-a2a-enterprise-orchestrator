@@ -127,6 +127,18 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
 
 type ActiveTab = "run-task" | "agent-registry" | "trust-identity" | "security-timeline";
 type ResolveA2ATask = NonNullable<ResolveResponse["a2aTasks"]>[number];
+type GuidedFocusTarget =
+  | "run-task"
+  | "composer"
+  | "gateway-response"
+  | "security-summary"
+  | "trust-login"
+  | "agent-registry"
+  | "agent-import"
+  | "agent-validation"
+  | "registered-agents"
+  | "generated-agent-card"
+  | "security-timeline";
 
 const tabs: Array<{ id: ActiveTab; label: string }> = [
   { id: "run-task", label: "Run Task" },
@@ -1020,6 +1032,23 @@ function App() {
   const [identityMessage, setIdentityMessage] = useState("");
   const [isIdentityLoading, setIsIdentityLoading] = useState(false);
   const [securityTimelineFilter, setSecurityTimelineFilter] = useState<SecurityTimelineFilter>("all");
+  const [pendingFocusTarget, setPendingFocusTarget] = useState<GuidedFocusTarget | null>(null);
+  const runTaskRootRef = useRef<HTMLElement | null>(null);
+  const composerRef = useRef<HTMLFormElement | null>(null);
+  const taskTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const gatewayResponseRef = useRef<HTMLElement | null>(null);
+  const securitySummaryRef = useRef<HTMLElement | null>(null);
+  const trustIdentityRootRef = useRef<HTMLElement | null>(null);
+  const loginPanelRef = useRef<HTMLElement | null>(null);
+  const demoUserSelectRef = useRef<HTMLSelectElement | null>(null);
+  const loginButtonRef = useRef<HTMLButtonElement | null>(null);
+  const agentRegistryRootRef = useRef<HTMLElement | null>(null);
+  const importAgentCardRef = useRef<HTMLElement | null>(null);
+  const agentCardValidationRef = useRef<HTMLDivElement | null>(null);
+  const registeredAgentsRef = useRef<HTMLElement | null>(null);
+  const generatedAgentCardRef = useRef<HTMLElement | null>(null);
+  const securityTimelineRootRef = useRef<HTMLElement | null>(null);
+  const timelineListRef = useRef<HTMLElement | null>(null);
   const demoAgentListRef = useRef<HTMLDivElement | null>(null);
   const agentCardImportRef = useRef<HTMLDivElement | null>(null);
   const sampleAgentBuilderRef = useRef<HTMLDivElement | null>(null);
@@ -1119,6 +1148,46 @@ function App() {
   const policyOutcome = policyOutcomeLabel(policySummary);
   const tokenOutcome = tokenOutcomeLabel(tokenSummary);
 
+  function scrollToRef<T extends HTMLElement>(ref: React.RefObject<T | null>, options?: ScrollIntoViewOptions) {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start", ...options });
+  }
+
+  function focusElement<T extends HTMLElement>(ref: React.RefObject<T | null>) {
+    ref.current?.focus({ preventScroll: true });
+  }
+
+  function highlightSection<T extends HTMLElement>(ref: React.RefObject<T | null>) {
+    const element = ref.current;
+    if (!element) {
+      return;
+    }
+
+    element.classList.remove("focus-pulse");
+    window.setTimeout(() => {
+      element.classList.add("focus-pulse");
+      window.setTimeout(() => element.classList.remove("focus-pulse"), 1520);
+    }, 0);
+  }
+
+  function guideToTarget(target: GuidedFocusTarget) {
+    setPendingFocusTarget(target);
+  }
+
+  function goToTrustIdentity() {
+    setActiveTab("trust-identity");
+    guideToTarget("trust-login");
+  }
+
+  function goToRunTask() {
+    setActiveTab("run-task");
+    guideToTarget("composer");
+  }
+
+  function goToSecurityTimeline() {
+    setActiveTab("security-timeline");
+    guideToTarget("security-timeline");
+  }
+
   function resetDemoAgentDraft() {
     setDemoAgentInput(emptyDemoAgentInput);
     setDemoAgentPreview(null);
@@ -1209,6 +1278,73 @@ function App() {
       void loadTrustStatus();
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!pendingFocusTarget) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      if (pendingFocusTarget === "run-task") {
+        scrollToRef(runTaskRootRef);
+        highlightSection(runTaskRootRef);
+      }
+      if (pendingFocusTarget === "composer") {
+        scrollToRef(composerRef);
+        highlightSection(composerRef);
+        focusElement(taskTextareaRef);
+      }
+      if (pendingFocusTarget === "gateway-response") {
+        scrollToRef(gatewayResponseRef);
+        highlightSection(gatewayResponseRef);
+      }
+      if (pendingFocusTarget === "security-summary") {
+        scrollToRef(securitySummaryRef);
+        highlightSection(securitySummaryRef);
+      }
+      if (pendingFocusTarget === "trust-login") {
+        scrollToRef(loginPanelRef);
+        highlightSection(loginPanelRef);
+        if (demoUserSelectRef.current) {
+          focusElement(demoUserSelectRef);
+        } else if (loginButtonRef.current) {
+          focusElement(loginButtonRef);
+        }
+      }
+      if (pendingFocusTarget === "agent-registry") {
+        scrollToRef(agentRegistryRootRef);
+        highlightSection(agentRegistryRootRef);
+      }
+      if (pendingFocusTarget === "agent-import") {
+        scrollToRef(importAgentCardRef);
+        highlightSection(importAgentCardRef);
+      }
+      if (pendingFocusTarget === "agent-validation") {
+        scrollToRef(agentCardValidationRef);
+        highlightSection(agentCardValidationRef);
+        if (agentCardValidation?.valid === false) {
+          focusElement(agentCardValidationRef);
+        }
+      }
+      if (pendingFocusTarget === "registered-agents") {
+        scrollToRef(registeredAgentsRef);
+        highlightSection(registeredAgentsRef);
+      }
+      if (pendingFocusTarget === "generated-agent-card") {
+        const targetRef = generatedAgentCardRef.current ? generatedAgentCardRef : sampleAgentBuilderRef;
+        scrollToRef(targetRef);
+        highlightSection(targetRef);
+      }
+      if (pendingFocusTarget === "security-timeline") {
+        const targetRef = timelineListRef.current ? timelineListRef : securityTimelineRootRef;
+        scrollToRef(targetRef);
+        highlightSection(targetRef);
+      }
+      setPendingFocusTarget(null);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeTab, pendingFocusTarget, latestResponse, agentCardValidation, demoAgentPreview, registeredAgentRows.length]);
 
   async function ensureSession() {
     const response = await fetch(`${API_URL}/session`, {
@@ -1329,6 +1465,7 @@ function App() {
       setIdentitySession(body);
       setIdentityMessage("Demo user identity verified and attached to this gateway session.");
       await loadTrustStatus();
+      guideToTarget("trust-login");
     } catch (caughtError) {
       setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to login as demo user");
     } finally {
@@ -1379,10 +1516,11 @@ function App() {
     }
   }
 
-  function parsePastedAgentCard(): unknown | undefined {
+function parsePastedAgentCard(): unknown | undefined {
     if (!agentCardJson.trim()) {
       setAgentCardValidation({ valid: false, error: "invalid_agent_card", details: ["Paste Agent Card JSON before validating."] });
       setAgentCardImportError("");
+      guideToTarget("agent-validation");
       return undefined;
     }
 
@@ -1391,6 +1529,7 @@ function App() {
     } catch {
       setAgentCardValidation({ valid: false, error: "invalid_agent_card", details: ["Invalid JSON. Check the pasted Agent Card syntax."] });
       setAgentCardImportError("");
+      guideToTarget("agent-validation");
       return undefined;
     }
   }
@@ -1418,8 +1557,10 @@ function App() {
       if (!response.ok && body.valid !== false) {
         throw new Error("Failed to validate Agent Card");
       }
+      guideToTarget("agent-validation");
     } catch (caughtError) {
       setAgentCardImportError(caughtError instanceof Error ? caughtError.message : "Failed to validate Agent Card");
+      guideToTarget("agent-validation");
     } finally {
       setIsAgentCardValidating(false);
     }
@@ -1457,6 +1598,7 @@ function App() {
       await loadImportedAgentCards();
       await loadDemoAgentCards();
       await checkAgentHealth();
+      guideToTarget("registered-agents");
     } catch (caughtError) {
       setAgentCardImportError(caughtError instanceof Error ? caughtError.message : "Failed to import Agent Card");
     } finally {
@@ -1488,6 +1630,7 @@ function App() {
       const body = await response.json() as { agentCard: DemoAgentCard; warnings: string[] };
       setDemoAgentPreview(body.agentCard);
       setDemoAgentWarnings(body.warnings);
+      guideToTarget("generated-agent-card");
     } catch (caughtError) {
       setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to generate sample Agent Card");
     }
@@ -1519,9 +1662,7 @@ function App() {
         startNewConversation();
       }
       await checkAgentHealth();
-      window.setTimeout(() => {
-        demoAgentListRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      }, 0);
+      guideToTarget("registered-agents");
     } catch (caughtError) {
       setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to add sample Agent Card");
     }
@@ -1556,6 +1697,7 @@ function App() {
     if (!trimmedIssueText || isLoading || !isUserAuthenticated) {
       if (trimmedIssueText && !isUserAuthenticated) {
         setError("Secure execution requires verified user identity. Login in Trust & Identity before running tasks.");
+        goToTrustIdentity();
       }
       return;
     }
@@ -1613,6 +1755,7 @@ function App() {
             : chatMessage
         )
       );
+      guideToTarget("gateway-response");
     } catch (caughtError) {
       const errorMessage = caughtError instanceof Error ? caughtError.message : "Failed to resolve issue";
       setError(errorMessage);
@@ -1660,16 +1803,23 @@ function App() {
                 type="button"
                 className="secondary-inline-button"
                 title={scenario.subtitle}
-                onClick={() => setMessage(scenario.message)}
+                onClick={() => {
+                  setMessage(scenario.message);
+                  guideToTarget("composer");
+                }}
               >
                 Use scenario
               </button>
               <button
                 type="button"
                 className="scenario-run"
-                disabled={isLoading || !isUserAuthenticated}
+                disabled={isLoading}
                 onClick={() => {
                   setMessage(scenario.message);
+                  if (!isUserAuthenticated) {
+                    goToTrustIdentity();
+                    return;
+                  }
                   void resolveIssue(scenario.message);
                 }}
               >
@@ -1684,8 +1834,8 @@ function App() {
 
   function renderGatewayResponseCard() {
     if (!latestResponse) {
-      return (
-        <section className="cockpit-card gateway-response-panel empty-response-panel">
+    return (
+      <section className="cockpit-card gateway-response-panel empty-response-panel scroll-target" ref={gatewayResponseRef} tabIndex={-1}>
           <div>
             <p className="active-panel-eyebrow">Gateway response</p>
             <h2>No governed task result yet</h2>
@@ -1709,7 +1859,7 @@ function App() {
     ];
 
     return (
-      <section className="cockpit-card gateway-response-panel">
+      <section className="cockpit-card gateway-response-panel scroll-target" ref={gatewayResponseRef} tabIndex={-1}>
         <div className="gateway-response-header">
           <div>
             <p className="active-panel-eyebrow">Gateway response</p>
@@ -1731,6 +1881,9 @@ function App() {
           {outcomeBadges.map((badge) => (
             <span className={badge.className} key={badge.label}>{badge.label}</span>
           ))}
+          <button type="button" className="response-timeline-link" onClick={goToSecurityTimeline}>
+            View security timeline
+          </button>
         </div>
         <section className="supporting-agents-section">
           <div className="section-heading-row compact-heading">
@@ -1766,7 +1919,7 @@ function App() {
 
   function renderSecuritySummaryCard() {
     return (
-      <section className="cockpit-card security-summary-card" aria-label="Security Summary">
+      <section className="cockpit-card security-summary-card scroll-target" aria-label="Security Summary" ref={securitySummaryRef} tabIndex={-1}>
         <div className="section-heading-row">
           <div>
             <p className="active-panel-eyebrow">Latest outcome</p>
@@ -1976,7 +2129,7 @@ function App() {
         {agentCardImportError ? <p className="demo-agent-error" role="alert">{agentCardImportError}</p> : null}
         {agentCardImportSuccess ? <p className="demo-agent-success" role="status">{agentCardImportSuccess}</p> : null}
         {agentCardValidation ? (
-          <div className={`agent-card-validation ${agentCardValidation.valid ? "valid" : "invalid"}`}>
+          <div className={`agent-card-validation ${agentCardValidation.valid ? "valid" : "invalid"} scroll-target`} ref={agentCardValidationRef} tabIndex={-1}>
             <strong>{agentCardValidation.valid ? "Valid Agent Card" : "Invalid Agent Card"}</strong>
             {validationSummary ? (
               <div className="agent-card-summary">
@@ -2216,7 +2369,9 @@ function App() {
           )) : <p className="muted-note">No session sample Agent Cards yet.</p>}
         </div>
         {demoAgentPreview ? (
-          <details className="demo-agent-preview raw-agent-card-json">
+          <details className="demo-agent-preview raw-agent-card-json scroll-target" ref={(element) => {
+            generatedAgentCardRef.current = element;
+          }}>
             <summary>Raw Agent Card JSON</summary>
             <p className="muted-note">This JSON is generated from the sample Agent Card form. In a real A2A federation, this JSON would be hosted by the external vendor/domain agent.</p>
             <JsonBlock value={demoAgentPreview} />
@@ -2228,7 +2383,7 @@ function App() {
 
   function renderRunTaskTab() {
     return (
-      <section className="control-panel demo-cockpit" aria-label="Execution Cockpit">
+      <section className="control-panel demo-cockpit scroll-target" aria-label="Execution Cockpit" ref={runTaskRootRef} tabIndex={-1}>
         <div className="panel-header cockpit-header">
           <div>
             <p className="active-panel-eyebrow">Secure A2A execution</p>
@@ -2248,7 +2403,7 @@ function App() {
                   <h2>Login required before execution</h2>
                   <p>This gateway blocks task execution until a verified user identity is attached to the session.</p>
                 </div>
-                <button type="button" onClick={() => setActiveTab("trust-identity")}>Go to Trust & Identity</button>
+                <button type="button" onClick={goToTrustIdentity}>Go to Trust & Identity</button>
               </section>
             ) : null}
 
@@ -2266,7 +2421,7 @@ function App() {
               </details>
             </div>
 
-            <form className="composer cockpit-card" onSubmit={submitIssue}>
+            <form className="composer cockpit-card scroll-target" onSubmit={submitIssue} ref={composerRef}>
               <div className="section-heading-row">
                 <div>
                   <p className="active-panel-eyebrow">Task input</p>
@@ -2275,6 +2430,7 @@ function App() {
               </div>
               <div className="composer-surface">
                 <textarea
+                  ref={taskTextareaRef}
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
                   aria-label="Integration issue"
@@ -2284,8 +2440,8 @@ function App() {
                   <div className="composer-helper">
                     <span>{isUserAuthenticated ? `Verified actor ${actorEmail ?? "current user"} will be attached to the A2A task and token metadata.` : "Login in Trust & Identity to unlock secure execution."}</span>
                     {!isUserAuthenticated ? (
-                      <button type="button" className="composer-trust-link" onClick={() => setActiveTab("trust-identity")}>
-                        Go to Trust & Identity
+                      <button type="button" className="composer-trust-link" onClick={goToTrustIdentity}>
+                        Login to unlock execution
                       </button>
                     ) : null}
                   </div>
@@ -2334,7 +2490,7 @@ function App() {
 
   function renderAgentRegistryTab() {
     return (
-      <section className="control-panel agent-registry-panel" aria-label="Agent Registry">
+      <section className="control-panel agent-registry-panel scroll-target" aria-label="Agent Registry" ref={agentRegistryRootRef} tabIndex={-1}>
         <div className="panel-header">
           <div>
             <h2>Agent Registry</h2>
@@ -2356,7 +2512,7 @@ function App() {
               <h2>Import Agent Card</h2>
               <p>Paste an Agent Card JSON and validate auth audience, scopes, capabilities, risk, and endpoint metadata.</p>
             </div>
-            <button type="button" onClick={() => agentCardImportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>Start import</button>
+            <button type="button" onClick={() => guideToTarget("agent-import")}>Start import</button>
           </article>
           <article>
             <div>
@@ -2364,11 +2520,11 @@ function App() {
               <h2>Generate sample Agent Card</h2>
               <p>Create a session-scoped sample Agent Card to simulate an external vendor agent contract.</p>
             </div>
-            <button type="button" onClick={() => sampleAgentBuilderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>Generate sample</button>
+            <button type="button" onClick={() => guideToTarget("generated-agent-card")}>Generate sample</button>
           </article>
         </section>
 
-        <section className="registry-section">
+        <section className="registry-section scroll-target" ref={registeredAgentsRef} tabIndex={-1}>
           <p className="active-panel-eyebrow">Section A</p>
           <h2>Registry Summary</h2>
           <div className="registry-summary-grid">
@@ -2454,11 +2610,14 @@ function App() {
           )}
         </section>
 
-        <div className="registry-section" ref={agentCardImportRef}>
+        <div className="registry-section scroll-target" ref={(element) => {
+          agentCardImportRef.current = element;
+          importAgentCardRef.current = element;
+        }}>
           {renderAgentCardImport()}
         </div>
 
-        <div className="registry-section" ref={sampleAgentBuilderRef}>
+        <div className="registry-section scroll-target" ref={sampleAgentBuilderRef}>
           {renderDemoAgentBuilder()}
         </div>
       </section>
@@ -2483,7 +2642,7 @@ function App() {
     ];
 
     return (
-      <section className="control-panel trust-identity-panel" aria-label="Trust and Identity">
+      <section className="control-panel trust-identity-panel scroll-target" aria-label="Trust and Identity" ref={trustIdentityRootRef} tabIndex={-1}>
         <div className="panel-header">
           <div>
             <h2>Trust & Identity</h2>
@@ -2499,7 +2658,7 @@ function App() {
           </div>
         </div>
 
-        <section className={`trust-login-hero ${isTrustAuthenticated ? "authenticated" : "locked"}`}>
+        <section className={`trust-login-hero ${isTrustAuthenticated ? "authenticated" : "locked"} scroll-target`} ref={loginPanelRef} tabIndex={-1}>
           <div className="trust-login-copy">
             <p className="active-panel-eyebrow">Start here</p>
             <h2>{isTrustAuthenticated ? "Execution unlocked" : "Login required to unlock execution"}</h2>
@@ -2509,13 +2668,13 @@ function App() {
             <div className="trust-login-form">
               <label>
                 <span>Demo user</span>
-                <select value={selectedDemoUserEmail} onChange={(event) => setSelectedDemoUserEmail(event.target.value)} disabled={isIdentityLoading}>
+                <select ref={demoUserSelectRef} value={selectedDemoUserEmail} onChange={(event) => setSelectedDemoUserEmail(event.target.value)} disabled={isIdentityLoading}>
                   {demoUserOptions.map((user) => (
                     <option value={user.email} key={user.email}>{user.label} / {user.roleLabel}</option>
                   ))}
                 </select>
               </label>
-              <button type="button" className="trust-login-primary" onClick={() => void loginDemoUser()} disabled={isIdentityLoading}>
+              <button type="button" className="trust-login-primary" ref={loginButtonRef} onClick={() => void loginDemoUser()} disabled={isIdentityLoading}>
                 {isIdentityLoading ? "Verifying..." : "Login as demo user"}
               </button>
               <p>The gateway requests a signed Mock IdP User JWT, validates it via JWKS, and stores only verified claims. Raw JWTs are never shown in the UI.</p>
@@ -2552,7 +2711,7 @@ function App() {
                 <button type="button" className="secondary-button" onClick={() => void logoutIdentity()} disabled={isIdentityLoading}>
                   Logout
                 </button>
-                <button type="button" className="trust-login-primary" onClick={() => setActiveTab("run-task")}>
+                <button type="button" className="trust-login-primary" onClick={goToRunTask}>
                   Go to Run Task
                 </button>
               </div>
@@ -2704,7 +2863,7 @@ function App() {
     const delegationCount = Math.max(traceDelegationCount, delegatedTaskCount);
 
     return (
-      <section className="control-panel security-timeline-panel" aria-label="Security Timeline">
+      <section className="control-panel security-timeline-panel scroll-target" aria-label="Security Timeline" ref={securityTimelineRootRef} tabIndex={-1}>
         <div className="panel-header">
           <div>
             <h2>Security Timeline</h2>
@@ -2714,7 +2873,7 @@ function App() {
         </div>
         {latestResponse ? (
           <>
-            <section className="timeline-executive-summary">
+            <section className="timeline-executive-summary scroll-target" tabIndex={-1}>
               <p className="active-panel-eyebrow">Timeline Summary</p>
               <div>
                 <span className="status-success">Identity verified</span>
@@ -2764,7 +2923,9 @@ function App() {
               ))}
             </div>
 
-            <div className="visual-security-timeline">
+            <div className="visual-security-timeline scroll-target" ref={(element) => {
+              timelineListRef.current = element;
+            }} tabIndex={-1}>
               {visibleSecurityTimelineEvents.length ? visibleSecurityTimelineEvents.map((event, index) => (
                 <article className={`security-timeline-event status-${event.status} category-${event.category}`} key={event.id}>
                   <div className="timeline-event-marker">{String(index + 1).padStart(2, "0")}</div>
@@ -2805,7 +2966,9 @@ function App() {
             </details>
           </>
         ) : (
-          <p className="muted-note">Run a task to generate a timeline of identity, routing, policy, token issuance, and agent execution.</p>
+          <p className="muted-note scroll-target" ref={(element) => {
+            timelineListRef.current = element;
+          }} tabIndex={-1}>Run a task to generate a timeline of identity, routing, policy, token issuance, and agent execution.</p>
         )}
       </section>
     );
@@ -2824,7 +2987,7 @@ function App() {
             {isUserAuthenticated ? (
               <div className="status user-status authenticated">{userBadgeLabel}</div>
             ) : (
-              <button type="button" className="status user-status anonymous clickable-status" onClick={() => setActiveTab("trust-identity")}>
+              <button type="button" className="status user-status anonymous clickable-status" onClick={goToTrustIdentity}>
                 {userBadgeLabel}
               </button>
             )}
@@ -2849,7 +3012,21 @@ function App() {
               type="button"
               key={tab.id}
               className={activeTab === tab.id ? "active" : ""}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                setActiveTab(tab.id);
+                if (tab.id === "run-task") {
+                  guideToTarget("composer");
+                }
+                if (tab.id === "agent-registry") {
+                  guideToTarget("agent-registry");
+                }
+                if (tab.id === "trust-identity") {
+                  guideToTarget("trust-login");
+                }
+                if (tab.id === "security-timeline") {
+                  guideToTarget("security-timeline");
+                }
+              }}
             >
               {tab.label}
             </button>
