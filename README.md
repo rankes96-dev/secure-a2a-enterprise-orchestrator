@@ -1,6 +1,51 @@
 # Secure A2A Enterprise Orchestrator
 
-A TypeScript monorepo demo of a ServiceNow-style AI Orchestrator coordinating with external vendor/domain-owned agents through Agent Card metadata and secure A2A-style task delivery.
+A TypeScript monorepo for a Secure Agent Orchestration Gateway that coordinates external vendor/domain-owned agents through Agent Card metadata, verified user identity, scoped A2A JWTs, policy decisions, delegation controls, and audit.
+
+## Secure Agent Orchestration Gateway
+
+A vendor-neutral gateway for importing external AI agents through standardized Agent Cards and governing execution with identity, scoped JWTs, policy, delegation controls, and audit.
+
+The current product shell includes an Agent Registry, Agent Card paste import, API-key scoped registry support, secure demo user identity, a Trust & Identity control plane, and a visual Security Timeline.
+
+```text
+User
+  signed user JWT
+Secure Agent Orchestration Gateway
+  Agent Registry
+  Policy Engine
+  Trust & Identity
+  Security Timeline
+  A2A Token Client
+         scoped JWT
+External / Built-in Agents
+
+Mock IdP / JWKS
+```
+
+## Demo Flow
+
+1. Login as demo user.
+2. Import or generate an Agent Card.
+3. Run the Jira 403 scenario.
+4. Inspect Trust & Identity.
+5. Inspect Security Timeline.
+6. Confirm raw tokens are redacted.
+
+## What This Demonstrates
+
+- Agent Card onboarding
+- User-to-gateway identity
+- Gateway-to-agent scoped JWTs
+- Policy decisions
+- Actor propagation
+- Metadata-only imported agents
+- Visual audit timeline
+- Raw token redaction
+
+## LinkedIn Summary
+
+Built a Secure Agent Orchestration Gateway that imports external AI agents through standardized Agent Cards and governs execution using verified user identity, scoped A2A JWTs, policy decisions, actor propagation, and a visual security timeline.
 
 The core scenario is:
 
@@ -27,8 +72,8 @@ This demo keeps all external systems local and mock-based, but the architecture 
 
 ## Apps and Services
 
-- `apps/web-ui` - React + Vite chat UI
-- `services/orchestrator-api` - ServiceNow-style AI Orchestrator API
+- `apps/web-ui` - React + Vite product shell and control plane
+- `services/orchestrator-api` - Secure Agent Orchestration Gateway API
 - `services/end-user-triage-agent` - local end-user symptom triage agent
 - `services/jira-agent` - local Jira specialist agent
 - `services/github-agent` - local GitHub specialist agent
@@ -44,9 +89,9 @@ This demo keeps all external systems local and mock-based, but the architecture 
 The current demo includes:
 
 - Agent Card driven routing
-- external demo Agent Card Builder in the UI
+- Agent Registry sample Agent Card generator in the UI
 - generated `/.well-known/agent-card.json` preview
-- session-scoped external demo agents
+- session-scoped sample agents
 - Mock IdP internal demo registration for generated demo audiences/scopes
 - OAuth2 Client Credentials token endpoint
 - `private_key_jwt` client authentication
@@ -62,8 +107,8 @@ The current demo includes:
 - `InMemoryStateStore`
 - `UpstashStateStore`
 - source IP allowlist enforcement for `POST /oauth/token`
-- Agent Health panel, including Mock IdP and session demo agents
-- verification scripts for token issuance, replay protection, IP allowlist, and session demo agents
+- Agent Registry and health views, including Mock IdP and session sample agents
+- verification scripts for token issuance, replay protection, IP allowlist, user identity, trust status, security timeline, and session sample agents
 
 ## Run Locally
 
@@ -122,9 +167,9 @@ If no API key is configured, if the AI request fails, or if the AI returns an in
 
 The AI request interpreter returns structured scope, intent, requested capability, target system text, resource text, and approval hints. The backend validates selected agent IDs, skill IDs, and capabilities against Agent Cards before invoking any local mock agent. AI can help interpret and route; it does not execute actions or make final authorization decisions.
 
-## External Demo Agent Builder
+## Agent Registry Sample Agent Card Generator
 
-The UI includes **Create external demo agent**.
+The Agent Registry includes **Generate sample Agent Card**.
 
 This is not an import/paste flow. It simulates what a vendor/domain-owned external agent would normally publish from its own domain at:
 
@@ -158,11 +203,11 @@ In production, the external vendor/domain agent would host this JSON and expose 
 session://demo-agent/{agentId}/task
 ```
 
-Because session demo agents are not real HTTP services, they do not perform live JWT validation. The demo proves JWT issuance from generated Agent Card metadata, while real vendor agents would validate the Bearer JWT on their own endpoint.
+Because session sample agents are not real HTTP services, they do not perform live JWT validation. The flow proves JWT issuance from generated Agent Card metadata, while real vendor agents would validate the Bearer JWT on their own endpoint.
 
 The public demo does not let users provide arbitrary external endpoints.
 
-When a session demo agent is selected:
+When a session sample agent is selected:
 
 1. The orchestrator registers the generated audience and allowed scopes with the Mock IdP through a protected internal endpoint.
 2. The orchestrator requests a real scoped JWT for the generated audience/scope.
@@ -178,11 +223,11 @@ When `A2A_AUTH_MODE=oauth2_client_credentials_jwt` and `ORCHESTRATOR_TOKEN_AUTH_
 1. The orchestrator signs a short-lived `client_assertion` with its private key.
 2. The Mock IdP verifies the `private_key_jwt` with the registered public JWK.
 3. The Mock IdP checks the assertion `jti` replay state through `StateStore` or `UpstashStateStore`.
-4. The Mock IdP validates audience and scope from static/discovered Agent Cards or temporary session demo registrations.
+4. The Mock IdP validates audience and scope from static/discovered Agent Cards or temporary session sample registrations.
 5. The Mock IdP issues an audience-bound, scoped A2A JWT.
 6. The orchestrator attaches `Authorization: Bearer <token>` to real agent calls.
 7. Agents validate issuer, audience, signature, expiration, delegation guardrails, and required scope through shared auth helpers.
-8. Session demo agents do not call a live external service, but they still demonstrate real JWT issuance metadata before returning a safe mock response.
+8. Session sample agents do not call a live external service, but they still demonstrate real JWT issuance metadata before returning a safe mock response.
 
 `mock_internal_token` remains available for local/simple mode.
 
@@ -314,7 +359,7 @@ raw token redaction: ok
 fail-closed case: skipped
 ```
 
-The script validates session creation, demo Agent Card generation, health inclusion, routing, JWT issuance metadata, and redaction of raw token material.
+The script validates session creation, sample Agent Card generation, health inclusion, routing, JWT issuance metadata, and redaction of raw token material.
 
 `verify:a2a-token` verifies token issuance and shared JWT validation checks:
 
@@ -327,11 +372,20 @@ The script validates session creation, demo Agent Card generation, health inclus
 
 ## Recommended Demo Path
 
-1. Open Agent Health.
-2. Create an external demo agent for Salesforce access diagnosis.
+1. Login as demo user in Trust & Identity.
+2. Run Jira 403 Missing Scope.
+3. Review selected Agent Cards and policy decisions.
+4. Open Security Timeline.
+5. Show scoped JWT / actor metadata with raw tokens hidden.
+6. Import a sample Agent Card in Agent Registry.
+
+## Legacy Sample Agent Path
+
+1. Open Agent Registry.
+2. Generate a sample Agent Card for Salesforce access diagnosis.
 3. Show the generated A2A metadata and `/.well-known/agent-card.json` preview.
 4. Ask: `I cannot login to my Salesforce account`.
-5. Show the selected demo agent, `tokenIssued=true`, `tokenAuthMethod=private_key_jwt`, and trace.
+5. Show the selected sample agent, `tokenIssued=true`, `tokenAuthMethod=private_key_jwt`, and trace.
 6. Run the built-in Jira, GitHub, and PagerDuty scenarios.
 
 ## Try It
@@ -417,9 +471,9 @@ Expected result:
 - Token, header, JWT, API key, client secret, password, private key, cookie, credential, and raw secret reveal requests are blocked by the deterministic Sensitive Action Guard.
 - Permission/admin changes require approval when a supported policy path exists, or return manual workflow guidance when no matching access/provisioning agent exists.
 
-## Agent Health
+## Agent Registry and Health
 
-The UI Agent Health panel calls:
+The Agent Registry and health views call:
 
 ```text
 GET /agents/health
@@ -428,10 +482,10 @@ GET /agents/health
 It shows:
 
 - static/discovered local agents
-- session demo agents
+- session sample agents
 - Mock Identity Provider as an infrastructure dependency
 
-Session demo agents can be removed from the current browser session from the health panel. This removes only runtime demo state; it does not delete source files or real external services.
+Session sample agents can be removed from the current browser session from the Agent Registry. This removes only runtime session state; it does not delete source files or real external services.
 
 ## Deployment Readiness Notes
 
@@ -467,7 +521,7 @@ Do not put server secrets in the frontend.
 ## Important Demo Boundaries
 
 - No real Jira, GitHub, PagerDuty, Salesforce, SAP, or OAuth provider APIs are called.
-- Session demo agents use a safe mock runtime.
+- Session sample agents use a safe mock runtime.
 - Public demo users cannot provide arbitrary external endpoints.
 - No raw JWTs, access tokens, client assertions, Authorization headers, private keys, client secrets, API keys, or cookies should be logged or shown.
 - Sensitive, write, admin, grant, delete, rotate, disable, token, secret, or credential scopes should require approval or be blocked.
@@ -476,7 +530,7 @@ Do not put server secrets in the frontend.
 
 ## Architecture Narrative
 
-The ServiceNow-style Orchestrator owns intake, AI request interpretation, capability-based Agent Card routing, task creation, mediated delegation, response collection, audit trace, and final support/incident-style summarization. Its machine identity is:
+The Secure Agent Orchestration Gateway owns intake, AI request interpretation, capability-based Agent Card routing, task creation, mediated delegation, response collection, audit trace, and final support/incident-style summarization. Its machine identity is:
 
 ```text
 servicenow-orchestrator-agent
@@ -495,7 +549,7 @@ External agents own system-specific mock knowledge and tools. They advertise tha
 - `skills[].riskLevel`
 - `skills[].supportingCapabilities`
 
-The orchestrator discovers local Agent Cards from `/agent-card` endpoints at startup and uses static cards as fallback if discovery fails. Session demo Agent Cards are combined at request time for the current browser session.
+The orchestrator discovers local Agent Cards from `/agent-card` endpoints at startup and uses static cards as fallback if discovery fails. Session sample Agent Cards are combined at request time for the current browser session.
 
 Primary routing is capability-based. The request interpreter extracts `requestedCapability`; the orchestrator matches that capability to Agent Card skills. Descriptive `systems[]` helps scoring and explainability, but stable skill capabilities are the routing keys. Policy remains the authorization layer.
 

@@ -762,12 +762,12 @@ async function friendlyApiError(response: Response, fallback: string): Promise<s
   }
 
   if (body?.error === "demo_agent_limit_reached") {
-    return `You can create up to ${body.limit ?? 5} external demo agents in this session. Delete one before adding another.`;
+    return `You can create up to ${body.limit ?? 5} session sample agents. Delete one before adding another.`;
   }
 
   if (body?.error === "invalid_demo_agent_input") {
     const details = body.details?.length ? ` ${body.details.join(" ")}` : "";
-    return `Demo agent input is invalid.${details}`;
+    return `Sample Agent Card input is invalid.${details}`;
   }
 
   if (body?.error === "Session required") {
@@ -1063,12 +1063,12 @@ function App() {
         credentials: "include"
       });
       if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to load demo Agent Cards"));
+        throw new Error(await friendlyApiError(response, "Failed to load sample Agent Cards"));
       }
       const body = await response.json() as { agentCards: DemoAgentCard[] };
       setDemoAgentCards(body.agentCards);
     } catch (caughtError) {
-      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to load demo Agent Cards");
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to load sample Agent Cards");
     }
   }
 
@@ -1293,13 +1293,13 @@ function App() {
         body: JSON.stringify(demoRequestBody())
       });
       if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to generate demo Agent Card"));
+        throw new Error(await friendlyApiError(response, "Failed to generate sample Agent Card"));
       }
       const body = await response.json() as { agentCard: DemoAgentCard; warnings: string[] };
       setDemoAgentPreview(body.agentCard);
       setDemoAgentWarnings(body.warnings);
     } catch (caughtError) {
-      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to generate demo Agent Card");
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to generate sample Agent Card");
     }
   }
 
@@ -1316,7 +1316,7 @@ function App() {
         body: JSON.stringify(demoAgentPreview ?? demoRequestBody())
       });
       if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to add demo Agent Card"));
+        throw new Error(await friendlyApiError(response, "Failed to add sample Agent Card"));
       }
       const body = await response.json() as { agentCard: DemoAgentCard; agentCards: DemoAgentCard[]; warnings: string[] };
       setDemoAgentCards(body.agentCards);
@@ -1333,7 +1333,7 @@ function App() {
         demoAgentListRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }, 0);
     } catch (caughtError) {
-      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to add demo Agent Card");
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to add sample Agent Card");
     }
   }
 
@@ -1347,7 +1347,7 @@ function App() {
         credentials: "include"
       });
       if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to delete demo Agent Card"));
+        throw new Error(await friendlyApiError(response, "Failed to delete sample Agent Card"));
       }
       const body = await response.json() as { agentCards: DemoAgentCard[] };
       setDemoAgentCards(body.agentCards);
@@ -1356,7 +1356,7 @@ function App() {
       }
       await checkAgentHealth();
     } catch (caughtError) {
-      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete demo Agent Card");
+      setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete sample Agent Card");
     }
   }
 
@@ -1594,7 +1594,7 @@ function App() {
           <div>
             <p className="active-panel-eyebrow">Section C</p>
             <h2>Generate sample Agent Card</h2>
-            <p className="muted-note">This creates a session-scoped demo Agent Card simulating a vendor-owned external agent.</p>
+            <p className="muted-note">This creates a session-scoped sample Agent Card simulating a vendor-owned external agent.</p>
           </div>
         </div>
         <h2>Describe the external agent</h2>
@@ -1613,7 +1613,7 @@ function App() {
               clearDemoAgentStatus();
               setDemoAgentInput({ ...demoAgentInput, agentName: event.target.value });
             }} placeholder="Salesforce Access Agent" />
-            <small>Friendly name shown in the demo.</small>
+            <small>Friendly name shown in the Agent Registry.</small>
           </label>
           <label className="wide-field">
             <span>What can this agent diagnose?</span>
@@ -1621,7 +1621,7 @@ function App() {
               clearDemoAgentStatus();
               setDemoAgentInput({ ...demoAgentInput, diagnosisGoal: event.target.value });
             }} placeholder="Diagnose Salesforce access issues" />
-            <small>The demo uses this to generate safe routing metadata such as capability and requested action.</small>
+            <small>The gateway uses this to generate safe routing metadata such as capability and requested action.</small>
           </label>
           <label>
             <span>Risk level</span>
@@ -1649,7 +1649,7 @@ function App() {
             <input value={demoAgentInput.description} onChange={(event) => {
               clearDemoAgentStatus();
               setDemoAgentInput({ ...demoAgentInput, description: event.target.value });
-            }} placeholder="Demo agent that diagnoses Salesforce issues." />
+            }} placeholder="Sample agent that diagnoses Salesforce issues." />
           </label>
           <label>
             <span>Examples</span>
@@ -1732,7 +1732,7 @@ function App() {
         {demoAgentPreview ? (
           <div className="demo-agent-auth-note">
             <strong>Generated A2A security metadata</strong>
-            <small>These values are generated by the demo from your form. In production, the external vendor agent would publish them in its Agent Card.</small>
+            <small>These values are generated from your form. In production, the external vendor agent would publish them in its Agent Card.</small>
             <strong>agentId</strong>
             <span>{demoAgentPreview.agentId}</span>
             <strong>audience</strong>
@@ -1751,7 +1751,7 @@ function App() {
           </ul>
         ) : null}
         <div className="demo-agent-list" ref={demoAgentListRef}>
-          <h2>Session demo agents</h2>
+          <h2>Session sample agents</h2>
           {demoAgentCards.length ? demoAgentCards.map((card) => (
             <article className={recentlyAddedDemoAgentId === card.agentId ? "recently-added-demo-agent" : ""} key={card.agentId}>
               <strong>{card.agentId}</strong>
@@ -1764,12 +1764,12 @@ function App() {
               }}>View JSON</button>
               <button type="button" onClick={() => void deleteSessionDemoAgent(card.agentId)}>Delete</button>
             </article>
-          )) : <p className="muted-note">No session demo Agent Cards yet.</p>}
+          )) : <p className="muted-note">No session sample Agent Cards yet.</p>}
         </div>
         {demoAgentPreview ? (
           <div className="demo-agent-preview">
             <h2>/.well-known/agent-card.json preview</h2>
-            <p className="muted-note">This JSON is generated by the demo. In a real A2A federation, this JSON would be hosted by the external vendor/domain agent.</p>
+            <p className="muted-note">This JSON is generated from the sample Agent Card form. In a real A2A federation, this JSON would be hosted by the external vendor/domain agent.</p>
             <JsonBlock value={demoAgentPreview} />
           </div>
         ) : null}
@@ -1783,7 +1783,22 @@ function App() {
         <MessageList messages={messages} />
 
         <div className="composer-dock">
-          <div className="scenario-launcher" aria-label="Demo scenarios">
+          <div className="recommended-demo-path" aria-label="Recommended demo path">
+            <div>
+              <p className="active-panel-eyebrow">Identity-first agent governance</p>
+              <h2>Recommended Demo Path</h2>
+            </div>
+            <ol>
+              <li>Login as demo user in Trust & Identity</li>
+              <li>Run Jira 403 Missing Scope</li>
+              <li>Review selected Agent Cards and policy decisions</li>
+              <li>Open Security Timeline</li>
+              <li>Show scoped JWT / actor metadata with raw tokens hidden</li>
+              <li>Import a sample Agent Card in Agent Registry</li>
+            </ol>
+          </div>
+
+          <div className="scenario-launcher" aria-label="Run task scenarios">
             <div className="scenario-heading">
               <h2>Quick Scenarios</h2>
             </div>
@@ -1837,7 +1852,7 @@ function App() {
               <strong>{builtInAgentsCount}</strong>
             </article>
             <article>
-              <span>Session demo agents</span>
+              <span>Session sample agents</span>
               <strong>{sessionDemoAgentsCount}</strong>
             </article>
             <article>
@@ -1910,7 +1925,7 @@ function App() {
               ))}
             </div>
           ) : (
-            <p className="muted-note">{isHealthLoading ? "Loading registered agents..." : "No registered agents found."}</p>
+            <p className="muted-note">{isHealthLoading ? "Loading registered agents..." : "Import or generate an Agent Card to simulate external agent onboarding."}</p>
           )}
         </section>
 
@@ -1961,7 +1976,7 @@ function App() {
         <section className="trust-console-section identity-login-panel">
           <div>
             <p className="active-panel-eyebrow">User - Gateway</p>
-            <h2>Demo Login</h2>
+            <h2>Demo User Identity</h2>
             <p className="muted-note">The frontend sends only the selected demo email. The orchestrator requests a Mock IdP token, validates it against JWKS, and stores verified identity claims in the session.</p>
           </div>
           <div className="identity-login-controls">
@@ -1987,6 +2002,7 @@ function App() {
         <section className="trust-console-section">
           <p className="active-panel-eyebrow">A. User - Gateway</p>
           <h2>Verified User Identity</h2>
+          {!currentIdentity?.authenticated ? <p className="muted-note">Login as a demo user to attach verified user identity to gateway execution.</p> : null}
           <div className="trust-card-grid">
             <article>
               <span>Authentication status</span>
@@ -2208,7 +2224,7 @@ function App() {
             </details>
           </>
         ) : (
-          <p className="muted-note">Run a task first to generate a security timeline.</p>
+          <p className="muted-note">Run a task to generate a timeline of identity, routing, policy, token issuance, and agent execution.</p>
         )}
       </section>
     );
@@ -2264,7 +2280,7 @@ function App() {
         {latestResponse ? (
           <>
             <section>
-              <h2>Demo Flow Type</h2>
+              <h2>Execution Flow</h2>
               <div className="flow-type">{inferDemoFlowType(latestResponse)}</div>
               <p className="muted-note">Conversation ID: {latestResponse.conversationId ?? conversationId ?? "new"}</p>
             </section>

@@ -1257,6 +1257,34 @@ h2 {
   gap: 8px;
 }
 
+.recommended-demo-path {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d7e0e4;
+  border-left: 4px solid #1d6d3d;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fbfcfd;
+}
+
+.recommended-demo-path h2 {
+  margin-bottom: 0;
+  font-size: 15px;
+}
+
+.recommended-demo-path ol {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 6px 18px;
+  color: #384b53;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.recommended-demo-path li {
+  margin-bottom: 0;
+}
+
 .scenario-heading {
   display: flex;
   justify-content: space-between;
