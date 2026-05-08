@@ -89,6 +89,28 @@ const scenarios = [
   }
 ];
 
+type Scenario = (typeof scenarios)[number]["items"][number];
+type ActiveTab = "run-task" | "agent-registry" | "trust-identity" | "security-timeline";
+
+const tabs: Array<{ id: ActiveTab; label: string }> = [
+  { id: "run-task", label: "Run Task" },
+  { id: "agent-registry", label: "Agent Registry" },
+  { id: "trust-identity", label: "Trust & Identity" },
+  { id: "security-timeline", label: "Security Timeline" }
+];
+
+const quickScenarioLabels = new Set([
+  "Jira Permission Issue",
+  "Jira 403 Missing Scope",
+  "GitHub Rate Limit Delegation",
+  "Blocked OAuth Inspection",
+  "Needs Approval: Grant Jira Permission"
+]);
+
+const allScenarios: Scenario[] = scenarios.flatMap((group) => group.items);
+const quickScenarios = allScenarios.filter((scenario) => quickScenarioLabels.has(scenario.label));
+const advancedScenarios = allScenarios.filter((scenario) => !quickScenarioLabels.has(scenario.label));
+
 function inferDemoFlowType(response: ResolveResponse): string {
   if (response.requestInterpretation?.scope === "out_of_scope" || response.routingReasoningSummary.toLowerCase().includes("outside the supported enterprise") || response.agentTrace.some((entry) => entry.action === "out_of_scope")) {
     return "Out of scope";
@@ -279,6 +301,7 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
 }
 
 function App() {
+  const [activeTab, setActiveTab] = useState<ActiveTab>("run-task");
   const [message, setMessage] = useState(sampleMessage);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -287,11 +310,9 @@ function App() {
   const [health, setHealth] = useState<AgentsHealthResponse | null>(null);
   const [healthError, setHealthError] = useState("");
   const [isHealthLoading, setIsHealthLoading] = useState(false);
-  const [isHealthPanelOpen, setIsHealthPanelOpen] = useState(false);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
   const [deleteAgentError, setDeleteAgentError] = useState("");
   const [deleteAgentMessage, setDeleteAgentMessage] = useState("");
-  const [isDemoBuilderOpen, setIsDemoBuilderOpen] = useState(false);
   const [demoAgentInput, setDemoAgentInput] = useState<DemoAgentCardInput>(emptyDemoAgentInput);
   const [demoAgentPreview, setDemoAgentPreview] = useState<DemoAgentCard | null>(null);
   const [demoAgentCards, setDemoAgentCards] = useState<DemoAgentCard[]>([]);
@@ -300,38 +321,42 @@ function App() {
   const [demoAgentSuccessMessage, setDemoAgentSuccessMessage] = useState("");
   const [recentlyAddedDemoAgentId, setRecentlyAddedDemoAgentId] = useState("");
   const demoAgentListRef = useRef<HTMLDivElement | null>(null);
-  const [activeScenarioCategory, setActiveScenarioCategory] = useState(scenarios[0].category);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
     [messages]
   );
-  const activeScenarioGroup = scenarios.find((group) => group.category === activeScenarioCategory) ?? scenarios[0];
   const healthLabel = health
     ? `Agents: ${health.summary.healthy}/${health.summary.total} healthy`
     : "Agents: check health";
   const authModeLabel = health?.orchestrator.authMode === "oauth2_client_credentials_jwt"
     ? "Secure A2A JWT mode"
     : "Local mock mode";
-
-  function canDeleteHealthAgent(agent: AgentsHealthResponse["agents"][number]): boolean {
-    return agent.endpointType === "session";
-  }
-
-  function healthEndpointLabel(agent: AgentsHealthResponse["agents"][number]): string {
-    if (agent.agentId === "mock-identity-provider") {
-      return "Infrastructure dependency";
-    }
-
-    if (agent.endpointType === "session") {
-      return "Session demo agent";
-    }
-
-    if (agent.endpointType === "internal") {
-      return "Internal Railway service";
-    }
-
-    return `Agent Card ${agent.details.agentCardAvailable ? "yes" : "no"}`;
-  }
+  const healthAgentIds = new Set(health?.agents.map((agent) => agent.agentId) ?? []);
+  const builtInAgentsCount = health?.agents.filter((agent) => agent.endpointType !== "session").length ?? 0;
+  const sessionDemoAgentsCount = demoAgentCards.length || health?.agents.filter((agent) => agent.endpointType === "session").length || 0;
+  const healthyAgentsCount = health?.summary.healthy ?? 0;
+  const registeredAgentRows = [
+    ...(health?.agents.map((agent) => ({
+      agentId: agent.agentId,
+      status: agent.status,
+      endpointType: agent.endpointType,
+      latencyMs: agent.latencyMs,
+      agentCardAvailable: agent.details.agentCardAvailable,
+      error: agent.error,
+      canDelete: agent.endpointType === "session"
+    })) ?? []),
+    ...demoAgentCards
+      .filter((card) => !healthAgentIds.has(card.agentId))
+      .map((card) => ({
+        agentId: card.agentId,
+        status: "unknown",
+        endpointType: "session" as const,
+        latencyMs: undefined,
+        agentCardAvailable: true,
+        error: undefined,
+        canDelete: true
+      }))
+  ];
 
   function resetDemoAgentDraft() {
     setDemoAgentInput(emptyDemoAgentInput);
@@ -404,6 +429,13 @@ function App() {
     void checkAgentHealth();
   }, []);
 
+  useEffect(() => {
+    if (activeTab === "agent-registry") {
+      void loadDemoAgentCards();
+      void checkAgentHealth();
+    }
+  }, [activeTab]);
+
   async function ensureSession() {
     const response = await fetch(`${API_URL}/session`, {
       method: "POST",
@@ -436,11 +468,6 @@ function App() {
           : [...current.supportingHelpOptions, option]
       };
     });
-  }
-
-  function closeDemoBuilder() {
-    setIsDemoBuilderOpen(false);
-    clearDemoAgentStatus();
   }
 
   async function loadDemoAgentCards() {
@@ -501,7 +528,7 @@ function App() {
       const body = await response.json() as { agentCard: DemoAgentCard; agentCards: DemoAgentCard[]; warnings: string[] };
       setDemoAgentCards(body.agentCards);
       setDemoAgentWarnings(body.warnings);
-      setDemoAgentSuccessMessage("External demo agent added to this session.");
+      setDemoAgentSuccessMessage("Sample Agent added to this session.");
       setRecentlyAddedDemoAgentId(body.agentCard.agentId);
       setDemoAgentInput(emptyDemoAgentInput);
       setDemoAgentPreview(null);
@@ -632,349 +659,242 @@ function App() {
     setMessage(sampleMessage);
   }
 
-  return (
-    <main className="shell">
-      <section className="workspace">
-        <header className="topbar">
+  function renderScenarioOptions(items: Scenario[]) {
+    return (
+      <div className="scenario-buttons">
+        {items.map((scenario) => (
+          <article className="scenario-option" key={scenario.label}>
+            <button
+              type="button"
+              className="scenario-select"
+              title={scenario.subtitle}
+              onClick={() => setMessage(scenario.message)}
+            >
+              <strong>{scenario.label}</strong>
+              <small>{scenario.subtitle}</small>
+            </button>
+            <button
+              type="button"
+              className="scenario-run"
+              disabled={isLoading}
+              onClick={() => {
+                setMessage(scenario.message);
+                void resolveIssue(scenario.message);
+              }}
+            >
+              Run
+            </button>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
+  function renderDemoAgentBuilder() {
+    return (
+      <section className="demo-agent-builder" aria-label="Generate sample Agent Card">
+        <div className="panel-header">
           <div>
-            <p className="eyebrow">ServiceNow-style AI Orchestrator Agent</p>
-            <h1>A2A support diagnosis console</h1>
+            <p className="active-panel-eyebrow">Section C</p>
+            <h2>Generate sample Agent Card</h2>
+            <p className="muted-note">This creates a session-scoped demo Agent Card simulating a vendor-owned external agent.</p>
           </div>
-          <div className="topbar-actions">
-            <div className="status">Conversation: {conversationId ? conversationId.slice(0, 8) : "new"}</div>
-            <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
-              New conversation
-            </button>
-            <div className="status">
-              {authModeLabel}
-              {health?.orchestrator.secureAuthRequired ? " / Secure auth required" : ""}
+        </div>
+        <h2>Describe the external agent</h2>
+        <div className="demo-agent-form">
+          <label>
+            <span>System / product</span>
+            <input value={demoAgentInput.system} onChange={(event) => {
+              clearDemoAgentStatus();
+              setDemoAgentInput({ ...demoAgentInput, system: event.target.value });
+            }} placeholder="Salesforce" />
+            <small>The product or domain this external agent owns, for example Salesforce, Slack, Datadog, Okta.</small>
+          </label>
+          <label>
+            <span>Agent name</span>
+            <input value={demoAgentInput.agentName} onChange={(event) => {
+              clearDemoAgentStatus();
+              setDemoAgentInput({ ...demoAgentInput, agentName: event.target.value });
+            }} placeholder="Salesforce Access Agent" />
+            <small>Friendly name shown in the demo.</small>
+          </label>
+          <label className="wide-field">
+            <span>What can this agent diagnose?</span>
+            <input value={demoAgentInput.diagnosisGoal} onChange={(event) => {
+              clearDemoAgentStatus();
+              setDemoAgentInput({ ...demoAgentInput, diagnosisGoal: event.target.value });
+            }} placeholder="Diagnose Salesforce access issues" />
+            <small>The demo uses this to generate safe routing metadata such as capability and requested action.</small>
+          </label>
+          <label>
+            <span>Risk level</span>
+            <select value={demoAgentInput.riskLevel} onChange={(event) => {
+              clearDemoAgentStatus();
+              setDemoAgentInput({ ...demoAgentInput, riskLevel: event.target.value as DemoAgentCardInput["riskLevel"] });
+            }}>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="sensitive">sensitive</option>
+            </select>
+            <small>Read-only diagnosis should be low/medium. High/sensitive actions should require approval or be blocked.</small>
+          </label>
+          <label>
+            <span>Resource types</span>
+            <input value={demoAgentInput.resourceTypes} onChange={(event) => {
+              clearDemoAgentStatus();
+              setDemoAgentInput({ ...demoAgentInput, resourceTypes: event.target.value });
+            }} />
+            <small>Objects this agent understands, for example user, account, incident, repository, service.</small>
+          </label>
+          <label>
+            <span>Description</span>
+            <input value={demoAgentInput.description} onChange={(event) => {
+              clearDemoAgentStatus();
+              setDemoAgentInput({ ...demoAgentInput, description: event.target.value });
+            }} placeholder="Demo agent that diagnoses Salesforce issues." />
+          </label>
+          <label>
+            <span>Examples</span>
+            <input value={demoAgentInput.examples} onChange={(event) => {
+              clearDemoAgentStatus();
+              setDemoAgentInput({ ...demoAgentInput, examples: event.target.value });
+            }} placeholder="Salesforce login fails, cannot access account" />
+          </label>
+          <div className="wide-field demo-agent-checkboxes">
+            <span>Can this agent ask another agent for help?</span>
+            <small>The agent does not directly call another agent. It can request delegated help, and the orchestrator validates policy, prevents loops, and mediates the task.</small>
+            <div>
+              {supportingHelpOptions.map((option) => (
+                <label key={option.value}>
+                  <input
+                    type="checkbox"
+                    checked={demoAgentInput.supportingHelpOptions.includes(option.value)}
+                    onChange={() => toggleSupportingHelpOption(option.value)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+              <label>
+                <input
+                  type="checkbox"
+                  checked={demoAgentInput.supportingHelpOptions.length === 0}
+                  onChange={() => {
+                    clearDemoAgentStatus();
+                    setDemoAgentInput({ ...demoAgentInput, supportingHelpOptions: [] });
+                  }}
+                />
+                <span>None</span>
+              </label>
             </div>
-            <button
-              type="button"
-              className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"} ${isHealthPanelOpen ? "active-panel-button" : ""}`}
-              onClick={() => {
-                setIsDemoBuilderOpen(false);
-                setIsHealthPanelOpen((current) => !current);
-                if (!health && !isHealthLoading) {
-                  void checkAgentHealth();
-                }
-              }}
-              title={health?.summary.down || health?.summary.degraded ? "One or more external agents are unavailable. Some demo scenarios may return partial results." : "External mock agent health"}
-            >
-              <span>{isHealthLoading ? "Checking agent health..." : healthLabel}</span>
-              <small>{isHealthPanelOpen ? "Click to close" : "Click for details"}</small>
-            </button>
-            <button
-              type="button"
-              className={`secondary-button ${isDemoBuilderOpen ? "active-panel-button" : ""}`}
-              onClick={() => {
-                setIsHealthPanelOpen(false);
-                setIsDemoBuilderOpen((current) => !current);
-                if (!isDemoBuilderOpen) {
-                  void loadDemoAgentCards();
-                }
-              }}
-            >
-              {isDemoBuilderOpen ? "Creating external demo agent" : "Create external demo agent"}
-            </button>
           </div>
-        </header>
-
-        {isHealthPanelOpen ? (
-          <section className="agent-health-panel" aria-label="Agent health">
-            <div className="agent-health-header">
-              <div>
-                <p className="active-panel-eyebrow">Active panel&nbsp;&nbsp; Agent Health</p>
-                <h2>Agent Health</h2>
-                <p className="orchestrator-health-line">
-                  Orchestrator:
-                  <span className={`orchestrator-health-badge ${health?.orchestrator.status === "ok" ? "health-ok" : "health-down"}`}>
-                    {health?.orchestrator.status ?? "unknown"}
-                  </span>
-                  {health?.orchestrator.timestamp ? ` / ${new Date(health.orchestrator.timestamp).toLocaleTimeString()}` : ""}
-                </p>
-              </div>
-              <button type="button" onClick={() => void checkAgentHealth()} disabled={isHealthLoading}>
-                {isHealthLoading ? "Checking..." : "Refresh health"}
-              </button>
+          <details className="wide-field demo-agent-advanced">
+            <summary>Advanced generated metadata</summary>
+            <div className="demo-agent-form nested-demo-agent-form">
+              <label>
+                <span>Agent slug</span>
+                <input value={demoAgentInput.agentSlug} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, agentSlug: event.target.value });
+                }} placeholder="salesforce-access" />
+                <small>Optional. Generates IDs like demo-salesforce-access-agent. Leave blank for a unique generated ID.</small>
+              </label>
+              <label>
+                <span>Capability override</span>
+                <input value={demoAgentInput.capability} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, capability: event.target.value });
+                }} placeholder="salesforce.access.diagnose" />
+                <small>Stable routing key generated by default from the diagnosis goal.</small>
+              </label>
+              <label>
+                <span>Required scope override</span>
+                <input value={demoAgentInput.requiredScope} onChange={(event) => {
+                  clearDemoAgentStatus();
+                  setDemoAgentInput({ ...demoAgentInput, requiredScope: event.target.value });
+                }} placeholder="salesforce.diagnose" />
+                <small>Permission encoded into the A2A JWT. Generated by default from the system.</small>
+              </label>
             </div>
-            {healthError ? <p className="error">{healthError}</p> : null}
-            {deleteAgentError ? <p className="error">{deleteAgentError}</p> : null}
-            {deleteAgentMessage ? <p className="success-note">{deleteAgentMessage}</p> : null}
-            {health ? (
-              <>
-                <div className="health-counts">
-                  <span className="health-ok">Healthy {health.summary.healthy}</span>
-                  <span className="health-degraded">Degraded {health.summary.degraded}</span>
-                  <span className="health-down">Down {health.summary.down}</span>
-                </div>
-                <div className="agent-health-list">
-                  {health.agents.map((agent) => (
-                    <article className="agent-health-row" key={agent.agentId}>
-                      <div>
-                        <strong>{agent.agentId}</strong>
-                        <span>{agent.latencyMs} ms / {new Date(agent.checkedAt).toLocaleTimeString()}</span>
-                      </div>
-                      <div className="agent-health-actions">
-                        <span className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</span>
-                        {canDeleteHealthAgent(agent) ? (
-                          <button
-                            type="button"
-                            className="agent-delete-button"
-                            disabled={isHealthLoading || deletingAgentId === agent.agentId}
-                            onClick={() => void deleteDemoAgent(agent.agentId)}
-                          >
-                            {deletingAgentId === agent.agentId ? "..." : "Delete"}
-                          </button>
-                        ) : null}
-                      </div>
-                      <small>{healthEndpointLabel(agent)}</small>
-                      {agent.error ? <p>{agent.error}</p> : null}
-                    </article>
-                  ))}
-                </div>
-              </>
-            ) : !healthError ? (
-              <p className="muted-note">Checking agent health...</p>
-            ) : null}
-          </section>
+          </details>
+        </div>
+        <div className="demo-agent-actions">
+          <button type="button" onClick={() => void generateDemoAgentPreview()}>Generate preview</button>
+          <button type="button" onClick={() => void addDemoAgentToSession()}>Add sample Agent</button>
+          <button type="button" onClick={() => {
+            clearDemoAgentStatus();
+            resetDemoAgentDraft();
+          }}>New draft</button>
+        </div>
+        {(demoAgentError || demoAgentSuccessMessage) ? (
+          <div className="demo-agent-feedback" role={demoAgentError ? "alert" : "status"}>
+            {demoAgentError ? <p className="demo-agent-error">{demoAgentError}</p> : null}
+            {demoAgentSuccessMessage ? <p className="demo-agent-success">{demoAgentSuccessMessage}</p> : null}
+          </div>
         ) : null}
-
-        {isDemoBuilderOpen ? (
-          <section className="demo-agent-builder" aria-label="Create External Demo Agent">
-            <div className="agent-health-header">
-              <div>
-                <p className="active-panel-eyebrow">Active panel&nbsp;&nbsp; External Demo Agent Builder</p>
-                <h2>Create External Demo Agent</h2>
-                <p>Simulate a vendor/domain-owned external agent. Fill in simple fields, and the demo generates the Agent Card JSON that a real external system would publish at /.well-known/agent-card.json.</p>
-              </div>
-              <button type="button" onClick={closeDemoBuilder}>Close</button>
-            </div>
-            <h2>Describe the external agent</h2>
-            <div className="demo-agent-form">
-              <label>
-                <span>System / product</span>
-                <input value={demoAgentInput.system} onChange={(event) => {
-                  clearDemoAgentStatus();
-                  setDemoAgentInput({ ...demoAgentInput, system: event.target.value });
-                }} placeholder="Salesforce" />
-                <small>The product or domain this external agent owns, for example Salesforce, Slack, Datadog, Okta.</small>
-              </label>
-              <label>
-                <span>Agent name</span>
-                <input value={demoAgentInput.agentName} onChange={(event) => {
-                  clearDemoAgentStatus();
-                  setDemoAgentInput({ ...demoAgentInput, agentName: event.target.value });
-                }} placeholder="Salesforce Access Agent" />
-                <small>Friendly name shown in the demo.</small>
-              </label>
-              <label className="wide-field">
-                <span>What can this agent diagnose?</span>
-                <input value={demoAgentInput.diagnosisGoal} onChange={(event) => {
-                  clearDemoAgentStatus();
-                  setDemoAgentInput({ ...demoAgentInput, diagnosisGoal: event.target.value });
-                }} placeholder="Diagnose Salesforce access issues" />
-                <small>The demo uses this to generate safe routing metadata such as capability and requested action.</small>
-              </label>
-              <label>
-                <span>Risk level</span>
-                <select value={demoAgentInput.riskLevel} onChange={(event) => {
-                  clearDemoAgentStatus();
-                  setDemoAgentInput({ ...demoAgentInput, riskLevel: event.target.value as DemoAgentCardInput["riskLevel"] });
-                }}>
-                  <option value="low">low</option>
-                  <option value="medium">medium</option>
-                  <option value="high">high</option>
-                  <option value="sensitive">sensitive</option>
-                </select>
-                <small>Read-only diagnosis should be low/medium. High/sensitive actions should require approval or be blocked.</small>
-              </label>
-              <label>
-                <span>Resource types</span>
-                <input value={demoAgentInput.resourceTypes} onChange={(event) => {
-                  clearDemoAgentStatus();
-                  setDemoAgentInput({ ...demoAgentInput, resourceTypes: event.target.value });
-                }} />
-                <small>Objects this agent understands, for example user, account, incident, repository, service.</small>
-              </label>
-              <label>
-                <span>Description</span>
-                <input value={demoAgentInput.description} onChange={(event) => {
-                  clearDemoAgentStatus();
-                  setDemoAgentInput({ ...demoAgentInput, description: event.target.value });
-                }} placeholder="Demo agent that diagnoses Salesforce issues." />
-              </label>
-              <label>
-                <span>Examples</span>
-                <input value={demoAgentInput.examples} onChange={(event) => {
-                  clearDemoAgentStatus();
-                  setDemoAgentInput({ ...demoAgentInput, examples: event.target.value });
-                }} placeholder="Salesforce login fails, cannot access account" />
-              </label>
-              <div className="wide-field demo-agent-checkboxes">
-                <span>Can this agent ask another agent for help?</span>
-                <small>The agent does not directly call another agent. It can request delegated help, and the orchestrator validates policy, prevents loops, and mediates the task.</small>
-                <div>
-                  {supportingHelpOptions.map((option) => (
-                    <label key={option.value}>
-                      <input
-                        type="checkbox"
-                        checked={demoAgentInput.supportingHelpOptions.includes(option.value)}
-                        onChange={() => toggleSupportingHelpOption(option.value)}
-                      />
-                      <span>{option.label}</span>
-                    </label>
-                  ))}
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={demoAgentInput.supportingHelpOptions.length === 0}
-                      onChange={() => {
-                        clearDemoAgentStatus();
-                        setDemoAgentInput({ ...demoAgentInput, supportingHelpOptions: [] });
-                      }}
-                    />
-                    <span>None</span>
-                  </label>
-                </div>
-              </div>
-              <details className="wide-field demo-agent-advanced">
-                <summary>Advanced generated metadata</summary>
-                <div className="demo-agent-form nested-demo-agent-form">
-                  <label>
-                    <span>Agent slug</span>
-                    <input value={demoAgentInput.agentSlug} onChange={(event) => {
-                      clearDemoAgentStatus();
-                      setDemoAgentInput({ ...demoAgentInput, agentSlug: event.target.value });
-                    }} placeholder="salesforce-access" />
-                    <small>Optional. Generates IDs like demo-salesforce-access-agent. Leave blank for a unique generated ID.</small>
-                  </label>
-                  <label>
-                    <span>Capability override</span>
-                    <input value={demoAgentInput.capability} onChange={(event) => {
-                      clearDemoAgentStatus();
-                      setDemoAgentInput({ ...demoAgentInput, capability: event.target.value });
-                    }} placeholder="salesforce.access.diagnose" />
-                    <small>Stable routing key generated by default from the diagnosis goal.</small>
-                  </label>
-                  <label>
-                    <span>Required scope override</span>
-                    <input value={demoAgentInput.requiredScope} onChange={(event) => {
-                      clearDemoAgentStatus();
-                      setDemoAgentInput({ ...demoAgentInput, requiredScope: event.target.value });
-                    }} placeholder="salesforce.diagnose" />
-                    <small>Permission encoded into the A2A JWT. Generated by default from the system.</small>
-                  </label>
-                </div>
-              </details>
-            </div>
-            <div className="demo-agent-actions">
-              <button type="button" onClick={() => void generateDemoAgentPreview()}>Generate preview</button>
-              <button type="button" onClick={() => void addDemoAgentToSession()}>Add to session</button>
+        {demoAgentPreview ? (
+          <div className="demo-agent-auth-note">
+            <strong>Generated A2A security metadata</strong>
+            <small>These values are generated by the demo from your form. In production, the external vendor agent would publish them in its Agent Card.</small>
+            <strong>agentId</strong>
+            <span>{demoAgentPreview.agentId}</span>
+            <strong>audience</strong>
+            <span>{demoAgentPreview.auth.audience}</span>
+            <strong>required scope</strong>
+            <span>{demoAgentPreview.skills[0]?.requiredScopes?.[0] ?? "none"}</span>
+            <strong>capability</strong>
+            <span>{demoAgentPreview.skills[0]?.capabilities?.[0] ?? "none"}</span>
+            <strong>auth mode</strong>
+            <span>{demoAgentPreview.auth.type}</span>
+          </div>
+        ) : null}
+        {demoAgentWarnings.length > 0 ? (
+          <ul className="demo-agent-warnings">
+            {demoAgentWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        ) : null}
+        <div className="demo-agent-list" ref={demoAgentListRef}>
+          <h2>Session demo agents</h2>
+          {demoAgentCards.length ? demoAgentCards.map((card) => (
+            <article className={recentlyAddedDemoAgentId === card.agentId ? "recently-added-demo-agent" : ""} key={card.agentId}>
+              <strong>{card.agentId}</strong>
+              <span>{card.skills[0]?.capabilities?.[0] ?? "no capability"}</span>
               <button type="button" onClick={() => {
-                clearDemoAgentStatus();
-                resetDemoAgentDraft();
-              }}>New draft</button>
-            </div>
-            {(demoAgentError || demoAgentSuccessMessage) ? (
-              <div className="demo-agent-feedback" role={demoAgentError ? "alert" : "status"}>
-                {demoAgentError ? <p className="demo-agent-error">{demoAgentError}</p> : null}
-                {demoAgentSuccessMessage ? <p className="demo-agent-success">{demoAgentSuccessMessage}</p> : null}
-              </div>
-            ) : null}
-            {demoAgentPreview ? (
-              <div className="demo-agent-auth-note">
-                <strong>Generated A2A security metadata</strong>
-                <small>These values are generated by the demo from your form. In production, the external vendor agent would publish them in its Agent Card.</small>
-                <strong>agentId</strong>
-                <span>{demoAgentPreview.agentId}</span>
-                <strong>audience</strong>
-                <span>{demoAgentPreview.auth.audience}</span>
-                <strong>required scope</strong>
-                <span>{demoAgentPreview.skills[0]?.requiredScopes?.[0] ?? "none"}</span>
-                <strong>capability</strong>
-                <span>{demoAgentPreview.skills[0]?.capabilities?.[0] ?? "none"}</span>
-                <strong>auth mode</strong>
-                <span>{demoAgentPreview.auth.type}</span>
-                <strong>endpoint</strong>
-                <span>{demoAgentPreview.endpoint}</span>
-              </div>
-            ) : null}
-            {demoAgentWarnings.length > 0 ? (
-              <ul className="demo-agent-warnings">
-                {demoAgentWarnings.map((warning) => <li key={warning}>{warning}</li>)}
-              </ul>
-            ) : null}
-            <div className="demo-agent-list" ref={demoAgentListRef}>
-              <h2>Session demo agents</h2>
-              {demoAgentCards.length ? demoAgentCards.map((card) => (
-                <article className={recentlyAddedDemoAgentId === card.agentId ? "recently-added-demo-agent" : ""} key={card.agentId}>
-                  <strong>{card.agentId}</strong>
-                  <span>{card.skills[0]?.capabilities?.[0] ?? "no capability"}</span>
-                  <button type="button" onClick={() => {
-                    setDemoAgentPreview(card);
-                    setDemoAgentWarnings([]);
-                    setDemoAgentError("");
-                    setDemoAgentSuccessMessage("");
-                  }}>View JSON</button>
-                  <button type="button" onClick={() => void deleteSessionDemoAgent(card.agentId)}>Delete</button>
-                </article>
-              )) : <p className="muted-note">No session demo Agent Cards yet.</p>}
-            </div>
-            {demoAgentPreview ? (
-              <div className="demo-agent-preview">
-                <h2>/.well-known/agent-card.json preview</h2>
-                <p className="muted-note">This JSON is generated by the demo. In a real A2A federation, this JSON would be hosted by the external vendor/domain agent.</p>
-                <JsonBlock value={demoAgentPreview} />
-              </div>
-            ) : null}
-          </section>
+                setDemoAgentPreview(card);
+                setDemoAgentWarnings([]);
+                setDemoAgentError("");
+                setDemoAgentSuccessMessage("");
+              }}>View JSON</button>
+              <button type="button" onClick={() => void deleteSessionDemoAgent(card.agentId)}>Delete</button>
+            </article>
+          )) : <p className="muted-note">No session demo Agent Cards yet.</p>}
+        </div>
+        {demoAgentPreview ? (
+          <div className="demo-agent-preview">
+            <h2>/.well-known/agent-card.json preview</h2>
+            <p className="muted-note">This JSON is generated by the demo. In a real A2A federation, this JSON would be hosted by the external vendor/domain agent.</p>
+            <JsonBlock value={demoAgentPreview} />
+          </div>
         ) : null}
+      </section>
+    );
+  }
 
+  function renderRunTaskTab() {
+    return (
+      <>
         <MessageList messages={messages} />
 
         <div className="composer-dock">
           <div className="scenario-launcher" aria-label="Demo scenarios">
-            <div className="scenario-tabs" role="tablist" aria-label="Scenario categories">
-              {scenarios.map((group) => (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={group.category === activeScenarioCategory}
-                  className={group.category === activeScenarioCategory ? "active" : ""}
-                  key={group.category}
-                  onClick={() => setActiveScenarioCategory(group.category)}
-                >
-                  {group.category}
-                </button>
-              ))}
+            <div className="scenario-heading">
+              <h2>Quick Scenarios</h2>
             </div>
-            <div className="scenario-buttons">
-              {activeScenarioGroup.items.map((scenario) => (
-                <article className="scenario-option" key={scenario.label}>
-                  <button
-                    type="button"
-                    className="scenario-select"
-                    title={scenario.subtitle}
-                    onClick={() => setMessage(scenario.message)}
-                  >
-                    <strong>{scenario.label}</strong>
-                    <small>{scenario.subtitle}</small>
-                  </button>
-                  <button
-                    type="button"
-                    className="scenario-run"
-                    disabled={isLoading}
-                    onClick={() => {
-                      setMessage(scenario.message);
-                      void resolveIssue(scenario.message);
-                    }}
-                  >
-                    Run
-                  </button>
-                </article>
-              ))}
-            </div>
+            {renderScenarioOptions(quickScenarios)}
+            <details className="advanced-scenarios">
+              <summary>Advanced Scenarios</summary>
+              {renderScenarioOptions(advancedScenarios)}
+            </details>
           </div>
 
           <form className="composer" onSubmit={submitIssue}>
@@ -990,9 +910,213 @@ function App() {
         </div>
 
         {error ? <p className="error">{error}</p> : null}
+      </>
+    );
+  }
+
+  function renderAgentRegistryTab() {
+    return (
+      <section className="control-panel agent-registry-panel" aria-label="Agent Registry">
+        <div className="panel-header">
+          <div>
+            <h2>Agent Registry</h2>
+            <p className="muted-note">Registered built-in and session-scoped agents visible to the orchestrator.</p>
+          </div>
+          <button type="button" className="secondary-button" onClick={() => {
+            void loadDemoAgentCards();
+            void checkAgentHealth();
+          }} disabled={isHealthLoading}>
+            {isHealthLoading ? "Refreshing..." : "Refresh registry"}
+          </button>
+        </div>
+
+        <section className="registry-section">
+          <p className="active-panel-eyebrow">Section A</p>
+          <h2>Registry Summary</h2>
+          <div className="registry-summary-grid">
+            <article>
+              <span>Built-in agents</span>
+              <strong>{builtInAgentsCount}</strong>
+            </article>
+            <article>
+              <span>Session demo agents</span>
+              <strong>{sessionDemoAgentsCount}</strong>
+            </article>
+            <article>
+              <span>Healthy agents</span>
+              <strong>{healthyAgentsCount}</strong>
+            </article>
+            <article>
+              <span>Auth mode</span>
+              <strong>{health?.orchestrator.authMode ?? "unknown"}</strong>
+            </article>
+          </div>
+        </section>
+
+        <section className="registry-section">
+          <p className="active-panel-eyebrow">Section B</p>
+          <h2>Registered Agents</h2>
+          {healthError ? <p className="error">{healthError}</p> : null}
+          {deleteAgentError ? <p className="error">{deleteAgentError}</p> : null}
+          {deleteAgentMessage ? <p className="success-note">{deleteAgentMessage}</p> : null}
+          {registeredAgentRows.length ? (
+            <div className="registry-agent-list">
+              {registeredAgentRows.map((agent) => (
+                <article className="registry-agent-row" key={agent.agentId}>
+                  <div>
+                    <span>agentId</span>
+                    <strong>{agent.agentId}</strong>
+                  </div>
+                  <div>
+                    <span>status</span>
+                    <strong className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</strong>
+                  </div>
+                  <div>
+                    <span>endpointType</span>
+                    <strong>{agent.endpointType}</strong>
+                  </div>
+                  <div>
+                    <span>latency</span>
+                    <strong>{typeof agent.latencyMs === "number" ? `${agent.latencyMs} ms` : "unknown"}</strong>
+                  </div>
+                  <div>
+                    <span>Agent Card available</span>
+                    <strong>{agent.agentCardAvailable ? "yes" : "no"}</strong>
+                  </div>
+                  {agent.canDelete ? (
+                    <button
+                      type="button"
+                      className="agent-delete-button"
+                      disabled={isHealthLoading || deletingAgentId === agent.agentId}
+                      onClick={() => void deleteDemoAgent(agent.agentId)}
+                    >
+                      {deletingAgentId === agent.agentId ? "..." : "Delete"}
+                    </button>
+                  ) : null}
+                  {agent.error ? <p className="registry-agent-error">{agent.error}</p> : null}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="muted-note">{isHealthLoading ? "Loading registered agents..." : "No registered agents found."}</p>
+          )}
+        </section>
+
+        <div className="registry-section">
+          {renderDemoAgentBuilder()}
+        </div>
+      </section>
+    );
+  }
+
+  function renderTrustIdentityTab() {
+    return (
+      <section className="control-panel placeholder-panel" aria-label="Trust and Identity">
+        <div className="panel-header">
+          <div>
+            <h2>Trust & Identity</h2>
+            <p className="muted-note">Next: connect external IdP, validate user identity, inspect JWKS, and test scoped token issuance.</p>
+          </div>
+          <button type="button" className="secondary-button" onClick={() => void checkAgentHealth()} disabled={isHealthLoading}>
+            {isHealthLoading ? "Refreshing..." : "Refresh health"}
+          </button>
+        </div>
+        <div className="registry-summary-grid">
+          <article>
+            <span>authMode</span>
+            <strong>{health?.orchestrator.authMode ?? "unknown"}</strong>
+          </article>
+          <article>
+            <span>secureAuthRequired</span>
+            <strong>{typeof health?.orchestrator.secureAuthRequired === "boolean" ? String(health.orchestrator.secureAuthRequired) : "unknown"}</strong>
+          </article>
+        </div>
+        {healthError ? <p className="error">{healthError}</p> : null}
+      </section>
+    );
+  }
+
+  function renderSecurityTimelineTab() {
+    return (
+      <section className="control-panel placeholder-panel" aria-label="Security Timeline">
+        <div className="panel-header">
+          <div>
+            <h2>Security Timeline</h2>
+            <p className="muted-note">Next: convert raw trace into a step-by-step identity, routing, policy, and agent execution timeline.</p>
+          </div>
+        </div>
+        {latestResponse ? (
+          <div className="registry-summary-grid">
+            <article>
+              <span>executionTrace</span>
+              <strong>{latestResponse.executionTrace.length}</strong>
+            </article>
+            <article>
+              <span>agentTrace</span>
+              <strong>{latestResponse.agentTrace.length}</strong>
+            </article>
+            <article>
+              <span>a2aTasks</span>
+              <strong>{latestResponse.a2aTasks?.length ?? 0}</strong>
+            </article>
+            <article>
+              <span>a2aResponses</span>
+              <strong>{latestResponse.a2aResponses?.length ?? 0}</strong>
+            </article>
+          </div>
+        ) : (
+          <p className="muted-note">Run a task to populate trace counts.</p>
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <main className={`shell ${activeTab === "run-task" ? "" : "single-panel-shell"}`}>
+      <section className="workspace">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">Secure A2A Control Plane</p>
+            <h1>Secure Agent Orchestration Gateway</h1>
+            <p className="subtitle">Import external agents through Agent Cards and govern execution with scoped JWTs, policy, and audit.</p>
+          </div>
+          <div className="topbar-actions">
+            <div className="status">Conversation: {conversationId ? conversationId.slice(0, 8) : "new"}</div>
+            <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
+              New conversation
+            </button>
+            <div className="status">
+              {authModeLabel}
+              {health?.orchestrator.secureAuthRequired ? " / Secure auth required" : ""}
+            </div>
+            <div className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"}`}>
+              <span>{isHealthLoading ? "Checking agent health..." : healthLabel}</span>
+              <small>{health?.orchestrator.status ?? "unknown"}</small>
+            </div>
+          </div>
+        </header>
+
+        <nav className="product-tabs" aria-label="Control plane sections">
+          {tabs.map((tab) => (
+            <button
+              type="button"
+              key={tab.id}
+              className={activeTab === tab.id ? "active" : ""}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        {activeTab === "run-task" ? renderRunTaskTab() : null}
+        {activeTab === "agent-registry" ? renderAgentRegistryTab() : null}
+        {activeTab === "trust-identity" ? renderTrustIdentityTab() : null}
+        {activeTab === "security-timeline" ? renderSecurityTimelineTab() : null}
       </section>
 
-      <aside className="details">
+      {activeTab === "run-task" ? (
+        <aside className="details">
         {latestResponse ? (
           <>
             <section>
@@ -1355,7 +1479,8 @@ function App() {
         ) : (
           <div className="empty-state">Choose a scenario to run or type a message in the input field.</div>
         )}
-      </aside>
+        </aside>
+      ) : null}
     </main>
   );
 }
