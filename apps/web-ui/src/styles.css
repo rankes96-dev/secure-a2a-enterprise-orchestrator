@@ -279,6 +279,18 @@ h2 {
   align-self: stretch;
 }
 
+.metadata-only-badge {
+  display: inline-grid;
+  width: fit-content;
+  border: 1px solid #d8c58a;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #6d4b00;
+  background: #fff7df;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .registry-agent-error {
   grid-column: 1 / -1;
   margin-bottom: 0;

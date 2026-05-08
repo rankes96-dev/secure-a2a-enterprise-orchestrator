@@ -703,7 +703,7 @@ function App() {
       if ("agentCards" in body && body.agentCards) {
         setImportedAgentCards(body.agentCards);
       }
-      setAgentCardImportSuccess("Agent Card imported into this session.");
+      setAgentCardImportSuccess("Agent Card imported into this session as metadata. Execution is disabled until external runtime validation is enabled.");
       await loadImportedAgentCards();
       await loadDemoAgentCards();
       await checkAgentHealth();
@@ -935,6 +935,7 @@ function App() {
             <p className="active-panel-eyebrow">Paste import</p>
             <h2>Import Agent Card</h2>
             <p className="muted-note">Paste a standardized Agent Card JSON published by an external agent. The gateway validates capabilities, scopes, auth audience, risk level, and endpoint metadata before allowing orchestration.</p>
+            <p className="muted-note">Imported Agent Cards are registered as metadata only in this phase. The gateway validates their contract, but does not call the external endpoint or execute the agent yet.</p>
           </div>
         </div>
         <textarea
@@ -1315,6 +1316,7 @@ function App() {
                   <div>
                     <span>Source</span>
                     <strong>{agent.source}</strong>
+                    {agent.source === "session-imported" ? <small className="metadata-only-badge">metadata only</small> : null}
                   </div>
                   <div>
                     <span>Auth mode</span>
