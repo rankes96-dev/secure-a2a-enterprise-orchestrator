@@ -2,13 +2,14 @@
 
 Standalone Node.js + TypeScript service that simulates an independently owned vendor/domain agent for the Secure A2A Gateway.
 
-This service represents an external Salesforce access agent. It exposes public discovery metadata, a public JWKS, a signed zero-trust onboarding response, and a future A2A runtime endpoint.
+This service represents an external Jira agent. It exposes public discovery metadata, a public JWKS, a signed zero-trust onboarding response, and a future A2A runtime endpoint.
 
 ## What It Demonstrates
 
 - The Agent Card/discovery document is a declaration, not trust.
 - The agent proves control by signing an onboarding response with its private key.
-- Scopes and capabilities are returned only after a nonce-bound gateway challenge.
+- Requested scopes and supported capabilities are returned only after a nonce-bound gateway challenge.
+- The gateway must still derive approved capabilities from OAuth grants and resource permissions.
 - The gateway can verify the signed trust response using the agent JWKS.
 - Runtime task execution requires a scoped A2A JWT and validates it before returning a diagnosis.
 
@@ -29,7 +30,7 @@ Copy `.env.example` to `.env` if you want to override defaults.
 PORT=4201
 AGENT_ISSUER=http://localhost:4201
 MOCK_IDP_JWKS_URI=http://localhost:4110/.well-known/jwks.json
-EXPECTED_AUDIENCE=external-salesforce-access-agent
+EXPECTED_AUDIENCE=external-jira-agent
 ```
 
 ## Run
@@ -61,4 +62,4 @@ RUNTIME_BEARER_TOKEN=<a2a-jwt> npm run verify:agent
 - The onboarding response is signed with RS256.
 - The runtime endpoint does not accept anonymous requests.
 - Runtime JWT validation checks issuer signature via Mock IdP JWKS, audience, scope, and actor metadata when present.
-- This is a local development agent, not a production identity provider or production Salesforce connector.
+- This is a local development agent, not a production identity provider or production Jira connector.

@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { agentId, expectedAudience, mockIdpJwksUri, requiredScope } from "./config.js";
+import { agentId, expectedAudience, mockIdpJwksUri, requestedScopes } from "./config.js";
 
 const jwksByUri = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
@@ -34,7 +34,7 @@ export async function validateRuntimeToken(token: string): Promise<{
   });
 
   const scopes = [...new Set([...scopesFromClaim(payload.scope), ...scopesFromClaim(payload.scopes)])];
-  if (!scopes.includes(requiredScope)) {
+  if (!scopes.includes(requestedScopes[0])) {
     throw new Error("missing_required_scope");
   }
 
@@ -49,11 +49,11 @@ export function safeDiagnosis(params: { actor?: string; actorRoles: string[]; sc
   return {
     agentId,
     status: "diagnosed",
-    summary: "Salesforce access diagnosis completed by external agent.",
-    probableCause: "The request reached the external Salesforce access agent with a valid scoped A2A JWT.",
+    summary: "Jira access diagnosis completed by external agent.",
+    probableCause: "The request reached the external Jira agent with a valid scoped A2A JWT.",
     recommendedActions: [
-      "Confirm the user has the required Salesforce profile or permission set.",
-      "Check recent Salesforce login history and connected app policy.",
+      "Confirm the user has the required Jira project role or permission scheme.",
+      "Check Jira project permissions and OAuth connected app policy.",
       "If access was recently changed, ask the user to reauthenticate."
     ],
     evidence: [
@@ -61,8 +61,8 @@ export function safeDiagnosis(params: { actor?: string; actorRoles: string[]; sc
         title: "A2A JWT validation",
         data: {
           audience: expectedAudience(),
-          requiredScope,
-          scopeValidated: params.scopes.includes(requiredScope),
+          requiredScope: requestedScopes[0],
+          scopeValidated: params.scopes.includes(requestedScopes[0]),
           actorAttached: Boolean(params.actor),
           actor: params.actor,
           actorRoles: params.actorRoles,
@@ -74,7 +74,7 @@ export function safeDiagnosis(params: { actor?: string; actorRoles: string[]; sc
       {
         agent: agentId,
         action: "external_agent_runtime_validated",
-        detail: "Validated scoped A2A JWT before returning safe Salesforce access diagnosis.",
+        detail: "Validated scoped A2A JWT before returning safe Jira access diagnosis.",
         timestamp: new Date().toISOString()
       }
     ]

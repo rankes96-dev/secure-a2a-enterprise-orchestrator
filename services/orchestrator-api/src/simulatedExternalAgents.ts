@@ -14,13 +14,17 @@ export function getSimulatedExternalAgentTrustResponse(challenge: AgentOnboardin
   const issuer = challenge.agentBaseUrl;
   const baseResponse: ExternalAgentTrustResponse = {
     onboardingId: challenge.onboardingId,
-    agentId: "external-salesforce-access-agent",
+    agentId: "external-jira-agent",
     issuer,
-    clientId: "salesforce-access-agent-client",
-    audience: "external-salesforce-access-agent",
+    clientId: "jira-agent-client",
+    audience: "external-jira-agent",
     nonce: challenge.nonce,
-    capabilities: ["salesforce.access.diagnose"],
-    scopes: ["salesforce.access.read"],
+    supportedCapabilities: [
+      "jira.issue.diagnose_creation_failure",
+      "jira.permission.inspect",
+      "jira.issue.create"
+    ],
+    requestedScopes: ["read:jira-work", "read:jira-user"],
     tokenEndpointAuthMethod: "private_key_jwt",
     jwksUri: `${issuer}/.well-known/jwks.json`,
     signatureVerified: true
@@ -28,4 +32,3 @@ export function getSimulatedExternalAgentTrustResponse(challenge: AgentOnboardin
 
   return baseResponse;
 }
-

@@ -65,8 +65,8 @@ async function verifyValidOnboarding(): Promise<void> {
   const { response, body } = await request("/agent-onboarding/start", {
     method: "POST",
     body: JSON.stringify({
-      agentBaseUrl: "https://agents.example.com",
-      expectedAgentId: "external-salesforce-access-agent"
+      agentBaseUrl: "http://localhost:4201",
+      expectedAgentId: "external-jira-agent"
     })
   });
   requireStatus(response, body, 200, "valid onboarding");
@@ -75,17 +75,40 @@ async function verifyValidOnboarding(): Promise<void> {
   if (result.trustLevel !== "trusted_metadata_only") {
     throw new Error(`expected trustLevel trusted_metadata_only, got ${JSON.stringify(result.trustLevel)}`);
   }
-  if (!Array.isArray(result.verifiedScopes) || !result.verifiedScopes.includes("salesforce.access.read")) {
-    throw new Error(`verifiedScopes missing salesforce.access.read: ${JSON.stringify(body)}`);
+  const agentProof = asRecord(result.agentProof);
+  if (agentProof.signedResponseVerified !== true || agentProof.nonceMatched !== true) {
+    throw new Error(`agent proof did not pass: ${JSON.stringify(body)}`);
   }
-  if (!Array.isArray(result.verifiedCapabilities) || !result.verifiedCapabilities.includes("salesforce.access.diagnose")) {
-    throw new Error(`verifiedCapabilities missing salesforce.access.diagnose: ${JSON.stringify(body)}`);
+  const oauthApplicationProof = asRecord(result.oauthApplicationProof);
+  if (oauthApplicationProof.clientBound !== true) {
+    throw new Error(`OAuth app binding did not pass: ${JSON.stringify(body)}`);
+  }
+  if (!Array.isArray(oauthApplicationProof.grantedScopes) || !oauthApplicationProof.grantedScopes.includes("read:jira-work") || !oauthApplicationProof.grantedScopes.includes("read:jira-user")) {
+    throw new Error(`granted scopes missing expected Jira scopes: ${JSON.stringify(body)}`);
+  }
+  const resourcePermissionProof = asRecord(result.resourcePermissionProof);
+  if (resourcePermissionProof.principal !== "svc-a2a-jira-agent") {
+    throw new Error(`resource permissions not loaded: ${JSON.stringify(body)}`);
+  }
+  const approvedCapabilities = Array.isArray(result.approvedCapabilities) ? result.approvedCapabilities.map((item) => asRecord(item)) : [];
+  const blockedCapabilities = Array.isArray(result.blockedCapabilities) ? result.blockedCapabilities.map((item) => asRecord(item)) : [];
+  if (!approvedCapabilities.some((item) => item.capability === "jira.issue.diagnose_creation_failure")) {
+    throw new Error(`jira.issue.diagnose_creation_failure was not approved: ${JSON.stringify(body)}`);
+  }
+  if (!approvedCapabilities.some((item) => item.capability === "jira.permission.inspect")) {
+    throw new Error(`jira.permission.inspect was not approved: ${JSON.stringify(body)}`);
+  }
+  const blockedCreate = blockedCapabilities.find((item) => item.capability === "jira.issue.create");
+  if (!blockedCreate || typeof blockedCreate.reason !== "string" || !blockedCreate.reason.includes("create_issues")) {
+    throw new Error(`jira.issue.create was not blocked for missing create_issues: ${JSON.stringify(body)}`);
   }
 
   const checks = Array.isArray(result.checks) ? result.checks.map((item) => asRecord(item)) : [];
-  const oauthCheck = checks.find((item) => item.name === "oauth_application_bound");
-  if (oauthCheck?.status !== "passed") {
-    throw new Error(`oauth_application_bound check did not pass: ${JSON.stringify(body)}`);
+  for (const checkName of ["signed_agent_response_verified", "oauth_application_bound", "requested_scopes_granted", "resource_permissions_loaded", "capabilities_derived"]) {
+    const check = checks.find((item) => item.name === checkName);
+    if (check?.status !== "passed") {
+      throw new Error(`${checkName} check did not pass: ${JSON.stringify(body)}`);
+    }
   }
 
   assertNoSecretMarkers(body);
@@ -111,12 +134,12 @@ async function main(): Promise<void> {
   await createSession();
   await verifyValidOnboarding();
   await verifyFailure("wrong expectedAgentId", {
-    agentBaseUrl: "https://agents.example.com",
+    agentBaseUrl: "http://localhost:4201",
     expectedAgentId: "wrong-agent"
   });
   await verifyFailure("unsupported base URL", {
     agentBaseUrl: "https://evil.example.com",
-    expectedAgentId: "external-salesforce-access-agent"
+    expectedAgentId: "external-jira-agent"
   });
   console.info("Zero-trust Agent Onboarding verification passed.");
 }
@@ -125,4 +148,3 @@ main().catch((error) => {
   console.error(`fail - ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 });
-

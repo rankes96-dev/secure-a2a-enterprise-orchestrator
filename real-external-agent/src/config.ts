@@ -1,7 +1,11 @@
-export const agentId = "external-salesforce-access-agent";
-export const clientId = "salesforce-access-agent-client";
-export const requiredScope = "salesforce.access.read";
-export const capability = "salesforce.access.diagnose";
+export const agentId = "external-jira-agent";
+export const clientId = "jira-agent-client";
+export const requestedScopes = ["read:jira-work", "read:jira-user"];
+export const supportedCapabilities = [
+  "jira.issue.diagnose_creation_failure",
+  "jira.permission.inspect",
+  "jira.issue.create"
+];
 export const tokenEndpointAuthMethod = "private_key_jwt";
 
 export function env(name: string, fallback: string): string {

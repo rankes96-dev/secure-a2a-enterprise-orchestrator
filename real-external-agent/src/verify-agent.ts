@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { agentId, agentIssuer, capability, clientId, requiredScope, tokenEndpointAuthMethod } from "./config.js";
+import { agentId, agentIssuer, clientId, requestedScopes, supportedCapabilities, tokenEndpointAuthMethod } from "./config.js";
 
 const baseUrl = agentIssuer();
 
@@ -97,8 +97,10 @@ async function verifyOnboarding(jwksUri: string): Promise<void> {
   assertCondition(payload.issuer === baseUrl, "trust response issuer mismatch");
   assertCondition(payload.clientId === clientId, "trust response clientId mismatch");
   assertCondition(payload.audience === agentId, "trust response audience mismatch");
-  assertCondition(Array.isArray(payload.verifiedCapabilities) && payload.verifiedCapabilities.includes(capability), "missing verified capability");
-  assertCondition(Array.isArray(payload.verifiedScopes) && payload.verifiedScopes.includes(requiredScope), "missing verified scope");
+  assertCondition(Array.isArray(payload.supportedCapabilities), "missing supported capabilities");
+  assertCondition(supportedCapabilities.every((capability) => (payload.supportedCapabilities as unknown[]).includes(capability)), "supported capabilities mismatch");
+  assertCondition(Array.isArray(payload.requestedScopes), "missing requested scopes");
+  assertCondition(requestedScopes.every((scope) => (payload.requestedScopes as unknown[]).includes(scope)), "requested scopes mismatch");
   assertCondition(payload.tokenEndpointAuthMethod === tokenEndpointAuthMethod, "trust response token auth method mismatch");
   ok("signed onboarding trust response");
 
@@ -118,7 +120,7 @@ async function verifyRuntimeIfTokenProvided(): Promise<void> {
   }
 
   const { response, body } = await postJson<{ status?: string }>("/a2a/task", {
-    message: "Diagnose Salesforce access"
+    message: "Diagnose Jira access"
   }, {
     authorization: `Bearer ${token}`
   });

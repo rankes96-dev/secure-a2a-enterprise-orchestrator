@@ -1,5 +1,5 @@
 import { SignJWT } from "jose";
-import { agentId, agentIssuer, capability, clientId, requiredScope, tokenEndpointAuthMethod } from "./config.js";
+import { agentId, agentIssuer, clientId, requestedScopes, supportedCapabilities, tokenEndpointAuthMethod } from "./config.js";
 import { getSigningKey } from "./keys.js";
 
 export type OnboardingChallenge = {
@@ -54,8 +54,8 @@ export async function createSignedTrustResponse(challenge: OnboardingChallenge):
     issuer,
     clientId,
     audience: agentId,
-    verifiedCapabilities: [capability],
-    verifiedScopes: [requiredScope],
+    supportedCapabilities,
+    requestedScopes,
     tokenEndpointAuthMethod
   })
     .setProtectedHeader({ alg: "RS256", typ: "JWT", kid: key.kid })

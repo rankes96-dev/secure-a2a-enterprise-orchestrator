@@ -47,13 +47,14 @@ Mock IdP / JWKS
 
 Agent Cards are declarations, not trust. The gateway must not accept user-provided scopes or capabilities as authoritative.
 
-Zero-Trust Agent Onboarding verifies external agent identity before promoting metadata into the trusted registry:
+Zero-Trust Agent Onboarding uses a Three-Way Trust Binding before promoting metadata into the trusted registry:
 
 - The gateway creates a nonce-bound onboarding challenge.
-- The external agent returns a signed trust response proving endpoint/control ownership.
-- Scopes and capabilities come from the verified external agent trust response, not from arbitrary user-provided JSON.
-- The OAuth Application Registry binds `clientId`, `agentId`, issuer, audience, allowed scopes, allowed capabilities, and token auth method.
-- The gateway rejects unknown clients, disabled apps, wrong issuers/audiences, extra scopes, and extra capabilities.
+- The external agent returns a signed trust response proving endpoint/control ownership and declaring requested scopes and supported capabilities.
+- The OAuth Application Registry binds `clientId`, `agentId`, issuer, audience, granted scopes, and token auth method.
+- The Resource Permission Registry verifies the app/service principal has effective resource-system permissions.
+- The gateway derives approved and blocked capabilities from agent declarations, OAuth grants, resource permissions, and policy.
+- The gateway rejects unknown clients, disabled apps, wrong issuers/audiences, and ungranted requested scopes.
 - Successful onboarding is stored as `trusted_metadata_only`.
 
 Runtime execution for onboarded external agents remains disabled until a future runtime validation phase.
@@ -340,7 +341,7 @@ npm run verify:mock-idp-ip-allowlist
 3. Review selected Agent Cards and policy decisions.
 4. Open Security Timeline.
 5. Show scoped JWT / actor metadata with raw tokens hidden.
-6. Start Zero-Trust Agent Onboarding in Agent Registry and show verified scopes/capabilities.
+6. Start Zero-Trust Agent Onboarding in Agent Registry and show approved and blocked capabilities.
 
 ## Try It
 

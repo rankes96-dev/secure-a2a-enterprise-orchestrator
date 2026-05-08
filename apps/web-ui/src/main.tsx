@@ -720,13 +720,22 @@ type ChatMessage = {
 type AgentCardEndpointType = "public" | "session" | "unknown";
 type AgentCardEndpointScheme = "https" | "http" | "session" | "unknown";
 
+type DerivedCapability = {
+  capability: string;
+  reason: string;
+};
+
 type TrustedOnboardedAgent = {
   agentId: string;
   issuer: string;
   clientId: string;
   audience: string;
-  verifiedCapabilities: string[];
-  verifiedScopes: string[];
+  requestedScopes: string[];
+  supportedCapabilities: string[];
+  grantedScopes: string[];
+  approvedCapabilities: DerivedCapability[];
+  blockedCapabilities: DerivedCapability[];
+  resourcePrincipal?: string;
   trustLevel: "untrusted" | "schema_valid" | "oauth_bound" | "signed_response_verified" | "endpoint_control_verified" | "trusted_metadata_only" | "executable_pending_runtime_validation";
   executable: false;
   executionState: "metadata_only";
@@ -744,8 +753,26 @@ type AgentOnboardingResult = {
     clientId: string;
     audience: string;
   };
-  verifiedCapabilities: string[];
-  verifiedScopes: string[];
+  agentProof: {
+    signedResponseVerified: boolean;
+    nonceMatched: boolean;
+  };
+  oauthApplicationProof: {
+    clientBound: boolean;
+    grantedScopes: string[];
+    allowedClientId?: string;
+    tokenEndpointAuthMethod?: "private-key-jwt" | "client-secret-post" | "unknown";
+    status?: "active" | "disabled";
+  };
+  resourcePermissionProof: {
+    principal: string;
+    effectivePermissions: string[];
+    deniedPermissions: string[];
+  };
+  requestedScopes: string[];
+  supportedCapabilities: string[];
+  approvedCapabilities: DerivedCapability[];
+  blockedCapabilities: DerivedCapability[];
   checks: Array<{ name: string; status: "passed" | "failed" | "metadata_only"; detail?: string }>;
   message: string;
   trustedAgent: TrustedOnboardedAgent;
@@ -766,8 +793,12 @@ type RegisteredAgentRow = {
   canDelete: boolean;
   source: RegisteredAgentSource;
   trustLevel?: TrustedOnboardedAgent["trustLevel"];
-  verifiedScopes?: string[];
-  verifiedCapabilities?: string[];
+  requestedScopes?: string[];
+  supportedCapabilities?: string[];
+  grantedScopes?: string[];
+  approvedCapabilities?: DerivedCapability[];
+  blockedCapabilities?: DerivedCapability[];
+  resourcePrincipal?: string;
   oauthApplicationBound?: boolean;
   executable?: boolean;
   executionState?: "metadata_only";
@@ -938,8 +969,8 @@ function App() {
   const [health, setHealth] = useState<AgentsHealthResponse | null>(null);
   const [healthError, setHealthError] = useState("");
   const [isHealthLoading, setIsHealthLoading] = useState(false);
-  const [zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl] = useState("https://agents.example.com");
-  const [zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId] = useState("external-salesforce-access-agent");
+  const [zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl] = useState("http://localhost:4201");
+  const [zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId] = useState("external-jira-agent");
   const [zeroTrustOnboardedAgents, setZeroTrustOnboardedAgents] = useState<TrustedOnboardedAgent[]>([]);
   const [zeroTrustResult, setZeroTrustResult] = useState<AgentOnboardingResult | null>(null);
   const [zeroTrustError, setZeroTrustError] = useState("");
@@ -1002,8 +1033,12 @@ function App() {
       canDelete: false,
       source: "zero-trust-onboarded" as const,
       trustLevel: agent.trustLevel,
-      verifiedScopes: agent.verifiedScopes,
-      verifiedCapabilities: agent.verifiedCapabilities,
+      requestedScopes: agent.requestedScopes,
+      supportedCapabilities: agent.supportedCapabilities,
+      grantedScopes: agent.grantedScopes,
+      approvedCapabilities: agent.approvedCapabilities,
+      blockedCapabilities: agent.blockedCapabilities,
+      resourcePrincipal: agent.resourcePrincipal,
       oauthApplicationBound: agent.oauthApplicationBound,
       executable: agent.executable,
       executionState: agent.executionState
@@ -1741,8 +1776,8 @@ function App() {
           <div>
             <p className="active-panel-eyebrow">Verified onboarding</p>
             <h2>Zero-Trust Agent Onboarding</h2>
-            <p className="muted-note">Verify an external agent through challenge, signed trust response, OAuth application binding, approved scopes, and approved capabilities.</p>
-            <p className="muted-note strong-note">Scopes and capabilities are not accepted from user input. They are accepted only from a verified external agent response and checked against the OAuth application registry.</p>
+            <p className="muted-note">Three-Way Trust Binding verifies external agent identity, OAuth application registration and granted scopes, and resource-system effective permissions.</p>
+            <p className="muted-note strong-note">Scopes are granted by the OAuth application. Capabilities are approved only after the Gateway maps scopes and permissions to allowed actions.</p>
           </div>
         </div>
         <div className="zero-trust-form">
@@ -1781,12 +1816,28 @@ function App() {
             </div>
             <div className="zero-trust-verified-values">
               <article>
-                <span>Verified scopes</span>
-                <strong>{zeroTrustResult.verifiedScopes.join(", ")}</strong>
+                <span>Agent Proof</span>
+                <strong>signed: {String(zeroTrustResult.agentProof.signedResponseVerified)} / nonce: {String(zeroTrustResult.agentProof.nonceMatched)}</strong>
               </article>
               <article>
-                <span>Verified capabilities</span>
-                <strong>{zeroTrustResult.verifiedCapabilities.join(", ")}</strong>
+                <span>OAuth Application Proof</span>
+                <strong>{zeroTrustResult.oauthApplicationProof.clientBound ? "bound" : "not bound"} / scopes: {zeroTrustResult.oauthApplicationProof.grantedScopes.join(", ")}</strong>
+              </article>
+              <article>
+                <span>Resource Permission Proof</span>
+                <strong>{zeroTrustResult.resourcePermissionProof.principal} / denied: {zeroTrustResult.resourcePermissionProof.deniedPermissions.join(", ") || "none"}</strong>
+              </article>
+              <article>
+                <span>Supported capabilities declared by agent</span>
+                <strong>{zeroTrustResult.supportedCapabilities.join(", ")}</strong>
+              </article>
+              <article>
+                <span>Approved capabilities derived by Gateway</span>
+                <strong>{zeroTrustResult.approvedCapabilities.map((item) => item.capability).join(", ") || "none"}</strong>
+              </article>
+              <article>
+                <span>Blocked capabilities</span>
+                <strong>{zeroTrustResult.blockedCapabilities.map((item) => `${item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
               </article>
               <article>
                 <span>Runtime execution</span>
@@ -1913,7 +1964,7 @@ function App() {
     const agentGroups = [
       {
         title: "Zero-Trust Onboarded Agents",
-        description: "External agents verified through challenge, signed trust response, and OAuth application binding.",
+        description: "External agents verified through Three-Way Trust Binding: agent proof, OAuth grants, and resource permissions.",
         agents: zeroTrustAgents,
         defaultOpen: true,
         emptyState: "No zero-trust onboarded agents yet. Start onboarding to verify an external agent."
@@ -1949,6 +2000,8 @@ function App() {
           </div>
           <div className="registry-agent-compact-metadata">
             {agent.source === "zero-trust-onboarded" ? <span><b>Trust</b> {agent.trustLevel}</span> : null}
+            {agent.source === "zero-trust-onboarded" ? <span><b>Approved</b> {agent.approvedCapabilities?.length ?? 0}</span> : null}
+            {agent.source === "zero-trust-onboarded" ? <span><b>Blocked</b> {agent.blockedCapabilities?.length ?? 0}</span> : null}
             <span><b>Auth</b> {agent.authMode}</span>
             <span><b>Endpoint</b> {endpointTypeLabel(agent.endpointType, agent.endpointScheme)}</span>
             <span><b>Agent Card</b> {agent.agentCardAvailable ? "yes" : "no"}</span>
@@ -1980,12 +2033,24 @@ function App() {
                     <strong>{agent.oauthApplicationBound ? "yes" : "no"}</strong>
                   </div>
                   <div>
-                    <span>Verified scopes</span>
-                    <strong>{agent.verifiedScopes?.length ?? 0}</strong>
+                    <span>Granted scopes</span>
+                    <strong>{agent.grantedScopes?.join(", ") || "none"}</strong>
                   </div>
                   <div>
-                    <span>Verified capabilities</span>
-                    <strong>{agent.verifiedCapabilities?.length ?? 0}</strong>
+                    <span>Supported capabilities declared</span>
+                    <strong>{agent.supportedCapabilities?.join(", ") || "none"}</strong>
+                  </div>
+                  <div>
+                    <span>Approved capabilities</span>
+                    <strong>{agent.approvedCapabilities?.map((item) => item.capability).join(", ") || "none"}</strong>
+                  </div>
+                  <div>
+                    <span>Blocked capabilities</span>
+                    <strong>{agent.blockedCapabilities?.map((item) => `${item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
+                  </div>
+                  <div>
+                    <span>Resource principal</span>
+                    <strong>{agent.resourcePrincipal ?? "unknown"}</strong>
                   </div>
                   <div>
                     <span>Execution state</span>
