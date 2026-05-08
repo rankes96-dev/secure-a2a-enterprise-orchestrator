@@ -1796,16 +1796,33 @@ function App() {
       "Verify Permissions",
       "Review Capabilities"
     ];
+    const checkStatus = (name: string) => zeroTrustResult?.checks.find((check) => check.name === name)?.status;
+    const progressSteps = [
+      ["External agent discovery", "Fetch and validate /.well-known/a2a-agent.json.", "external_agent_discovery"],
+      ["Gateway identity challenge", "Create a signed Gateway assertion for the expected external agent.", "gateway_identity_verified"],
+      ["External agent contacted", "Send the signed challenge to the discovered onboarding endpoint.", "external_agent_contacted"],
+      ["Signed agent response verified", "Verify the external agent trust response with its JWKS.", "signed_agent_response_verified"],
+      ["OAuth application bound", "Match client, issuer, audience, and token auth method.", "oauth_application_bound"],
+      ["Requested scopes granted", "Confirm requested scopes exist in the OAuth app registration.", "requested_scopes_granted"],
+      ["Resource permissions loaded", "Load effective and denied permissions for the app principal.", "resource_permissions_loaded"],
+      ["Capabilities derived", "Approve or block capabilities from OAuth grants and permissions.", "capabilities_derived"],
+      ["Runtime remains metadata-only", "External runtime execution stays disabled for this phase.", "runtime_execution_metadata_only"]
+    ] as const;
+    const gatewayRegistration = {
+      gatewayId: "secure-a2a-gateway",
+      clientId: "secure-a2a-gateway-client",
+      issuer: "http://localhost:4000",
+      jwksUri: "http://localhost:4000/.well-known/jwks.json",
+      onboardingMethod: "signed_gateway_challenge"
+    };
 
     return (
       <section className="zero-trust-onboarding-panel scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
         <div className="panel-header">
           <div>
-            <p className="active-panel-eyebrow">Verified onboarding</p>
+            <p className="active-panel-eyebrow">External agent connection</p>
             <h2>Connect External Agent</h2>
-            <p className="muted-note">Three-Way Trust Binding verifies external agent identity, OAuth application registration and granted scopes, and resource-system effective permissions.</p>
-            <p className="muted-note strong-note">Scopes are granted by the OAuth application. Capabilities are approved only after the Gateway maps scopes and permissions to allowed actions.</p>
-            <p className="muted-note strong-note">Capabilities are declared by the external agent, but approved only after OAuth scope and resource permission validation.</p>
+            <p className="muted-note">Register an external agent with the Secure A2A Gateway using discovery, signed gateway challenge, signed agent response, OAuth application binding, and capability approval.</p>
           </div>
         </div>
         <ol className="onboarding-wizard-steps" aria-label="External agent onboarding steps">
@@ -1816,18 +1833,116 @@ function App() {
             </li>
           ))}
         </ol>
-        <div className="zero-trust-form">
-          <label>
-            <span>Agent base URL</span>
-            <input value={zeroTrustAgentBaseUrl} onChange={(event) => setZeroTrustAgentBaseUrl(event.target.value)} />
-          </label>
-          <label>
-            <span>Expected Agent ID</span>
-            <input value={zeroTrustExpectedAgentId} onChange={(event) => setZeroTrustExpectedAgentId(event.target.value)} />
-          </label>
-          <button type="button" onClick={() => void startZeroTrustOnboarding()} disabled={isZeroTrustOnboarding}>
-            {isZeroTrustOnboarding ? "Verifying..." : "Start onboarding"}
-          </button>
+
+        <div className="onboarding-audience-grid">
+          <article className="onboarding-guidance-card">
+            <span>For BizApps / Admin</span>
+            <h3>What you need to do</h3>
+            <ol>
+              <li>Enter the agent base URL provided by the external agent owner.</li>
+              <li>Confirm the discovered agent identity.</li>
+              <li>Verify OAuth application binding and resource permissions.</li>
+              <li>Review approved and blocked capabilities.</li>
+            </ol>
+            <p>You do not manually enter scopes or capabilities. The gateway discovers agent-declared capabilities, verifies OAuth grants, checks resource permissions, and derives what is approved.</p>
+          </article>
+          <article className="onboarding-guidance-card">
+            <span>For External Agent Developer</span>
+            <h3>Integration contract</h3>
+            <div className="endpoint-contract-list">
+              <code>GET /.well-known/a2a-agent.json</code>
+              <code>GET /.well-known/jwks.json</code>
+              <code>POST /onboarding/challenge</code>
+              <code>POST /a2a/task</code>
+            </div>
+            <p>The agent must validate the signed Gateway challenge before returning a signed trust response.</p>
+            <div className="concept-pill-row" aria-label="Required signed response concepts">
+              {["agentId", "issuer", "clientId", "requestedScopes", "agentDeclaredCapabilities", "signedTrustResponse"].map((item) => (
+                <span key={item}>{item}</span>
+              ))}
+            </div>
+            <p>The external agent declares capabilities. The Gateway approves capabilities only after OAuth and permission validation.</p>
+          </article>
+        </div>
+
+        <article className="gateway-registration-card">
+          <div>
+            <span>Gateway registration to configure in the external agent</span>
+            <h3>Trust the Gateway caller</h3>
+            <div className="gateway-registration-facts">
+              <div><small>Gateway Client ID</small><strong>secure-a2a-gateway-client</strong></div>
+              <div><small>Gateway Issuer</small><strong>http://localhost:4000</strong></div>
+              <div><small>Gateway JWKS URI</small><strong>http://localhost:4000/.well-known/jwks.json</strong></div>
+              <div><small>Expected audience</small><strong>external agent id</strong></div>
+            </div>
+          </div>
+          <details>
+            <summary>Gateway registration JSON</summary>
+            <pre>{JSON.stringify(gatewayRegistration, null, 2)}</pre>
+          </details>
+        </article>
+
+        <article className="zero-trust-connection-card">
+          <div>
+            <span>Connection input</span>
+            <h3>Start from a discovery URL</h3>
+          </div>
+          <div className="zero-trust-form">
+            <label>
+              <span>Agent base URL</span>
+              <input value={zeroTrustAgentBaseUrl} onChange={(event) => setZeroTrustAgentBaseUrl(event.target.value)} />
+              <small>Example: http://localhost:4201</small>
+            </label>
+            <label>
+              <span>Expected Agent ID</span>
+              <input value={zeroTrustExpectedAgentId} onChange={(event) => setZeroTrustExpectedAgentId(event.target.value)} />
+              <small>Optional if discovery is trusted; required in this demo to prevent connecting the wrong agent.</small>
+            </label>
+            <button type="button" onClick={() => void startZeroTrustOnboarding()} disabled={isZeroTrustOnboarding}>
+              {isZeroTrustOnboarding ? "Verifying..." : "Start onboarding"}
+            </button>
+          </div>
+          <div className="gateway-will-list">
+            <span>The Gateway will</span>
+            <ol>
+              <li>fetch the external agent discovery document</li>
+              <li>send a signed gateway challenge</li>
+              <li>verify the signed agent response</li>
+              <li>validate OAuth application binding</li>
+              <li>derive approved capabilities</li>
+            </ol>
+          </div>
+        </article>
+
+        <article className="why-zero-trust-card">
+          <span>Why this is Zero Trust</span>
+          <ul>
+            <li>The Gateway does not trust pasted JSON.</li>
+            <li>The external agent must validate a signed Gateway challenge.</li>
+            <li>The external agent must return a signed trust response.</li>
+            <li>Scopes are checked against OAuth application registration.</li>
+            <li>Permissions are checked through a trust adapter.</li>
+            <li>Capabilities are approved only after validation.</li>
+          </ul>
+        </article>
+
+        <div className="onboarding-progress-card" aria-label="Onboarding progress">
+          <div>
+            <span>Onboarding progress</span>
+            <h3>{isZeroTrustOnboarding ? "Verifying connection..." : zeroTrustResult ? "Connection verified" : "Ready to start"}</h3>
+          </div>
+          <ol className="onboarding-progress-list">
+            {progressSteps.map(([title, description, checkName]) => {
+              const status = isZeroTrustOnboarding && !zeroTrustResult ? "pending" : checkStatus(checkName) ?? "pending";
+              return (
+                <li className={`progress-${status}`} key={checkName}>
+                  <strong>{title}</strong>
+                  <span>{description}</span>
+                  <small>{status.replace(/_/g, " ")}</small>
+                </li>
+              );
+            })}
+          </ol>
         </div>
         {zeroTrustError ? <p className="error" role="alert">{zeroTrustError}</p> : null}
         {zeroTrustResult ? (
@@ -1845,6 +1960,17 @@ function App() {
               <strong>{zeroTrustResult.discoveredAgent.clientId}</strong>
             </div>
             <p>{zeroTrustResult.message}</p>
+            <div className="connection-verified-summary">
+              <span>Connection verified</span>
+              <ul>
+                <li>Gateway proved itself to the external agent.</li>
+                <li>External agent proved control through signed response.</li>
+                <li>OAuth application was bound.</li>
+                <li>Scopes were granted by OAuth registry.</li>
+                <li>Resource permissions were evaluated.</li>
+                <li>Capabilities were derived by the Gateway.</li>
+              </ul>
+            </div>
             <div className="zero-trust-checks">
               {zeroTrustResult.checks.map((check) => (
                 <span className={`check-${check.status}`} key={check.name}>{check.name.replace(/_/g, " ")}: {check.status}</span>
