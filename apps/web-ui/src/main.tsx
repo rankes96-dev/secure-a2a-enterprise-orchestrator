@@ -273,6 +273,34 @@ type IdentitySessionResponse = {
   audience: "secure-a2a-gateway";
 };
 
+type TrustStatusResponse = {
+  userIdentity: IdentitySessionResponse & {
+    rawTokenExposed: false;
+  };
+  gatewayIdentity: {
+    agentId: string;
+    a2aAuthMode: string;
+    secureAuthRequired: boolean;
+    tokenAuthMethod: "private-key-jwt" | "client-secret-post" | "unknown";
+    actorPropagationEnabled: boolean;
+  };
+  mockIdp: {
+    issuer: string;
+    jwksUri: string;
+    tokenEndpoint: string;
+    userTokenEndpoint: string;
+    rawKeysExposed: boolean;
+  };
+  securityControls: {
+    rawTokensDisplayed: boolean;
+    agentCardImportFetchesExternalUrls: boolean;
+    importedAgentsExecutable: boolean;
+    agentCardSecretsRejected: boolean;
+    privateKeyJwtReplayProtection: "configured" | "unknown";
+    ipAllowlist: "configured" | "disabled" | "unknown";
+  };
+};
+
 const demoUserOptions = [
   { email: "ran@company.com", label: "Ran Keselman", roleLabel: "it-support" },
   { email: "analyst@company.com", label: "Security Analyst", roleLabel: "read-only" },
@@ -431,6 +459,7 @@ function App() {
   const [isAgentCardValidating, setIsAgentCardValidating] = useState(false);
   const [isAgentCardImporting, setIsAgentCardImporting] = useState(false);
   const [identitySession, setIdentitySession] = useState<IdentitySessionResponse | null>(null);
+  const [trustStatus, setTrustStatus] = useState<TrustStatusResponse | null>(null);
   const [selectedDemoUserEmail, setSelectedDemoUserEmail] = useState(demoUserOptions[0].email);
   const [identityError, setIdentityError] = useState("");
   const [identityMessage, setIdentityMessage] = useState("");
@@ -504,6 +533,13 @@ function App() {
         };
       })
   ];
+  const latestActorAttached = latestResponse?.userIdentity?.authenticated === true;
+  const latestActorTokenObserved = Boolean(latestResponse?.a2aTasks?.some((task) =>
+    Boolean(task.context.auth?.actor) ||
+    Boolean(task.context.auth?.actorRoles?.length) ||
+    Boolean(task.context.actor?.email)
+  ));
+  const latestActorRoles = latestResponse?.userIdentity?.roles?.join(", ") ?? "none";
 
   function resetDemoAgentDraft() {
     setDemoAgentInput(emptyDemoAgentInput);
@@ -582,7 +618,7 @@ function App() {
 
   useEffect(() => {
     void checkAgentHealth();
-    void loadIdentitySession();
+    void loadTrustStatus();
   }, []);
 
   useEffect(() => {
@@ -592,7 +628,7 @@ function App() {
       void checkAgentHealth();
     }
     if (activeTab === "trust-identity") {
-      void loadIdentitySession();
+      void loadTrustStatus();
     }
   }, [activeTab]);
 
@@ -667,6 +703,32 @@ function App() {
     }
   }
 
+  async function loadTrustStatus() {
+    setIdentityError("");
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/identity/trust-status`, {
+        method: "GET",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(await friendlyApiError(response, "Failed to load trust status"));
+      }
+
+      const body = (await response.json()) as TrustStatusResponse;
+      setTrustStatus(body);
+      setIdentitySession({
+        authenticated: body.userIdentity.authenticated,
+        user: body.userIdentity.user,
+        issuer: body.userIdentity.issuer,
+        audience: body.userIdentity.audience
+      });
+    } catch (caughtError) {
+      setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to load trust status");
+    }
+  }
+
   async function loginDemoUser() {
     setIdentityError("");
     setIdentityMessage("");
@@ -688,6 +750,7 @@ function App() {
       const body = (await response.json()) as IdentitySessionResponse;
       setIdentitySession(body);
       setIdentityMessage("Demo user identity verified and attached to this gateway session.");
+      await loadTrustStatus();
     } catch (caughtError) {
       setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to login as demo user");
     } finally {
@@ -713,6 +776,7 @@ function App() {
 
       setIdentitySession((await response.json()) as IdentitySessionResponse);
       setIdentityMessage("Demo user identity cleared from this gateway session.");
+      await loadTrustStatus();
     } catch (caughtError) {
       setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to logout demo user");
     } finally {
@@ -1474,28 +1538,41 @@ function App() {
   }
 
   function renderTrustIdentityTab() {
-    const currentUser = identitySession?.user;
+    const currentUser = trustStatus?.userIdentity.user ?? identitySession?.user;
+    const currentIdentity = trustStatus?.userIdentity ?? identitySession;
+    const gatewayIdentity = trustStatus?.gatewayIdentity;
+    const mockIdp = trustStatus?.mockIdp;
+    const securityControls = trustStatus?.securityControls;
+    const flowSteps = [
+      "User JWT verified",
+      "Session identity stored",
+      "Gateway selects Agent Card",
+      "Policy evaluates scope/risk",
+      "Scoped A2A JWT issued",
+      "Agent validates JWT",
+      "Audit/trace records actor context"
+    ];
 
     return (
-      <section className="control-panel placeholder-panel" aria-label="Trust and Identity">
+      <section className="control-panel trust-identity-panel" aria-label="Trust and Identity">
         <div className="panel-header">
           <div>
             <h2>Trust & Identity</h2>
-            <p className="muted-note">Demo identity mode validates a signed Mock IdP User JWT server-side, stores only verified claims in the gateway session, and keeps raw tokens hidden.</p>
+            <p className="muted-note">Security console for user-to-gateway identity, gateway-to-agent token posture, Mock IdP metadata, and control boundaries. Raw JWTs and A2A tokens stay hidden.</p>
           </div>
           <div className="identity-actions">
             <button type="button" className="secondary-button" onClick={() => {
               void checkAgentHealth();
-              void loadIdentitySession();
+              void loadTrustStatus();
             }} disabled={isHealthLoading || isIdentityLoading}>
               {isHealthLoading || isIdentityLoading ? "Refreshing..." : "Refresh"}
             </button>
           </div>
         </div>
 
-        <section className="identity-login-panel">
+        <section className="trust-console-section identity-login-panel">
           <div>
-            <p className="active-panel-eyebrow">User identity</p>
+            <p className="active-panel-eyebrow">User - Gateway</p>
             <h2>Demo Login</h2>
             <p className="muted-note">The frontend sends only the selected demo email. The orchestrator requests a Mock IdP token, validates it against JWKS, and stores verified identity claims in the session.</p>
           </div>
@@ -1519,40 +1596,124 @@ function App() {
           {identityMessage ? <p className="demo-agent-success" role="status">{identityMessage}</p> : null}
         </section>
 
-        <div className="registry-summary-grid">
-          <article>
-            <span>Current user</span>
-            <strong>{currentUser?.email ?? "not authenticated"}</strong>
-          </article>
-          <article>
-            <span>Name</span>
-            <strong>{currentUser?.name ?? "none"}</strong>
-          </article>
-          <article>
-            <span>Roles</span>
-            <strong>{currentUser?.roles.join(", ") ?? "none"}</strong>
-          </article>
-          <article>
-            <span>User audience</span>
-            <strong>{identitySession?.audience ?? "secure-a2a-gateway"}</strong>
-          </article>
-          <article>
-            <span>Issuer</span>
-            <strong>{identitySession?.issuer ?? "unknown"}</strong>
-          </article>
-          <article>
-            <span>authMode</span>
-            <strong>{health?.orchestrator.authMode ?? "unknown"}</strong>
-          </article>
-          <article>
-            <span>secureAuthRequired</span>
-            <strong>{typeof health?.orchestrator.secureAuthRequired === "boolean" ? String(health.orchestrator.secureAuthRequired) : "unknown"}</strong>
-          </article>
-          <article>
-            <span>Token exposure</span>
-            <strong>raw tokens hidden</strong>
-          </article>
-        </div>
+        <section className="trust-console-section">
+          <p className="active-panel-eyebrow">A. User - Gateway</p>
+          <h2>Verified User Identity</h2>
+          <div className="trust-card-grid">
+            <article>
+              <span>Authentication status</span>
+              <strong>{currentIdentity?.authenticated ? "authenticated" : "not authenticated"}</strong>
+            </article>
+            <article>
+              <span>User email</span>
+              <strong>{currentUser?.email ?? "none"}</strong>
+            </article>
+            <article>
+              <span>Name</span>
+              <strong>{currentUser?.name ?? "none"}</strong>
+            </article>
+            <article>
+              <span>Roles</span>
+              <strong>{currentUser?.roles.join(", ") ?? "none"}</strong>
+            </article>
+            <article>
+              <span>User issuer</span>
+              <strong>{currentIdentity?.issuer ?? "unknown"}</strong>
+            </article>
+            <article>
+              <span>User audience</span>
+              <strong>{currentIdentity?.audience ?? "secure-a2a-gateway"}</strong>
+            </article>
+            <article>
+              <span>Raw user JWT</span>
+              <strong>hidden</strong>
+            </article>
+          </div>
+        </section>
+
+        <section className="trust-console-section">
+          <p className="active-panel-eyebrow">B. Gateway - Agents</p>
+          <h2>A2A Service Trust</h2>
+          <div className="trust-card-grid">
+            <article>
+              <span>Gateway agent identity</span>
+              <strong>{gatewayIdentity?.agentId ?? "unknown"}</strong>
+            </article>
+            <article>
+              <span>A2A auth mode</span>
+              <strong>{gatewayIdentity?.a2aAuthMode ?? health?.orchestrator.authMode ?? "unknown"}</strong>
+            </article>
+            <article>
+              <span>Token auth method</span>
+              <strong>{gatewayIdentity?.tokenAuthMethod ?? "unknown"}</strong>
+            </article>
+            <article>
+              <span>secureAuthRequired</span>
+              <strong>{typeof gatewayIdentity?.secureAuthRequired === "boolean" ? String(gatewayIdentity.secureAuthRequired) : typeof health?.orchestrator.secureAuthRequired === "boolean" ? String(health.orchestrator.secureAuthRequired) : "unknown"}</strong>
+            </article>
+            <article>
+              <span>Actor propagation</span>
+              <strong>{gatewayIdentity?.actorPropagationEnabled ? "enabled" : "unknown"}</strong>
+            </article>
+            <article>
+              <span>Raw A2A tokens</span>
+              <strong>hidden</strong>
+            </article>
+          </div>
+        </section>
+
+        <section className="trust-console-section">
+          <p className="active-panel-eyebrow">C. Mock IdP / JWKS</p>
+          <h2>Signing Metadata</h2>
+          <div className="trust-card-grid">
+            <article>
+              <span>Issuer</span>
+              <strong>{mockIdp?.issuer ?? "unknown"}</strong>
+            </article>
+            <article>
+              <span>JWKS URI</span>
+              <strong>{mockIdp?.jwksUri ?? "unknown"}</strong>
+            </article>
+            <article>
+              <span>Token endpoint</span>
+              <strong>{mockIdp?.tokenEndpoint ?? "/oauth/token"}</strong>
+            </article>
+            <article>
+              <span>User token endpoint</span>
+              <strong>{mockIdp?.userTokenEndpoint ?? "/demo/user-token"}</strong>
+            </article>
+            <article>
+              <span>Raw signing keys</span>
+              <strong>{mockIdp?.rawKeysExposed ? "exposed" : "hidden"}</strong>
+            </article>
+          </div>
+        </section>
+
+        <section className="trust-console-section">
+          <p className="active-panel-eyebrow">D. Security Controls</p>
+          <h2>Control Boundaries</h2>
+          <div className="security-badge-grid">
+            <span className="security-badge">Raw tokens displayed: {String(securityControls?.rawTokensDisplayed ?? false)}</span>
+            <span className="security-badge">Agent Card import fetches external URLs: {String(securityControls?.agentCardImportFetchesExternalUrls ?? false)}</span>
+            <span className="security-badge">Imported agents executable: {String(securityControls?.importedAgentsExecutable ?? false)}</span>
+            <span className="security-badge positive">Agent Card secrets rejected: {String(securityControls?.agentCardSecretsRejected ?? true)}</span>
+            <span className="security-badge">Replay protection: {securityControls?.privateKeyJwtReplayProtection ?? "unknown"}</span>
+            <span className="security-badge">IP allowlist: {securityControls?.ipAllowlist ?? "unknown"}</span>
+          </div>
+        </section>
+
+        <section className="trust-console-section">
+          <p className="active-panel-eyebrow">E. Trust Flow</p>
+          <h2>Runtime Trust Path</h2>
+          <div className="trust-flow-row" aria-label="Trust flow">
+            {flowSteps.map((step, index) => (
+              <React.Fragment key={step}>
+                <span>{step}</span>
+                {index < flowSteps.length - 1 ? <b aria-hidden="true">-&gt;</b> : null}
+              </React.Fragment>
+            ))}
+          </div>
+        </section>
         {healthError ? <p className="error">{healthError}</p> : null}
       </section>
     );
@@ -1666,6 +1827,22 @@ function App() {
                 <div>
                   <span>Roles</span>
                   <strong>{latestResponse.userIdentity?.roles?.join(", ") ?? "none"}</strong>
+                </div>
+                <div>
+                  <span>Actor attached</span>
+                  <strong>{latestActorAttached ? "yes" : "no"}</strong>
+                </div>
+                <div>
+                  <span>Actor email</span>
+                  <strong>{latestResponse.userIdentity?.email ?? "none"}</strong>
+                </div>
+                <div>
+                  <span>Actor roles</span>
+                  <strong>{latestActorRoles}</strong>
+                </div>
+                <div>
+                  <span>Actor propagated to A2A token metadata</span>
+                  <strong>{latestActorTokenObserved ? "yes" : "not observed in latest run"}</strong>
                 </div>
               </div>
             </section>

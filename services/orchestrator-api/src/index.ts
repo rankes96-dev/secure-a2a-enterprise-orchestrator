@@ -27,7 +27,14 @@ import { routeWithAI } from "./aiRouter";
 import { getAiConfig } from "./config/aiConfig";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
 import { getA2AAccessToken } from "./security/tokenClient";
-import { bearerTokenFromHeaders, publicUserIdentity, validateUserIdentityJwt, type VerifiedUserIdentity } from "./security/userIdentity";
+import {
+  bearerTokenFromHeaders,
+  expectedUserIdentityIssuer,
+  publicUserIdentity,
+  userIdentityJwksUri,
+  validateUserIdentityJwt,
+  type VerifiedUserIdentity
+} from "./security/userIdentity";
 import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext";
 import { interpretFollowUp } from "./followUpInterpreter";
 import { createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager";
@@ -141,6 +148,50 @@ function requireClientAccess(request: IncomingMessage, response: ServerResponse)
 
   sendJson(response, 401, { error: "Unauthorized" });
   return false;
+}
+
+function tokenAuthMethod(): "private_key_jwt" | "client_secret_post" | "unknown" {
+  const configured = process.env.ORCHESTRATOR_TOKEN_AUTH_METHOD;
+  if (configured === "private_key_jwt" || configured === "client_secret_post") {
+    return configured;
+  }
+
+  if (process.env.ORCHESTRATOR_PRIVATE_JWK_JSON) {
+    return "private_key_jwt";
+  }
+
+  return "client_secret_post";
+}
+
+function safeTokenAuthMethodLabel(): "private-key-jwt" | "client-secret-post" | "unknown" {
+  const method = tokenAuthMethod();
+  if (method === "private_key_jwt") {
+    return "private-key-jwt";
+  }
+
+  if (method === "client_secret_post") {
+    return "client-secret-post";
+  }
+
+  return "unknown";
+}
+
+function privateKeyJwtReplayProtectionStatus(): "configured" | "unknown" {
+  return tokenAuthMethod() === "private_key_jwt" || process.env.ORCHESTRATOR_PRIVATE_KEY_JWT_ENABLED === "true"
+    ? "configured"
+    : "unknown";
+}
+
+function ipAllowlistStatus(): "configured" | "disabled" | "unknown" {
+  if (process.env.MOCK_IDP_ENFORCE_IP_ALLOWLIST === "true") {
+    return process.env.MOCK_IDP_ALLOWED_SOURCE_IPS?.trim() ? "configured" : "unknown";
+  }
+
+  if (process.env.MOCK_IDP_ENFORCE_IP_ALLOWLIST === "false" || process.env.MOCK_IDP_ENFORCE_IP_ALLOWLIST === undefined) {
+    return "disabled";
+  }
+
+  return "unknown";
 }
 
 function trace(action: string, detail: string): AgentTraceEntry {
@@ -598,6 +649,59 @@ function mockIdentityProviderDemoUserTokenUrl(): string {
   url.search = "";
   url.hash = "";
   return url.toString();
+}
+
+function safeTrustUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    const internalHost =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname.endsWith(".internal") ||
+      hostname.endsWith(".railway.internal") ||
+      /^10\./.test(hostname) ||
+      /^192\.168\./.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+
+    return internalHost ? `${url.pathname}${url.search}` : url.toString();
+  } catch {
+    return "unknown";
+  }
+}
+
+function buildTrustStatus(sessionToken?: string) {
+  const userIdentity = publicUserIdentity(currentUserIdentity(sessionToken));
+
+  return {
+    userIdentity: {
+      ...userIdentity,
+      rawTokenExposed: false
+    },
+    gatewayIdentity: {
+      agentId: orchestratorAgentId,
+      a2aAuthMode,
+      secureAuthRequired,
+      tokenAuthMethod: safeTokenAuthMethodLabel(),
+      actorPropagationEnabled: true
+    },
+    mockIdp: {
+      issuer: expectedUserIdentityIssuer(),
+      jwksUri: safeTrustUrl(userIdentityJwksUri()),
+      tokenEndpoint: "/oauth/token",
+      userTokenEndpoint: "/demo/user-token",
+      rawKeysExposed: false
+    },
+    securityControls: {
+      rawTokensDisplayed: false,
+      agentCardImportFetchesExternalUrls: false,
+      importedAgentsExecutable: false,
+      agentCardSecretsRejected: true,
+      privateKeyJwtReplayProtection: privateKeyJwtReplayProtectionStatus(),
+      ipAllowlist: ipAllowlistStatus()
+    }
+  };
 }
 
 async function requestDemoUserToken(email: string): Promise<{ accessToken: string }> {
@@ -2023,6 +2127,15 @@ async function start(): Promise<void> {
     }
 
     sendJson(response, 200, publicUserIdentity(currentUserIdentity(sessionToken)), request);
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/identity/trust-status") {
+    if (!requireClientAccess(request, response)) {
+      return;
+    }
+
+    sendJson(response, 200, buildTrustStatus(getSessionToken(request)), request);
     return;
   }
 

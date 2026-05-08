@@ -315,14 +315,103 @@ h2 {
   align-content: start;
 }
 
-.identity-login-panel {
+.trust-identity-panel {
+  align-content: start;
+}
+
+.trust-console-section {
   display: grid;
   gap: 12px;
   border: 1px solid #d7e0e4;
-  border-left: 4px solid #235789;
   border-radius: 8px;
   padding: 16px;
   background: #ffffff;
+}
+
+.trust-console-section h2 {
+  margin-bottom: 0;
+  font-size: 16px;
+}
+
+.trust-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.trust-card-grid article {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafb;
+}
+
+.trust-card-grid span {
+  color: #526b76;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.trust-card-grid strong {
+  overflow-wrap: anywhere;
+  color: #172026;
+  font-size: 14px;
+}
+
+.security-badge-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.security-badge {
+  display: inline-grid;
+  width: fit-content;
+  border: 1px solid #c7d2d8;
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: #384b53;
+  background: #f6f9fa;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.security-badge.positive {
+  color: #1d5a38;
+  background: #eef8f0;
+  border-color: #bed3c3;
+}
+
+.trust-flow-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.trust-flow-row span {
+  border: 1px solid #c7d2d8;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #253d47;
+  background: #f8fafb;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.trust-flow-row b {
+  color: #526b76;
+  font-size: 12px;
+}
+
+.identity-login-panel {
+  display: grid;
+  gap: 12px;
+  border-left: 4px solid #235789;
 }
 
 .identity-login-controls {
@@ -1354,7 +1443,8 @@ pre {
 
   .registry-summary-grid,
   .registry-agent-row,
-  .agent-card-summary {
+  .agent-card-summary,
+  .trust-card-grid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -1392,7 +1482,8 @@ pre {
   .panel-header,
   .registry-summary-grid,
   .registry-agent-row,
-  .agent-card-summary {
+  .agent-card-summary,
+  .trust-card-grid {
     grid-template-columns: 1fr;
   }
 

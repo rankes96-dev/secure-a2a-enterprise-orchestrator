@@ -17,6 +17,7 @@
     "verify:session-demo-agent": "tsx scripts/verify-session-demo-agent.ts",
     "verify:agent-card-import": "tsx scripts/verify-agent-card-import.ts",
     "verify:user-identity": "tsx scripts/verify-user-identity.ts",
+    "verify:trust-status": "tsx scripts/verify-trust-status.ts",
     "generate:orchestrator-client-key": "tsx scripts/generate-orchestrator-client-key.ts"
   },
   "devDependencies": {
