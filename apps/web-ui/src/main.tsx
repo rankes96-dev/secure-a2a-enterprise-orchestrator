@@ -91,6 +91,7 @@ const scenarios = [
 
 type Scenario = (typeof scenarios)[number]["items"][number];
 type ActiveTab = "run-task" | "agent-registry" | "trust-identity" | "security-timeline";
+type ResolveA2ATask = NonNullable<ResolveResponse["a2aTasks"]>[number];
 
 const tabs: Array<{ id: ActiveTab; label: string }> = [
   { id: "run-task", label: "Run Task" },
@@ -442,6 +443,30 @@ function securityTimelineFilterMatches(event: SecurityTimelineEvent, filter: Sec
   return event.category === filter;
 }
 
+function safeTaskAuthMetadata(auth: ResolveA2ATask["context"]["auth"] | undefined) {
+  if (!auth) {
+    return undefined;
+  }
+
+  return {
+    authMode: auth.authMode,
+    issuer: auth.issuer,
+    audience: auth.audience,
+    scope: auth.scope,
+    tokenIssued: auth.tokenIssued,
+    tokenValidated: auth.tokenValidated,
+    validationReason: auth.validationReason,
+    delegatedBy: auth.delegatedBy,
+    delegationDepth: auth.delegationDepth,
+    parentTaskId: auth.parentTaskId,
+    requestedByAgent: auth.requestedByAgent,
+    actor: auth.actor,
+    actorRoles: auth.actorRoles,
+    tokenAuthMethod: auth.tokenAuthMethod,
+    rawToken: "hidden"
+  };
+}
+
 function safeRawExecutionData(response: ResolveResponse) {
   return {
     userIdentity: response.userIdentity,
@@ -458,7 +483,7 @@ function safeRawExecutionData(response: ResolveResponse) {
       mediatedBy: task.mediatedBy,
       delegationDepth: task.delegationDepth,
       actor: task.context.actor,
-      auth: task.context.auth
+      auth: safeTaskAuthMetadata(task.context.auth)
     })) ?? [],
     a2aResponses: response.a2aResponses?.map((agentResponse) => ({
       agentId: agentResponse.agentId,
@@ -2097,6 +2122,7 @@ function App() {
           <div>
             <h2>Security Timeline</h2>
             <p className="muted-note">Step-by-step view of identity, routing, policy, token issuance, agent execution, delegation, and audit for the latest task.</p>
+            <p className="muted-note">Raw JWTs, bearer headers, client assertions, and secrets are intentionally redacted.</p>
           </div>
         </div>
         {latestResponse ? (
@@ -2177,7 +2203,7 @@ function App() {
             </div>
 
             <details className="raw-execution-data">
-              <summary>Raw execution data</summary>
+              <summary>Sanitized raw execution data</summary>
               <JsonBlock value={safeRawExecutionData(latestResponse)} />
             </details>
           </>
