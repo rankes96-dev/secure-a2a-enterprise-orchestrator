@@ -193,6 +193,10 @@ export type OAuthClientAuthMethod =
   | "client_secret_post"
   | "private_key_jwt";
 
+export type PublicOAuthClientAuthMethod =
+  | "client-secret-post"
+  | "private-key-jwt";
+
 export type A2ATokenClaims = {
   iss: string;
   sub: string;
@@ -239,7 +243,7 @@ export type A2ATaskAuthMetadata = {
   requestedByAgent?: string;
   actor?: string;
   actorRoles?: string[];
-  tokenAuthMethod?: OAuthClientAuthMethod;
+  tokenAuthMethod?: OAuthClientAuthMethod | PublicOAuthClientAuthMethod;
 };
 
 export type UserIdentitySummary = {

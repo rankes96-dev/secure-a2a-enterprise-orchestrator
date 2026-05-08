@@ -547,14 +547,14 @@ async function prepareA2ARequestAuth(params: {
   }
 
   const isDelegatedToken = Boolean(params.delegatedBy) || (params.delegationDepth ?? 0) > 0;
-  const requestAction = isDelegatedToken ? "request_delegated_a2a_access_token" : "request_a2a_access_token";
-  const attachAction = isDelegatedToken ? "attach_delegated_a2a_bearer_token" : "attach_a2a_bearer_token";
+  const requestAction = isDelegatedToken ? "request_delegated_a2a_scoped_token" : "request_a2a_scoped_token";
+  const attachAction = isDelegatedToken ? "attach_delegated_a2a_scoped_token_metadata" : "attach_a2a_scoped_token_metadata";
   const requestDetail = isDelegatedToken
     ? `Requested delegated scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope} delegated by ${params.delegatedBy ?? "unknown"} at depth ${params.delegationDepth ?? 0}`
     : `Requested scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope}`;
   const attachDetail = isDelegatedToken
-    ? "Attached delegated Bearer token metadata to A2A request; raw token not logged"
-    : "Attached Bearer token metadata to A2A request; raw token not logged";
+    ? "Attached delegated scoped token metadata to A2A request; raw token not logged"
+    : "Attached scoped token metadata to A2A request; raw token not logged";
 
   params.executionSteps.push({
     ...executionStep("orchestrator", requestAction, requestDetail),

@@ -160,6 +160,315 @@ function routingDescription(response: ResolveResponse): string {
   return "Deterministic capability routing/fallback handled agent selection.";
 }
 
+function metadataItem(label: string, value: unknown): { label: string; value: string } | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return { label, value: value.length ? value.join(", ") : "none" };
+  }
+
+  return { label, value: String(value) };
+}
+
+function metadataList(items: Array<{ label: string; value: unknown }>): Array<{ label: string; value: string }> {
+  return items.map((item) => metadataItem(item.label, item.value)).filter((item): item is { label: string; value: string } => Boolean(item));
+}
+
+function policyStatus(decision: string): SecurityTimelineStatus {
+  if (decision === "Allowed") {
+    return "success";
+  }
+
+  if (decision === "Blocked") {
+    return "blocked";
+  }
+
+  return "warning";
+}
+
+function agentResponseStatus(status: string): SecurityTimelineStatus {
+  if (status === "diagnosed") {
+    return "success";
+  }
+
+  if (status === "blocked" || status === "error") {
+    return "blocked";
+  }
+
+  return "warning";
+}
+
+function finalStatus(status: ResolveResponse["resolutionStatus"]): SecurityTimelineStatus {
+  if (status === "resolved") {
+    return "success";
+  }
+
+  if (status === "unsupported") {
+    return "warning";
+  }
+
+  return "info";
+}
+
+function buildSecurityTimelineEvents(response: ResolveResponse): SecurityTimelineEvent[] {
+  const events: SecurityTimelineEvent[] = [];
+  const firstTraceTimestamp = response.executionTrace[0]?.timestamp ?? response.agentTrace[0]?.timestamp;
+
+  if (response.userIdentity?.authenticated) {
+    events.push({
+      id: "identity-verified",
+      category: "identity",
+      title: "User identity verified",
+      description: `Verified user ${response.userIdentity.email ?? "unknown"} was attached to this gateway session.`,
+      status: "success",
+      timestamp: firstTraceTimestamp,
+      actor: response.userIdentity.email,
+      metadata: metadataList([
+        { label: "Email", value: response.userIdentity.email },
+        { label: "Roles", value: response.userIdentity.roles ?? [] }
+      ])
+    });
+  } else {
+    events.push({
+      id: "identity-anonymous",
+      category: "identity",
+      title: "Anonymous session",
+      description: "No verified user identity was attached to this task.",
+      status: "warning",
+      timestamp: firstTraceTimestamp
+    });
+  }
+
+  if (response.requestInterpretation) {
+    events.push({
+      id: "request-interpreted",
+      category: "routing",
+      title: "Request interpreted",
+      description: "Gateway classified the user request before routing.",
+      status: response.requestInterpretation.confidence === "high" ? "success" : "info",
+      timestamp: response.executionTrace.find((entry) => entry.action === "interpret_request")?.timestamp,
+      actor: "orchestrator",
+      metadata: metadataList([
+        { label: "Scope", value: response.requestInterpretation.scope },
+        { label: "Intent", value: response.requestInterpretation.intentType },
+        { label: "Target system", value: response.requestInterpretation.targetSystemText },
+        { label: "Capability", value: response.requestInterpretation.requestedCapability },
+        { label: "Action", value: response.requestInterpretation.requestedActionText }
+      ])
+    });
+  }
+
+  for (const [index, agent] of response.selectedAgents.entries()) {
+    events.push({
+      id: `selected-agent-${agent.agentId}-${agent.skillId ?? index}`,
+      category: "routing",
+      title: "Agent Card selected",
+      description: `Gateway selected ${agent.agentId} based on capability metadata.`,
+      status: "success",
+      timestamp: response.agentTrace.find((entry) => entry.action === "select_agent" && entry.detail.includes(agent.agentId))?.timestamp,
+      agentId: agent.agentId,
+      metadata: metadataList([
+        { label: "Agent ID", value: agent.agentId },
+        { label: "Skill", value: agent.skillId },
+        { label: "Capability", value: agent.matchedCapability },
+        { label: "Reason", value: agent.reason }
+      ])
+    });
+  }
+
+  for (const [index, decision] of (response.securityDecisions ?? (response.securityDecision ? [response.securityDecision] : [])).entries()) {
+    events.push({
+      id: `policy-${decision.target}-${decision.requestedAction}-${index}`,
+      category: "policy",
+      title: `Policy decision: ${decision.decision}`,
+      description: decision.reason,
+      status: policyStatus(decision.decision),
+      timestamp: response.agentTrace.find((entry) => entry.action.includes("POLICY") || entry.action.includes("SECURITY"))?.timestamp,
+      actor: decision.caller,
+      agentId: decision.target,
+      metadata: metadataList([
+        { label: "Agent", value: decision.target },
+        { label: "Requested action", value: decision.requestedAction },
+        { label: "Required permission", value: decision.requiredPermission },
+        { label: "Matched policy", value: decision.matchedPolicy }
+      ])
+    });
+  }
+
+  for (const task of response.a2aTasks ?? []) {
+    const actorAttached = Boolean(task.context.actor?.email || task.context.auth?.actor || task.context.auth?.actorRoles?.length);
+    events.push({
+      id: `task-${task.taskId}`,
+      category: "agent",
+      title: "A2A task created",
+      description: `Task envelope created for ${task.toAgent}.`,
+      status: "info",
+      timestamp: response.executionTrace.find((entry) => entry.taskId === task.taskId)?.timestamp,
+      actor: task.fromAgent,
+      agentId: task.toAgent,
+      metadata: metadataList([
+        { label: "Task ID", value: task.taskId },
+        { label: "To agent", value: task.toAgent },
+        { label: "Skill", value: task.skillId },
+        { label: "Auth mode", value: task.context.authMode },
+        { label: "Actor attached", value: actorAttached ? "yes" : "no" }
+      ])
+    });
+
+    const auth = task.context.auth;
+    if (auth?.tokenIssued === true) {
+      events.push({
+        id: `token-issued-${task.taskId}`,
+        category: "token",
+        title: "Scoped A2A JWT issued",
+        description: "Gateway requested an audience-bound scoped token for the selected agent. Raw token hidden.",
+        status: "success",
+        timestamp: response.executionTrace.find((entry) => entry.taskId === task.taskId && entry.action.includes("attach"))?.timestamp,
+        actor: auth.actor ?? task.context.actor?.email,
+        agentId: task.toAgent,
+        metadata: metadataList([
+          { label: "Audience", value: auth.audience },
+          { label: "Scope", value: auth.scope },
+          { label: "Token auth method", value: auth.tokenAuthMethod },
+          { label: "Actor", value: auth.actor ?? task.context.actor?.email },
+          { label: "Actor roles", value: auth.actorRoles ?? task.context.actor?.roles },
+          { label: "Raw token", value: "hidden" }
+        ])
+      });
+    } else if (auth?.authMode === "oauth2_client_credentials_jwt" || task.context.authMode === "oauth2_client_credentials_jwt") {
+      events.push({
+        id: `token-not-issued-${task.taskId}`,
+        category: "token",
+        title: "Scoped A2A token not issued",
+        description: auth?.validationReason ?? "JWT mode was expected, but token issuance was not completed.",
+        status: auth?.validationReason?.toLowerCase().includes("failed") ? "blocked" : "warning",
+        timestamp: response.executionTrace.find((entry) => entry.taskId === task.taskId && entry.action.includes("token"))?.timestamp,
+        agentId: task.toAgent,
+        metadata: metadataList([
+          { label: "Audience", value: auth?.audience ?? task.context.targetAudience },
+          { label: "Scope", value: auth?.scope ?? task.context.requestedScope },
+          { label: "Raw token", value: "hidden" }
+        ])
+      });
+    }
+
+    if ((task.delegationDepth ?? 0) > 0 || task.mediatedBy) {
+      events.push({
+        id: `delegation-task-${task.taskId}`,
+        category: "delegation",
+        title: "Delegation mediated by gateway",
+        description: "Agent requested help from another agent; gateway mediated the call.",
+        status: "success",
+        timestamp: response.executionTrace.find((entry) => entry.taskId === task.taskId)?.timestamp,
+        actor: task.fromAgent,
+        agentId: task.toAgent,
+        metadata: metadataList([
+          { label: "From", value: task.fromAgent },
+          { label: "To", value: task.toAgent },
+          { label: "Mediated by", value: task.mediatedBy },
+          { label: "Delegation depth", value: task.delegationDepth }
+        ])
+      });
+    }
+  }
+
+  const traceDelegation = [...response.executionTrace, ...response.agentTrace].find((entry) => entry.action.toLowerCase().includes("delegation"));
+  if (traceDelegation && !events.some((event) => event.category === "delegation")) {
+    events.push({
+      id: "delegation-trace",
+      category: "delegation",
+      title: "Delegation mediated by gateway",
+      description: "Agent requested help from another agent; gateway mediated the call.",
+      status: traceDelegation.decision === "Blocked" ? "blocked" : "info",
+      timestamp: traceDelegation.timestamp,
+      actor: "actor" in traceDelegation ? traceDelegation.actor : traceDelegation.agent,
+      agentId: traceDelegation.toAgent,
+      metadata: metadataList([
+        { label: "Action", value: traceDelegation.action },
+        { label: "From", value: traceDelegation.fromAgent },
+        { label: "To", value: traceDelegation.toAgent },
+        { label: "Depth", value: traceDelegation.delegationDepth }
+      ])
+    });
+  }
+
+  for (const [index, agentResponse] of (response.a2aResponses ?? []).entries()) {
+    events.push({
+      id: `agent-response-${agentResponse.agentId}-${index}`,
+      category: "response",
+      title: "Agent response received",
+      description: `${agentResponse.agentId} returned ${agentResponse.status}.`,
+      status: agentResponseStatus(agentResponse.status),
+      timestamp: agentResponse.trace?.[0]?.timestamp,
+      agentId: agentResponse.agentId,
+      metadata: metadataList([
+        { label: "Agent ID", value: agentResponse.agentId },
+        { label: "Status", value: agentResponse.status },
+        { label: "Summary", value: agentResponse.summary }
+      ])
+    });
+  }
+
+  events.push({
+    id: "final-answer",
+    category: "audit",
+    title: "Final answer generated",
+    description: "Gateway summarized agent findings and returned response.",
+    status: finalStatus(response.resolutionStatus),
+    timestamp: response.executionTrace[response.executionTrace.length - 1]?.timestamp,
+    actor: "orchestrator",
+    metadata: metadataList([
+      { label: "Resolution status", value: response.resolutionStatus },
+      { label: "Selected agents", value: response.selectedAgents.length },
+      { label: "A2A tasks", value: response.a2aTasks?.length ?? 0 },
+      { label: "Final answer", value: response.finalAnswer }
+    ])
+  });
+
+  return events;
+}
+
+function securityTimelineFilterMatches(event: SecurityTimelineEvent, filter: SecurityTimelineFilter): boolean {
+  if (filter === "all") {
+    return true;
+  }
+
+  if (filter === "response-audit") {
+    return event.category === "response" || event.category === "audit";
+  }
+
+  return event.category === filter;
+}
+
+function safeRawExecutionData(response: ResolveResponse) {
+  return {
+    userIdentity: response.userIdentity,
+    requestInterpretation: response.requestInterpretation,
+    selectedAgents: response.selectedAgents,
+    securityDecisions: response.securityDecisions ?? (response.securityDecision ? [response.securityDecision] : []),
+    executionTrace: response.executionTrace,
+    agentTrace: response.agentTrace,
+    a2aTasks: response.a2aTasks?.map((task) => ({
+      taskId: task.taskId,
+      fromAgent: task.fromAgent,
+      toAgent: task.toAgent,
+      skillId: task.skillId,
+      mediatedBy: task.mediatedBy,
+      delegationDepth: task.delegationDepth,
+      actor: task.context.actor,
+      auth: task.context.auth
+    })) ?? [],
+    a2aResponses: response.a2aResponses?.map((agentResponse) => ({
+      agentId: agentResponse.agentId,
+      status: agentResponse.status,
+      summary: agentResponse.summary,
+      trace: agentResponse.trace
+    })) ?? []
+  };
+}
+
 function JsonBlock({ value }: { value: unknown }) {
   return <pre>{JSON.stringify(value, null, 2)}</pre>;
 }
@@ -300,6 +609,51 @@ type TrustStatusResponse = {
     ipAllowlist: "configured" | "disabled" | "unknown";
   };
 };
+
+type SecurityTimelineCategory =
+  | "identity"
+  | "routing"
+  | "policy"
+  | "token"
+  | "agent"
+  | "delegation"
+  | "response"
+  | "audit";
+
+type SecurityTimelineStatus = "success" | "warning" | "blocked" | "info";
+
+type SecurityTimelineEvent = {
+  id: string;
+  category: SecurityTimelineCategory;
+  title: string;
+  description: string;
+  status: SecurityTimelineStatus;
+  timestamp?: string;
+  actor?: string;
+  agentId?: string;
+  metadata?: Array<{ label: string; value: string }>;
+};
+
+type SecurityTimelineFilter =
+  | "all"
+  | "identity"
+  | "routing"
+  | "policy"
+  | "token"
+  | "agent"
+  | "delegation"
+  | "response-audit";
+
+const securityTimelineFilters: Array<{ id: SecurityTimelineFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "identity", label: "Identity" },
+  { id: "routing", label: "Routing" },
+  { id: "policy", label: "Policy" },
+  { id: "token", label: "Token" },
+  { id: "agent", label: "Agent" },
+  { id: "delegation", label: "Delegation" },
+  { id: "response-audit", label: "Response/Audit" }
+];
 
 const demoUserOptions = [
   { email: "ran@company.com", label: "Ran Keselman", roleLabel: "it-support" },
@@ -464,10 +818,19 @@ function App() {
   const [identityError, setIdentityError] = useState("");
   const [identityMessage, setIdentityMessage] = useState("");
   const [isIdentityLoading, setIsIdentityLoading] = useState(false);
+  const [securityTimelineFilter, setSecurityTimelineFilter] = useState<SecurityTimelineFilter>("all");
   const demoAgentListRef = useRef<HTMLDivElement | null>(null);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
     [messages]
+  );
+  const securityTimelineEvents = useMemo(
+    () => latestResponse ? buildSecurityTimelineEvents(latestResponse) : [],
+    [latestResponse]
+  );
+  const visibleSecurityTimelineEvents = useMemo(
+    () => securityTimelineEvents.filter((event) => securityTimelineFilterMatches(event, securityTimelineFilter)),
+    [securityTimelineEvents, securityTimelineFilter]
   );
   const healthLabel = health
     ? `Agents: ${health.summary.healthy}/${health.summary.total} healthy`
@@ -1720,35 +2083,106 @@ function App() {
   }
 
   function renderSecurityTimelineTab() {
+    const securityDecisionsCount = latestResponse?.securityDecisions?.length ?? (latestResponse?.securityDecision ? 1 : 0);
+    const tokenIssuedCount = latestResponse?.a2aTasks?.filter((task) => task.context.auth?.tokenIssued).length ?? 0;
+    const traceDelegationCount = latestResponse
+      ? [...latestResponse.executionTrace, ...latestResponse.agentTrace].filter((entry) => entry.action.toLowerCase().includes("delegation")).length
+      : 0;
+    const delegatedTaskCount = latestResponse?.a2aTasks?.filter((task) => (task.delegationDepth ?? 0) > 0 || Boolean(task.mediatedBy)).length ?? 0;
+    const delegationCount = Math.max(traceDelegationCount, delegatedTaskCount);
+
     return (
-      <section className="control-panel placeholder-panel" aria-label="Security Timeline">
+      <section className="control-panel security-timeline-panel" aria-label="Security Timeline">
         <div className="panel-header">
           <div>
             <h2>Security Timeline</h2>
-            <p className="muted-note">Next: convert raw trace into a step-by-step identity, routing, policy, and agent execution timeline.</p>
+            <p className="muted-note">Step-by-step view of identity, routing, policy, token issuance, agent execution, delegation, and audit for the latest task.</p>
           </div>
         </div>
         {latestResponse ? (
-          <div className="registry-summary-grid">
-            <article>
-              <span>executionTrace</span>
-              <strong>{latestResponse.executionTrace.length}</strong>
-            </article>
-            <article>
-              <span>agentTrace</span>
-              <strong>{latestResponse.agentTrace.length}</strong>
-            </article>
-            <article>
-              <span>a2aTasks</span>
-              <strong>{latestResponse.a2aTasks?.length ?? 0}</strong>
-            </article>
-            <article>
-              <span>a2aResponses</span>
-              <strong>{latestResponse.a2aResponses?.length ?? 0}</strong>
-            </article>
-          </div>
+          <>
+            <div className="security-timeline-summary">
+              <article>
+                <span>User</span>
+                <strong>{latestResponse.userIdentity?.authenticated ? "authenticated" : "not authenticated"}</strong>
+              </article>
+              <article>
+                <span>Selected agents</span>
+                <strong>{latestResponse.selectedAgents.length}</strong>
+              </article>
+              <article>
+                <span>Policy decisions</span>
+                <strong>{securityDecisionsCount}</strong>
+              </article>
+              <article>
+                <span>A2A tasks</span>
+                <strong>{latestResponse.a2aTasks?.length ?? 0}</strong>
+              </article>
+              <article>
+                <span>Token issued</span>
+                <strong>{tokenIssuedCount}</strong>
+              </article>
+              <article>
+                <span>Delegations</span>
+                <strong>{delegationCount}</strong>
+              </article>
+            </div>
+
+            <div className="timeline-filter-bar" aria-label="Timeline filters">
+              {securityTimelineFilters.map((filter) => (
+                <button
+                  type="button"
+                  key={filter.id}
+                  className={securityTimelineFilter === filter.id ? "active" : ""}
+                  onClick={() => setSecurityTimelineFilter(filter.id)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="visual-security-timeline">
+              {visibleSecurityTimelineEvents.length ? visibleSecurityTimelineEvents.map((event, index) => (
+                <article className={`security-timeline-event status-${event.status} category-${event.category}`} key={event.id}>
+                  <div className="timeline-event-marker">{String(index + 1).padStart(2, "0")}</div>
+                  <div className="timeline-event-body">
+                    <div className="timeline-event-header">
+                      <span className={`timeline-category-badge category-${event.category}`}>{event.category}</span>
+                      <span className={`timeline-status-badge status-${event.status}`}>{event.status}</span>
+                      {event.timestamp ? <time>{new Date(event.timestamp).toLocaleTimeString()}</time> : null}
+                    </div>
+                    <h3>{event.title}</h3>
+                    <p>{event.description}</p>
+                    {event.actor || event.agentId ? (
+                      <div className="timeline-event-context">
+                        {event.actor ? <span>Actor: {event.actor}</span> : null}
+                        {event.agentId ? <span>Agent: {event.agentId}</span> : null}
+                      </div>
+                    ) : null}
+                    {event.metadata?.length ? (
+                      <dl className="timeline-metadata-grid">
+                        {event.metadata.map((item) => (
+                          <div key={`${event.id}-${item.label}`}>
+                            <dt>{item.label}</dt>
+                            <dd>{item.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : null}
+                  </div>
+                </article>
+              )) : (
+                <p className="muted-note">No events match this filter.</p>
+              )}
+            </div>
+
+            <details className="raw-execution-data">
+              <summary>Raw execution data</summary>
+              <JsonBlock value={safeRawExecutionData(latestResponse)} />
+            </details>
+          </>
         ) : (
-          <p className="muted-note">Run a task to populate trace counts.</p>
+          <p className="muted-note">Run a task first to generate a security timeline.</p>
         )}
       </section>
     );

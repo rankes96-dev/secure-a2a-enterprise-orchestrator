@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { importJWK, SignJWT, type JWK, type KeyLike } from "jose";
-import type { A2ATokenResponse, A2AAuthMode, OAuthClientAuthMethod } from "@a2a/shared";
+import type { A2ATokenResponse, A2AAuthMode, OAuthClientAuthMethod, PublicOAuthClientAuthMethod } from "@a2a/shared";
 
 export type A2ATokenRequestInput = {
   audience: string;
@@ -27,7 +27,7 @@ export type A2AIssuedTokenMetadata = {
   requestedByAgent?: string;
   actor?: string;
   actorRoles?: string[];
-  tokenAuthMethod?: OAuthClientAuthMethod;
+  tokenAuthMethod?: PublicOAuthClientAuthMethod;
 };
 
 type CachedToken = {
@@ -64,13 +64,17 @@ function resolveTokenAuthMethod(): OAuthClientAuthMethod {
   return process.env.ORCHESTRATOR_PRIVATE_JWK_JSON ? "private_key_jwt" : "client_secret_post";
 }
 
+function publicTokenAuthMethod(method: OAuthClientAuthMethod): PublicOAuthClientAuthMethod {
+  return method === "private_key_jwt" ? "private-key-jwt" : "client-secret-post";
+}
+
 async function createClientAssertion(params: {
   idpUrl: string;
   clientId: string;
 }): Promise<string> {
   const privateJwkJson = process.env.ORCHESTRATOR_PRIVATE_JWK_JSON;
   if (!privateJwkJson) {
-    throw new Error("ORCHESTRATOR_PRIVATE_JWK_JSON is required for private_key_jwt token authentication.");
+    throw new Error("Private-key JWT token authentication is configured but signing key material is missing.");
   }
 
   let key: KeyLike | Uint8Array | undefined = privateKeyCache.get(privateJwkJson);
@@ -176,7 +180,7 @@ export async function getA2AAccessToken(input: A2ATokenRequestInput): Promise<{ 
     requestedByAgent: input.requestedByAgent,
     actor: input.actor,
     actorRoles: input.actorRoles,
-    tokenAuthMethod
+    tokenAuthMethod: publicTokenAuthMethod(tokenAuthMethod)
   };
 
   if (token.expires_in > 30) {
