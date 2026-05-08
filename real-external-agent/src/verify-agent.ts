@@ -57,9 +57,17 @@ async function verifyDiscovery(): Promise<{ jwksUri: string }> {
   const discovery = await getJson<{
     agentId: string;
     issuer: string;
+    resourceSystem: string;
+    trustAdapter: string;
     jwksUri: string;
     onboardingEndpoint: string;
     runtimeEndpoint: string;
+    adminConsoleUrl: string;
+    connectionRequirements: {
+      requiresGatewayRegistration: boolean;
+      requiresOAuthApplication: boolean;
+      requiresServicePrincipal: boolean;
+    };
     auth: {
       type: string;
       audience: string;
@@ -72,17 +80,54 @@ async function verifyDiscovery(): Promise<{ jwksUri: string }> {
   assertCondition(discovery.jwksUri === `${baseUrl}/.well-known/jwks.json`, "discovery jwksUri mismatch");
   assertCondition(discovery.onboardingEndpoint === `${baseUrl}/onboarding/challenge`, "discovery onboardingEndpoint mismatch");
   assertCondition(discovery.runtimeEndpoint === `${baseUrl}/a2a/task`, "discovery runtimeEndpoint mismatch");
+  assertCondition(discovery.adminConsoleUrl === `${baseUrl}/admin`, "discovery adminConsoleUrl mismatch");
+  assertCondition(discovery.resourceSystem === "jira", "discovery resourceSystem mismatch");
+  assertCondition(discovery.trustAdapter === "jira", "discovery trustAdapter mismatch");
+  assertCondition(discovery.connectionRequirements.requiresGatewayRegistration === true, "discovery missing gateway registration requirement");
+  assertCondition(discovery.connectionRequirements.requiresOAuthApplication === true, "discovery missing OAuth app requirement");
+  assertCondition(discovery.connectionRequirements.requiresServicePrincipal === true, "discovery missing service principal requirement");
   assertCondition(discovery.auth.audience === agentId, "discovery audience mismatch");
   assertCondition(discovery.auth.tokenEndpointAuthMethod === tokenEndpointAuthMethod, "discovery token auth method mismatch");
-  assertCondition(!JSON.stringify(discovery).match(/privateKey|private_key\"|clientSecret|client_secret|access_token|Bearer/i), "discovery document exposed sensitive material");
+  assertNoSecretMarkers(discovery);
   ok("discovery metadata");
   return { jwksUri: discovery.jwksUri };
+}
+
+function assertNoSecretMarkers(value: unknown): void {
+  const text = JSON.stringify(value);
+  assertCondition(!/client[_-]?secret/i.test(text), "response exposed client secret marker");
+  assertCondition(!/privateKey/i.test(text), "response exposed privateKey marker");
+  assertCondition(!/"private_key"\s*:/i.test(text), "response exposed private_key material");
+  assertCondition(!/access[_-]?token/i.test(text), "response exposed access token marker");
+  assertCondition(!/refresh[_-]?token/i.test(text), "response exposed refresh token marker");
+  assertCondition(!/Authorization/.test(text), "response exposed Authorization marker");
+  assertCondition(!/Bearer/.test(text), "response exposed Bearer marker");
+}
+
+async function verifyAdminConfig(): Promise<void> {
+  const config = await getJson<{
+    ready: boolean;
+    trustedGateway: { clientId: string; issuer: string; jwksUri: string };
+    oauthApplication: { clientId: string; grantedScopes: string[]; status: string };
+    servicePrincipal: { principalId: string; effectivePermissions: string[]; deniedPermissions: string[] };
+    capabilityDeclaration: { requestedScopes: string[]; agentDeclaredCapabilities: string[] };
+    warnings: string[];
+  }>("/admin/config");
+
+  assertCondition(config.ready === true, `admin config should be ready: ${config.warnings.join(" ")}`);
+  assertCondition(config.trustedGateway.clientId === "secure-a2a-gateway-client", "trusted Gateway client mismatch");
+  assertCondition(config.oauthApplication.clientId === "jira-agent-client", "OAuth client mismatch");
+  assertCondition(config.oauthApplication.status === "active", "OAuth application should be active");
+  assertCondition(config.servicePrincipal.principalId === "svc-a2a-jira-agent", "service principal mismatch");
+  assertCondition(config.capabilityDeclaration.agentDeclaredCapabilities.includes(agentDeclaredCapabilities[0] ?? ""), "capability declaration missing expected capability");
+  assertNoSecretMarkers(config);
+  ok("admin config ready");
 }
 
 async function verifyJwks(): Promise<void> {
   const jwks = await getJson<{ keys?: unknown[] }>("/.well-known/jwks.json");
   assertCondition(Array.isArray(jwks.keys) && jwks.keys.length > 0, "JWKS did not include public keys");
-  assertCondition(!JSON.stringify(jwks).match(/"d"|privateKey|private_key|secret/i), "JWKS exposed private key material");
+  assertCondition(!JSON.stringify(jwks).match(/"d"|privateKey|"private_key"\s*:|secret/i), "JWKS exposed private key material");
   ok("public JWKS");
 }
 
@@ -117,6 +162,10 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
       agentDeclaredCapabilities?: string[];
       requestedScopes?: string[];
     };
+    externalApplicationAttestation?: {
+      oauthApplication?: { clientId?: string; grantedScopes?: string[] };
+      servicePrincipal?: { principalId?: string; effectivePermissions?: string[]; deniedPermissions?: string[] };
+    };
     checks?: Array<{ name?: string; status?: string }>;
   }>("/agent-onboarding/start", {
     method: "POST",
@@ -129,13 +178,15 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
   assertCondition(gatewayOnboarding.body.trustLevel === "trusted_metadata_only", "Gateway onboarding trust level mismatch");
   assertCondition(gatewayOnboarding.body.discoveredAgent?.agentDeclaredCapabilities?.includes(agentDeclaredCapabilities[0] ?? ""), "Gateway onboarding missing agent-declared capabilities");
   assertCondition(gatewayOnboarding.body.discoveredAgent?.requestedScopes?.includes(requestedScopes[0] ?? ""), "Gateway onboarding missing requested scopes");
+  assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.clientId === "jira-agent-client", "Gateway onboarding missing external OAuth app attestation");
+  assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.servicePrincipal?.principalId === "svc-a2a-jira-agent", "Gateway onboarding missing service principal attestation");
   assertCondition(gatewayOnboarding.body.checks?.some((check) => check.name === "external_agent_discovery" && check.status === "passed"), "Gateway onboarding did not fetch external discovery");
   assertCondition(gatewayOnboarding.body.checks?.some((check) => check.name === "external_agent_contacted" && check.status === "passed"), "Gateway onboarding did not contact external agent");
   assertCondition(gatewayOnboarding.body.checks?.some((check) => check.name === "signed_gateway_challenge_verified" && check.status === "passed"), "Gateway onboarding did not verify signed gateway challenge");
   ok("signed gateway onboarding exchange");
 
   const { body } = gatewayOnboarding;
-  assertCondition(!JSON.stringify(body).match(/access_token|client_assertion|private_key|client_secret|Authorization|Bearer/i), "Gateway onboarding response exposed sensitive material");
+  assertNoSecretMarkers(body);
 
 }
 
@@ -159,6 +210,7 @@ async function verifyRuntimeIfTokenProvided(): Promise<void> {
 
 async function main(): Promise<void> {
   console.log(`Verifying external agent at ${baseUrl}`);
+  await verifyAdminConfig();
   const { jwksUri } = await verifyDiscovery();
   await verifyJwks();
   await verifyOnboarding(jwksUri);

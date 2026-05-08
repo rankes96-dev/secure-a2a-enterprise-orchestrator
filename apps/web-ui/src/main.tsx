@@ -785,6 +785,23 @@ type AgentOnboardingResult = {
     effectivePermissions: string[];
     deniedPermissions: string[];
   };
+  externalApplicationAttestation?: {
+    resourceSystem?: string;
+    trustAdapter?: string;
+    oauthApplication?: {
+      clientId: string;
+      authorizationServerIssuer: string;
+      grantedScopes: string[];
+      tokenEndpointAuthMethod: string;
+      status: string;
+    };
+    servicePrincipal?: {
+      principalType: string;
+      principalId: string;
+      effectivePermissions: string[];
+      deniedPermissions: string[];
+    };
+  };
   capabilityDecision: {
     approvedCapabilities: DerivedCapability[];
     blockedCapabilities: DerivedCapability[];
@@ -806,12 +823,20 @@ type GatewayRegistrationMetadata = {
 type AgentDiscoveryMetadata = {
   agentId: string;
   issuer: string;
+  resourceSystem?: string;
+  trustAdapter?: string;
   jwksUri: string;
   onboardingEndpoint: string;
   runtimeEndpoint: string;
+  adminConsoleUrl?: string;
   auth: {
     audience: string;
     tokenEndpointAuthMethod: "private_key_jwt" | "client_secret_post" | "unknown";
+  };
+  connectionRequirements?: {
+    requiresGatewayRegistration: boolean;
+    requiresOAuthApplication: boolean;
+    requiresServicePrincipal: boolean;
   };
 };
 
@@ -2101,10 +2126,22 @@ function App() {
               <div><small>JWKS URI</small><strong>{zeroTrustDiscovery.discovery.jwksUri}</strong></div>
               <div><small>Onboarding endpoint</small><strong>{zeroTrustDiscovery.discovery.onboardingEndpoint}</strong></div>
               <div><small>Runtime endpoint</small><strong>{zeroTrustDiscovery.discovery.runtimeEndpoint}</strong></div>
+              <div><small>Resource system</small><strong>{zeroTrustDiscovery.discovery.resourceSystem ?? "unknown"}</strong></div>
+              <div><small>Trust adapter</small><strong>{zeroTrustDiscovery.discovery.trustAdapter ?? "unknown"}</strong></div>
               <div><small>Runtime audience</small><strong>{zeroTrustDiscovery.discovery.auth.audience}</strong></div>
               <div><small>Token auth method</small><strong>{zeroTrustDiscovery.discovery.auth.tokenEndpointAuthMethod}</strong></div>
             </div>
             <p>This discovery document is a declaration. Trust is not granted until signed challenge, OAuth binding, and permission validation pass.</p>
+          </article>
+        ) : null}
+
+        {zeroTrustDiscovery?.discovery.adminConsoleUrl ? (
+          <article className="external-admin-console-card">
+            <span>External agent admin console</span>
+            <h3>Configure OAuth app binding outside the Gateway</h3>
+            <p>The external OAuth application is configured on the external agent side. Open the external admin console to register this Gateway and configure OAuth scopes/service principal.</p>
+            <p>This Gateway does not create the external OAuth application. It verifies the signed attestation returned by the external agent.</p>
+            <a className="secondary-button compact-button" href={zeroTrustDiscovery.discovery.adminConsoleUrl} target="_blank" rel="noreferrer">Open external agent admin console</a>
           </article>
         ) : null}
 
@@ -2226,12 +2263,31 @@ function App() {
                 <small>Token auth: {zeroTrustResult.oauthApplicationProof.tokenEndpointAuthMethod ?? "unknown"}</small>
                 <small>Status: {zeroTrustResult.oauthApplicationProof.status ?? "unknown"}</small>
               </article>
+              {zeroTrustResult.externalApplicationAttestation?.oauthApplication ? (
+                <article>
+                  <span>External OAuth App Attestation</span>
+                  <strong>{zeroTrustResult.externalApplicationAttestation.oauthApplication.clientId}</strong>
+                  <small>Issuer: {zeroTrustResult.externalApplicationAttestation.oauthApplication.authorizationServerIssuer}</small>
+                  <small>Granted scopes: {zeroTrustResult.externalApplicationAttestation.oauthApplication.grantedScopes.join(", ")}</small>
+                  <small>Status: {zeroTrustResult.externalApplicationAttestation.oauthApplication.status}</small>
+                  <small>Resource system: {zeroTrustResult.externalApplicationAttestation.resourceSystem ?? "unknown"}</small>
+                </article>
+              ) : null}
               <article>
                 <span>Resource Permission Proof</span>
                 <strong>{zeroTrustResult.resourcePermissionProof.principal}</strong>
                 <small>Effective permissions: {zeroTrustResult.resourcePermissionProof.effectivePermissions.join(", ")}</small>
                 <small>Denied permissions: {zeroTrustResult.resourcePermissionProof.deniedPermissions.join(", ") || "none"}</small>
               </article>
+              {zeroTrustResult.externalApplicationAttestation?.servicePrincipal ? (
+                <article>
+                  <span>External Service Principal Attestation</span>
+                  <strong>{zeroTrustResult.externalApplicationAttestation.servicePrincipal.principalId}</strong>
+                  <small>Type: {zeroTrustResult.externalApplicationAttestation.servicePrincipal.principalType}</small>
+                  <small>Effective: {zeroTrustResult.externalApplicationAttestation.servicePrincipal.effectivePermissions.join(", ")}</small>
+                  <small>Denied: {zeroTrustResult.externalApplicationAttestation.servicePrincipal.deniedPermissions.join(", ") || "none"}</small>
+                </article>
+              ) : null}
               <article>
                 <span>Gateway-approved capabilities</span>
                 <small>Capabilities are declared by the external agent, but approved only after OAuth scope and resource permission validation.</small>

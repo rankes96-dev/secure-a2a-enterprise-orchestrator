@@ -51,8 +51,11 @@ Zero-Trust Agent Onboarding uses a Three-Way Trust Binding before promoting meta
 
 - The gateway creates a nonce-bound onboarding challenge.
 - The external agent returns a signed trust response proving endpoint/control ownership and declaring requested scopes and agent-declared capabilities.
-- The OAuth Application Registry binds `clientId`, `agentId`, issuer, audience, granted scopes, and token auth method.
-- The Resource Permission Registry verifies the app/service principal has effective resource-system permissions.
+- The external OAuth application is configured on the external agent/application side, not in the Gateway.
+- The Gateway provides public registration metadata that the external agent owner registers in their admin console.
+- The external agent validates the Gateway challenge, then returns a signed attestation containing OAuth application and service principal metadata.
+- The OAuth application binding verifies `clientId`, issuer, audience, granted scopes, app status, and token auth method.
+- The Resource Permission proof verifies the app/service principal has effective resource-system permissions.
 - The gateway derives approved and blocked capabilities from agent declarations, OAuth grants, resource permissions, and policy.
 - The gateway rejects unknown clients, disabled apps, wrong issuers/audiences, and ungranted requested scopes.
 - Successful onboarding is stored as `trusted_metadata_only`.
@@ -186,7 +189,11 @@ The AI request interpreter returns structured scope, intent, requested capabilit
 
 The Agent Registry exposes **Zero-Trust Agent Onboarding** as the only external onboarding path.
 
-Agent Cards are declarations, not trust. Trusted onboarding verifies external agent identity through a nonce-bound challenge, simulated signed trust response, and OAuth application registry binding. The gateway accepts scopes and capabilities only from the verified external agent trust response, then checks them against the registered OAuth application.
+Agent Cards and discovery documents are declarations, not trust. Trusted onboarding verifies external agent identity through HTTP discovery, a signed Gateway challenge, a signed external agent trust response, external OAuth application binding, and resource permission evaluation.
+
+The Gateway does not create or own the external OAuth app. The external agent owner configures that app in the external agent admin console. In this demo, `real-external-agent` exposes `http://localhost:4201/admin` to configure the trusted Gateway registration, OAuth app, service principal permissions, and agent-declared capabilities.
+
+The Gateway verifies the signed external attestation and derives approved capabilities from OAuth grants, resource permissions, and policy. It does not trust user-pasted scopes or agent-declared capabilities by themselves.
 
 For this phase, successfully onboarded external agents are stored as `trusted_metadata_only`. Runtime execution for external onboarded agents remains disabled until a future runtime validation phase.
 

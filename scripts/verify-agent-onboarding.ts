@@ -87,6 +87,9 @@ async function verifyValidOnboarding(): Promise<void> {
   if (discovery.agentId !== "external-jira-agent" || discovery.issuer !== "http://localhost:4201") {
     throw new Error(`discovery returned unexpected agent metadata: ${JSON.stringify(discoveryResponse.body)}`);
   }
+  if (discovery.adminConsoleUrl !== "http://localhost:4201/admin") {
+    throw new Error(`discovery did not include external admin console URL: ${JSON.stringify(discoveryResponse.body)}`);
+  }
   const gatewayRegistration = asRecord(discoveryResult.gatewayRegistration);
   if (gatewayRegistration.clientId !== "secure-a2a-gateway-client") {
     throw new Error(`discovery did not include Gateway registration metadata: ${JSON.stringify(discoveryResponse.body)}`);
@@ -137,6 +140,15 @@ async function verifyValidOnboarding(): Promise<void> {
   const resourcePermissionProof = asRecord(result.resourcePermissionProof);
   if (resourcePermissionProof.principal !== "svc-a2a-jira-agent") {
     throw new Error(`resource permissions not loaded: ${JSON.stringify(body)}`);
+  }
+  const externalApplicationAttestation = asRecord(result.externalApplicationAttestation);
+  const externalOauthApplication = asRecord(externalApplicationAttestation.oauthApplication);
+  const externalServicePrincipal = asRecord(externalApplicationAttestation.servicePrincipal);
+  if (externalOauthApplication.clientId !== "jira-agent-client") {
+    throw new Error(`external OAuth application attestation missing: ${JSON.stringify(body)}`);
+  }
+  if (externalServicePrincipal.principalId !== "svc-a2a-jira-agent") {
+    throw new Error(`external service principal attestation missing: ${JSON.stringify(body)}`);
   }
   const capabilityDecision = asRecord(result.capabilityDecision);
   const approvedCapabilities = Array.isArray(capabilityDecision.approvedCapabilities) ? capabilityDecision.approvedCapabilities.map((item) => asRecord(item)) : [];

@@ -17,10 +17,39 @@ No private key is committed. The development signing key is generated in memory 
 
 ## Endpoints
 
+- `GET /admin` - local development admin console for external-side setup
+- `GET /admin/config` - safe current admin configuration
+- `POST /admin/trusted-gateway` - save Gateway public registration metadata
+- `POST /admin/oauth-application` - save external OAuth application binding metadata
+- `POST /admin/service-principal` - save integration principal permissions
+- `POST /admin/capability-declaration` - save requested scopes and agent-declared capabilities
+- `POST /admin/reset-demo` - restore local demo defaults
 - `GET /.well-known/a2a-agent.json` - public discovery metadata
 - `GET /.well-known/jwks.json` - public JWKS for verifying onboarding responses
 - `POST /onboarding/challenge` - returns a signed onboarding trust response
 - `POST /a2a/task` - future runtime endpoint requiring a valid A2A bearer JWT
+
+## External Agent Admin Console
+
+Open `http://localhost:4201/admin` while the service is running.
+
+The admin console simulates the external system or vendor-owned agent admin screen. It is local development only, has no authentication in this phase, and stores configuration in memory.
+
+Use it to configure:
+
+- trusted Gateway registration copied from the Gateway UI
+- OAuth application metadata owned by the external system
+- service principal / integration user permissions
+- requested scopes and agent-declared capabilities
+
+No client secrets, private keys, access tokens, refresh tokens, bearer headers, or Authorization headers are stored or displayed.
+
+During onboarding, the agent uses this config to:
+
+- verify the signed Gateway challenge with the registered Gateway issuer, client ID, and JWKS URI
+- confirm the OAuth application is active
+- include signed OAuth application and service principal attestations in the onboarding response
+- declare requested scopes and capabilities without claiming they are approved
 
 ## Environment
 

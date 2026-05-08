@@ -1,15 +1,10 @@
 import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 import {
-  agentDeclaredCapabilities,
   agentId,
   agentIssuer,
-  clientId,
-  requestedScopes,
-  tokenEndpointAuthMethod,
-  trustedGatewayClientId,
-  trustedGatewayIssuer,
-  trustedGatewayJwksUri
+  expectedAudience
 } from "./config.js";
+import { getAdminConfig, readinessStatus } from "./adminConfig.js";
 import { getSigningKey } from "./keys.js";
 
 export type OnboardingChallenge = {
@@ -54,9 +49,10 @@ async function verifyGatewayAssertion(request: OnboardingRequest, challenge: Onb
   }
 
   const gateway = asRecord(request.gateway);
-  const gatewayIssuer = trustedGatewayIssuer();
-  const gatewayClientId = trustedGatewayClientId();
-  const gatewayJwksUri = trustedGatewayJwksUri();
+  const config = getAdminConfig();
+  const gatewayIssuer = config.trustedGateway.issuer;
+  const gatewayClientId = config.trustedGateway.clientId;
+  const gatewayJwksUri = config.trustedGateway.jwksUri;
 
   if (gateway.issuer && gateway.issuer !== gatewayIssuer) {
     throw new OnboardingError("untrusted_gateway_issuer", 401);
@@ -89,6 +85,18 @@ async function verifyGatewayAssertion(request: OnboardingRequest, challenge: Onb
 }
 
 export async function createSignedTrustResponse(request: OnboardingRequest): Promise<SignedTrustResponse> {
+  const config = getAdminConfig();
+  const readiness = readinessStatus();
+  if (!readiness.ready) {
+    throw new OnboardingError(`external_agent_not_ready: ${readiness.warnings.join(" ")}`, 400);
+  }
+  if (config.oauthApplication.status !== "active") {
+    throw new OnboardingError("oauth_application_disabled", 400);
+  }
+  if (!config.servicePrincipal.principalId) {
+    throw new OnboardingError("service_principal_missing", 400);
+  }
+
   const challenge = asRecord(request.challenge) as OnboardingChallenge;
   const onboardingId = requireString(challenge.onboardingId);
   const nonce = requireString(challenge.nonce);
@@ -120,11 +128,26 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
     nonce,
     agentId,
     issuer,
-    clientId,
-    audience: agentId,
-    agentDeclaredCapabilities,
-    requestedScopes,
-    tokenEndpointAuthMethod
+    clientId: config.oauthApplication.clientId,
+    audience: expectedAudience(),
+    resourceSystem: config.oauthApplication.resourceSystem,
+    trustAdapter: "jira",
+    agentDeclaredCapabilities: config.capabilityDeclaration.agentDeclaredCapabilities,
+    requestedScopes: config.capabilityDeclaration.requestedScopes,
+    tokenEndpointAuthMethod: config.oauthApplication.tokenEndpointAuthMethod,
+    oauthApplication: {
+      clientId: config.oauthApplication.clientId,
+      authorizationServerIssuer: config.oauthApplication.authorizationServerIssuer,
+      grantedScopes: config.oauthApplication.grantedScopes,
+      tokenEndpointAuthMethod: config.oauthApplication.tokenEndpointAuthMethod,
+      status: config.oauthApplication.status
+    },
+    servicePrincipal: {
+      principalType: config.servicePrincipal.principalType,
+      principalId: config.servicePrincipal.principalId,
+      effectivePermissions: config.servicePrincipal.effectivePermissions,
+      deniedPermissions: config.servicePrincipal.deniedPermissions
+    }
   })
     .setProtectedHeader({ alg: "RS256", typ: "JWT", kid: key.kid })
     .setIssuer(issuer)

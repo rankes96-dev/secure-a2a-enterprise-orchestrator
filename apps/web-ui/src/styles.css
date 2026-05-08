@@ -742,6 +742,7 @@ h2 {
 .why-zero-trust-card,
 .onboarding-progress-card,
 .discovery-result-card,
+.external-admin-console-card,
 .connection-verified-summary {
   min-width: 0;
   border: 1px solid #dbe3e8;
@@ -782,6 +783,7 @@ h2 {
 .gateway-registration-card p,
 .demo-production-setup-grid p,
 .discovery-result-card p,
+.external-admin-console-card p,
 .why-zero-trust-card li,
 .connection-verified-summary li,
 .gateway-will-list li {
@@ -954,6 +956,7 @@ h2 {
 .demo-production-setup-grid span,
 .zero-trust-connection-card > div > span,
 .discovery-result-card > span,
+.external-admin-console-card > span,
 .why-zero-trust-card > span,
 .onboarding-progress-card > div > span,
 .gateway-will-list > span,
@@ -1041,6 +1044,17 @@ h2 {
   display: grid;
   gap: 12px;
   border-left: 4px solid #1d6d3d;
+}
+
+.external-admin-console-card {
+  display: grid;
+  gap: 10px;
+  border-left: 4px solid #235789;
+}
+
+.external-admin-console-card a {
+  width: fit-content;
+  text-decoration: none;
 }
 
 .discovery-result-card h3 {

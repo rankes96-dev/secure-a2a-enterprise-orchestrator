@@ -32,6 +32,32 @@ export function validateOAuthApplicationBinding(trustResponse: ExternalAgentTrus
   registration?: OAuthApplicationRegistration;
   grantedScopes: string[];
 } {
+  if (trustResponse.oauthApplication) {
+    const app = trustResponse.oauthApplication;
+    const details: string[] = [];
+    if (trustResponse.clientId !== app.clientId) details.push("signed response clientId does not match oauthApplication.clientId.");
+    if (app.status !== "active") details.push("OAuth application is not active.");
+    if (app.tokenEndpointAuthMethod !== trustResponse.tokenEndpointAuthMethod) details.push("OAuth application token auth method does not match trust response.");
+
+    const extraScopes = missingItems(trustResponse.requestedScopes, app.grantedScopes);
+    if (extraScopes.length > 0) details.push(`ungranted scopes requested: ${extraScopes.join(", ")}`);
+
+    return {
+      valid: details.length === 0,
+      details,
+      registration: {
+        clientId: app.clientId,
+        agentId: trustResponse.agentId,
+        issuer: trustResponse.issuer,
+        audience: trustResponse.audience,
+        grantedScopes: [...app.grantedScopes],
+        tokenEndpointAuthMethod: app.tokenEndpointAuthMethod,
+        status: app.status === "unknown" ? "disabled" : app.status
+      },
+      grantedScopes: [...app.grantedScopes]
+    };
+  }
+
   const registration = trustedOAuthApplications.find((item) => item.clientId === trustResponse.clientId);
   if (!registration) {
     return {

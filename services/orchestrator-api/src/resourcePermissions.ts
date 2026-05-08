@@ -41,24 +41,29 @@ export function getResourcePermissionRegistration(clientId: string): ResourcePer
   return resourcePermissionRegistrations.find((registration) => registration.clientId === clientId);
 }
 
+export function evaluateResourcePermissionRegistration(registration: ResourcePermissionRegistration, agentDeclaredCapabilities: string[]): CapabilityPermissionEvaluation[] {
+  const effectivePermissions = new Set(registration.effectivePermissions);
+  const deniedPermissions = new Set(registration.deniedPermissions);
+
+  return agentDeclaredCapabilities.map((capability) => {
+    const requiredPermissions = capabilityPermissionRequirements.get(capability) ?? [];
+    return {
+      capability,
+      requiredPermissions,
+      missingPermissions: requiredPermissions.filter((permission) => !effectivePermissions.has(permission)),
+      deniedPermissions: requiredPermissions.filter((permission) => deniedPermissions.has(permission))
+    };
+  });
+}
+
 export function evaluateResourcePermissions(clientId: string, agentDeclaredCapabilities: string[]): {
   registration?: ResourcePermissionRegistration;
   evaluations: CapabilityPermissionEvaluation[];
 } {
   const registration = getResourcePermissionRegistration(clientId);
-  const effectivePermissions = new Set(registration?.effectivePermissions ?? []);
-  const deniedPermissions = new Set(registration?.deniedPermissions ?? []);
 
   return {
     registration,
-    evaluations: agentDeclaredCapabilities.map((capability) => {
-      const requiredPermissions = capabilityPermissionRequirements.get(capability) ?? [];
-      return {
-        capability,
-        requiredPermissions,
-        missingPermissions: requiredPermissions.filter((permission) => !effectivePermissions.has(permission)),
-        deniedPermissions: requiredPermissions.filter((permission) => deniedPermissions.has(permission))
-      };
-    })
+    evaluations: registration ? evaluateResourcePermissionRegistration(registration, agentDeclaredCapabilities) : []
   };
 }

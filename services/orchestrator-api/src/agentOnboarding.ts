@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { evaluateResourcePermissions, type ResourcePermissionRegistration } from "./resourcePermissions";
+import { evaluateResourcePermissionRegistration, evaluateResourcePermissions, type ResourcePermissionRegistration } from "./resourcePermissions";
 import { gatewayMetadata, gatewayPublicIdentity, signGatewayOnboardingChallenge } from "./security/gatewayIdentity";
 import { validateOAuthApplicationBinding } from "./trustedOAuthApplications";
 
@@ -39,17 +39,40 @@ export type ExternalAgentTrustResponse = {
   tokenEndpointAuthMethod: "private_key_jwt" | "client_secret_post" | "unknown";
   jwksUri: string;
   signatureVerified: boolean;
+  resourceSystem?: string;
+  trustAdapter?: string;
+  oauthApplication?: {
+    clientId: string;
+    authorizationServerIssuer: string;
+    grantedScopes: string[];
+    tokenEndpointAuthMethod: "private_key_jwt" | "client_secret_post" | "unknown";
+    status: "active" | "disabled" | "unknown";
+  };
+  servicePrincipal?: {
+    principalType: string;
+    principalId: string;
+    effectivePermissions: string[];
+    deniedPermissions: string[];
+  };
 };
 
 export type ExternalAgentDiscovery = {
   agentId: string;
   issuer: string;
+  resourceSystem?: string;
+  trustAdapter?: string;
   jwksUri: string;
   onboardingEndpoint: string;
   runtimeEndpoint: string;
+  adminConsoleUrl?: string;
   auth: {
     audience: string;
     tokenEndpointAuthMethod: "private_key_jwt" | "client_secret_post" | "unknown";
+  };
+  connectionRequirements?: {
+    requiresGatewayRegistration: boolean;
+    requiresOAuthApplication: boolean;
+    requiresServicePrincipal: boolean;
   };
 };
 
@@ -120,6 +143,13 @@ export type ResourcePermissionProof = {
   deniedPermissions: string[];
 };
 
+export type ExternalApplicationAttestation = {
+  resourceSystem?: string;
+  trustAdapter?: string;
+  oauthApplication?: ExternalAgentTrustResponse["oauthApplication"];
+  servicePrincipal?: ExternalAgentTrustResponse["servicePrincipal"];
+};
+
 export type AgentOnboardingValidationResult =
   | {
       onboardingId: string;
@@ -143,6 +173,7 @@ export type AgentOnboardingValidationResult =
       agentProof: AgentProof;
       oauthApplicationProof: OAuthApplicationProof;
       resourcePermissionProof: ResourcePermissionProof;
+      externalApplicationAttestation?: ExternalApplicationAttestation;
       capabilityDecision: {
         approvedCapabilities: DerivedCapability[];
         blockedCapabilities: DerivedCapability[];
@@ -375,6 +406,10 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function externalStatus(value: unknown): "active" | "disabled" | "unknown" {
+  return value === "active" || value === "disabled" ? value : "unknown";
+}
+
 async function fetchJsonWithLimit<T>(url: string, init: RequestInit, maxBytes: number): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), httpTimeoutMs);
@@ -411,16 +446,26 @@ function validateDiscovery(value: unknown, agentBaseUrl: string, expectedAgentId
   const discovery: ExternalAgentDiscovery = {
     agentId: cleanString(input.agentId),
     issuer: cleanString(input.issuer),
+    resourceSystem: cleanString(input.resourceSystem) || undefined,
+    trustAdapter: cleanString(input.trustAdapter) || undefined,
     jwksUri: cleanString(input.jwksUri),
     onboardingEndpoint: cleanString(input.onboardingEndpoint),
     runtimeEndpoint: cleanString(input.runtimeEndpoint),
+    adminConsoleUrl: cleanString(input.adminConsoleUrl) || undefined,
     auth: {
       audience: cleanString(auth.audience),
       tokenEndpointAuthMethod:
         auth.tokenEndpointAuthMethod === "private_key_jwt" || auth.tokenEndpointAuthMethod === "client_secret_post"
           ? auth.tokenEndpointAuthMethod
           : "unknown"
-    }
+    },
+    connectionRequirements: record(input.connectionRequirements).requiresGatewayRegistration !== undefined
+      ? {
+          requiresGatewayRegistration: Boolean(record(input.connectionRequirements).requiresGatewayRegistration),
+          requiresOAuthApplication: Boolean(record(input.connectionRequirements).requiresOAuthApplication),
+          requiresServicePrincipal: Boolean(record(input.connectionRequirements).requiresServicePrincipal)
+        }
+      : undefined
   };
 
   if (!discovery.agentId) details.push("discovery missing agentId.");
@@ -440,7 +485,8 @@ function validateDiscovery(value: unknown, agentBaseUrl: string, expectedAgentId
     ["issuer", discovery.issuer],
     ["jwksUri", discovery.jwksUri],
     ["onboardingEndpoint", discovery.onboardingEndpoint],
-    ["runtimeEndpoint", discovery.runtimeEndpoint]
+    ["runtimeEndpoint", discovery.runtimeEndpoint],
+    ["adminConsoleUrl", discovery.adminConsoleUrl]
   ] as const) {
     if (url) {
       const unsafe = validateSafeExternalUrl(url, agentBaseUrl);
@@ -495,6 +541,8 @@ async function requestExternalAgentTrustResponse(challenge: AgentOnboardingChall
         subject: discovery.agentId
       }
     );
+    const oauthApplication = record(payload.oauthApplication);
+    const servicePrincipal = record(payload.servicePrincipal);
 
     return {
       onboardingId: cleanString(payload.onboardingId),
@@ -510,7 +558,29 @@ async function requestExternalAgentTrustResponse(challenge: AgentOnboardingChall
           ? payload.tokenEndpointAuthMethod
           : "unknown",
       jwksUri: discovery.jwksUri,
-      signatureVerified: payload.typ === "agent_onboarding_response"
+      signatureVerified: payload.typ === "agent_onboarding_response",
+      resourceSystem: cleanString(payload.resourceSystem) || discovery.resourceSystem,
+      trustAdapter: cleanString(payload.trustAdapter) || discovery.trustAdapter,
+      oauthApplication: oauthApplication.clientId
+        ? {
+            clientId: cleanString(oauthApplication.clientId),
+            authorizationServerIssuer: cleanString(oauthApplication.authorizationServerIssuer),
+            grantedScopes: stringArray(oauthApplication.grantedScopes),
+            tokenEndpointAuthMethod:
+              oauthApplication.tokenEndpointAuthMethod === "private_key_jwt" || oauthApplication.tokenEndpointAuthMethod === "client_secret_post"
+                ? oauthApplication.tokenEndpointAuthMethod
+                : "unknown",
+            status: externalStatus(oauthApplication.status)
+          }
+        : undefined,
+      servicePrincipal: servicePrincipal.principalId
+        ? {
+            principalType: cleanString(servicePrincipal.principalType),
+            principalId: cleanString(servicePrincipal.principalId),
+            effectivePermissions: stringArray(servicePrincipal.effectivePermissions),
+            deniedPermissions: stringArray(servicePrincipal.deniedPermissions)
+          }
+        : undefined
     };
   } catch {
     return undefined;
@@ -626,7 +696,7 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
   if (trustResponse.audience !== discovery.auth.audience) details.push("external agent audience did not match discovery auth audience.");
 
   addCheck(checks, "signed_agent_response_verified", trustResponse.signatureVerified === true);
-  if (!trustResponse.signatureVerified) details.push("simulated signed trust response was not verified.");
+  if (!trustResponse.signatureVerified) details.push("signed external agent trust response was not verified.");
 
   const binding = validateOAuthApplicationBinding(trustResponse);
   addCheck(checks, "oauth_application_bound", binding.valid, binding.details.join(" "));
@@ -636,7 +706,21 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     details.push(...binding.details);
   }
 
-  const resourcePermissions = evaluateResourcePermissions(trustResponse.clientId, trustResponse.agentDeclaredCapabilities);
+  const attestedResourceRegistration: ResourcePermissionRegistration | undefined = trustResponse.servicePrincipal
+    ? {
+        resourceSystem: trustResponse.resourceSystem ?? "unknown",
+        principal: trustResponse.servicePrincipal.principalId,
+        clientId: trustResponse.clientId,
+        effectivePermissions: [...trustResponse.servicePrincipal.effectivePermissions],
+        deniedPermissions: [...trustResponse.servicePrincipal.deniedPermissions]
+      }
+    : undefined;
+  const resourcePermissions = attestedResourceRegistration
+    ? {
+        registration: attestedResourceRegistration,
+        evaluations: evaluateResourcePermissionRegistration(attestedResourceRegistration, trustResponse.agentDeclaredCapabilities)
+      }
+    : evaluateResourcePermissions(trustResponse.clientId, trustResponse.agentDeclaredCapabilities);
   addCheck(checks, "resource_permissions_loaded", Boolean(resourcePermissions.registration));
   if (!resourcePermissions.registration) {
     details.push(`resource permissions not registered for clientId ${trustResponse.clientId}`);
@@ -725,6 +809,12 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
       principal: resourceRegistration.principal,
       effectivePermissions: [...resourceRegistration.effectivePermissions],
       deniedPermissions: [...resourceRegistration.deniedPermissions]
+    },
+    externalApplicationAttestation: {
+      resourceSystem: trustResponse.resourceSystem,
+      trustAdapter: trustResponse.trustAdapter,
+      oauthApplication: trustResponse.oauthApplication,
+      servicePrincipal: trustResponse.servicePrincipal
     },
     capabilityDecision: {
       approvedCapabilities: [...derivedCapabilities.approvedCapabilities],
