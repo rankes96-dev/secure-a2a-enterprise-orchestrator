@@ -135,6 +135,7 @@ type GuidedFocusTarget =
   | "trust-login"
   | "agent-registry"
   | "agent-import"
+  | "zero-trust-onboarding"
   | "agent-validation"
   | "registered-agents"
   | "generated-agent-card"
@@ -773,6 +774,59 @@ type AgentCardValidationResult =
       details: string[];
     };
 
+type TrustedOnboardedAgent = {
+  agentId: string;
+  issuer: string;
+  clientId: string;
+  audience: string;
+  verifiedCapabilities: string[];
+  verifiedScopes: string[];
+  trustLevel: "untrusted" | "schema_valid" | "oauth_bound" | "signed_response_verified" | "endpoint_control_verified" | "trusted_metadata_only" | "executable_pending_runtime_validation";
+  executable: false;
+  executionState: "metadata_only";
+  tokenEndpointAuthMethod: "private-key-jwt" | "client-secret-post" | "unknown";
+  oauthApplicationBound: boolean;
+};
+
+type AgentOnboardingResult = {
+  onboardingId: string;
+  status: "trusted_metadata_only";
+  trustLevel: TrustedOnboardedAgent["trustLevel"];
+  agent: {
+    agentId: string;
+    issuer: string;
+    clientId: string;
+    audience: string;
+  };
+  verifiedCapabilities: string[];
+  verifiedScopes: string[];
+  checks: Array<{ name: string; status: "passed" | "failed" | "metadata_only"; detail?: string }>;
+  message: string;
+  trustedAgent: TrustedOnboardedAgent;
+  trustedAgents?: TrustedOnboardedAgent[];
+};
+
+type RegisteredAgentSource = "zero-trust-onboarded" | "session-imported" | "session-generated" | "built-in" | "infrastructure";
+
+type RegisteredAgentRow = {
+  agentId: string;
+  status: string;
+  endpointType: AgentCardEndpointType | "internal";
+  endpointScheme: AgentCardValidationSummary["endpointScheme"];
+  authMode: string;
+  latencyMs?: number;
+  agentCardAvailable: boolean;
+  error?: string;
+  canDelete: boolean;
+  source: RegisteredAgentSource;
+  trustLevel?: TrustedOnboardedAgent["trustLevel"];
+  verifiedScopes?: string[];
+  verifiedCapabilities?: string[];
+  oauthApplicationBound?: boolean;
+  executable?: boolean;
+  executionState?: "metadata_only";
+};
+
 type IdentitySessionResponse = {
   authenticated: boolean;
   user: {
@@ -1025,6 +1079,12 @@ function App() {
   const [agentCardImportSuccess, setAgentCardImportSuccess] = useState("");
   const [isAgentCardValidating, setIsAgentCardValidating] = useState(false);
   const [isAgentCardImporting, setIsAgentCardImporting] = useState(false);
+  const [zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl] = useState("https://agents.example.com");
+  const [zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId] = useState("external-salesforce-access-agent");
+  const [zeroTrustOnboardedAgents, setZeroTrustOnboardedAgents] = useState<TrustedOnboardedAgent[]>([]);
+  const [zeroTrustResult, setZeroTrustResult] = useState<AgentOnboardingResult | null>(null);
+  const [zeroTrustError, setZeroTrustError] = useState("");
+  const [isZeroTrustOnboarding, setIsZeroTrustOnboarding] = useState(false);
   const [identitySession, setIdentitySession] = useState<IdentitySessionResponse | null>(null);
   const [trustStatus, setTrustStatus] = useState<TrustStatusResponse | null>(null);
   const [selectedDemoUserEmail, setSelectedDemoUserEmail] = useState(demoUserOptions[0].email);
@@ -1044,6 +1104,7 @@ function App() {
   const loginButtonRef = useRef<HTMLButtonElement | null>(null);
   const agentRegistryRootRef = useRef<HTMLElement | null>(null);
   const importAgentCardRef = useRef<HTMLElement | null>(null);
+  const zeroTrustOnboardingRef = useRef<HTMLElement | null>(null);
   const agentCardValidationRef = useRef<HTMLDivElement | null>(null);
   const registeredAgentsRef = useRef<HTMLElement | null>(null);
   const generatedAgentCardRef = useRef<HTMLElement | null>(null);
@@ -1079,7 +1140,25 @@ function App() {
   const builtInAgentsCount = health?.agents.filter((agent) => agent.endpointType !== "session" && !infrastructureAgentIds.has(agent.agentId)).length ?? 0;
   const sessionDemoAgentsCount = demoAgentCards.length || health?.agents.filter((agent) => agent.endpointType === "session").length || 0;
   const healthyAgentsCount = health?.summary.healthy ?? 0;
-  const registeredAgentRows = [
+  const registeredAgentRows: RegisteredAgentRow[] = [
+    ...zeroTrustOnboardedAgents.map((agent) => ({
+      agentId: agent.agentId,
+      status: "unknown",
+      endpointType: "public" as const,
+      endpointScheme: endpointMetadata(agent.issuer).endpointScheme,
+      authMode: agent.tokenEndpointAuthMethod,
+      latencyMs: undefined,
+      agentCardAvailable: true,
+      error: undefined,
+      canDelete: false,
+      source: "zero-trust-onboarded" as const,
+      trustLevel: agent.trustLevel,
+      verifiedScopes: agent.verifiedScopes,
+      verifiedCapabilities: agent.verifiedCapabilities,
+      oauthApplicationBound: agent.oauthApplicationBound,
+      executable: agent.executable,
+      executionState: agent.executionState
+    })),
     ...(health?.agents.map((agent) => {
       const demoAgentCard = demoAgentCardById.get(agent.agentId);
       const importedAgentCard = importedAgentCardById.get(agent.agentId);
@@ -1093,7 +1172,7 @@ function App() {
         agentCardAvailable: agent.details.agentCardAvailable || Boolean(demoAgentCard) || Boolean(importedAgentCard),
         error: agent.error,
         canDelete: agent.endpointType === "session",
-        source: infrastructureAgentIds.has(agent.agentId) ? "infrastructure" : demoAgentCard ? "session-generated" : importedAgentCard ? "session-imported" : "built-in"
+        source: (infrastructureAgentIds.has(agent.agentId) ? "infrastructure" : demoAgentCard ? "session-generated" : importedAgentCard ? "session-imported" : "built-in") as RegisteredAgentSource
       };
     }) ?? []),
     ...demoAgentCards
@@ -1108,7 +1187,7 @@ function App() {
         agentCardAvailable: true,
         error: undefined,
         canDelete: true,
-        source: "session-generated"
+        source: "session-generated" as const
       })),
     ...importedAgentCards
       .filter((card) => !healthAgentIds.has(card.agentId))
@@ -1124,7 +1203,7 @@ function App() {
           agentCardAvailable: true,
           error: undefined,
           canDelete: true,
-          source: "session-imported"
+          source: "session-imported" as const
         };
       })
   ];
@@ -1272,6 +1351,7 @@ function App() {
     if (activeTab === "agent-registry") {
       void loadDemoAgentCards();
       void loadImportedAgentCards();
+      void loadZeroTrustOnboardedAgents();
       void checkAgentHealth();
     }
     if (activeTab === "trust-identity") {
@@ -1319,6 +1399,10 @@ function App() {
         scrollToRef(importAgentCardRef);
         highlightSection(importAgentCardRef);
       }
+      if (pendingFocusTarget === "zero-trust-onboarding") {
+        scrollToRef(zeroTrustOnboardingRef);
+        highlightSection(zeroTrustOnboardingRef);
+      }
       if (pendingFocusTarget === "agent-validation") {
         scrollToRef(agentCardValidationRef);
         highlightSection(agentCardValidationRef);
@@ -1344,7 +1428,7 @@ function App() {
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [activeTab, pendingFocusTarget, latestResponse, agentCardValidation, demoAgentPreview, registeredAgentRows.length]);
+  }, [activeTab, pendingFocusTarget, latestResponse, agentCardValidation, demoAgentPreview, registeredAgentRows.length, zeroTrustResult]);
 
   async function ensureSession() {
     const response = await fetch(`${API_URL}/session`, {
@@ -1513,6 +1597,60 @@ function App() {
       setImportedAgentCards(body.agentCards);
     } catch (caughtError) {
       setAgentCardImportError(caughtError instanceof Error ? caughtError.message : "Failed to load imported Agent Cards");
+    }
+  }
+
+  async function loadZeroTrustOnboardedAgents() {
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/agent-onboarding`, {
+        method: "GET",
+        credentials: "include"
+      });
+      if (!response.ok) {
+        throw new Error(await friendlyApiError(response, "Failed to load zero-trust onboarded agents"));
+      }
+      const body = await response.json() as { agents: TrustedOnboardedAgent[] };
+      setZeroTrustOnboardedAgents(body.agents);
+    } catch (caughtError) {
+      setZeroTrustError(caughtError instanceof Error ? caughtError.message : "Failed to load zero-trust onboarded agents");
+    }
+  }
+
+  async function startZeroTrustOnboarding() {
+    setZeroTrustError("");
+    setZeroTrustResult(null);
+    setIsZeroTrustOnboarding(true);
+
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/agent-onboarding/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          agentBaseUrl: zeroTrustAgentBaseUrl,
+          expectedAgentId: zeroTrustExpectedAgentId
+        })
+      });
+      const body = await response.json() as AgentOnboardingResult | { error: string; details?: string[]; checks?: AgentOnboardingResult["checks"] };
+      if (!response.ok) {
+        const details = "details" in body && body.details?.length ? ` ${body.details.join(" ")}` : "";
+        throw new Error(`Zero-trust onboarding failed.${details}`);
+      }
+      const result = body as AgentOnboardingResult;
+      setZeroTrustResult(result);
+      if (result.trustedAgents) {
+        setZeroTrustOnboardedAgents(result.trustedAgents);
+      } else {
+        await loadZeroTrustOnboardedAgents();
+      }
+      guideToTarget("registered-agents");
+    } catch (caughtError) {
+      setZeroTrustError(caughtError instanceof Error ? caughtError.message : "Zero-trust onboarding failed");
+      guideToTarget("zero-trust-onboarding");
+    } finally {
+      setIsZeroTrustOnboarding(false);
     }
   }
 
@@ -2098,6 +2236,7 @@ function parsePastedAgentCard(): unknown | undefined {
             <h2>Import Agent Card</h2>
             <p className="muted-note">Paste a standardized Agent Card JSON published by an external agent. The gateway validates capabilities, scopes, auth audience, risk level, and endpoint metadata before allowing orchestration.</p>
             <p className="muted-note">Imported Agent Cards are registered as metadata only in this phase. The gateway validates their contract, but does not call the external endpoint or execute the agent yet.</p>
+            <p className="muted-note strong-note">Paste import is metadata-only and untrusted until bound through Zero-Trust Onboarding.</p>
           </div>
         </div>
         <textarea
@@ -2155,11 +2294,11 @@ function parsePastedAgentCard(): unknown | undefined {
                 </div>
                 <div>
                   <span>Capabilities</span>
-                  <strong>{validationSummary.capabilities.join(", ") || "none"}</strong>
+                  <strong>{validationSummary.capabilities.join(", ") || "none"} (declared by card, not verified)</strong>
                 </div>
                 <div>
                   <span>Required scopes</span>
-                  <strong>{validationSummary.requiredScopes.join(", ") || "none"}</strong>
+                  <strong>{validationSummary.requiredScopes.join(", ") || "none"} (declared by card, not verified)</strong>
                 </div>
                 <div>
                   <span>Risk levels</span>
@@ -2183,6 +2322,71 @@ function parsePastedAgentCard(): unknown | undefined {
                 </ul>
               </div>
             ) : null}
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
+  function renderZeroTrustOnboardingPanel() {
+    return (
+      <section className="zero-trust-onboarding-panel scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
+        <div className="panel-header">
+          <div>
+            <p className="active-panel-eyebrow">Verified onboarding</p>
+            <h2>Zero-Trust Agent Onboarding</h2>
+            <p className="muted-note">Verify an external agent through challenge, signed trust response, OAuth application binding, approved scopes, and approved capabilities.</p>
+            <p className="muted-note strong-note">Scopes and capabilities are not accepted from user input. They are accepted only from a verified external agent response and checked against the OAuth application registry.</p>
+          </div>
+        </div>
+        <div className="zero-trust-form">
+          <label>
+            <span>Agent base URL</span>
+            <input value={zeroTrustAgentBaseUrl} onChange={(event) => setZeroTrustAgentBaseUrl(event.target.value)} />
+          </label>
+          <label>
+            <span>Expected Agent ID</span>
+            <input value={zeroTrustExpectedAgentId} onChange={(event) => setZeroTrustExpectedAgentId(event.target.value)} />
+          </label>
+          <button type="button" onClick={() => void startZeroTrustOnboarding()} disabled={isZeroTrustOnboarding}>
+            {isZeroTrustOnboarding ? "Verifying..." : "Start zero-trust onboarding"}
+          </button>
+        </div>
+        {zeroTrustError ? <p className="demo-agent-error" role="alert">{zeroTrustError}</p> : null}
+        {zeroTrustResult ? (
+          <div className="zero-trust-result">
+            <div>
+              <span>Trust level</span>
+              <strong>{zeroTrustResult.trustLevel}</strong>
+            </div>
+            <div>
+              <span>Agent identity</span>
+              <strong>{zeroTrustResult.agent.agentId}</strong>
+            </div>
+            <div>
+              <span>OAuth client</span>
+              <strong>{zeroTrustResult.agent.clientId}</strong>
+            </div>
+            <p>{zeroTrustResult.message}</p>
+            <div className="zero-trust-checks">
+              {zeroTrustResult.checks.map((check) => (
+                <span className={`check-${check.status}`} key={check.name}>{check.name.replace(/_/g, " ")}: {check.status}</span>
+              ))}
+            </div>
+            <div className="zero-trust-verified-values">
+              <article>
+                <span>Verified scopes</span>
+                <strong>{zeroTrustResult.verifiedScopes.join(", ")}</strong>
+              </article>
+              <article>
+                <span>Verified capabilities</span>
+                <strong>{zeroTrustResult.verifiedCapabilities.join(", ")}</strong>
+              </article>
+              <article>
+                <span>Runtime execution</span>
+                <strong>metadata only</strong>
+              </article>
+            </div>
           </div>
         ) : null}
       </section>
@@ -2493,7 +2697,15 @@ function parsePastedAgentCard(): unknown | undefined {
     const generatedAgents = registeredAgentRows.filter((agent) => agent.source === "session-generated");
     const builtInAgents = registeredAgentRows.filter((agent) => agent.source === "built-in");
     const infrastructureAgents = registeredAgentRows.filter((agent) => agent.source === "infrastructure");
+    const zeroTrustAgents = registeredAgentRows.filter((agent) => agent.source === "zero-trust-onboarded");
     const agentGroups = [
+      {
+        title: "Zero-Trust Onboarded Agents",
+        description: "External agents verified through challenge, signed trust response, and OAuth application binding.",
+        agents: zeroTrustAgents,
+        defaultOpen: zeroTrustAgents.length > 0,
+        emptyState: "No zero-trust onboarded agents yet. Start the onboarding ceremony above."
+      },
       {
         title: "Imported Agent Cards",
         description: "External agent contracts imported into this session. Metadata-only until runtime validation is enabled.",
@@ -2533,7 +2745,7 @@ function parsePastedAgentCard(): unknown | undefined {
               <div className="registry-agent-badges">
                 <span className="source-badge">{agent.source}</span>
                 <strong className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</strong>
-                {agent.source === "session-imported" ? <small className="metadata-only-badge">metadata only</small> : null}
+                {agent.source === "session-imported" || agent.source === "zero-trust-onboarded" ? <small className="metadata-only-badge">metadata only</small> : null}
               </div>
             </div>
             {agent.canDelete ? (
@@ -2548,9 +2760,11 @@ function parsePastedAgentCard(): unknown | undefined {
             ) : null}
           </div>
           <div className="registry-agent-compact-metadata">
+            {agent.source === "zero-trust-onboarded" ? <span><b>Trust</b> {agent.trustLevel}</span> : null}
             <span><b>Auth</b> {agent.authMode}</span>
             <span><b>Endpoint</b> {endpointTypeLabel(agent.endpointType, agent.endpointScheme)}</span>
             <span><b>Agent Card</b> {agent.agentCardAvailable ? "yes" : "no"}</span>
+            {agent.source === "zero-trust-onboarded" ? <span><b>Executable</b> {String(agent.executable)}</span> : null}
           </div>
           <details className="agent-advanced-details">
             <summary>Advanced details</summary>
@@ -2571,6 +2785,26 @@ function parsePastedAgentCard(): unknown | undefined {
                 <span>Source</span>
                 <strong>{agent.source}</strong>
               </div>
+              {agent.source === "zero-trust-onboarded" ? (
+                <>
+                  <div>
+                    <span>OAuth app bound</span>
+                    <strong>{agent.oauthApplicationBound ? "yes" : "no"}</strong>
+                  </div>
+                  <div>
+                    <span>Verified scopes</span>
+                    <strong>{agent.verifiedScopes?.length ?? 0}</strong>
+                  </div>
+                  <div>
+                    <span>Verified capabilities</span>
+                    <strong>{agent.verifiedCapabilities?.length ?? 0}</strong>
+                  </div>
+                  <div>
+                    <span>Execution state</span>
+                    <strong>{agent.executionState}</strong>
+                  </div>
+                </>
+              ) : null}
             </div>
             {agent.error ? <p className="registry-agent-error">{agent.error}</p> : null}
           </details>
@@ -2588,6 +2822,7 @@ function parsePastedAgentCard(): unknown | undefined {
           <button type="button" className="secondary-button" onClick={() => {
             void loadDemoAgentCards();
             void loadImportedAgentCards();
+            void loadZeroTrustOnboardedAgents();
             void checkAgentHealth();
           }} disabled={isHealthLoading}>
             {isHealthLoading ? "Refreshing..." : "Refresh registry"}
@@ -2595,6 +2830,14 @@ function parsePastedAgentCard(): unknown | undefined {
         </div>
 
         <section className="registry-action-grid" aria-label="Agent Registry primary actions">
+          <article>
+            <div>
+              <p className="active-panel-eyebrow">Trust ceremony</p>
+              <h2>Zero-Trust Onboarding</h2>
+              <p>Challenge an external agent, verify its signed response, and bind approved scopes to a registered OAuth application.</p>
+            </div>
+            <button type="button" onClick={() => guideToTarget("zero-trust-onboarding")}>Start ceremony</button>
+          </article>
           <article>
             <div>
               <p className="active-panel-eyebrow">Onboard vendor agent</p>
@@ -2618,6 +2861,10 @@ function parsePastedAgentCard(): unknown | undefined {
           <h2>Registry Summary</h2>
           <div className="registry-summary-grid">
             <article>
+              <span>Zero-trust onboarded</span>
+              <strong>{zeroTrustAgents.length}</strong>
+            </article>
+            <article>
               <span>Imported cards</span>
               <strong>{importedAgents.length}</strong>
             </article>
@@ -2639,6 +2886,10 @@ function parsePastedAgentCard(): unknown | undefined {
             </article>
           </div>
         </section>
+
+        <div className="registry-section">
+          {renderZeroTrustOnboardingPanel()}
+        </div>
 
         <section className="registry-section scroll-target" ref={registeredAgentsRef} tabIndex={-1}>
           <p className="active-panel-eyebrow">Section B</p>

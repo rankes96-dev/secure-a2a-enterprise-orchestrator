@@ -43,6 +43,21 @@ Mock IdP / JWKS
 - Visual audit timeline
 - Raw token redaction
 
+## Zero-Trust Agent Onboarding
+
+Agent Cards are declarations, not trust. A pasted Agent Card can describe an agent, but the gateway must not accept user-provided scopes or capabilities as authoritative.
+
+The Zero-Trust Agent Onboarding ceremony verifies external agent identity before promoting metadata into the trusted registry:
+
+- The gateway creates a nonce-bound onboarding challenge.
+- The external agent returns a signed trust response proving endpoint/control ownership.
+- Scopes and capabilities come from the verified external agent response, not from arbitrary pasted JSON.
+- The OAuth Application Registry binds `clientId`, `agentId`, issuer, audience, allowed scopes, allowed capabilities, and token auth method.
+- The gateway rejects unknown clients, disabled apps, wrong issuers/audiences, extra scopes, and extra capabilities.
+- Successful onboarding is stored as `trusted_metadata_only`.
+
+Runtime execution for onboarded external agents remains disabled until a future runtime validation phase.
+
 ## LinkedIn Summary
 
 Built a Secure Agent Orchestration Gateway that imports external AI agents through standardized Agent Cards and governs execution using verified user identity, scoped A2A JWTs, policy decisions, actor propagation, and a visual security timeline.

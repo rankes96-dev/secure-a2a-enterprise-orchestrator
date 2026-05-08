@@ -42,6 +42,7 @@ import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
 import { addDemoAgentCard, buildDemoAgentCard, deleteDemoAgentCard, listDemoAgentCards, validateDemoAgentCard, validateDemoAgentInput, type DemoAgentCardInput } from "./demoAgentCards";
 import { addImportedAgentCard, deleteImportedAgentCard, listImportedAgentCards, validateImportedAgentCard } from "./importedAgentCards";
+import { listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -1083,7 +1084,8 @@ function remainingActiveAgentIds(sessionToken?: string): string[] {
   return [
     ...getExecutableAgentCards().map((card) => card.agentId),
     ...(sessionToken ? listDemoAgentCards(sessionToken).map((card) => card.agentId) : []),
-    ...(sessionToken ? listImportedAgentCards(sessionToken).map((card) => card.agentId) : [])
+    ...(sessionToken ? listImportedAgentCards(sessionToken).map((card) => card.agentId) : []),
+    ...(sessionToken ? listTrustedOnboardedAgents(sessionToken).map((agent) => agent.agentId) : [])
   ].sort();
 }
 
@@ -2322,6 +2324,43 @@ async function start(): Promise<void> {
       deleted: true,
       agentId,
       agentCards: listImportedAgentCards(registryKey)
+    }, request);
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/agent-onboarding") {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
+      return;
+    }
+
+    sendJson(response, 200, { agents: listTrustedOnboardedAgents(registryKey) }, request);
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/agent-onboarding/start") {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, agentCardImportRateLimit)) {
+      return;
+    }
+
+    const result = startAgentOnboarding(registryKey, await readJsonBody<unknown>(request));
+    if ("error" in result) {
+      sendJson(response, 400, result, request);
+      return;
+    }
+
+    sendJson(response, 200, {
+      ...result,
+      trustedAgents: listTrustedOnboardedAgents(registryKey)
     }, request);
     return;
   }

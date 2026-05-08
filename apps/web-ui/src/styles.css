@@ -723,6 +723,131 @@ h2 {
   background: #ffffff;
 }
 
+.zero-trust-onboarding-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #cbdbea;
+  border-left: 5px solid #14213d;
+  border-radius: 14px;
+  padding: 18px;
+  background: linear-gradient(180deg, #ffffff, #f7fbff);
+  box-shadow: 0 12px 32px rgba(30, 41, 59, 0.06);
+}
+
+.strong-note {
+  color: #172026;
+  font-weight: 800;
+}
+
+.zero-trust-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr)) max-content;
+  gap: 12px;
+  align-items: end;
+}
+
+.zero-trust-form label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.zero-trust-form span,
+.zero-trust-result span,
+.zero-trust-verified-values span {
+  color: #526b76;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.zero-trust-form input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #c7d2d8;
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: #ffffff;
+}
+
+.zero-trust-form button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 13px;
+  color: #ffffff;
+  background: #14213d;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.zero-trust-result {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #dbe3e8;
+  border-radius: 12px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.zero-trust-result > div:not(.zero-trust-checks, .zero-trust-verified-values) {
+  display: grid;
+  gap: 4px;
+}
+
+.zero-trust-result strong {
+  overflow-wrap: anywhere;
+}
+
+.zero-trust-result p {
+  margin-bottom: 0;
+  color: #384b53;
+  line-height: 1.5;
+}
+
+.zero-trust-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.zero-trust-checks span {
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #eef3f6;
+}
+
+.zero-trust-checks .check-passed {
+  color: #1d6d3d;
+  background: #eef8f0;
+}
+
+.zero-trust-checks .check-failed {
+  color: #a1272d;
+  background: #fff0f1;
+}
+
+.zero-trust-checks .check-metadata_only {
+  color: #6a4f13;
+  background: #fff8e7;
+}
+
+.zero-trust-verified-values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.zero-trust-verified-values article {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid #edf1f3;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
 .agent-card-import textarea {
   width: 100%;
   min-height: 260px;
@@ -2375,7 +2500,7 @@ pre {
 
 .registry-action-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 14px;
 }
 
@@ -3062,6 +3187,11 @@ pre {
   .registry-agent-metadata {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .zero-trust-form,
+  .zero-trust-verified-values {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 768px) {
@@ -3168,7 +3298,7 @@ pre {
 
 /* Agent Registry grouped control-plane layout */
 .agent-registry-panel .registry-summary-grid {
-  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  grid-template-columns: repeat(6, minmax(130px, 1fr));
 }
 
 .registry-agent-list {
