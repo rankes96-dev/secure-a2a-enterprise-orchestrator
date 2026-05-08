@@ -256,7 +256,7 @@ h2 {
 
 .registry-agent-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) repeat(6, minmax(110px, 1fr));
+  grid-template-columns: minmax(180px, 1.4fr) repeat(7, minmax(105px, 1fr));
   gap: 10px;
   align-items: center;
   border: 1px solid #d7e0e4;
@@ -289,6 +289,80 @@ h2 {
 
 .placeholder-panel {
   align-content: start;
+}
+
+.agent-card-import {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d7e0e4;
+  border-left: 4px solid #d1495b;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.agent-card-import textarea {
+  width: 100%;
+  min-height: 260px;
+  resize: vertical;
+  border: 1px solid #c7d2d8;
+  border-radius: 8px;
+  padding: 12px;
+  color: #172026;
+  background: #fbfcfd;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-card-validation {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfd;
+}
+
+.agent-card-validation.valid {
+  border-left: 4px solid #1d6d3d;
+}
+
+.agent-card-validation.invalid {
+  border-left: 4px solid #a1272d;
+}
+
+.agent-card-validation > strong {
+  color: #172026;
+}
+
+.agent-card-validation span,
+.agent-card-summary span {
+  color: #526b76;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.agent-card-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.agent-card-summary div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agent-card-summary strong {
+  overflow-wrap: anywhere;
+}
+
+.validation-details {
+  border-left-color: #a1272d;
+  color: #8f1d25;
 }
 
 .agent-health-panel {
@@ -1196,7 +1270,8 @@ pre {
   }
 
   .registry-summary-grid,
-  .registry-agent-row {
+  .registry-agent-row,
+  .agent-card-summary {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -1233,7 +1308,8 @@ pre {
   .demo-agent-list article,
   .panel-header,
   .registry-summary-grid,
-  .registry-agent-row {
+  .registry-agent-row,
+  .agent-card-summary {
     grid-template-columns: 1fr;
   }
 

@@ -32,6 +32,7 @@ import { createSessionCookie, getSessionToken, hasValidSession } from "./securit
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
 import { addDemoAgentCard, buildDemoAgentCard, deleteDemoAgentCard, listDemoAgentCards, validateDemoAgentCard, validateDemoAgentInput, type DemoAgentCardInput } from "./demoAgentCards";
+import { addImportedAgentCard, deleteImportedAgentCard, listImportedAgentCards, validateImportedAgentCard } from "./importedAgentCards";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -895,7 +896,8 @@ function requireSessionToken(request: IncomingMessage, response: ServerResponse)
 function remainingActiveAgentIds(sessionToken?: string): string[] {
   return [
     ...getExecutableAgentCards().map((card) => card.agentId),
-    ...(sessionToken ? listDemoAgentCards(sessionToken).map((card) => card.agentId) : [])
+    ...(sessionToken ? listDemoAgentCards(sessionToken).map((card) => card.agentId) : []),
+    ...(sessionToken ? listImportedAgentCards(sessionToken).map((card) => card.agentId) : [])
   ].sort();
 }
 
@@ -951,6 +953,13 @@ function deleteRuntimeDemoAgent(agentId: string, sessionToken?: string): { ok: t
   const sessionKnown = sessionCards.some((card) => card.agentId === agentId);
   if (sessionKnown && sessionToken) {
     deleteDemoAgentCard(sessionToken, agentId);
+    return { ok: true, deleted: true };
+  }
+
+  const importedCards = sessionToken ? listImportedAgentCards(sessionToken) : [];
+  const importedKnown = importedCards.some((card) => card.agentId === agentId);
+  if (importedKnown && sessionToken) {
+    deleteImportedAgentCard(sessionToken, agentId);
     return { ok: true, deleted: true };
   }
 
@@ -1944,6 +1953,68 @@ async function start(): Promise<void> {
 
     const agentCard = buildDemoAgentCard(input);
     sendJson(response, 200, { agentCard, warnings: validateDemoAgentCard(agentCard) }, request);
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/agent-cards") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+      return;
+    }
+
+    sendJson(response, 200, { agentCards: listImportedAgentCards(sessionToken) }, request);
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/agent-cards/validate") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+      return;
+    }
+
+    const body = await readJsonBody<{ agentCard?: unknown }>(request);
+    const result = validateImportedAgentCard(body.agentCard);
+    if (!result.valid) {
+      sendJson(response, 400, result, request);
+      return;
+    }
+
+    sendJson(response, 200, result, request);
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/agent-cards/import") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+      return;
+    }
+
+    const body = await readJsonBody<{ agentCard?: unknown }>(request);
+    const result = validateImportedAgentCard(body.agentCard);
+    if (!result.valid) {
+      sendJson(response, 400, result, request);
+      return;
+    }
+
+    const agentCard = addImportedAgentCard(sessionToken, result.agentCard);
+    sendJson(response, 200, {
+      imported: true,
+      agentCard,
+      agentCards: listImportedAgentCards(sessionToken),
+      warnings: result.warnings
+    }, request);
     return;
   }
 

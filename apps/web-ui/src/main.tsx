@@ -168,6 +168,37 @@ function healthClass(status: string): string {
   return `health-${status}`;
 }
 
+function endpointMetadata(endpoint: string | undefined): { endpointType: AgentCardEndpointType; endpointScheme: AgentCardValidationSummary["endpointScheme"] } {
+  if (!endpoint) {
+    return { endpointType: "unknown", endpointScheme: "unknown" };
+  }
+
+  try {
+    const parsed = new URL(endpoint);
+    if (parsed.protocol === "session:") {
+      return { endpointType: "session", endpointScheme: "session" };
+    }
+    if (parsed.protocol === "https:") {
+      return { endpointType: "public", endpointScheme: "https" };
+    }
+    if (parsed.protocol === "http:") {
+      return { endpointType: "public", endpointScheme: "http" };
+    }
+  } catch {
+    return { endpointType: "unknown", endpointScheme: "unknown" };
+  }
+
+  return { endpointType: "unknown", endpointScheme: "unknown" };
+}
+
+function endpointTypeLabel(endpointType: AgentCardEndpointType | "internal", endpointScheme?: AgentCardValidationSummary["endpointScheme"]): string {
+  if (endpointType === "public" && endpointScheme && endpointScheme !== "unknown") {
+    return `public ${endpointScheme}`;
+  }
+
+  return endpointType;
+}
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -204,6 +235,33 @@ type DemoAgentCard = {
   }>;
 };
 
+type AgentCardEndpointType = "public" | "session" | "unknown";
+
+type AgentCardValidationSummary = {
+  agentId: string;
+  name: string;
+  authType: string;
+  audience: string;
+  capabilities: string[];
+  requiredScopes: string[];
+  riskLevels: Array<"low" | "medium" | "high" | "sensitive">;
+  endpointType: AgentCardEndpointType;
+  endpointScheme: "https" | "http" | "session" | "unknown";
+};
+
+type AgentCardValidationResult =
+  | {
+      valid: true;
+      agentCard: DemoAgentCard;
+      summary: AgentCardValidationSummary;
+      warnings: string[];
+    }
+  | {
+      valid: false;
+      error: "invalid_agent_card";
+      details: string[];
+    };
+
 type DemoAgentCardInput = {
   system: string;
   agentSlug: string;
@@ -231,6 +289,33 @@ const emptyDemoAgentInput: DemoAgentCardInput = {
   examples: "",
   supportingHelpOptions: []
 };
+
+const sampleAgentCardJson = `{
+  "agentId": "external-salesforce-access-agent",
+  "name": "Salesforce Access Agent",
+  "description": "Diagnoses Salesforce login and permission issues.",
+  "systems": ["salesforce"],
+  "endpoint": "https://agents.example.com/salesforce/task",
+  "auth": {
+    "type": "oauth2_client_credentials_jwt",
+    "audience": "external-salesforce-access-agent"
+  },
+  "skills": [
+    {
+      "id": "salesforce-access-diagnose",
+      "name": "Diagnose Salesforce access",
+      "description": "Checks Salesforce access issues and missing permissions.",
+      "capabilities": ["salesforce.access.diagnose"],
+      "requiredScopes": ["salesforce.access.read"],
+      "riskLevel": "medium",
+      "examples": ["I cannot login to Salesforce", "User cannot access Salesforce account"],
+      "scope": {
+        "systems": ["salesforce"],
+        "resourceTypes": ["user", "account", "permission"]
+      }
+    }
+  ]
+}`;
 
 const supportingHelpOptions = [
   { value: "oauth_scope_compare", label: "OAuth scope comparison" },
@@ -317,10 +402,17 @@ function App() {
   const [demoAgentInput, setDemoAgentInput] = useState<DemoAgentCardInput>(emptyDemoAgentInput);
   const [demoAgentPreview, setDemoAgentPreview] = useState<DemoAgentCard | null>(null);
   const [demoAgentCards, setDemoAgentCards] = useState<DemoAgentCard[]>([]);
+  const [importedAgentCards, setImportedAgentCards] = useState<DemoAgentCard[]>([]);
   const [demoAgentWarnings, setDemoAgentWarnings] = useState<string[]>([]);
   const [demoAgentError, setDemoAgentError] = useState("");
   const [demoAgentSuccessMessage, setDemoAgentSuccessMessage] = useState("");
   const [recentlyAddedDemoAgentId, setRecentlyAddedDemoAgentId] = useState("");
+  const [agentCardJson, setAgentCardJson] = useState("");
+  const [agentCardValidation, setAgentCardValidation] = useState<AgentCardValidationResult | null>(null);
+  const [agentCardImportError, setAgentCardImportError] = useState("");
+  const [agentCardImportSuccess, setAgentCardImportSuccess] = useState("");
+  const [isAgentCardValidating, setIsAgentCardValidating] = useState(false);
+  const [isAgentCardImporting, setIsAgentCardImporting] = useState(false);
   const demoAgentListRef = useRef<HTMLDivElement | null>(null);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
@@ -334,21 +426,25 @@ function App() {
     : "Local mock mode";
   const healthAgentIds = new Set(health?.agents.map((agent) => agent.agentId) ?? []);
   const demoAgentCardById = new Map(demoAgentCards.map((card) => [card.agentId, card]));
+  const importedAgentCardById = new Map(importedAgentCards.map((card) => [card.agentId, card]));
   const builtInAgentsCount = health?.agents.filter((agent) => agent.endpointType !== "session" && !infrastructureAgentIds.has(agent.agentId)).length ?? 0;
   const sessionDemoAgentsCount = demoAgentCards.length || health?.agents.filter((agent) => agent.endpointType === "session").length || 0;
   const healthyAgentsCount = health?.summary.healthy ?? 0;
   const registeredAgentRows = [
     ...(health?.agents.map((agent) => {
       const demoAgentCard = demoAgentCardById.get(agent.agentId);
+      const importedAgentCard = importedAgentCardById.get(agent.agentId);
       return {
         agentId: agent.agentId,
         status: agent.status,
         endpointType: agent.endpointType,
-        authMode: demoAgentCard?.auth?.type ?? "unknown",
+        endpointScheme: endpointMetadata(demoAgentCard?.endpoint ?? importedAgentCard?.endpoint).endpointScheme,
+        authMode: demoAgentCard?.auth?.type ?? importedAgentCard?.auth?.type ?? "unknown",
         latencyMs: agent.latencyMs,
-        agentCardAvailable: agent.details.agentCardAvailable || Boolean(demoAgentCard),
+        agentCardAvailable: agent.details.agentCardAvailable || Boolean(demoAgentCard) || Boolean(importedAgentCard),
         error: agent.error,
-        canDelete: agent.endpointType === "session"
+        canDelete: agent.endpointType === "session",
+        source: infrastructureAgentIds.has(agent.agentId) ? "infrastructure" : demoAgentCard ? "session-generated" : importedAgentCard ? "session-imported" : "built-in"
       };
     }) ?? []),
     ...demoAgentCards
@@ -357,12 +453,31 @@ function App() {
         agentId: card.agentId,
         status: "unknown",
         endpointType: "session" as const,
+        endpointScheme: "session" as const,
         authMode: card.auth?.type ?? "unknown",
         latencyMs: undefined,
         agentCardAvailable: true,
         error: undefined,
-        canDelete: true
-      }))
+        canDelete: true,
+        source: "session-generated"
+      })),
+    ...importedAgentCards
+      .filter((card) => !healthAgentIds.has(card.agentId))
+      .map((card) => {
+        const endpoint = endpointMetadata(card.endpoint);
+        return {
+          agentId: card.agentId,
+          status: "unknown",
+          endpointType: endpoint.endpointType,
+          endpointScheme: endpoint.endpointScheme,
+          authMode: card.auth?.type ?? "unknown",
+          latencyMs: undefined,
+          agentCardAvailable: true,
+          error: undefined,
+          canDelete: true,
+          source: "session-imported"
+        };
+      })
   ];
 
   function resetDemoAgentDraft() {
@@ -401,7 +516,7 @@ function App() {
   }
 
   async function deleteDemoAgent(agentId: string) {
-    const confirmed = window.confirm(`Remove demo agent ${agentId} from this orchestrator session?`);
+    const confirmed = window.confirm(`Remove agent ${agentId} from this orchestrator session?`);
     if (!confirmed) {
       return;
     }
@@ -422,8 +537,9 @@ function App() {
       }
 
       const body = await response.json() as { deleted: boolean; agentId: string; remainingAgents: string[] };
-      setDeleteAgentMessage(`Removed ${body.agentId} from active demo agents.`);
+      setDeleteAgentMessage(`Removed ${body.agentId} from the session registry.`);
       await loadDemoAgentCards();
+      await loadImportedAgentCards();
       await checkAgentHealth();
     } catch (caughtError) {
       setDeleteAgentError(caughtError instanceof Error ? caughtError.message : "Failed to delete demo agent");
@@ -439,6 +555,7 @@ function App() {
   useEffect(() => {
     if (activeTab === "agent-registry") {
       void loadDemoAgentCards();
+      void loadImportedAgentCards();
       void checkAgentHealth();
     }
   }, [activeTab]);
@@ -493,6 +610,115 @@ function App() {
     } catch (caughtError) {
       setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to load demo Agent Cards");
     }
+  }
+
+  async function loadImportedAgentCards() {
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/agent-cards`, {
+        method: "GET",
+        credentials: "include"
+      });
+      if (!response.ok) {
+        throw new Error(await friendlyApiError(response, "Failed to load imported Agent Cards"));
+      }
+      const body = await response.json() as { agentCards: DemoAgentCard[] };
+      setImportedAgentCards(body.agentCards);
+    } catch (caughtError) {
+      setAgentCardImportError(caughtError instanceof Error ? caughtError.message : "Failed to load imported Agent Cards");
+    }
+  }
+
+  function parsePastedAgentCard(): unknown | undefined {
+    if (!agentCardJson.trim()) {
+      setAgentCardValidation({ valid: false, error: "invalid_agent_card", details: ["Paste Agent Card JSON before validating."] });
+      setAgentCardImportError("");
+      return undefined;
+    }
+
+    try {
+      return JSON.parse(agentCardJson) as unknown;
+    } catch {
+      setAgentCardValidation({ valid: false, error: "invalid_agent_card", details: ["Invalid JSON. Check the pasted Agent Card syntax."] });
+      setAgentCardImportError("");
+      return undefined;
+    }
+  }
+
+  async function validatePastedAgentCard() {
+    const parsedAgentCard = parsePastedAgentCard();
+    if (!parsedAgentCard) {
+      return;
+    }
+
+    setAgentCardImportError("");
+    setAgentCardImportSuccess("");
+    setIsAgentCardValidating(true);
+
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/agent-cards/validate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ agentCard: parsedAgentCard })
+      });
+      const body = await response.json() as AgentCardValidationResult;
+      setAgentCardValidation(body);
+      if (!response.ok && body.valid !== false) {
+        throw new Error("Failed to validate Agent Card");
+      }
+    } catch (caughtError) {
+      setAgentCardImportError(caughtError instanceof Error ? caughtError.message : "Failed to validate Agent Card");
+    } finally {
+      setIsAgentCardValidating(false);
+    }
+  }
+
+  async function importPastedAgentCard() {
+    const parsedAgentCard = parsePastedAgentCard();
+    if (!parsedAgentCard || agentCardValidation?.valid !== true) {
+      return;
+    }
+
+    setAgentCardImportError("");
+    setAgentCardImportSuccess("");
+    setIsAgentCardImporting(true);
+
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/agent-cards/import`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ agentCard: parsedAgentCard })
+      });
+      const body = await response.json() as { imported?: boolean; agentCard?: DemoAgentCard; agentCards?: DemoAgentCard[]; warnings?: string[] } | AgentCardValidationResult;
+      if (!response.ok) {
+        if ("valid" in body && body.valid === false) {
+          setAgentCardValidation(body);
+        }
+        throw new Error("Failed to import Agent Card");
+      }
+      if ("agentCards" in body && body.agentCards) {
+        setImportedAgentCards(body.agentCards);
+      }
+      setAgentCardImportSuccess("Agent Card imported into this session.");
+      await loadImportedAgentCards();
+      await loadDemoAgentCards();
+      await checkAgentHealth();
+    } catch (caughtError) {
+      setAgentCardImportError(caughtError instanceof Error ? caughtError.message : "Failed to import Agent Card");
+    } finally {
+      setIsAgentCardImporting(false);
+    }
+  }
+
+  function clearPastedAgentCard() {
+    setAgentCardJson("");
+    setAgentCardValidation(null);
+    setAgentCardImportError("");
+    setAgentCardImportSuccess("");
   }
 
   async function generateDemoAgentPreview() {
@@ -694,6 +920,109 @@ function App() {
           </article>
         ))}
       </div>
+    );
+  }
+
+  function renderAgentCardImport() {
+    const validationSummary = agentCardValidation?.valid ? agentCardValidation.summary : null;
+    const validationWarnings = agentCardValidation?.valid ? agentCardValidation.warnings : [];
+    const validationDetails = agentCardValidation?.valid === false ? agentCardValidation.details : [];
+
+    return (
+      <section className="agent-card-import" aria-label="Import Agent Card">
+        <div className="panel-header">
+          <div>
+            <p className="active-panel-eyebrow">Paste import</p>
+            <h2>Import Agent Card</h2>
+            <p className="muted-note">Paste a standardized Agent Card JSON published by an external agent. The gateway validates capabilities, scopes, auth audience, risk level, and endpoint metadata before allowing orchestration.</p>
+          </div>
+        </div>
+        <textarea
+          value={agentCardJson}
+          onChange={(event) => {
+            setAgentCardJson(event.target.value);
+            setAgentCardValidation(null);
+            setAgentCardImportError("");
+            setAgentCardImportSuccess("");
+          }}
+          placeholder={sampleAgentCardJson}
+          aria-label="Agent Card JSON"
+        />
+        <div className="demo-agent-actions">
+          <button type="button" onClick={() => void validatePastedAgentCard()} disabled={isAgentCardValidating || isAgentCardImporting}>
+            {isAgentCardValidating ? "Validating..." : "Validate"}
+          </button>
+          <button type="button" onClick={() => void importPastedAgentCard()} disabled={agentCardValidation?.valid !== true || isAgentCardImporting || isAgentCardValidating}>
+            {isAgentCardImporting ? "Importing..." : "Import Agent Card"}
+          </button>
+          <button type="button" onClick={clearPastedAgentCard} disabled={isAgentCardImporting || isAgentCardValidating}>Clear</button>
+          <button type="button" onClick={() => {
+            setAgentCardJson(sampleAgentCardJson);
+            setAgentCardValidation(null);
+            setAgentCardImportError("");
+            setAgentCardImportSuccess("");
+          }} disabled={isAgentCardImporting || isAgentCardValidating}>Use sample</button>
+        </div>
+        {agentCardImportError ? <p className="demo-agent-error" role="alert">{agentCardImportError}</p> : null}
+        {agentCardImportSuccess ? <p className="demo-agent-success" role="status">{agentCardImportSuccess}</p> : null}
+        {agentCardValidation ? (
+          <div className={`agent-card-validation ${agentCardValidation.valid ? "valid" : "invalid"}`}>
+            <strong>{agentCardValidation.valid ? "Valid Agent Card" : "Invalid Agent Card"}</strong>
+            {validationSummary ? (
+              <div className="agent-card-summary">
+                <div>
+                  <span>Agent ID</span>
+                  <strong>{validationSummary.agentId}</strong>
+                </div>
+                <div>
+                  <span>Name</span>
+                  <strong>{validationSummary.name}</strong>
+                </div>
+                <div>
+                  <span>Auth type</span>
+                  <strong>{validationSummary.authType}</strong>
+                </div>
+                <div>
+                  <span>Audience</span>
+                  <strong>{validationSummary.audience}</strong>
+                </div>
+                <div>
+                  <span>Endpoint type</span>
+                  <strong>{endpointTypeLabel(validationSummary.endpointType, validationSummary.endpointScheme)}</strong>
+                </div>
+                <div>
+                  <span>Capabilities</span>
+                  <strong>{validationSummary.capabilities.join(", ") || "none"}</strong>
+                </div>
+                <div>
+                  <span>Required scopes</span>
+                  <strong>{validationSummary.requiredScopes.join(", ") || "none"}</strong>
+                </div>
+                <div>
+                  <span>Risk levels</span>
+                  <strong>{validationSummary.riskLevels.join(", ") || "none"}</strong>
+                </div>
+              </div>
+            ) : null}
+            {validationWarnings.length > 0 ? (
+              <div>
+                <span>Warnings</span>
+                <ul className="demo-agent-warnings">
+                  {validationWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+                </ul>
+              </div>
+            ) : null}
+            {validationDetails.length > 0 ? (
+              <div>
+                <span>Details</span>
+                <ul className="demo-agent-warnings validation-details">
+                  {validationDetails.map((detail) => <li key={detail}>{detail}</li>)}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
     );
   }
 
@@ -931,6 +1260,7 @@ function App() {
           </div>
           <button type="button" className="secondary-button" onClick={() => {
             void loadDemoAgentCards();
+            void loadImportedAgentCards();
             void checkAgentHealth();
           }} disabled={isHealthLoading}>
             {isHealthLoading ? "Refreshing..." : "Refresh registry"}
@@ -980,7 +1310,11 @@ function App() {
                   </div>
                   <div>
                     <span>Endpoint type</span>
-                    <strong>{agent.endpointType}</strong>
+                    <strong>{endpointTypeLabel(agent.endpointType, agent.endpointScheme)}</strong>
+                  </div>
+                  <div>
+                    <span>Source</span>
+                    <strong>{agent.source}</strong>
                   </div>
                   <div>
                     <span>Auth mode</span>
@@ -1017,6 +1351,10 @@ function App() {
             <p className="muted-note">{isHealthLoading ? "Loading registered agents..." : "No registered agents found."}</p>
           )}
         </section>
+
+        <div className="registry-section">
+          {renderAgentCardImport()}
+        </div>
 
         <div className="registry-section">
           {renderDemoAgentBuilder()}
