@@ -12,7 +12,7 @@ type IdentitySessionResponse = {
 };
 
 type ResolveResponse = {
-  userIdentity?: {
+  userIdentity: {
     authenticated: boolean;
     email?: string;
     name?: string;
@@ -108,7 +108,7 @@ async function verifyResolveCarriesUserIdentity(): Promise<void> {
   requireStatus(response, body, 200, "resolve with user identity");
 
   const result = body as ResolveResponse;
-  if (result.userIdentity?.authenticated !== true || result.userIdentity.email !== "ran@company.com") {
+  if (result.userIdentity.authenticated !== true || result.userIdentity.email !== "ran@company.com") {
     throw new Error(`resolve response did not include authenticated user identity: ${JSON.stringify(body)}`);
   }
 

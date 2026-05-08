@@ -698,6 +698,7 @@ function buildTrustStatus(sessionToken?: string) {
       agentCardImportFetchesExternalUrls: false,
       importedAgentsExecutable: false,
       agentCardSecretsRejected: true,
+      userIdentityRequiredForResolve: true,
       privateKeyJwtReplayProtection: privateKeyJwtReplayProtectionStatus(),
       ipAllowlist: ipAllowlistStatus()
     }
@@ -1237,7 +1238,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     `${effectiveMessage}\n${requestBody.message}\n${conversationState.lastRequestInterpretation?.requestedActionText ?? ""}\n${conversationState.lastIncidentContext?.errorText ?? ""}`,
     incidentInterpretation ?? routingDecision.requestInterpretation
   );
-  const finalize = (response: ResolveResponse): ResolveResponse => {
+  const finalize = (response: Omit<ResolveResponse, "userIdentity">): ResolveResponse => {
     const userIdentityTrace = verifiedUser
       ? [
           executionStep(
@@ -2388,7 +2389,16 @@ async function start(): Promise<void> {
     return;
   }
 
-  if (!requireClientAccess(request, response)) {
+  const sessionToken = requireSessionToken(request, response);
+  if (!sessionToken) {
+    return;
+  }
+
+  if (!currentUserIdentity(sessionToken)) {
+    sendJson(response, 401, {
+      error: "user_identity_required",
+      message: "Login as a demo user before running secure A2A tasks."
+    }, request);
     return;
   }
 
@@ -2403,7 +2413,7 @@ async function start(): Promise<void> {
     return;
   }
 
-  sendJson(response, 200, await resolveIssue(requestBody, getSessionToken(request)));
+  sendJson(response, 200, await resolveIssue(requestBody, sessionToken));
   });
 }
 

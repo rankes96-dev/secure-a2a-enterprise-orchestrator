@@ -1285,6 +1285,17 @@ h2 {
   margin-bottom: 0;
 }
 
+.identity-required-warning {
+  border: 1px solid #e0c36f;
+  border-left: 4px solid #8a5a00;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #4b3c15;
+  background: #fff9e8;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .scenario-heading {
   display: flex;
   justify-content: space-between;

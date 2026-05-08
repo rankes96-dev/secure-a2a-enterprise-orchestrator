@@ -343,7 +343,7 @@ export interface ResolveResponse {
     confidence: "low" | "medium" | "high";
     hasMinimumDetails: boolean;
   };
-  userIdentity?: UserIdentitySummary;
+  userIdentity: UserIdentitySummary;
   a2aTasks?: A2ATask[];
   a2aResponses?: A2AAgentResponse[];
   diagnosis: {

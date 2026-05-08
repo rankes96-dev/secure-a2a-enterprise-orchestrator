@@ -217,30 +217,19 @@ function buildSecurityTimelineEvents(response: ResolveResponse): SecurityTimelin
   const events: SecurityTimelineEvent[] = [];
   const firstTraceTimestamp = response.executionTrace[0]?.timestamp ?? response.agentTrace[0]?.timestamp;
 
-  if (response.userIdentity?.authenticated) {
-    events.push({
-      id: "identity-verified",
-      category: "identity",
-      title: "User identity verified",
-      description: `Verified user ${response.userIdentity.email ?? "unknown"} was attached to this gateway session.`,
-      status: "success",
-      timestamp: firstTraceTimestamp,
-      actor: response.userIdentity.email,
-      metadata: metadataList([
-        { label: "Email", value: response.userIdentity.email },
-        { label: "Roles", value: response.userIdentity.roles ?? [] }
-      ])
-    });
-  } else {
-    events.push({
-      id: "identity-anonymous",
-      category: "identity",
-      title: "Anonymous session",
-      description: "No verified user identity was attached to this task.",
-      status: "warning",
-      timestamp: firstTraceTimestamp
-    });
-  }
+  events.push({
+    id: "identity-verified",
+    category: "identity",
+    title: "User identity verified",
+    description: `Verified user ${response.userIdentity.email ?? "unknown"} was attached to this gateway session.`,
+    status: "success",
+    timestamp: firstTraceTimestamp,
+    actor: response.userIdentity.email,
+    metadata: metadataList([
+      { label: "Email", value: response.userIdentity.email },
+      { label: "Roles", value: response.userIdentity.roles ?? [] }
+    ])
+  });
 
   if (response.requestInterpretation) {
     events.push({
@@ -630,6 +619,7 @@ type TrustStatusResponse = {
     agentCardImportFetchesExternalUrls: boolean;
     importedAgentsExecutable: boolean;
     agentCardSecretsRejected: boolean;
+    userIdentityRequiredForResolve: boolean;
     privateKeyJwtReplayProtection: "configured" | "unknown";
     ipAllowlist: "configured" | "disabled" | "unknown";
   };
@@ -921,13 +911,14 @@ function App() {
         };
       })
   ];
-  const latestActorAttached = latestResponse?.userIdentity?.authenticated === true;
+  const latestActorAttached = latestResponse?.userIdentity.authenticated === true;
   const latestActorTokenObserved = Boolean(latestResponse?.a2aTasks?.some((task) =>
     Boolean(task.context.auth?.actor) ||
     Boolean(task.context.auth?.actorRoles?.length) ||
     Boolean(task.context.actor?.email)
   ));
-  const latestActorRoles = latestResponse?.userIdentity?.roles?.join(", ") ?? "none";
+  const latestActorRoles = latestResponse?.userIdentity.roles?.join(", ") ?? "none";
+  const isUserAuthenticated = identitySession?.authenticated === true || trustStatus?.userIdentity.authenticated === true;
 
   function resetDemoAgentDraft() {
     setDemoAgentInput(emptyDemoAgentInput);
@@ -1363,7 +1354,10 @@ function App() {
   async function resolveIssue(issueText: string) {
     const trimmedIssueText = issueText.trim();
 
-    if (!trimmedIssueText || isLoading) {
+    if (!trimmedIssueText || isLoading || !isUserAuthenticated) {
+      if (trimmedIssueText && !isUserAuthenticated) {
+        setError("Secure execution requires verified user identity. Login in Trust & Identity before running tasks.");
+      }
       return;
     }
 
@@ -1469,7 +1463,7 @@ function App() {
             <button
               type="button"
               className="scenario-run"
-              disabled={isLoading}
+              disabled={isLoading || !isUserAuthenticated}
               onClick={() => {
                 setMessage(scenario.message);
                 void resolveIssue(scenario.message);
@@ -1783,6 +1777,12 @@ function App() {
         <MessageList messages={messages} />
 
         <div className="composer-dock">
+          {!isUserAuthenticated ? (
+            <div className="identity-required-warning" role="status">
+              Secure execution requires verified user identity. Login in Trust & Identity before running tasks.
+            </div>
+          ) : null}
+
           <div className="recommended-demo-path" aria-label="Recommended demo path">
             <div>
               <p className="active-panel-eyebrow">Identity-first agent governance</p>
@@ -1815,8 +1815,8 @@ function App() {
               onChange={(event) => setMessage(event.target.value)}
               aria-label="Integration issue"
             />
-            <button type="submit" disabled={isLoading}>
-              {isLoading ? "Resolving..." : "Resolve"}
+            <button type="submit" disabled={isLoading || !isUserAuthenticated}>
+              {isLoading ? "Resolving..." : isUserAuthenticated ? "Resolve" : "Login required"}
             </button>
           </form>
         </div>
@@ -2101,6 +2101,7 @@ function App() {
             <span className="security-badge">Agent Card import fetches external URLs: {String(securityControls?.agentCardImportFetchesExternalUrls ?? false)}</span>
             <span className="security-badge">Imported agents executable: {String(securityControls?.importedAgentsExecutable ?? false)}</span>
             <span className="security-badge positive">Agent Card secrets rejected: {String(securityControls?.agentCardSecretsRejected ?? true)}</span>
+            <span className="security-badge positive">User identity required for execution: {String(securityControls?.userIdentityRequiredForResolve ?? true)}</span>
             <span className="security-badge">Replay protection: {securityControls?.privateKeyJwtReplayProtection ?? "unknown"}</span>
             <span className="security-badge">IP allowlist: {securityControls?.ipAllowlist ?? "unknown"}</span>
           </div>
@@ -2146,7 +2147,7 @@ function App() {
             <div className="security-timeline-summary">
               <article>
                 <span>User</span>
-                <strong>{latestResponse.userIdentity?.authenticated ? "authenticated" : "not authenticated"}</strong>
+                <strong>{latestResponse.userIdentity.authenticated ? "authenticated" : "not authenticated"}</strong>
               </article>
               <article>
                 <span>Selected agents</span>
@@ -2290,19 +2291,19 @@ function App() {
               <div className="classification-details">
                 <div>
                   <span>Status</span>
-                  <strong>{latestResponse.userIdentity?.authenticated ? "authenticated" : "not authenticated"}</strong>
+                  <strong>{latestResponse.userIdentity.authenticated ? "authenticated" : "not authenticated"}</strong>
                 </div>
                 <div>
                   <span>Email</span>
-                  <strong>{latestResponse.userIdentity?.email ?? "none"}</strong>
+                  <strong>{latestResponse.userIdentity.email ?? "none"}</strong>
                 </div>
                 <div>
                   <span>Name</span>
-                  <strong>{latestResponse.userIdentity?.name ?? "none"}</strong>
+                  <strong>{latestResponse.userIdentity.name ?? "none"}</strong>
                 </div>
                 <div>
                   <span>Roles</span>
-                  <strong>{latestResponse.userIdentity?.roles?.join(", ") ?? "none"}</strong>
+                  <strong>{latestResponse.userIdentity.roles?.join(", ") ?? "none"}</strong>
                 </div>
                 <div>
                   <span>Actor attached</span>
@@ -2310,7 +2311,7 @@ function App() {
                 </div>
                 <div>
                   <span>Actor email</span>
-                  <strong>{latestResponse.userIdentity?.email ?? "none"}</strong>
+                  <strong>{latestResponse.userIdentity.email ?? "none"}</strong>
                 </div>
                 <div>
                   <span>Actor roles</span>

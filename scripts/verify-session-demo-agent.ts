@@ -73,6 +73,18 @@ async function createSession(): Promise<string> {
   return cookieFromSetCookie(response.headers);
 }
 
+async function demoLogin(cookie: string): Promise<void> {
+  const response = await requestJson<{ authenticated: boolean; user?: { email?: string } }>("/identity/demo-login", {
+    method: "POST",
+    cookie,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "ran@company.com" })
+  });
+  assertCondition(response.status === 200, `demo login failed with ${response.status}: ${response.rawBody}`);
+  assertCondition(response.body.authenticated === true && response.body.user?.email === "ran@company.com", "demo login should authenticate ran@company.com");
+  console.log("demo user login: ok");
+}
+
 async function addDemoAgent(cookie: string): Promise<DemoAgentCard> {
   const response = await requestJson<{ agentCard: DemoAgentCard; agentCards: DemoAgentCard[]; warnings: string[] }>("/demo-agent-cards", {
     method: "POST",
@@ -164,6 +176,7 @@ async function verifyResolve(cookie: string, card: DemoAgentCard): Promise<void>
 
 async function main(): Promise<void> {
   const cookie = await createSession();
+  await demoLogin(cookie);
   const card = await addDemoAgent(cookie);
   await verifyListed(cookie, card.agentId);
   await verifyHealth(cookie, card);
