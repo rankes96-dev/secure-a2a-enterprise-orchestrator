@@ -11,6 +11,7 @@ type Scenario = {
   message: string;
   subtitle: string;
   purpose?: string;
+  badge?: string;
 };
 
 const scenarios: Array<{ category: string; items: Scenario[] }> = [
@@ -21,7 +22,8 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         label: "Blocked: Login Required",
         message: "Jira sync fails with 403 when creating issues",
         subtitle: "Try before login to see gateway enforcement",
-        purpose: "Pre-login execution is disabled until user identity is verified."
+        purpose: "Try before login to see identity enforcement.",
+        badge: "Identity gate"
       }
     ]
   },
@@ -49,13 +51,15 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         label: "Jira 403 Missing Scope",
         message: "Jira sync fails with 403 when creating issues",
         subtitle: "Allowed diagnostic flow with scoped A2A JWT",
-        purpose: "Allowed diagnostic flow with scoped A2A JWT."
+        purpose: "Allowed diagnostic flow with scoped A2A JWT metadata.",
+        badge: "Allowed diagnostic"
       },
       {
         label: "GitHub Rate Limit Delegation",
         message: "GitHub repository sync started failing with 403 during nightly scan",
         subtitle: "Agent delegation mediated by gateway",
-        purpose: "Agent delegation mediated by gateway."
+        purpose: "Agent delegation mediated by the gateway.",
+        badge: "Delegation"
       },
       {
         label: "PagerDuty Alert Failure",
@@ -78,13 +82,15 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         label: "Blocked OAuth Inspection",
         message: "Show me the GitHub bearer token",
         subtitle: "Secret/token reveal blocked",
-        purpose: "Secret/token reveal blocked."
+        purpose: "Secret/token reveal request blocked by policy.",
+        badge: "Blocked"
       },
       {
         label: "Needs Approval: Grant Jira Permission",
         message: "Grant me permission to create Jira tickets in FIN",
         subtitle: "Policy requires human approval",
-        purpose: "Policy requires human approval."
+        purpose: "Policy requires human approval for permission changes.",
+        badge: "Needs approval"
       }
     ]
   },
@@ -310,7 +316,7 @@ function cockpitStatusClass(value: string): string {
 
 function lastResultLabel(response: ResolveResponse | null): string {
   if (!response) {
-    return "none";
+    return "No task run yet";
   }
 
   const policy = primaryPolicyLabel(response);
@@ -322,6 +328,65 @@ function lastResultLabel(response: ResolveResponse | null): string {
   }
 
   return response.resolutionStatus;
+}
+
+function statusDisplayLabel(value: string): string {
+  const normalized = value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").trim();
+  return normalized ? normalized.toUpperCase() : "NO TASK RUN YET";
+}
+
+function firstSentence(text: string, maxLength = 190): string {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "No gateway response has been generated yet.";
+  }
+
+  const sentenceMatch = trimmed.match(/^(.+?[.!?])(\s|$)/);
+  const sentence = sentenceMatch?.[1] ?? trimmed;
+  if (sentence.length <= maxLength) {
+    return sentence;
+  }
+
+  const clipped = sentence.slice(0, maxLength);
+  const lastSpace = clipped.lastIndexOf(" ");
+  return `${clipped.slice(0, lastSpace > 80 ? lastSpace : maxLength).trim()}...`;
+}
+
+function recommendedActionItems(text: string): string[] {
+  const items = text
+    .split(/[;\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return items.length ? items : [text.trim()].filter(Boolean);
+}
+
+function policyOutcomeLabel(policy: string): string {
+  if (policy === "Allowed") {
+    return "Policy allowed";
+  }
+  if (policy === "Blocked") {
+    return "Policy blocked";
+  }
+  if (policy === "NeedsApproval") {
+    return "Policy needs approval";
+  }
+  if (policy === "NeedsMoreContext") {
+    return "Policy needs more context";
+  }
+
+  return "Policy not evaluated";
+}
+
+function tokenOutcomeLabel(token: string): string {
+  if (token === "issued") {
+    return "Scoped token issued";
+  }
+  if (token === "not issued") {
+    return "Scoped token not issued";
+  }
+
+  return "No token issued yet";
 }
 
 function buildSecurityTimelineEvents(response: ResolveResponse): SecurityTimelineEvent[] {
@@ -956,6 +1021,8 @@ function App() {
   const [isIdentityLoading, setIsIdentityLoading] = useState(false);
   const [securityTimelineFilter, setSecurityTimelineFilter] = useState<SecurityTimelineFilter>("all");
   const demoAgentListRef = useRef<HTMLDivElement | null>(null);
+  const agentCardImportRef = useRef<HTMLDivElement | null>(null);
+  const sampleAgentBuilderRef = useRef<HTMLDivElement | null>(null);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
     [messages]
@@ -969,14 +1036,14 @@ function App() {
     [securityTimelineEvents, securityTimelineFilter]
   );
   const healthLabel = health
-    ? `Agents: ${health.summary.healthy}/${health.summary.total} healthy`
-    : "Agents: check health";
+    ? `${health.summary.healthy}/${health.summary.total} healthy`
+    : "Agents unknown";
   const authModeLabel = health?.orchestrator.authMode === "oauth2_client_credentials_jwt"
-    ? "Secure A2A JWT mode"
-    : "Local mock mode";
+    ? "Secure A2A JWT"
+    : "Local mock";
   const userBadgeLabel = identitySession?.authenticated && identitySession.user
-    ? `User: ${identitySession.user.email}`
-    : "User: not authenticated";
+    ? identitySession.user.email
+    : "Login required";
   const healthAgentIds = new Set(health?.agents.map((agent) => agent.agentId) ?? []);
   const demoAgentCardById = new Map(demoAgentCards.map((card) => [card.agentId, card]));
   const importedAgentCardById = new Map(importedAgentCards.map((card) => [card.agentId, card]));
@@ -1047,6 +1114,10 @@ function App() {
   const policySummary = primaryPolicyLabel(latestResponse);
   const tokenSummary = tokenStatusLabel(latestResponse);
   const delegationSummary = delegationLabel(latestResponse);
+  const primarySelectedAgent = latestResponse?.selectedAgents[0]?.agentId ?? "none";
+  const actorEmail = latestResponse?.userIdentity.email ?? identitySession?.user?.email;
+  const policyOutcome = policyOutcomeLabel(policySummary);
+  const tokenOutcome = tokenOutcomeLabel(tokenSummary);
 
   function resetDemoAgentDraft() {
     setDemoAgentInput(emptyDemoAgentInput);
@@ -1578,31 +1649,118 @@ function App() {
     return (
       <div className="scenario-buttons">
         {items.map((scenario) => (
-          <article className="scenario-option" key={scenario.label}>
-            <button
-              type="button"
-              className="scenario-select"
-              title={scenario.subtitle}
-              onClick={() => setMessage(scenario.message)}
-            >
-              <strong>{scenario.label}</strong>
-              <small>{scenario.subtitle}</small>
-              {scenario.purpose ? <span>{scenario.purpose}</span> : null}
-            </button>
-            <button
-              type="button"
-              className="scenario-run"
-              disabled={isLoading || !isUserAuthenticated}
-              onClick={() => {
-                setMessage(scenario.message);
-                void resolveIssue(scenario.message);
-              }}
-            >
-              Run
-            </button>
+          <article className="scenario-card" key={scenario.label}>
+            <div className="scenario-card-body">
+              <span className={`scenario-outcome-badge status-${cockpitStatusClass(scenario.badge ?? scenario.subtitle)}`}>{scenario.badge ?? "Advanced"}</span>
+              <h3>{scenario.label}</h3>
+              <p>{scenario.purpose ?? scenario.subtitle}</p>
+            </div>
+            <div className="scenario-card-actions">
+              <button
+                type="button"
+                className="secondary-inline-button"
+                title={scenario.subtitle}
+                onClick={() => setMessage(scenario.message)}
+              >
+                Use scenario
+              </button>
+              <button
+                type="button"
+                className="scenario-run"
+                disabled={isLoading || !isUserAuthenticated}
+                onClick={() => {
+                  setMessage(scenario.message);
+                  void resolveIssue(scenario.message);
+                }}
+              >
+                {isUserAuthenticated ? "Run" : "Login required"}
+              </button>
+            </div>
           </article>
         ))}
       </div>
+    );
+  }
+
+  function renderGatewayResponseCard() {
+    if (!latestResponse) {
+      return (
+        <section className="cockpit-card gateway-response-panel empty-response-panel">
+          <div>
+            <p className="active-panel-eyebrow">Gateway response</p>
+            <h2>No governed task result yet</h2>
+          </div>
+          <p>Login, choose a scenario, and run a task to see the governed response.</p>
+        </section>
+      );
+    }
+
+    const executiveSummary = firstSentence(latestResponse.finalAnswer);
+    const actionItems = recommendedActionItems(latestResponse.diagnosis.recommendedFix);
+    const showFullResponse = latestResponse.finalAnswer.trim() !== executiveSummary.trim();
+    const supportingAgents = latestResponse.selectedAgents;
+    const outcomeBadges = [
+      { label: "Identity verified", className: "status-success" },
+      { label: policyOutcome, className: `status-${cockpitStatusClass(policyOutcome)}` },
+      { label: tokenOutcome, className: `status-${cockpitStatusClass(tokenOutcome)}` },
+      { label: latestActorAttached ? "Actor attached" : "Actor not attached", className: latestActorAttached ? "status-success" : "status-neutral" },
+      { label: delegationSummary === "yes" ? "Delegation mediated" : "No delegation", className: delegationSummary === "yes" ? "status-success" : "status-neutral" },
+      { label: "Raw tokens hidden", className: "status-success" }
+    ];
+
+    return (
+      <section className="cockpit-card gateway-response-panel">
+        <div className="gateway-response-header">
+          <div>
+            <p className="active-panel-eyebrow">Gateway response</p>
+            <h2>{executiveSummary}</h2>
+          </div>
+          <span className={`summary-result status-${cockpitStatusClass(lastResult)}`}>{statusDisplayLabel(lastResult)}</span>
+        </div>
+        <section className="gateway-response-section root-cause-section">
+          <span>Root cause</span>
+          <p>{latestResponse.diagnosis.probableCause}</p>
+        </section>
+        <section className="gateway-response-section recommended-actions-section">
+          <span>Recommended actions</span>
+          <ol>
+            {actionItems.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
+          </ol>
+        </section>
+        <div className="response-security-strip" aria-label="Security outcome">
+          {outcomeBadges.map((badge) => (
+            <span className={badge.className} key={badge.label}>{badge.label}</span>
+          ))}
+        </div>
+        <section className="supporting-agents-section">
+          <div className="section-heading-row compact-heading">
+            <div>
+              <span>Supporting agents</span>
+            </div>
+          </div>
+          {supportingAgents.length ? (
+            <div className="supporting-agent-list">
+              {supportingAgents.map((agent) => (
+                <article key={`${agent.agentId}-${agent.skillId ?? "default"}`}>
+                  <strong>{agent.agentId}</strong>
+                  <span>{agent.role}</span>
+                  <code>{agent.skillId ?? agent.matchedCapability ?? "default skill"}</code>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="muted-note">No supporting agents selected yet.</p>
+          )}
+        </section>
+        <details className="full-gateway-response">
+          <summary>{showFullResponse ? "Full gateway response" : "Original request"}</summary>
+          {showFullResponse ? <p>{latestResponse.finalAnswer}</p> : null}
+          <div>
+            <span>Original request</span>
+            <p>{latestRequest || message}</p>
+          </div>
+        </details>
+      </section>
     );
   }
 
@@ -1619,31 +1777,31 @@ function App() {
         <div className="security-summary-grid">
           <div>
             <span>Identity</span>
-            <strong>{isUserAuthenticated ? "verified" : "login required"}</strong>
+            <strong>{isUserAuthenticated ? "Identity verified" : "Login required"}</strong>
           </div>
           <div>
             <span>Actor</span>
-            <strong>{latestResponse?.userIdentity.email ?? identitySession?.user?.email ?? "none"}</strong>
+            <strong>{actorEmail ?? "No actor attached yet"}</strong>
           </div>
           <div>
             <span>Routing</span>
-            <strong>{latestResponse ? `${latestResponse.selectedAgents.length} selected` : "none"}</strong>
+            <strong>{latestResponse ? `${latestResponse.selectedAgents.length} selected / ${primarySelectedAgent}` : "No route selected yet"}</strong>
           </div>
           <div>
             <span>Policy</span>
-            <strong className={`summary-chip status-${cockpitStatusClass(policySummary)}`}>{policySummary}</strong>
+            <strong className={`summary-chip status-${cockpitStatusClass(policyOutcome)}`}>{policyOutcome}</strong>
           </div>
           <div>
             <span>Token</span>
-            <strong className={`summary-chip status-${cockpitStatusClass(tokenSummary)}`}>{tokenSummary}</strong>
+            <strong className={`summary-chip status-${cockpitStatusClass(tokenOutcome)}`}>{tokenOutcome}</strong>
           </div>
           <div>
             <span>Delegation</span>
-            <strong>{delegationSummary}</strong>
+            <strong>{delegationSummary === "yes" ? "Delegation mediated" : "No delegation observed"}</strong>
           </div>
           <div>
             <span>Result</span>
-            <strong>{latestResponse?.resolutionStatus ?? "none"}</strong>
+            <strong>{latestResponse?.resolutionStatus ?? "No task run yet"}</strong>
           </div>
         </div>
         {!latestResponse ? <p className="muted-note">Run a task after login to populate security outcomes.</p> : null}
@@ -1653,11 +1811,11 @@ function App() {
 
   function renderLatestSecurityDetails() {
     return (
-      <section className="cockpit-card latest-security-card" aria-label="Latest security details">
+      <section className="cockpit-card latest-security-card" aria-label="Execution evidence">
         <div className="section-heading-row">
           <div>
             <p className="active-panel-eyebrow">Control checks</p>
-            <h2>Latest Security Details</h2>
+            <h2>Execution evidence</h2>
           </div>
         </div>
         <div className="security-detail-list">
@@ -2058,11 +2216,11 @@ function App() {
           )) : <p className="muted-note">No session sample Agent Cards yet.</p>}
         </div>
         {demoAgentPreview ? (
-          <div className="demo-agent-preview">
-            <h2>/.well-known/agent-card.json preview</h2>
+          <details className="demo-agent-preview raw-agent-card-json">
+            <summary>Raw Agent Card JSON</summary>
             <p className="muted-note">This JSON is generated from the sample Agent Card form. In a real A2A federation, this JSON would be hosted by the external vendor/domain agent.</p>
             <JsonBlock value={demoAgentPreview} />
-          </div>
+          </details>
         ) : null}
       </section>
     );
@@ -2070,12 +2228,12 @@ function App() {
 
   function renderRunTaskTab() {
     return (
-      <section className="control-panel demo-cockpit" aria-label="Demo Cockpit">
+      <section className="control-panel demo-cockpit" aria-label="Execution Cockpit">
         <div className="panel-header cockpit-header">
           <div>
             <p className="active-panel-eyebrow">Secure A2A execution</p>
-            <h2>Demo Cockpit</h2>
-            <p className="muted-note">Run governed agent tasks with verified user identity, Agent Card routing, scoped A2A JWT metadata, policy decisions, and sanitized audit output.</p>
+            <h2>Run governed agent task</h2>
+            <p className="muted-note">Secure task execution requires verified user identity. The gateway routes through Agent Cards, policy, scoped A2A JWT metadata, and audit timeline.</p>
           </div>
         </div>
 
@@ -2084,9 +2242,14 @@ function App() {
         <div className="cockpit-grid">
           <section className="cockpit-main">
             {!isUserAuthenticated ? (
-              <div className="identity-required-warning" role="status">
-                Secure execution requires verified user identity. Login in Trust & Identity before running tasks.
-              </div>
+              <section className="identity-gate-panel" role="status">
+                <div>
+                  <p className="active-panel-eyebrow">Execution locked</p>
+                  <h2>Login required before execution</h2>
+                  <p>This gateway blocks task execution until a verified user identity is attached to the session.</p>
+                </div>
+                <button type="button" onClick={() => setActiveTab("trust-identity")}>Go to Trust & Identity</button>
+              </section>
             ) : null}
 
             <div className="scenario-launcher cockpit-card" aria-label="Security story scenarios">
@@ -2107,35 +2270,35 @@ function App() {
               <div className="section-heading-row">
                 <div>
                   <p className="active-panel-eyebrow">Task input</p>
-                  <h2>Run Secure Task</h2>
-                  <p className="muted-note">Secure task execution requires verified user identity.</p>
+                  <h2>AI command composer</h2>
                 </div>
               </div>
-              <textarea
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                aria-label="Integration issue"
-              />
-              <button type="submit" disabled={isLoading || !isUserAuthenticated}>
-                {isLoading ? "Running..." : isUserAuthenticated ? "Run Task" : "Login required"}
-              </button>
+              <div className="composer-surface">
+                <textarea
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  aria-label="Integration issue"
+                  placeholder="Describe the enterprise issue or access request to run through the Secure A2A Gateway"
+                />
+                <div className="composer-action-row">
+                  <div className="composer-helper">
+                    <span>{isUserAuthenticated ? `Verified actor ${actorEmail ?? "current user"} will be attached to the A2A task and token metadata.` : "Login in Trust & Identity to unlock secure execution."}</span>
+                    {!isUserAuthenticated ? (
+                      <button type="button" className="composer-trust-link" onClick={() => setActiveTab("trust-identity")}>
+                        Go to Trust & Identity
+                      </button>
+                    ) : null}
+                  </div>
+                  <button type="submit" className="composer-run-button" disabled={isLoading || !isUserAuthenticated}>
+                    {isLoading ? "Running..." : isUserAuthenticated ? "Run secure task" : "Login required"}
+                  </button>
+                </div>
+              </div>
             </form>
 
             {error ? <p className="error cockpit-error">{error}</p> : null}
 
-            <MessageList messages={messages} />
-            {latestRequest && latestResponse ? (
-              <section className="cockpit-card response-summary-card">
-                <div className="section-heading-row">
-                  <div>
-                    <p className="active-panel-eyebrow">Request summary</p>
-                    <h2>Latest Request</h2>
-                  </div>
-                  <span className={`summary-result status-${cockpitStatusClass(latestResponse.resolutionStatus)}`}>{latestResponse.resolutionStatus}</span>
-                </div>
-                <p>{latestRequest}</p>
-              </section>
-            ) : null}
+            {renderGatewayResponseCard()}
           </section>
 
           <aside className="cockpit-side">
@@ -2175,7 +2338,7 @@ function App() {
         <div className="panel-header">
           <div>
             <h2>Agent Registry</h2>
-            <p className="muted-note">Registered built-in and session-scoped agents visible to the orchestrator.</p>
+            <p className="muted-note">Import, validate, and govern external agent contracts before orchestration.</p>
           </div>
           <button type="button" className="secondary-button" onClick={() => {
             void loadDemoAgentCards();
@@ -2185,6 +2348,25 @@ function App() {
             {isHealthLoading ? "Refreshing..." : "Refresh registry"}
           </button>
         </div>
+
+        <section className="registry-action-grid" aria-label="Agent Registry primary actions">
+          <article>
+            <div>
+              <p className="active-panel-eyebrow">Onboard vendor agent</p>
+              <h2>Import Agent Card</h2>
+              <p>Paste an Agent Card JSON and validate auth audience, scopes, capabilities, risk, and endpoint metadata.</p>
+            </div>
+            <button type="button" onClick={() => agentCardImportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>Start import</button>
+          </article>
+          <article>
+            <div>
+              <p className="active-panel-eyebrow">Sample registry data</p>
+              <h2>Generate sample Agent Card</h2>
+              <p>Create a session-scoped sample Agent Card to simulate an external vendor agent contract.</p>
+            </div>
+            <button type="button" onClick={() => sampleAgentBuilderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>Generate sample</button>
+          </article>
+        </section>
 
         <section className="registry-section">
           <p className="active-panel-eyebrow">Section A</p>
@@ -2218,50 +2400,50 @@ function App() {
           {registeredAgentRows.length ? (
             <div className="registry-agent-list">
               {registeredAgentRows.map((agent) => (
-                <article className="registry-agent-row" key={agent.agentId}>
-                  <div>
-                    <span>Agent ID</span>
-                    <strong>{agent.agentId}</strong>
+                <article className="registry-agent-card" key={agent.agentId}>
+                  <div className="registry-agent-card-header">
+                    <div>
+                      <span>Agent ID</span>
+                      <strong>{agent.agentId}</strong>
+                    </div>
+                    <div className="registry-agent-badges">
+                      <span className="source-badge">{agent.source}</span>
+                      {agent.source === "session-imported" ? <small className="metadata-only-badge">metadata only</small> : null}
+                      <strong className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</strong>
+                    </div>
                   </div>
-                  <div>
-                    <span>Status</span>
-                    <strong className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</strong>
-                  </div>
-                  <div>
-                    <span>Endpoint type</span>
-                    <strong>{endpointTypeLabel(agent.endpointType, agent.endpointScheme)}</strong>
-                  </div>
-                  <div>
-                    <span>Source</span>
-                    <strong>{agent.source}</strong>
-                    {agent.source === "session-imported" ? <small className="metadata-only-badge">metadata only</small> : null}
-                  </div>
-                  <div>
-                    <span>Auth mode</span>
-                    <strong>{agent.authMode}</strong>
-                  </div>
-                  <div>
-                    <span>Agent Card</span>
-                    <strong>{agent.agentCardAvailable ? "yes" : "no"}</strong>
-                  </div>
-                  <div>
-                    <span>Latency</span>
-                    <strong>{typeof agent.latencyMs === "number" ? `${agent.latencyMs} ms` : "unknown"}</strong>
-                  </div>
-                  <div className="registry-agent-actions">
-                    <span>Actions</span>
-                    {agent.canDelete ? (
-                      <button
-                        type="button"
-                        className="agent-delete-button"
-                        disabled={isHealthLoading || deletingAgentId === agent.agentId}
-                        onClick={() => void deleteRegistryAgent(agent.agentId, agent.source)}
-                      >
-                        {deletingAgentId === agent.agentId ? "..." : "Delete"}
-                      </button>
-                    ) : (
-                      <strong>None</strong>
-                    )}
+                  <div className="registry-agent-metadata">
+                    <div>
+                      <span>Endpoint type</span>
+                      <strong>{endpointTypeLabel(agent.endpointType, agent.endpointScheme)}</strong>
+                    </div>
+                    <div>
+                      <span>Auth mode</span>
+                      <strong>{agent.authMode}</strong>
+                    </div>
+                    <div>
+                      <span>Agent Card</span>
+                      <strong>{agent.agentCardAvailable ? "yes" : "no"}</strong>
+                    </div>
+                    <div>
+                      <span>Latency</span>
+                      <strong>{typeof agent.latencyMs === "number" ? `${agent.latencyMs} ms` : "unknown"}</strong>
+                    </div>
+                    <div className="registry-agent-actions">
+                      <span>Actions</span>
+                      {agent.canDelete ? (
+                        <button
+                          type="button"
+                          className="agent-delete-button"
+                          disabled={isHealthLoading || deletingAgentId === agent.agentId}
+                          onClick={() => void deleteRegistryAgent(agent.agentId, agent.source)}
+                        >
+                          {deletingAgentId === agent.agentId ? "..." : "Delete"}
+                        </button>
+                      ) : (
+                        <strong>None</strong>
+                      )}
+                    </div>
                   </div>
                   {agent.error ? <p className="registry-agent-error">{agent.error}</p> : null}
                 </article>
@@ -2272,11 +2454,11 @@ function App() {
           )}
         </section>
 
-        <div className="registry-section">
+        <div className="registry-section" ref={agentCardImportRef}>
           {renderAgentCardImport()}
         </div>
 
-        <div className="registry-section">
+        <div className="registry-section" ref={sampleAgentBuilderRef}>
           {renderDemoAgentBuilder()}
         </div>
       </section>
@@ -2289,6 +2471,7 @@ function App() {
     const gatewayIdentity = trustStatus?.gatewayIdentity;
     const mockIdp = trustStatus?.mockIdp;
     const securityControls = trustStatus?.securityControls;
+    const isTrustAuthenticated = currentIdentity?.authenticated === true;
     const flowSteps = [
       "User JWT verified",
       "Session identity stored",
@@ -2316,40 +2499,77 @@ function App() {
           </div>
         </div>
 
-        <section className="trust-console-section identity-login-panel">
-          <div>
-            <p className="active-panel-eyebrow">User - Gateway</p>
-            <h2>Demo User Identity</h2>
-            <p className="muted-note">The frontend sends only the selected demo email. The orchestrator requests a Mock IdP token, validates it against JWKS, and stores verified identity claims in the session.</p>
+        <section className={`trust-login-hero ${isTrustAuthenticated ? "authenticated" : "locked"}`}>
+          <div className="trust-login-copy">
+            <p className="active-panel-eyebrow">Start here</p>
+            <h2>{isTrustAuthenticated ? "Execution unlocked" : "Login required to unlock execution"}</h2>
+            <p>{isTrustAuthenticated ? "Verified user identity is attached to this gateway session." : "Secure task execution is blocked until a verified user identity is attached to this gateway session."}</p>
           </div>
-          <div className="identity-login-controls">
-            <label>
-              <span>Demo user</span>
-              <select value={selectedDemoUserEmail} onChange={(event) => setSelectedDemoUserEmail(event.target.value)} disabled={isIdentityLoading}>
-                {demoUserOptions.map((user) => (
-                  <option value={user.email} key={user.email}>{user.label} / {user.roleLabel}</option>
-                ))}
-              </select>
-            </label>
-            <button type="button" onClick={() => void loginDemoUser()} disabled={isIdentityLoading}>
-              {isIdentityLoading ? "Verifying..." : "Login as demo user"}
-            </button>
-            <button type="button" onClick={() => void logoutIdentity()} disabled={isIdentityLoading || !identitySession?.authenticated}>
-              Logout
-            </button>
-          </div>
+          {!isTrustAuthenticated ? (
+            <div className="trust-login-form">
+              <label>
+                <span>Demo user</span>
+                <select value={selectedDemoUserEmail} onChange={(event) => setSelectedDemoUserEmail(event.target.value)} disabled={isIdentityLoading}>
+                  {demoUserOptions.map((user) => (
+                    <option value={user.email} key={user.email}>{user.label} / {user.roleLabel}</option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="trust-login-primary" onClick={() => void loginDemoUser()} disabled={isIdentityLoading}>
+                {isIdentityLoading ? "Verifying..." : "Login as demo user"}
+              </button>
+              <p>The gateway requests a signed Mock IdP User JWT, validates it via JWKS, and stores only verified claims. Raw JWTs are never shown in the UI.</p>
+            </div>
+          ) : (
+            <div className="trust-authenticated-summary">
+              <div className="trust-user-facts">
+                <article>
+                  <span>Email</span>
+                  <strong>{currentUser?.email ?? "unknown"}</strong>
+                </article>
+                <article>
+                  <span>Name</span>
+                  <strong>{currentUser?.name ?? "unknown"}</strong>
+                </article>
+                <article>
+                  <span>Roles</span>
+                  <strong>{currentUser?.roles.join(", ") ?? "none"}</strong>
+                </article>
+                <article>
+                  <span>Issuer</span>
+                  <strong>{currentIdentity?.issuer ?? "unknown"}</strong>
+                </article>
+                <article>
+                  <span>Audience</span>
+                  <strong>{currentIdentity?.audience ?? "secure-a2a-gateway"}</strong>
+                </article>
+                <article>
+                  <span>Raw JWT</span>
+                  <strong>hidden</strong>
+                </article>
+              </div>
+              <div className="trust-hero-actions">
+                <button type="button" className="secondary-button" onClick={() => void logoutIdentity()} disabled={isIdentityLoading}>
+                  Logout
+                </button>
+                <button type="button" className="trust-login-primary" onClick={() => setActiveTab("run-task")}>
+                  Go to Run Task
+                </button>
+              </div>
+            </div>
+          )}
           {identityError ? <p className="demo-agent-error" role="alert">{identityError}</p> : null}
           {identityMessage ? <p className="demo-agent-success" role="status">{identityMessage}</p> : null}
         </section>
 
         <section className="trust-console-section">
-          <p className="active-panel-eyebrow">A. User - Gateway</p>
-          <h2>Verified User Identity</h2>
-          {!currentIdentity?.authenticated ? <p className="muted-note">Login as a demo user to attach verified user identity to gateway execution.</p> : null}
+          <p className="active-panel-eyebrow">Identity details</p>
+          <h2>Key Identity Facts</h2>
+          {!isTrustAuthenticated ? <p className="muted-note">Login as a demo user to attach verified user identity to gateway execution.</p> : null}
           <div className="trust-card-grid">
             <article>
               <span>Authentication status</span>
-              <strong>{currentIdentity?.authenticated ? "authenticated" : "not authenticated"}</strong>
+              <strong>{isTrustAuthenticated ? "authenticated" : "not authenticated"}</strong>
             </article>
             <article>
               <span>User email</span>
@@ -2378,9 +2598,11 @@ function App() {
           </div>
         </section>
 
-        <section className="trust-console-section">
-          <p className="active-panel-eyebrow">B. Gateway - Agents</p>
-          <h2>A2A Service Trust</h2>
+        <details className="trust-console-section trust-details-section" open={isTrustAuthenticated}>
+          <summary>
+            <span className="active-panel-eyebrow">Gateway-to-agent trust</span>
+            <strong>A2A Service Trust</strong>
+          </summary>
           <div className="trust-card-grid">
             <article>
               <span>Gateway agent identity</span>
@@ -2407,34 +2629,7 @@ function App() {
               <strong>hidden</strong>
             </article>
           </div>
-        </section>
-
-        <section className="trust-console-section">
-          <p className="active-panel-eyebrow">C. Mock IdP / JWKS</p>
-          <h2>Signing Metadata</h2>
-          <div className="trust-card-grid">
-            <article>
-              <span>Issuer</span>
-              <strong>{mockIdp?.issuer ?? "unknown"}</strong>
-            </article>
-            <article>
-              <span>JWKS URI</span>
-              <strong>{mockIdp?.jwksUri ?? "unknown"}</strong>
-            </article>
-            <article>
-              <span>Token endpoint</span>
-              <strong>{mockIdp?.tokenEndpoint ?? "/oauth/token"}</strong>
-            </article>
-            <article>
-              <span>User token endpoint</span>
-              <strong>{mockIdp?.userTokenEndpoint ?? "/demo/user-token"}</strong>
-            </article>
-            <article>
-              <span>Raw signing keys</span>
-              <strong>{mockIdp?.rawKeysExposed ? "exposed" : "hidden"}</strong>
-            </article>
-          </div>
-        </section>
+        </details>
 
         <section className="trust-console-section">
           <p className="active-panel-eyebrow">D. Security Controls</p>
@@ -2450,18 +2645,50 @@ function App() {
           </div>
         </section>
 
-        <section className="trust-console-section">
-          <p className="active-panel-eyebrow">E. Trust Flow</p>
-          <h2>Runtime Trust Path</h2>
-          <div className="trust-flow-row" aria-label="Trust flow">
-            {flowSteps.map((step, index) => (
-              <React.Fragment key={step}>
-                <span>{step}</span>
-                {index < flowSteps.length - 1 ? <b aria-hidden="true">-&gt;</b> : null}
-              </React.Fragment>
-            ))}
+        <details className="trust-console-section trust-details-section advanced-trust-details" open={isTrustAuthenticated}>
+          <summary>
+            <span className="active-panel-eyebrow">Advanced technical details</span>
+            <strong>Mock IdP / JWKS and trust flow</strong>
+          </summary>
+          <div className="advanced-trust-grid">
+            <section>
+              <h2>Mock IdP / JWKS</h2>
+              <div className="trust-card-grid">
+                <article>
+                  <span>Issuer</span>
+                  <strong>{mockIdp?.issuer ?? "unknown"}</strong>
+                </article>
+                <article>
+                  <span>JWKS URI</span>
+                  <strong>{mockIdp?.jwksUri ?? "unknown"}</strong>
+                </article>
+                <article>
+                  <span>Token endpoint</span>
+                  <strong>{mockIdp?.tokenEndpoint ?? "/oauth/token"}</strong>
+                </article>
+                <article>
+                  <span>User token endpoint</span>
+                  <strong>{mockIdp?.userTokenEndpoint ?? "/demo/user-token"}</strong>
+                </article>
+                <article>
+                  <span>Raw signing keys</span>
+                  <strong>{mockIdp?.rawKeysExposed ? "exposed" : "hidden"}</strong>
+                </article>
+              </div>
+            </section>
+            <section>
+              <h2>Advanced trust flow</h2>
+              <div className="trust-flow-row" aria-label="Trust flow">
+                {flowSteps.map((step, index) => (
+                  <React.Fragment key={step}>
+                    <span>{step}</span>
+                    {index < flowSteps.length - 1 ? <b aria-hidden="true">-&gt;</b> : null}
+                  </React.Fragment>
+                ))}
+              </div>
+            </section>
           </div>
-        </section>
+        </details>
         {healthError ? <p className="error">{healthError}</p> : null}
       </section>
     );
@@ -2588,25 +2815,31 @@ function App() {
     <main className="shell single-panel-shell">
       <section className="workspace">
         <header className="topbar">
-          <div>
+          <div className="topbar-copy">
             <p className="eyebrow">Secure A2A Control Plane</p>
             <h1>Secure Agent Orchestration Gateway</h1>
             <p className="subtitle">Import external agents through Agent Cards and govern execution with scoped JWTs, policy, and audit.</p>
           </div>
           <div className="topbar-actions">
-            <div className="status">Conversation: {conversationId ? conversationId.slice(0, 8) : "new"}</div>
-            <div className={`status user-status ${identitySession?.authenticated ? "authenticated" : "anonymous"}`}>{userBadgeLabel}</div>
-            <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
-              New conversation
-            </button>
+            {isUserAuthenticated ? (
+              <div className="status user-status authenticated">{userBadgeLabel}</div>
+            ) : (
+              <button type="button" className="status user-status anonymous clickable-status" onClick={() => setActiveTab("trust-identity")}>
+                {userBadgeLabel}
+              </button>
+            )}
+            <div className={`status execution-status ${isUserAuthenticated ? "unlocked" : "locked"}`}>Execution {isUserAuthenticated ? "unlocked" : "locked"}</div>
             <div className="status">
               {authModeLabel}
               {health?.orchestrator.secureAuthRequired ? " / Secure auth required" : ""}
             </div>
             <div className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"}`}>
-              <span>{isHealthLoading ? "Checking agent health..." : healthLabel}</span>
+              <span>{isHealthLoading ? "Checking..." : healthLabel}</span>
               <small>{health?.orchestrator.status ?? "unknown"}</small>
             </div>
+            <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
+              New conversation
+            </button>
           </div>
         </header>
 
