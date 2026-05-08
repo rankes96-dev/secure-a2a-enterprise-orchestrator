@@ -89,6 +89,18 @@ h2 {
   white-space: nowrap;
 }
 
+.user-status.authenticated {
+  color: #0f4d68;
+  background: #eaf6fb;
+  border-color: #9ec8d8;
+}
+
+.user-status.anonymous {
+  color: #6a4f13;
+  background: #fff8e7;
+  border-color: #dec77d;
+}
+
 .topbar-actions {
   display: flex;
   flex-wrap: wrap;
@@ -301,6 +313,65 @@ h2 {
 
 .placeholder-panel {
   align-content: start;
+}
+
+.identity-login-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d7e0e4;
+  border-left: 4px solid #235789;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.identity-login-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+
+.identity-login-controls label {
+  display: grid;
+  gap: 4px;
+  min-width: min(280px, 100%);
+}
+
+.identity-login-controls span {
+  color: #526b76;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.identity-login-controls select {
+  border: 1px solid #c7d2d8;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+}
+
+.identity-login-controls button {
+  border: 1px solid #b7c7ce;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #253d47;
+  background: #f6f9fa;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.identity-login-controls button:first-of-type {
+  color: #ffffff;
+  background: #235789;
+  border-color: #235789;
+}
+
+.identity-login-controls button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .agent-card-import {

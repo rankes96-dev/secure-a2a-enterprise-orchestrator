@@ -17,7 +17,8 @@ import type {
   ResolveResponse,
   RequestInterpretation,
   SecurityDecision,
-  SelectedAgent
+  SelectedAgent,
+  UserIdentitySummary
 } from "@a2a/shared";
 import { assertSecureA2AAuthMode, secureA2AAuthRequired } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
@@ -26,6 +27,7 @@ import { routeWithAI } from "./aiRouter";
 import { getAiConfig } from "./config/aiConfig";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
 import { getA2AAccessToken } from "./security/tokenClient";
+import { bearerTokenFromHeaders, publicUserIdentity, validateUserIdentityJwt, type VerifiedUserIdentity } from "./security/userIdentity";
 import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext";
 import { interpretFollowUp } from "./followUpInterpreter";
 import { createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager";
@@ -91,6 +93,7 @@ type ConversationState = {
 };
 
 const conversations = new Map<string, ConversationState>();
+const userIdentitiesBySession = new Map<string, VerifiedUserIdentity>();
 
 function clientIp(request: { headers: Record<string, string | string[] | undefined>; socket: { remoteAddress?: string } }): string {
   if (process.env.TRUST_PROXY_HEADERS !== "true") {
@@ -404,6 +407,7 @@ function createA2ATask(params: {
   requestedByAgent?: string;
   delegationContext?: Record<string, unknown>;
   authMode?: A2ATask["context"]["authMode"];
+  actor?: VerifiedUserIdentity;
   cards?: AgentCard[];
 }): A2ATask {
   const card = getAgentCard(params.toAgent, params.cards);
@@ -437,7 +441,14 @@ function createA2ATask(params: {
         scope: params.requestedScope,
         tokenIssued: false
       },
-      delegationContext: params.delegationContext
+      delegationContext: params.delegationContext,
+      actor: params.actor
+        ? {
+            email: params.actor.email,
+            name: params.actor.name,
+            roles: [...params.actor.roles]
+          }
+        : undefined
       // TODO: replace mock_internal_token with OAuth 2.0 Client Credentials, JWT access tokens,
       // audience/issuer/scope/JWKS validation, and optional mTLS or DPoP.
     }
@@ -518,7 +529,9 @@ async function prepareA2ARequestAuth(params: {
     delegatedBy: params.delegatedBy,
     delegationDepth: params.delegationDepth,
     parentTaskId: params.parentTaskId,
-    requestedByAgent: params.requestedByAgent
+    requestedByAgent: params.requestedByAgent,
+    actor: params.task.context.actor?.email,
+    actorRoles: params.task.context.actor?.roles
   });
   params.task.context.authMode = "oauth2_client_credentials_jwt";
   params.task.context.auth = {
@@ -577,6 +590,33 @@ function mockIdentityProviderHealthUrl(): string {
   url.search = "";
   url.hash = "";
   return url.toString();
+}
+
+function mockIdentityProviderDemoUserTokenUrl(): string {
+  const url = new URL(process.env.A2A_IDP_URL ?? "http://localhost:4110");
+  url.pathname = "/demo/user-token";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+async function requestDemoUserToken(email: string): Promise<{ accessToken: string }> {
+  const response = await fetch(mockIdentityProviderDemoUserTokenUrl(), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email })
+  });
+  const body = await response.json() as { accessToken?: unknown; error?: unknown };
+
+  if (!response.ok) {
+    throw new Error(typeof body.error === "string" ? body.error : "demo_user_token_failed");
+  }
+
+  if (typeof body.accessToken !== "string" || !body.accessToken) {
+    throw new Error("demo_user_token_missing");
+  }
+
+  return { accessToken: body.accessToken };
 }
 
 function mockIdentityProviderDemoRegistrationUrl(): string {
@@ -903,6 +943,22 @@ function requireSessionToken(request: IncomingMessage, response: ServerResponse)
   return token;
 }
 
+function currentUserIdentity(sessionToken?: string): VerifiedUserIdentity | undefined {
+  return sessionToken ? userIdentitiesBySession.get(sessionToken) : undefined;
+}
+
+function safeUserIdentity(sessionToken?: string): UserIdentitySummary {
+  const identity = currentUserIdentity(sessionToken);
+  return identity
+    ? {
+        authenticated: true,
+        email: identity.email,
+        name: identity.name,
+        roles: [...identity.roles]
+      }
+    : { authenticated: false };
+}
+
 function agentCardRegistryKey(request: IncomingMessage, response: ServerResponse): string | undefined {
   const sessionToken = getSessionToken(request);
   if (sessionToken) {
@@ -1033,6 +1089,8 @@ async function buildAgentsHealthResponse(sessionToken?: string): Promise<AgentsH
 
 async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string): Promise<ResolveResponse> {
   const conversationState = getOrCreateConversationState(requestBody.conversationId);
+  const verifiedUser = currentUserIdentity(sessionToken);
+  const responseUserIdentity = safeUserIdentity(sessionToken);
   const requestAgentCards = combineAgentCards(getExecutableAgentCards(), sessionToken ? listDemoAgentCards(sessionToken) : []);
   appendConversationMessage(conversationState, "user", requestBody.message);
   const followUp = await interpretFollowUp({
@@ -1076,9 +1134,20 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     incidentInterpretation ?? routingDecision.requestInterpretation
   );
   const finalize = (response: ResolveResponse): ResolveResponse => {
+    const userIdentityTrace = verifiedUser
+      ? [
+          executionStep(
+            "orchestrator",
+            "user_identity_verified",
+            `Verified user ${verifiedUser.email} via Mock IdP User JWT; actor context attached to gateway session.`
+          )
+        ]
+      : [];
     const finalResponse = {
       ...response,
       conversationId,
+      userIdentity: responseUserIdentity,
+      executionTrace: [...userIdentityTrace, ...response.executionTrace],
       followUpInterpretation: response.followUpInterpretation ?? followUp,
       incidentContext: response.incidentContext ?? mergedIncidentContext
     };
@@ -1541,8 +1610,9 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         delegationDepth: nextDepth,
         parentTaskId: parentTask.taskId,
         requestedByAgent: fromAgent,
-            delegationContext: delegation.context,
-            cards: requestAgentCards
+        delegationContext: delegation.context,
+        actor: verifiedUser,
+        cards: requestAgentCards
       });
       a2aTasks.push(delegatedTask);
 
@@ -1673,6 +1743,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       securityDecision: taskSecurityDecision,
       requestedScope,
       cards: requestAgentCards,
+      actor: verifiedUser,
       authMode: isDemoAgentCard(card) ? a2aAuthMode : undefined
     });
     a2aTasks.push(a2aTask);
@@ -1942,6 +2013,79 @@ async function start(): Promise<void> {
         "set-cookie": createSessionCookie()
       }
     );
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/identity/session") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    sendJson(response, 200, publicUserIdentity(currentUserIdentity(sessionToken)), request);
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/identity/session") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    const token = bearerTokenFromHeaders(request.headers);
+    if (!token) {
+      sendJson(response, 401, { error: "missing_user_identity_bearer_token" }, request);
+      return;
+    }
+
+    try {
+      const identity = await validateUserIdentityJwt(token);
+      userIdentitiesBySession.set(sessionToken, identity);
+      sendJson(response, 200, publicUserIdentity(identity), request);
+    } catch (error) {
+      sendJson(response, 401, {
+        error: "invalid_user_identity_token",
+        detail: error instanceof Error ? error.message : "User identity validation failed"
+      }, request);
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/identity/demo-login") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    const body = await readJsonBody<{ email?: unknown }>(request);
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    if (!email) {
+      sendJson(response, 400, { error: "invalid_demo_user_email" }, request);
+      return;
+    }
+
+    try {
+      const { accessToken } = await requestDemoUserToken(email);
+      const identity = await validateUserIdentityJwt(accessToken);
+      userIdentitiesBySession.set(sessionToken, identity);
+      sendJson(response, 200, publicUserIdentity(identity), request);
+    } catch (error) {
+      sendJson(response, 400, {
+        error: "demo_login_failed",
+        detail: error instanceof Error ? error.message : "Demo login failed"
+      }, request);
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/identity/logout") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    userIdentitiesBySession.delete(sessionToken);
+    sendJson(response, 200, publicUserIdentity(undefined), request);
     return;
   }
 

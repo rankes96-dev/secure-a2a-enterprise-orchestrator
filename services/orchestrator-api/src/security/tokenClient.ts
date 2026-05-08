@@ -9,6 +9,8 @@ export type A2ATokenRequestInput = {
   delegationDepth?: number;
   parentTaskId?: string;
   requestedByAgent?: string;
+  actor?: string;
+  actorRoles?: string[];
   tokenAuthMethod?: OAuthClientAuthMethod;
 };
 
@@ -23,6 +25,8 @@ export type A2AIssuedTokenMetadata = {
   delegationDepth?: number;
   parentTaskId?: string;
   requestedByAgent?: string;
+  actor?: string;
+  actorRoles?: string[];
   tokenAuthMethod?: OAuthClientAuthMethod;
 };
 
@@ -42,6 +46,8 @@ function tokenCacheKey(input: A2ATokenRequestInput): string {
     input.delegationDepth ?? 0,
     input.parentTaskId ?? "",
     input.requestedByAgent ?? "",
+    input.actor ?? "",
+    input.actorRoles?.join(",") ?? "",
     input.tokenAuthMethod ?? resolveTokenAuthMethod()
   ].join(":");
 }
@@ -103,7 +109,9 @@ async function buildTokenRequestBody(params: {
     delegated_by: params.input.delegatedBy,
     delegation_depth: params.input.delegationDepth,
     parent_task_id: params.input.parentTaskId,
-    requested_by_agent: params.input.requestedByAgent
+    requested_by_agent: params.input.requestedByAgent,
+    actor: params.input.actor,
+    actor_roles: params.input.actorRoles
   };
 
   if (params.tokenAuthMethod === "private_key_jwt") {
@@ -166,6 +174,8 @@ export async function getA2AAccessToken(input: A2ATokenRequestInput): Promise<{ 
     delegationDepth: input.delegationDepth,
     parentTaskId: input.parentTaskId,
     requestedByAgent: input.requestedByAgent,
+    actor: input.actor,
+    actorRoles: input.actorRoles,
     tokenAuthMethod
   };
 

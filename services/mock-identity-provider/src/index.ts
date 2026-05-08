@@ -17,6 +17,20 @@ const port = Number(process.env.PORT ?? process.env.MOCK_IDENTITY_PROVIDER_PORT 
 const issuer = process.env.A2A_ISSUER ?? "http://localhost:4110";
 const deniedScopes = new Set<string>(sensitiveScopesNeverIssuedByMockIdp);
 const agentCardRegistry = new StaticAgentCardRegistry();
+const demoUserTokenAudience = "secure-a2a-gateway";
+const demoUserTokenTtlSeconds = 900;
+
+type DemoUserProfile = {
+  email: string;
+  name: string;
+  roles: string[];
+};
+
+const demoUserProfiles = new Map<string, DemoUserProfile>([
+  ["ran@company.com", { email: "ran@company.com", name: "Ran Keselman", roles: ["it-support"] }],
+  ["analyst@company.com", { email: "analyst@company.com", name: "Security Analyst", roles: ["read-only"] }],
+  ["admin@company.com", { email: "admin@company.com", name: "Identity Admin", roles: ["identity-admin"] }]
+]);
 
 type TokenRequest = {
   grant_type?: string;
@@ -30,6 +44,8 @@ type TokenRequest = {
   delegation_depth?: number;
   parent_task_id?: string;
   requested_by_agent?: string;
+  actor?: string;
+  actor_roles?: string[];
 };
 
 type SigningKey = {
@@ -43,6 +59,12 @@ type DemoAgentRegistration = {
   audience: string;
   allowedScopes: Set<string>;
   expiresAtEpochSeconds: number;
+};
+
+type DemoUserTokenRequest = {
+  email?: unknown;
+  name?: unknown;
+  roles?: unknown;
 };
 
 let signingKey: SigningKey;
@@ -157,6 +179,77 @@ async function handleDemoAgentRegistration(request: IncomingMessage, response: S
   }, request);
 }
 
+function validateDemoUserTokenRequest(value: DemoUserTokenRequest): { ok: true; profile: DemoUserProfile } | { ok: false; error: string } {
+  const email = typeof value.email === "string" ? value.email.trim().toLowerCase() : "";
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "invalid_demo_user_email" };
+  }
+
+  const profile = demoUserProfiles.get(email);
+  if (!profile) {
+    return { ok: false, error: "demo_user_not_allowed" };
+  }
+
+  if (value.name !== undefined && typeof value.name !== "string") {
+    return { ok: false, error: "invalid_demo_user_name" };
+  }
+
+  if (value.roles !== undefined) {
+    if (!Array.isArray(value.roles) || value.roles.some((role) => typeof role !== "string")) {
+      return { ok: false, error: "invalid_demo_user_roles" };
+    }
+
+    const allowedRoles = new Set(profile.roles);
+    const requestedRoles = value.roles.map((role) => role.trim()).filter(Boolean);
+    if (requestedRoles.some((role) => !allowedRoles.has(role))) {
+      return { ok: false, error: "demo_user_role_not_allowed" };
+    }
+  }
+
+  return { ok: true, profile };
+}
+
+async function issueDemoUserToken(profile: DemoUserProfile): Promise<{ accessToken: string; expiresIn: number; tokenType: "Bearer"; user: DemoUserProfile }> {
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = now + demoUserTokenTtlSeconds;
+  const subject = `user:${profile.email}`;
+  const accessToken = await new SignJWT({
+    email: profile.email,
+    name: profile.name,
+    roles: profile.roles,
+    token_use: "user_identity"
+  })
+    .setProtectedHeader({ alg: "RS256", kid: signingKey.kid, typ: "JWT" })
+    .setIssuer(issuer)
+    .setAudience(demoUserTokenAudience)
+    .setSubject(subject)
+    .setIssuedAt(now)
+    .setExpirationTime(expiresAt)
+    .setJti(randomUUID())
+    .sign(signingKey.privateKey);
+
+  return {
+    accessToken,
+    expiresIn: demoUserTokenTtlSeconds,
+    tokenType: "Bearer",
+    user: {
+      email: profile.email,
+      name: profile.name,
+      roles: [...profile.roles]
+    }
+  };
+}
+
+async function handleDemoUserToken(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const validation = validateDemoUserTokenRequest(await readJsonBody<DemoUserTokenRequest>(request));
+  if (!validation.ok) {
+    sendJson(response, 400, { error: validation.error }, request);
+    return;
+  }
+
+  sendJson(response, 200, await issueDemoUserToken(validation.profile), request);
+}
+
 type TokenValidationResult =
   | { ok: true; application: OAuthApplicationRegistration; scopes: string[]; authMethod: "client_secret_post" | "private_key_jwt" }
   | { ok: false; status: number; error: string; authMethod?: "client_secret_post" | "private_key_jwt" | "unknown" };
@@ -230,6 +323,14 @@ function validateDelegationContext(body: TokenRequest): { ok: true } | { ok: fal
     return { ok: false, status: 400, error: "invalid_delegation_context" };
   }
 
+  if (body.actor !== undefined && typeof body.actor !== "string") {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
+  if (body.actor_roles !== undefined && (!Array.isArray(body.actor_roles) || body.actor_roles.some((role) => typeof role !== "string"))) {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
   if (body.delegation_depth !== undefined) {
     if (typeof body.delegation_depth !== "number" || !Number.isInteger(body.delegation_depth)) {
       return { ok: false, status: 400, error: "invalid_delegation_context" };
@@ -252,7 +353,7 @@ function validateDelegationContext(body: TokenRequest): { ok: true } | { ok: fal
 }
 
 async function issueToken(
-  body: Required<Pick<TokenRequest, "client_id" | "audience" | "scope">> & Pick<TokenRequest, "delegated_by" | "delegation_depth" | "parent_task_id" | "requested_by_agent">,
+  body: Required<Pick<TokenRequest, "client_id" | "audience" | "scope">> & Pick<TokenRequest, "delegated_by" | "delegation_depth" | "parent_task_id" | "requested_by_agent" | "actor" | "actor_roles">,
   scopes: string[],
   tokenTtlSeconds: number
 ): Promise<A2ATokenResponse> {
@@ -284,6 +385,14 @@ async function issueToken(
 
   if (body.requested_by_agent) {
     claims.requested_by_agent = body.requested_by_agent;
+  }
+
+  if (body.actor) {
+    claims.actor = body.actor;
+  }
+
+  if (body.actor_roles) {
+    claims.actor_roles = body.actor_roles;
   }
 
   const accessToken = await new SignJWT({ ...claims })
@@ -326,7 +435,9 @@ async function handleToken(request: IncomingMessage, response: ServerResponse, s
         delegated_by: body.delegated_by,
         delegation_depth: body.delegation_depth,
         parent_task_id: body.parent_task_id,
-        requested_by_agent: body.requested_by_agent
+        requested_by_agent: body.requested_by_agent,
+        actor: body.actor,
+        actor_roles: body.actor_roles
       },
       validation.scopes,
       validation.application.tokenTtlSeconds ?? Number(process.env.A2A_TOKEN_TTL_SECONDS ?? 300)
@@ -401,6 +512,11 @@ async function start(): Promise<void> {
 
     if (request.method === "POST" && request.url === "/internal/demo-agent-registrations") {
       await handleDemoAgentRegistration(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/demo/user-token") {
+      await handleDemoUserToken(request, response);
       return;
     }
 

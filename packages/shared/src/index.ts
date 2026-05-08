@@ -204,6 +204,7 @@ export type A2ATokenClaims = {
   jti: string;
   client_id: string;
   actor?: string;
+  actor_roles?: string[];
   delegated_by?: string;
   delegation_depth?: number;
   parent_task_id?: string;
@@ -236,7 +237,16 @@ export type A2ATaskAuthMetadata = {
   delegationDepth?: number;
   parentTaskId?: string;
   requestedByAgent?: string;
+  actor?: string;
+  actorRoles?: string[];
   tokenAuthMethod?: OAuthClientAuthMethod;
+};
+
+export type UserIdentitySummary = {
+  authenticated: boolean;
+  email?: string;
+  name?: string;
+  roles?: string[];
 };
 
 export interface A2ATask {
@@ -264,6 +274,11 @@ export interface A2ATask {
     authMode?: A2AAuthMode;
     auth?: A2ATaskAuthMetadata;
     delegationContext?: Record<string, unknown>;
+    actor?: {
+      email: string;
+      name?: string;
+      roles: string[];
+    };
   };
 }
 
@@ -324,6 +339,7 @@ export interface ResolveResponse {
     confidence: "low" | "medium" | "high";
     hasMinimumDetails: boolean;
   };
+  userIdentity?: UserIdentitySummary;
   a2aTasks?: A2ATask[];
   a2aResponses?: A2AAgentResponse[];
   diagnosis: {

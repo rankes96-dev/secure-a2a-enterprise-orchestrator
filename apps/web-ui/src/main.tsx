@@ -262,6 +262,23 @@ type AgentCardValidationResult =
       details: string[];
     };
 
+type IdentitySessionResponse = {
+  authenticated: boolean;
+  user: {
+    email: string;
+    name?: string;
+    roles: string[];
+  } | null;
+  issuer: string;
+  audience: "secure-a2a-gateway";
+};
+
+const demoUserOptions = [
+  { email: "ran@company.com", label: "Ran Keselman", roleLabel: "it-support" },
+  { email: "analyst@company.com", label: "Security Analyst", roleLabel: "read-only" },
+  { email: "admin@company.com", label: "Identity Admin", roleLabel: "identity-admin" }
+];
+
 type DemoAgentCardInput = {
   system: string;
   agentSlug: string;
@@ -413,6 +430,11 @@ function App() {
   const [agentCardImportSuccess, setAgentCardImportSuccess] = useState("");
   const [isAgentCardValidating, setIsAgentCardValidating] = useState(false);
   const [isAgentCardImporting, setIsAgentCardImporting] = useState(false);
+  const [identitySession, setIdentitySession] = useState<IdentitySessionResponse | null>(null);
+  const [selectedDemoUserEmail, setSelectedDemoUserEmail] = useState(demoUserOptions[0].email);
+  const [identityError, setIdentityError] = useState("");
+  const [identityMessage, setIdentityMessage] = useState("");
+  const [isIdentityLoading, setIsIdentityLoading] = useState(false);
   const demoAgentListRef = useRef<HTMLDivElement | null>(null);
   const latestResponse = useMemo(
     () => [...messages].reverse().find((item) => item.role === "assistant" && item.status === "done" && item.metadata)?.metadata ?? null,
@@ -424,6 +446,9 @@ function App() {
   const authModeLabel = health?.orchestrator.authMode === "oauth2_client_credentials_jwt"
     ? "Secure A2A JWT mode"
     : "Local mock mode";
+  const userBadgeLabel = identitySession?.authenticated && identitySession.user
+    ? `User: ${identitySession.user.email}`
+    : "User: not authenticated";
   const healthAgentIds = new Set(health?.agents.map((agent) => agent.agentId) ?? []);
   const demoAgentCardById = new Map(demoAgentCards.map((card) => [card.agentId, card]));
   const importedAgentCardById = new Map(importedAgentCards.map((card) => [card.agentId, card]));
@@ -557,6 +582,7 @@ function App() {
 
   useEffect(() => {
     void checkAgentHealth();
+    void loadIdentitySession();
   }, []);
 
   useEffect(() => {
@@ -564,6 +590,9 @@ function App() {
       void loadDemoAgentCards();
       void loadImportedAgentCards();
       void checkAgentHealth();
+    }
+    if (activeTab === "trust-identity") {
+      void loadIdentitySession();
     }
   }, [activeTab]);
 
@@ -616,6 +645,78 @@ function App() {
       setDemoAgentCards(body.agentCards);
     } catch (caughtError) {
       setDemoAgentError(caughtError instanceof Error ? caughtError.message : "Failed to load demo Agent Cards");
+    }
+  }
+
+  async function loadIdentitySession() {
+    setIdentityError("");
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/identity/session`, {
+        method: "GET",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(await friendlyApiError(response, "Failed to load identity session"));
+      }
+
+      setIdentitySession((await response.json()) as IdentitySessionResponse);
+    } catch (caughtError) {
+      setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to load identity session");
+    }
+  }
+
+  async function loginDemoUser() {
+    setIdentityError("");
+    setIdentityMessage("");
+    setIsIdentityLoading(true);
+
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/identity/demo-login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: selectedDemoUserEmail })
+      });
+
+      if (!response.ok) {
+        throw new Error(await friendlyApiError(response, "Failed to login as demo user"));
+      }
+
+      const body = (await response.json()) as IdentitySessionResponse;
+      setIdentitySession(body);
+      setIdentityMessage("Demo user identity verified and attached to this gateway session.");
+    } catch (caughtError) {
+      setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to login as demo user");
+    } finally {
+      setIsIdentityLoading(false);
+    }
+  }
+
+  async function logoutIdentity() {
+    setIdentityError("");
+    setIdentityMessage("");
+    setIsIdentityLoading(true);
+
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/identity/logout`, {
+        method: "POST",
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        throw new Error(await friendlyApiError(response, "Failed to logout demo user"));
+      }
+
+      setIdentitySession((await response.json()) as IdentitySessionResponse);
+      setIdentityMessage("Demo user identity cleared from this gateway session.");
+    } catch (caughtError) {
+      setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to logout demo user");
+    } finally {
+      setIsIdentityLoading(false);
     }
   }
 
@@ -1373,18 +1474,72 @@ function App() {
   }
 
   function renderTrustIdentityTab() {
+    const currentUser = identitySession?.user;
+
     return (
       <section className="control-panel placeholder-panel" aria-label="Trust and Identity">
         <div className="panel-header">
           <div>
             <h2>Trust & Identity</h2>
-            <p className="muted-note">Next: connect external IdP, validate user identity, inspect JWKS, and test scoped token issuance.</p>
+            <p className="muted-note">Demo identity mode validates a signed Mock IdP User JWT server-side, stores only verified claims in the gateway session, and keeps raw tokens hidden.</p>
           </div>
-          <button type="button" className="secondary-button" onClick={() => void checkAgentHealth()} disabled={isHealthLoading}>
-            {isHealthLoading ? "Refreshing..." : "Refresh health"}
-          </button>
+          <div className="identity-actions">
+            <button type="button" className="secondary-button" onClick={() => {
+              void checkAgentHealth();
+              void loadIdentitySession();
+            }} disabled={isHealthLoading || isIdentityLoading}>
+              {isHealthLoading || isIdentityLoading ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
         </div>
+
+        <section className="identity-login-panel">
+          <div>
+            <p className="active-panel-eyebrow">User identity</p>
+            <h2>Demo Login</h2>
+            <p className="muted-note">The frontend sends only the selected demo email. The orchestrator requests a Mock IdP token, validates it against JWKS, and stores verified identity claims in the session.</p>
+          </div>
+          <div className="identity-login-controls">
+            <label>
+              <span>Demo user</span>
+              <select value={selectedDemoUserEmail} onChange={(event) => setSelectedDemoUserEmail(event.target.value)} disabled={isIdentityLoading}>
+                {demoUserOptions.map((user) => (
+                  <option value={user.email} key={user.email}>{user.label} / {user.roleLabel}</option>
+                ))}
+              </select>
+            </label>
+            <button type="button" onClick={() => void loginDemoUser()} disabled={isIdentityLoading}>
+              {isIdentityLoading ? "Verifying..." : "Login as demo user"}
+            </button>
+            <button type="button" onClick={() => void logoutIdentity()} disabled={isIdentityLoading || !identitySession?.authenticated}>
+              Logout
+            </button>
+          </div>
+          {identityError ? <p className="demo-agent-error" role="alert">{identityError}</p> : null}
+          {identityMessage ? <p className="demo-agent-success" role="status">{identityMessage}</p> : null}
+        </section>
+
         <div className="registry-summary-grid">
+          <article>
+            <span>Current user</span>
+            <strong>{currentUser?.email ?? "not authenticated"}</strong>
+          </article>
+          <article>
+            <span>Name</span>
+            <strong>{currentUser?.name ?? "none"}</strong>
+          </article>
+          <article>
+            <span>Roles</span>
+            <strong>{currentUser?.roles.join(", ") ?? "none"}</strong>
+          </article>
+          <article>
+            <span>User audience</span>
+            <strong>{identitySession?.audience ?? "secure-a2a-gateway"}</strong>
+          </article>
+          <article>
+            <span>Issuer</span>
+            <strong>{identitySession?.issuer ?? "unknown"}</strong>
+          </article>
           <article>
             <span>authMode</span>
             <strong>{health?.orchestrator.authMode ?? "unknown"}</strong>
@@ -1392,6 +1547,10 @@ function App() {
           <article>
             <span>secureAuthRequired</span>
             <strong>{typeof health?.orchestrator.secureAuthRequired === "boolean" ? String(health.orchestrator.secureAuthRequired) : "unknown"}</strong>
+          </article>
+          <article>
+            <span>Token exposure</span>
+            <strong>raw tokens hidden</strong>
           </article>
         </div>
         {healthError ? <p className="error">{healthError}</p> : null}
@@ -1445,6 +1604,7 @@ function App() {
           </div>
           <div className="topbar-actions">
             <div className="status">Conversation: {conversationId ? conversationId.slice(0, 8) : "new"}</div>
+            <div className={`status user-status ${identitySession?.authenticated ? "authenticated" : "anonymous"}`}>{userBadgeLabel}</div>
             <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
               New conversation
             </button>
@@ -1486,6 +1646,28 @@ function App() {
               <h2>Demo Flow Type</h2>
               <div className="flow-type">{inferDemoFlowType(latestResponse)}</div>
               <p className="muted-note">Conversation ID: {latestResponse.conversationId ?? conversationId ?? "new"}</p>
+            </section>
+
+            <section>
+              <h2>User Identity</h2>
+              <div className="classification-details">
+                <div>
+                  <span>Status</span>
+                  <strong>{latestResponse.userIdentity?.authenticated ? "authenticated" : "not authenticated"}</strong>
+                </div>
+                <div>
+                  <span>Email</span>
+                  <strong>{latestResponse.userIdentity?.email ?? "none"}</strong>
+                </div>
+                <div>
+                  <span>Name</span>
+                  <strong>{latestResponse.userIdentity?.name ?? "none"}</strong>
+                </div>
+                <div>
+                  <span>Roles</span>
+                  <strong>{latestResponse.userIdentity?.roles?.join(", ") ?? "none"}</strong>
+                </div>
+              </div>
             </section>
 
             {latestResponse.resolutionStatus === "unsupported" && inferDemoFlowType(latestResponse) !== "Out of scope" ? (
