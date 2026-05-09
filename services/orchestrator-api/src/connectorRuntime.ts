@@ -137,9 +137,21 @@ export async function executeApprovedConnectorSkill(params: {
     };
   }
 
+  if (!params.connectorRoute.trustedRuntimeEndpoint) {
+    return {
+      executed: false,
+      runtimeMode: "external_runtime_failed",
+      connectorId: params.connectorRoute.connectorId,
+      resourceSystem: params.connectorRoute.resourceSystem,
+      skillId: params.connectorRoute.skillId,
+      runtimeEndpoint: params.connectorRoute.runtimeEndpoint,
+      error: "trusted runtime endpoint metadata is missing"
+    };
+  }
+
   const endpoint = validateTrustedConnectorRuntimeEndpoint({
     endpoint: params.connectorRoute.runtimeEndpoint,
-    expectedEndpoint: params.connectorRoute.runtimeEndpoint
+    expectedEndpoint: params.connectorRoute.trustedRuntimeEndpoint
   });
   if (!endpoint.ok) {
     return {

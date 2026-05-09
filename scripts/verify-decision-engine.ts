@@ -1,5 +1,6 @@
 import { decideConnectorActions } from "../services/orchestrator-api/src/connectors/decisionEngine";
 import type { ConnectorProfile } from "../services/orchestrator-api/src/connectors/types";
+import { inferConnectorRoutingIntent } from "../services/orchestrator-api/src/connectorRouting";
 
 const profile: ConnectorProfile = {
   connectorId: "demo-reference",
@@ -56,5 +57,17 @@ assertStatus("all requirements", decide({}), "approved");
 assertStatus("missing grant", decide({ applicationAccessGrants: [] }), "blocked", "missing application access grant grant.read");
 assertStatus("missing permission", decide({ effectivePermissions: [] }), "blocked", "missing effective permission permission.read");
 assertStatus("denied permission", decide({ effectivePermissions: ["permission.read"], deniedPermissions: ["permission.read"] }), "blocked", "denied permission permission.read");
+
+function assertIntent(message: string, expectedSkillId: string): void {
+  const intent = inferConnectorRoutingIntent(message);
+  if (intent.requestedSkillId !== expectedSkillId) {
+    throw new Error(`expected "${message}" to map to ${expectedSkillId}, got ${intent.requestedSkillId ?? "none"}`);
+  }
+}
+
+assertIntent("Jira issue creation fails with 403 when creating issues in FIN project", "jira.issue.diagnose_creation_failure");
+assertIntent("Jira inspect project roles for a user", "jira.permission.inspect");
+assertIntent("GitHub pull request checks cannot read the repository", "github.pull_request.access.diagnose");
+assertIntent("GitHub repository sync rate limit is failing", "github.repository.rate_limit.diagnose");
 
 console.log("Decision engine verification passed.");

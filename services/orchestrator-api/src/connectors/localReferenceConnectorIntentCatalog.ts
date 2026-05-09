@@ -24,7 +24,7 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
       {
         skillId: "jira.permission.inspect",
         label: "Inspect Jira permissions",
-        includeAny: ["project role", "jira permission", "permission", "permissions", "user cannot access project", "cannot access project"],
+        includeAny: ["project role", "project roles", "jira permission", "permission", "permissions", "inspect", "user cannot access project", "cannot access project"],
         reason: "The request mentions Jira permissions or project roles."
       },
       {
@@ -77,7 +77,7 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
       {
         skillId: "github.pull_request.access.diagnose",
         label: "Diagnose GitHub pull request access",
-        includeAny: ["pull request", " pr "],
+        includeAny: ["pull request", "pull request checks", " pr "],
         reason: "The request references GitHub pull request access."
       },
       {
@@ -91,6 +91,7 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         skillId: "github.repository.rate_limit.diagnose",
         label: "Diagnose GitHub repository API rate limit",
         includeAny: ["github", "repository", "repo", "rate limit", "repository sync"],
+        excludeAny: ["pull request"],
         reason: "The request references GitHub repository or API rate-limit workflows."
       }
     ]

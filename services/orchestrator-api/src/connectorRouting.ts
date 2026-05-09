@@ -25,6 +25,7 @@ export type ConnectorRoutingDecision = {
   skillId?: string;
   skillLabel?: string;
   runtimeEndpoint?: string;
+  trustedRuntimeEndpoint?: string;
   audience?: string;
   externalConfigHash?: string;
   connectorProfileHash?: string;
@@ -46,6 +47,29 @@ function includesTerm(text: string, term: string): boolean {
   return text.includes(term.toLowerCase());
 }
 
+function exactTermMatch(text: string, term: string): boolean {
+  const normalized = term.toLowerCase().trim();
+  if (!normalized) {
+    return false;
+  }
+  return text.includes(normalized);
+}
+
+function partialTermMatch(text: string, term: string): boolean {
+  return term.toLowerCase().trim().split(/\s+/).filter(Boolean).every((token) => text.includes(token));
+}
+
+function scoreSkillHint(text: string, hint: { includeAny: string[]; excludeAny?: string[] }): number {
+  const includeScore = hint.includeAny.reduce((score, term) => {
+    if (exactTermMatch(text, term)) {
+      return score + 2;
+    }
+    return partialTermMatch(text, term) ? score + 1 : score;
+  }, 0);
+  const excludePenalty = (hint.excludeAny ?? []).reduce((score, term) => score + (includesTerm(text, term) ? 3 : 0), 0);
+  return includeScore - excludePenalty;
+}
+
 export function inferConnectorRoutingIntent(message: string): ConnectorRoutingIntent {
   const text = normalize(message);
 
@@ -54,10 +78,11 @@ export function inferConnectorRoutingIntent(message: string): ConnectorRoutingIn
       continue;
     }
 
-    const skill = connector.skillHints.find((hint) =>
-      hint.includeAny.some((term) => includesTerm(text, term)) &&
-        !(hint.excludeAny ?? []).some((term) => includesTerm(text, term))
-    ) ?? connector.skillHints[0];
+    const rankedSkills = connector.skillHints
+      .map((hint) => ({ hint, score: scoreSkillHint(text, hint) }))
+      .filter((item) => item.score > 0)
+      .sort((left, right) => right.score - left.score);
+    const skill = rankedSkills[0]?.hint;
 
     if (skill) {
       return {
@@ -68,6 +93,13 @@ export function inferConnectorRoutingIntent(message: string): ConnectorRoutingIn
         reason: skill.reason
       };
     }
+
+    return {
+      targetSystem: connector.resourceSystem,
+      connectorId: connector.connectorId,
+      confidence: "medium",
+      reason: `The request mentions ${connector.displayName}, but no specific skill/action hint scored above zero.`
+    };
   }
 
   if (/warehouse|robot arm|calibration/.test(text)) {
@@ -149,6 +181,7 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       skillId,
       skillLabel: approved.label ?? skillId,
       runtimeEndpoint: onboarded.runtimeEndpoint,
+      trustedRuntimeEndpoint: onboarded.runtimeEndpoint,
       audience: onboarded.audience,
       externalConfigHash: onboarded.externalConfigHash,
       connectorProfileHash: onboarded.connectorProfileHash,

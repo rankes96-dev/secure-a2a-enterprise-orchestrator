@@ -95,6 +95,11 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && request.url === "/admin/skill-declaration") {
+      sendAdminResult(response, saveCapabilityDeclaration(await readJsonBody<unknown>(request)));
+      return;
+    }
+
     if (request.method === "POST" && request.url === "/admin/capability-declaration") {
       sendAdminResult(response, saveCapabilityDeclaration(await readJsonBody<unknown>(request)));
       return;

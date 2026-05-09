@@ -583,10 +583,12 @@ export function adminPageHtml(): string {
     });
     $("save-capabilities").addEventListener("click", async () => {
       try {
-        render(await post("/admin/capability-declaration", {
+        render(await post("/admin/skill-declaration", {
           requestedApplicationGrants: selectedApplicationGrants,
           requestedScopes: selectedApplicationGrants,
+          enabledSkillIds: enabledActionIds,
           enabledActionIds,
+          agentDeclaredSkills: enabledActionIds,
           agentDeclaredCapabilities: enabledActionIds
         }));
         setMessage("capability-message", "Agent actions saved. Configuration changed. Re-run Gateway onboarding to refresh trusted connector attestation.");

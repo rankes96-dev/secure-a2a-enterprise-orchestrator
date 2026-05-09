@@ -76,6 +76,10 @@ if (!runtime.includes("validateTrustedConnectorRuntimeEndpoint")) {
   console.error("fail - connectorRuntime.ts should use shared runtime endpoint safety helper");
   failed = true;
 }
+if (!runtime.includes("trustedRuntimeEndpoint")) {
+  console.error("fail - connectorRuntime.ts should validate against connectorRoute.trustedRuntimeEndpoint");
+  failed = true;
+}
 
 const agentOnboarding = readFileSync("services/orchestrator-api/src/agentOnboarding.ts", "utf8").trim();
 if (agentOnboarding !== 'export * from "./agentOnboarding/index";') {
@@ -119,6 +123,22 @@ if (/http:\/\/localhost:420[123]/.test(requestValidation)) {
 const adminConfig = readFileSync("real-external-agent/src/adminConfig.ts", "utf8");
 if (/type\s+CapabilityDeclarationConfig/.test(adminConfig)) {
   console.error("fail - adminConfig.ts should use SkillDeclarationConfig, with capabilities only as compatibility fields");
+  failed = true;
+}
+
+const externalIndex = readFileSync("real-external-agent/src/index.ts", "utf8");
+if (!externalIndex.includes('request.url === "/admin/skill-declaration"')) {
+  console.error("fail - real-external-agent should expose /admin/skill-declaration");
+  failed = true;
+}
+if (!externalIndex.includes('request.url === "/admin/capability-declaration"')) {
+  console.error("fail - real-external-agent should keep /admin/capability-declaration compatibility alias");
+  failed = true;
+}
+
+const adminPage = readFileSync("real-external-agent/src/adminPage.ts", "utf8");
+if (!adminPage.includes('post("/admin/skill-declaration"')) {
+  console.error("fail - admin UI should prefer /admin/skill-declaration");
   failed = true;
 }
 

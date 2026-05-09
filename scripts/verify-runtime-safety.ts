@@ -40,4 +40,11 @@ if (mismatch.ok) {
   throw new Error("expected trusted endpoint mismatch to fail");
 }
 
+const missingTrusted = validateTrustedConnectorRuntimeEndpoint({
+  endpoint: "http://localhost:4201/a2a/task"
+});
+if (!missingTrusted.ok) {
+  throw new Error(`expected validation without exact trusted endpoint to remain valid: ${missingTrusted.error}`);
+}
+
 console.log("Runtime safety verification passed.");

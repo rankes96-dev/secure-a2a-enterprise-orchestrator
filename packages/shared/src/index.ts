@@ -340,6 +340,7 @@ export interface ResolveResponse {
     skillId?: string;
     skillLabel?: string;
     runtimeEndpoint?: string;
+    trustedRuntimeEndpoint?: string;
     audience?: string;
     externalConfigHash?: string;
     connectorProfileHash?: string;

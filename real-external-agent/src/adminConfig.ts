@@ -369,7 +369,9 @@ export function saveCapabilityDeclaration(value: unknown): { ok: true; config: R
       ? lines(input.enabledSkillIds)
       : lines(input.enabledActionIds).length > 0 || "enabledActionIds" in input
         ? lines(input.enabledActionIds)
-      : lines(input.agentDeclaredCapabilities),
+      : lines(input.agentDeclaredSkills).length > 0 || "agentDeclaredSkills" in input
+        ? lines(input.agentDeclaredSkills)
+        : lines(input.agentDeclaredCapabilities),
     actionIds
   );
   const requestedApplicationGrants = deriveRequestedApplicationGrants(enabledSkillIds, currentConfig.selectedConnectorId);

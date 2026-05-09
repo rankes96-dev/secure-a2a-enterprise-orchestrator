@@ -27,7 +27,8 @@ No private key is committed. The development signing key is generated in memory 
 - `POST /admin/trusted-gateway` - save Gateway public registration metadata
 - `POST /admin/oauth-application` - save external OAuth application binding metadata and application access grants
 - `POST /admin/service-principal` - save integration user effective and denied permissions
-- `POST /admin/capability-declaration` - save enabled agent actions; requested application grants are derived from action requirements
+- `POST /admin/skill-declaration` - save enabled agent actions/skills; requested application grants are derived from action requirements
+- `POST /admin/capability-declaration` - compatibility alias for older demo clients
 - `POST /admin/reset-demo` - restore local demo defaults
 - `GET /.well-known/a2a-agent.json` - public discovery metadata
 - `GET /.well-known/a2a-connector-profile.json` - public connector profile describing grant, permission, and action catalogs
