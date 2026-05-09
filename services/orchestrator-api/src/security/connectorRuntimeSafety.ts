@@ -1,4 +1,5 @@
 const defaultAllowedOrigins = "http://localhost:4201,http://localhost:4202,http://localhost:4203";
+const localReferenceRuntimePath = "/a2a/task";
 
 export function allowedConnectorRuntimeOrigins(): Set<string> {
   const configured = process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS ?? defaultAllowedOrigins;
@@ -34,11 +35,40 @@ export function validateConnectorRuntimeEndpoint(endpoint: string | undefined): 
     return { ok: false, error: "external connector runtime endpoint is not allowlisted" };
   }
 
+  if (url.pathname !== localReferenceRuntimePath) {
+    return { ok: false, error: "external connector runtime endpoint path is not allowed" };
+  }
+
   if (url.search || url.hash) {
     return { ok: false, error: "external connector runtime endpoint must not include query or fragment" };
   }
 
   return { ok: true, url };
+}
+
+export function validateTrustedConnectorRuntimeEndpoint(params: {
+  endpoint: string | undefined;
+  expectedEndpoint?: string;
+}): { ok: true; url: URL } | { ok: false; error: string } {
+  const endpoint = validateConnectorRuntimeEndpoint(params.endpoint);
+  if (!endpoint.ok) {
+    return endpoint;
+  }
+
+  if (!params.expectedEndpoint) {
+    return endpoint;
+  }
+
+  const expected = validateConnectorRuntimeEndpoint(params.expectedEndpoint);
+  if (!expected.ok) {
+    return { ok: false, error: `trusted connector runtime endpoint is invalid: ${expected.error}` };
+  }
+
+  if (endpoint.url.toString() !== expected.url.toString()) {
+    return { ok: false, error: "external connector runtime endpoint did not match trusted onboarding metadata" };
+  }
+
+  return endpoint;
 }
 
 export function isConnectorRuntimeEndpointAllowed(endpoint: string | undefined): boolean {

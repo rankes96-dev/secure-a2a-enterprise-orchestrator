@@ -159,7 +159,7 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
     connectorProfileHash: connectorProfileHash(connectorProfile),
     externalConfigHash: adminConfigHash(),
     trustAdapter: connectorProfile.resourceSystem,
-    agentDeclaredSkills: config.capabilityDeclaration.agentDeclaredCapabilities,
+    agentDeclaredSkills: config.capabilityDeclaration.agentDeclaredSkills,
     agentDeclaredCapabilities: config.capabilityDeclaration.agentDeclaredCapabilities,
     requestedApplicationGrants: config.capabilityDeclaration.requestedApplicationGrants,
     requestedScopes: config.capabilityDeclaration.requestedScopes,

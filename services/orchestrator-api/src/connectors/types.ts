@@ -23,6 +23,7 @@ export type ConnectorProfile = {
   effectivePermissionCatalog: ConnectorCatalogItem[];
   skillCatalog: ConnectorActionRequirement[];
   actionCatalog: ConnectorActionRequirement[];
+  intentHints?: unknown;
   demoDefaults?: unknown;
 };
 

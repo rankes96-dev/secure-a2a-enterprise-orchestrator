@@ -48,7 +48,7 @@ export function previewActionReadiness(config: AdminConfig): ActionReadinessPrev
   const selectedGrants = new Set(config.oauthApplication.applicationAccessGrants);
   const effectivePermissions = new Set(config.servicePrincipal.effectivePermissions);
   const deniedPermissions = new Set(config.servicePrincipal.deniedPermissions);
-  const enabledActions = new Set(config.capabilityDeclaration.agentDeclaredCapabilities);
+  const enabledActions = new Set(config.capabilityDeclaration.agentDeclaredSkills ?? config.capabilityDeclaration.agentDeclaredCapabilities);
 
   return profile.skillCatalog.map((action) => {
     if (!enabledActions.has(action.id)) {

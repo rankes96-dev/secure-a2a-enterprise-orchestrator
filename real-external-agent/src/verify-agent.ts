@@ -222,7 +222,7 @@ async function verifyAdminConfig(): Promise<void> {
     supportedConnectors: Array<{ connectorId: string; resourceSystem: string; status: string }>;
     oauthApplication: { appName: string; clientId: string; applicationAccessGrants: string[]; grantedScopes: string[]; status: string };
     servicePrincipal: { principalId: string; effectivePermissions: string[]; deniedPermissions: string[] };
-    capabilityDeclaration: { requestedApplicationGrants: string[]; requestedScopes: string[]; agentDeclaredCapabilities: string[] };
+    capabilityDeclaration: { requestedApplicationGrants: string[]; requestedScopes: string[]; agentDeclaredSkills?: string[]; agentDeclaredCapabilities: string[] };
     actionReadiness: Array<{ actionId: string; status: string; missingApplicationGrants: string[]; deniedPermissions: string[] }>;
     externalConfigHash: string;
     externalConfigUpdatedAt: string;
@@ -243,7 +243,7 @@ async function verifyAdminConfig(): Promise<void> {
   assertCondition(config.servicePrincipal.principalId === profile.demoDefaults.servicePrincipal.principalId, "service principal mismatch");
   assertCondition(sameMembers(config.servicePrincipal.effectivePermissions, defaultEffectivePermissions), "effectivePermissions mismatch");
   assertCondition(sameMembers(config.servicePrincipal.deniedPermissions, defaultDeniedPermissions), "deniedPermissions mismatch");
-  assertCondition(sameMembers(config.capabilityDeclaration.agentDeclaredCapabilities, defaultDeclaredSkills), "agentDeclaredCapabilities mismatch");
+  assertCondition(sameMembers(config.capabilityDeclaration.agentDeclaredSkills ?? config.capabilityDeclaration.agentDeclaredCapabilities, defaultDeclaredSkills), "agentDeclaredSkills mismatch");
   assertCondition(sameMembers(config.capabilityDeclaration.requestedApplicationGrants, defaultRequestedApplicationGrants), "derived requestedApplicationGrants mismatch");
   assertNoSecretMarkers(config);
   ok("admin config ready");

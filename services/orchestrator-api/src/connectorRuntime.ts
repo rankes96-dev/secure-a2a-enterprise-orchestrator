@@ -3,7 +3,7 @@ import type { A2AAgentResponse } from "@a2a/shared";
 import { getA2AAccessToken, type A2AIssuedTokenMetadata } from "./security/tokenClient";
 import type { VerifiedUserIdentity } from "./security/userIdentity";
 import type { ConnectorRoutingDecision } from "./connectorRouting";
-import { validateConnectorRuntimeEndpoint } from "./security/connectorRuntimeSafety";
+import { validateTrustedConnectorRuntimeEndpoint } from "./security/connectorRuntimeSafety";
 
 export type ConnectorRuntimeResult = {
   executed: boolean;
@@ -137,7 +137,10 @@ export async function executeApprovedConnectorSkill(params: {
     };
   }
 
-  const endpoint = validateConnectorRuntimeEndpoint(params.connectorRoute.runtimeEndpoint);
+  const endpoint = validateTrustedConnectorRuntimeEndpoint({
+    endpoint: params.connectorRoute.runtimeEndpoint,
+    expectedEndpoint: params.connectorRoute.runtimeEndpoint
+  });
   if (!endpoint.ok) {
     return {
       executed: false,

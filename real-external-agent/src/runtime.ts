@@ -108,7 +108,7 @@ export function connectorAccessEvaluation(skill: RuntimeSkillRequirement): Conne
   const applicationAccessGrants = new Set(config.oauthApplication.applicationAccessGrants);
   const effectivePermissions = new Set(config.servicePrincipal.effectivePermissions);
   const deniedPermissions = new Set(config.servicePrincipal.deniedPermissions);
-  const enabledSkills = new Set(config.capabilityDeclaration.agentDeclaredCapabilities);
+  const enabledSkills = new Set(config.capabilityDeclaration.agentDeclaredSkills);
   const createIssueAccessReady = applicationAccessGrants.has("write:jira-work") && effectivePermissions.has("create_issues") && !deniedPermissions.has("create_issues");
 
   return {

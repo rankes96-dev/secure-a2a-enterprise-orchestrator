@@ -37,10 +37,12 @@ export type ServicePrincipalConfig = {
   deniedPermissions: string[];
 };
 
-export type CapabilityDeclarationConfig = {
+export type SkillDeclarationConfig = {
+  enabledSkillIds: string[];
   enabledActionIds: string[];
   requestedApplicationGrants: string[];
   requestedScopes: string[];
+  agentDeclaredSkills: string[];
   // Compatibility alias for earlier onboarding payloads. Values are enabled connector skill IDs.
   agentDeclaredCapabilities: string[];
 };
@@ -50,7 +52,7 @@ export type AdminConfig = {
   trustedGateway: TrustedGatewayRegistration;
   oauthApplication: OAuthApplicationConfig;
   servicePrincipal: ServicePrincipalConfig;
-  capabilityDeclaration: CapabilityDeclarationConfig;
+  capabilityDeclaration: SkillDeclarationConfig;
 };
 
 const forbiddenSecretPatterns = [
@@ -149,9 +151,11 @@ function demoConfig(): AdminConfig {
       deniedPermissions: [...connectorProfile.demoDefaults.servicePrincipal.defaultDeniedPermissions]
     },
     capabilityDeclaration: {
+      enabledSkillIds: [...enabledActionIds],
       enabledActionIds,
       requestedApplicationGrants,
       requestedScopes: [...requestedApplicationGrants],
+      agentDeclaredSkills: [...enabledActionIds],
       agentDeclaredCapabilities: [...enabledActionIds]
     }
   };
@@ -181,7 +185,9 @@ function safeHashSnapshot(config: AdminConfig) {
       deniedPermissions: sorted(config.servicePrincipal.deniedPermissions)
     },
     capabilityDeclaration: {
+      enabledSkillIds: sorted(config.capabilityDeclaration.enabledSkillIds),
       enabledActionIds: sorted(config.capabilityDeclaration.enabledActionIds),
+      agentDeclaredSkills: sorted(config.capabilityDeclaration.agentDeclaredSkills),
       agentDeclaredCapabilities: sorted(config.capabilityDeclaration.agentDeclaredCapabilities)
     }
   };
@@ -212,9 +218,11 @@ export function getAdminConfig(): AdminConfig {
       deniedPermissions: [...currentConfig.servicePrincipal.deniedPermissions]
     },
     capabilityDeclaration: {
+      enabledSkillIds: [...currentConfig.capabilityDeclaration.enabledSkillIds],
       enabledActionIds: [...currentConfig.capabilityDeclaration.enabledActionIds],
       requestedApplicationGrants: [...currentConfig.capabilityDeclaration.requestedApplicationGrants],
       requestedScopes: [...currentConfig.capabilityDeclaration.requestedScopes],
+      agentDeclaredSkills: [...currentConfig.capabilityDeclaration.agentDeclaredSkills],
       agentDeclaredCapabilities: [...currentConfig.capabilityDeclaration.agentDeclaredCapabilities]
     }
   };
@@ -249,7 +257,7 @@ export function readinessStatus(): { ready: boolean; status: "ready" | "readyWit
   if (currentConfig.oauthApplication.status !== "active") blockers.push("OAuth application is disabled.");
   if (!currentConfig.oauthApplication.clientId) blockers.push("OAuth client ID is missing.");
   if (!currentConfig.servicePrincipal.principalId) blockers.push("Service account is missing.");
-  if (currentConfig.capabilityDeclaration.agentDeclaredCapabilities.length === 0) blockers.push("Agent actions are missing.");
+  if (currentConfig.capabilityDeclaration.agentDeclaredSkills.length === 0) blockers.push("Agent actions are missing.");
   if (!listSupportedConnectors().some((connector) => connector.connectorId === currentConfig.selectedConnectorId && connector.status === "available")) blockers.push("Selected connector is not available.");
   if (hasSecretMarker(currentConfig)) blockers.push("Configuration contains forbidden secret markers.");
   if (currentConfig.oauthApplication.applicationAccessGrants.length === 0) warnings.push("No application access grants are selected. Gateway onboarding can proceed, but actions will be blocked.");
@@ -356,22 +364,26 @@ export function saveServicePrincipal(value: unknown): { ok: true; config: Return
 export function saveCapabilityDeclaration(value: unknown): { ok: true; config: ReturnType<typeof publicAdminConfig> } | { ok: false; errors: string[] } {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const actionIds = getConnectorProfile(currentConfig.selectedConnectorId).skillCatalog.map((action) => action.id);
-  const enabledActionIds = normalizeKnownValues(
-    lines(input.enabledActionIds).length > 0 || "enabledActionIds" in input
-      ? lines(input.enabledActionIds)
+  const enabledSkillIds = normalizeKnownValues(
+    lines(input.enabledSkillIds).length > 0 || "enabledSkillIds" in input
+      ? lines(input.enabledSkillIds)
+      : lines(input.enabledActionIds).length > 0 || "enabledActionIds" in input
+        ? lines(input.enabledActionIds)
       : lines(input.agentDeclaredCapabilities),
     actionIds
   );
-  const requestedApplicationGrants = deriveRequestedApplicationGrants(enabledActionIds, currentConfig.selectedConnectorId);
-  const candidate: CapabilityDeclarationConfig = {
-    enabledActionIds,
+  const requestedApplicationGrants = deriveRequestedApplicationGrants(enabledSkillIds, currentConfig.selectedConnectorId);
+  const candidate: SkillDeclarationConfig = {
+    enabledSkillIds,
+    enabledActionIds: [...enabledSkillIds],
     requestedApplicationGrants,
     requestedScopes: [...requestedApplicationGrants],
-    agentDeclaredCapabilities: [...enabledActionIds]
+    agentDeclaredSkills: [...enabledSkillIds],
+    agentDeclaredCapabilities: [...enabledSkillIds]
   };
   const errors: string[] = [];
   if (hasSecretMarker(input)) errors.push("Capability declaration must not include secrets or tokens.");
-  if (candidate.agentDeclaredCapabilities.length === 0) errors.push("Agent-declared capabilities are required.");
+  if (candidate.agentDeclaredSkills.length === 0) errors.push("Agent-declared skills are required.");
   if (errors.length > 0) return { ok: false, errors };
 
   currentConfig.capabilityDeclaration = candidate;

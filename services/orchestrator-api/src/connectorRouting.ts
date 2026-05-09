@@ -1,5 +1,5 @@
 import type { TrustedOnboardedAgent } from "./agentOnboarding";
-import { referenceConnectorCatalog } from "./connectors/referenceConnectorCatalog";
+import { localReferenceConnectorIntentCatalog } from "./connectors/localReferenceConnectorIntentCatalog";
 import { isConnectorRuntimeEndpointAllowed } from "./security/connectorRuntimeSafety";
 
 export type ConnectorRoutingIntent = {
@@ -49,7 +49,7 @@ function includesTerm(text: string, term: string): boolean {
 export function inferConnectorRoutingIntent(message: string): ConnectorRoutingIntent {
   const text = normalize(message);
 
-  for (const connector of referenceConnectorCatalog) {
+  for (const connector of localReferenceConnectorIntentCatalog) {
     if (!connector.systemTerms.some((term) => includesTerm(text, term))) {
       continue;
     }
@@ -94,7 +94,7 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     };
   }
 
-  const supported = referenceConnectorCatalog.find((connector) => connector.resourceSystem === intent.targetSystem || connector.connectorId === intent.connectorId);
+  const supported = localReferenceConnectorIntentCatalog.find((connector) => connector.resourceSystem === intent.targetSystem || connector.connectorId === intent.connectorId);
   if (!supported || !intent.connectorId) {
     return {
       status: "unsupported",

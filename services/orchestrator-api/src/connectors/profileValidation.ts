@@ -98,6 +98,7 @@ export function validateConnectorProfile(value: unknown): { profile?: ConnectorP
     effectivePermissionCatalog: catalog(input.effectivePermissionCatalog),
     skillCatalog: actionCatalog(input.skillCatalog).length ? actionCatalog(input.skillCatalog) : actionCatalog(input.actionCatalog),
     actionCatalog: actionCatalog(input.actionCatalog).length ? actionCatalog(input.actionCatalog) : actionCatalog(input.skillCatalog),
+    intentHints: input.intentHints,
     demoDefaults: input.demoDefaults
   };
 

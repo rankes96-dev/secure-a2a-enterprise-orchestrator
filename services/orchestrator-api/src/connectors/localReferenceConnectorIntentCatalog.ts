@@ -1,3 +1,5 @@
+// Deterministic local demo routing catalog. Production connectors should provide
+// intent hints through connector profiles or a managed connector registry.
 export type ConnectorIntentHint = {
   connectorId: string;
   resourceSystem: string;
@@ -12,7 +14,7 @@ export type ConnectorIntentHint = {
   }>;
 };
 
-export const referenceConnectorCatalog: ConnectorIntentHint[] = [
+export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
   {
     connectorId: "jira-reference",
     resourceSystem: "jira",

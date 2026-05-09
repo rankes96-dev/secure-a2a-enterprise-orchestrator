@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 type Check = {
   file: string;
@@ -14,7 +14,7 @@ const checks: Check[] = [
   },
   {
     file: "services/orchestrator-api/src/connectorRouting.ts",
-    description: "connector routing should use the reference connector catalog, not inline connector metadata",
+    description: "connector routing should use the local demo intent catalog, not inline connector metadata",
     forbidden: [/const\s+supportedConnectors\s*=/, /jira-reference/, /servicenow-reference/, /github-reference/]
   },
   {
@@ -62,8 +62,8 @@ for (const check of checks) {
 }
 
 const routing = readFileSync("services/orchestrator-api/src/connectorRouting.ts", "utf8");
-if (!routing.includes("referenceConnectorCatalog")) {
-  console.error("fail - connectorRouting.ts should import referenceConnectorCatalog");
+if (!routing.includes("localReferenceConnectorIntentCatalog")) {
+  console.error("fail - connectorRouting.ts should import localReferenceConnectorIntentCatalog");
   failed = true;
 }
 if (!routing.includes("isConnectorRuntimeEndpointAllowed")) {
@@ -72,8 +72,53 @@ if (!routing.includes("isConnectorRuntimeEndpointAllowed")) {
 }
 
 const runtime = readFileSync("services/orchestrator-api/src/connectorRuntime.ts", "utf8");
-if (!runtime.includes("validateConnectorRuntimeEndpoint")) {
+if (!runtime.includes("validateTrustedConnectorRuntimeEndpoint")) {
   console.error("fail - connectorRuntime.ts should use shared runtime endpoint safety helper");
+  failed = true;
+}
+
+const agentOnboarding = readFileSync("services/orchestrator-api/src/agentOnboarding.ts", "utf8").trim();
+if (agentOnboarding !== 'export * from "./agentOnboarding/index";') {
+  console.error("fail - agentOnboarding.ts should be a compatibility re-export only");
+  failed = true;
+}
+
+for (const modulePath of [
+  "services/orchestrator-api/src/agentOnboarding/types.ts",
+  "services/orchestrator-api/src/agentOnboarding/requestValidation.ts",
+  "services/orchestrator-api/src/agentOnboarding/discovery.ts",
+  "services/orchestrator-api/src/agentOnboarding/trustResponseVerifier.ts",
+  "services/orchestrator-api/src/agentOnboarding/connectorProfileFetcher.ts",
+  "services/orchestrator-api/src/agentOnboarding/trustedAgentStore.ts",
+  "services/orchestrator-api/src/agentOnboarding/responseMapper.ts",
+  "services/orchestrator-api/src/agentOnboarding/onboardingService.ts",
+  "services/orchestrator-api/src/agentOnboarding/index.ts"
+]) {
+  if (!existsSync(modulePath)) {
+    console.error(`fail - expected modular onboarding file is missing: ${modulePath}`);
+    failed = true;
+  }
+}
+
+const runtimeSafety = readFileSync("services/orchestrator-api/src/security/connectorRuntimeSafety.ts", "utf8");
+if (!runtimeSafety.includes('const localReferenceRuntimePath = "/a2a/task"')) {
+  console.error("fail - connectorRuntimeSafety should enforce the local /a2a/task runtime path");
+  failed = true;
+}
+
+const requestValidation = readFileSync("services/orchestrator-api/src/agentOnboarding/requestValidation.ts", "utf8");
+if (!requestValidation.includes("localReferenceConnectors")) {
+  console.error("fail - onboarding request validation should import local reference connector guardrails");
+  failed = true;
+}
+if (/http:\/\/localhost:420[123]/.test(requestValidation)) {
+  console.error("fail - local demo connector URLs should live in localReferenceConnectors.ts, not requestValidation.ts");
+  failed = true;
+}
+
+const adminConfig = readFileSync("real-external-agent/src/adminConfig.ts", "utf8");
+if (/type\s+CapabilityDeclarationConfig/.test(adminConfig)) {
+  console.error("fail - adminConfig.ts should use SkillDeclarationConfig, with capabilities only as compatibility fields");
   failed = true;
 }
 
