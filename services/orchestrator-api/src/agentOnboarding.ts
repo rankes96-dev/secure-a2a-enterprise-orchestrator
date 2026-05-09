@@ -18,6 +18,8 @@ export type AgentTrustLevel =
 export type AgentOnboardingRequest = {
   agentBaseUrl: string;
   expectedAgentId: string;
+  expectedResourceSystem?: string;
+  expectedConnectorId?: string;
 };
 
 export type AgentOnboardingChallenge = {
@@ -36,6 +38,7 @@ export type ExternalAgentTrustResponse = {
   clientId: string;
   audience: string;
   nonce: string;
+  agentDeclaredSkills: string[];
   agentDeclaredCapabilities: string[];
   requestedApplicationGrants: string[];
   requestedScopes: string[];
@@ -71,6 +74,7 @@ export type ExternalAgentDiscovery = {
   connectorId?: string;
   connectorDisplayName?: string;
   connectorProfileUrl?: string;
+  supportedConnectorProfileUrl?: string;
   trustAdapter?: string;
   jwksUri: string;
   onboardingEndpoint: string;
@@ -111,6 +115,7 @@ export type TrustedOnboardedAgent = {
   audience: string;
   requestedScopes: string[];
   requestedApplicationGrants: string[];
+  agentDeclaredSkills: string[];
   agentDeclaredCapabilities: string[];
   applicationAccessGrants: string[];
   grantedScopes: string[];
@@ -190,6 +195,7 @@ export type AgentOnboardingValidationResult =
         audience: string;
         requestedScopes: string[];
         requestedApplicationGrants: string[];
+        agentDeclaredSkills: string[];
         agentDeclaredCapabilities: string[];
       };
       agent: {
@@ -247,6 +253,17 @@ const maxDiscoveryJsonBytes = 32_000;
 const maxConnectorProfileJsonBytes = 64_000;
 const maxOnboardingJsonBytes = 64_000;
 const allowedAgentBaseUrls = new Set(["http://localhost:4201"]);
+
+export function listSupportedConnectorGuardrails() {
+  return [
+    {
+      resourceSystem: "jira",
+      connectorId: "jira-reference",
+      displayName: "Jira Cloud Reference Connector",
+      status: "available" as const
+    }
+  ];
+}
 
 function cleanString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -326,7 +343,9 @@ function parseOnboardingRequest(value: unknown): AgentOnboardingRequest {
   const rawAgentBaseUrl = cleanString(input.agentBaseUrl);
   return {
     agentBaseUrl: normalizeAgentBaseUrl(rawAgentBaseUrl) ?? rawAgentBaseUrl,
-    expectedAgentId: cleanString(input.expectedAgentId)
+    expectedAgentId: cleanString(input.expectedAgentId),
+    expectedResourceSystem: cleanString(input.expectedResourceSystem) || undefined,
+    expectedConnectorId: cleanString(input.expectedConnectorId) || undefined
   };
 }
 
@@ -427,7 +446,7 @@ async function fetchJsonWithLimit<T>(url: string, init: RequestInit, maxBytes: n
   }
 }
 
-function validateDiscovery(value: unknown, agentBaseUrl: string, expectedAgentId: string): { discovery?: ExternalAgentDiscovery; details: string[] } {
+function validateDiscovery(value: unknown, request: AgentOnboardingRequest): { discovery?: ExternalAgentDiscovery; details: string[] } {
   const details: string[] = [];
   const input = record(value);
   const auth = record(input.auth);
@@ -438,6 +457,7 @@ function validateDiscovery(value: unknown, agentBaseUrl: string, expectedAgentId
     connectorId: cleanString(input.connectorId) || undefined,
     connectorDisplayName: cleanString(input.connectorDisplayName) || undefined,
     connectorProfileUrl: cleanString(input.connectorProfileUrl) || undefined,
+    supportedConnectorProfileUrl: cleanString(input.supportedConnectorProfileUrl) || undefined,
     trustAdapter: cleanString(input.trustAdapter) || undefined,
     jwksUri: cleanString(input.jwksUri),
     onboardingEndpoint: cleanString(input.onboardingEndpoint),
@@ -465,11 +485,17 @@ function validateDiscovery(value: unknown, agentBaseUrl: string, expectedAgentId
   if (!discovery.onboardingEndpoint) details.push("discovery missing onboardingEndpoint.");
   if (!discovery.runtimeEndpoint) details.push("discovery missing runtimeEndpoint.");
   if (!discovery.auth.audience) details.push("discovery missing auth.audience.");
-  if (discovery.agentId && discovery.agentId !== expectedAgentId) {
+  if (discovery.agentId && discovery.agentId !== request.expectedAgentId) {
     details.push("discovery agentId did not match expectedAgentId.");
   }
-  if (discovery.issuer && discovery.issuer !== agentBaseUrl) {
+  if (discovery.issuer && discovery.issuer !== request.agentBaseUrl) {
     details.push("discovery issuer did not match agentBaseUrl.");
+  }
+  if (request.expectedResourceSystem && discovery.resourceSystem !== request.expectedResourceSystem) {
+    details.push(`Expected external system ${request.expectedResourceSystem} but discovered ${discovery.resourceSystem || "unknown"}.`);
+  }
+  if (request.expectedConnectorId && discovery.connectorId !== request.expectedConnectorId) {
+    details.push(`Expected connector ${request.expectedConnectorId} but discovered ${discovery.connectorId || "unknown"}.`);
   }
 
   for (const [label, url] of [
@@ -478,10 +504,11 @@ function validateDiscovery(value: unknown, agentBaseUrl: string, expectedAgentId
     ["onboardingEndpoint", discovery.onboardingEndpoint],
     ["runtimeEndpoint", discovery.runtimeEndpoint],
     ["adminConsoleUrl", discovery.adminConsoleUrl],
-    ["connectorProfileUrl", discovery.connectorProfileUrl]
+    ["connectorProfileUrl", discovery.connectorProfileUrl],
+    ["supportedConnectorProfileUrl", discovery.supportedConnectorProfileUrl]
   ] as const) {
     if (url) {
-      const unsafe = validateSafeExternalUrl(url, agentBaseUrl);
+      const unsafe = validateSafeExternalUrl(url, request.agentBaseUrl);
       if (unsafe) {
         details.push(`${label}: ${unsafe}`);
       }
@@ -491,11 +518,11 @@ function validateDiscovery(value: unknown, agentBaseUrl: string, expectedAgentId
   return details.length > 0 ? { details } : { discovery, details };
 }
 
-async function discoverExternalAgent(agentBaseUrl: string, expectedAgentId: string): Promise<{ discovery?: ExternalAgentDiscovery; details: string[] }> {
-  const discoveryUrl = `${agentBaseUrl}/.well-known/a2a-agent.json`;
+async function discoverExternalAgent(request: AgentOnboardingRequest): Promise<{ discovery?: ExternalAgentDiscovery; details: string[] }> {
+  const discoveryUrl = `${request.agentBaseUrl}/.well-known/a2a-agent.json`;
   try {
     const body = await fetchJsonWithLimit<unknown>(discoveryUrl, { method: "GET" }, maxDiscoveryJsonBytes);
-    return validateDiscovery(body, agentBaseUrl, expectedAgentId);
+    return validateDiscovery(body, request);
   } catch (error) {
     return {
       details: [`external agent discovery failed: ${error instanceof Error ? error.message : "unknown error"}`]
@@ -574,7 +601,12 @@ async function requestExternalAgentTrustResponse(challenge: AgentOnboardingChall
       clientId: cleanString(payload.clientId),
       audience: cleanString(payload.audience),
       nonce: cleanString(payload.nonce),
-      agentDeclaredCapabilities: stringArray(payload.agentDeclaredCapabilities),
+      agentDeclaredSkills: stringArray(payload.agentDeclaredSkills).length
+        ? stringArray(payload.agentDeclaredSkills)
+        : stringArray(payload.agentDeclaredCapabilities),
+      agentDeclaredCapabilities: stringArray(payload.agentDeclaredCapabilities).length
+        ? stringArray(payload.agentDeclaredCapabilities)
+        : stringArray(payload.agentDeclaredSkills),
       requestedApplicationGrants: stringArray(payload.requestedApplicationGrants).length
         ? stringArray(payload.requestedApplicationGrants)
         : stringArray(payload.requestedScopes),
@@ -644,7 +676,7 @@ export async function discoverAgentOnboarding(value: unknown): Promise<AgentOnbo
   }
 
   checks.push({ name: "safe_agent_base_url", status: "passed" });
-  const discovered = await discoverExternalAgent(request.agentBaseUrl, request.expectedAgentId);
+  const discovered = await discoverExternalAgent(request);
   if (!discovered.discovery) {
     checks.push({ name: "external_agent_discovery", status: "failed", detail: discovered.details.join(" ") });
     return {
@@ -672,7 +704,7 @@ export async function discoverAgentOnboarding(value: unknown): Promise<AgentOnbo
       admin: [
         "Copy the Gateway registration JSON into the external agent admin/config screen.",
         "Verify the OAuth application registration and service principal permissions before completing onboarding.",
-        "Run Verify connection to require signed proof, OAuth binding, and capability derivation."
+        "Run Verify connection to require signed proof, OAuth binding, and action decision."
       ],
       externalAgentDeveloper: [
         "Publish discovery and public JWKS endpoints.",
@@ -695,7 +727,7 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
   }
 
   checks.push({ name: "safe_agent_base_url", status: "passed" });
-  const discovered = await discoverExternalAgent(request.agentBaseUrl, request.expectedAgentId);
+  const discovered = await discoverExternalAgent(request);
   if (!discovered.discovery) {
     details.push(...discovered.details);
     addCheck(checks, "external_agent_discovery", false, discovered.details.join(" "));
@@ -735,6 +767,13 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
 
   addCheck(checks, "audience_matched", trustResponse.audience === discovery.auth.audience);
   if (trustResponse.audience !== discovery.auth.audience) details.push("external agent audience did not match discovery auth audience.");
+
+  addCheck(checks, "connector_identity_matched",
+    (!discovery.connectorId || trustResponse.connectorId === discovery.connectorId) &&
+      (!discovery.resourceSystem || trustResponse.resourceSystem === discovery.resourceSystem)
+  );
+  if (discovery.connectorId && trustResponse.connectorId !== discovery.connectorId) details.push("signed response connectorId did not match discovery connectorId.");
+  if (discovery.resourceSystem && trustResponse.resourceSystem !== discovery.resourceSystem) details.push("signed response resourceSystem did not match discovery resourceSystem.");
 
   addCheck(checks, "signed_agent_response_verified", trustResponse.signatureVerified === true);
   if (!trustResponse.signatureVerified) details.push("signed external agent trust response was not verified.");
@@ -797,13 +836,14 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
         connectorProfile,
         agentId: trustResponse.agentId,
         clientId: trustResponse.clientId,
+        declaredSkills: trustResponse.agentDeclaredSkills,
         declaredActions: trustResponse.agentDeclaredCapabilities,
         requestedApplicationGrants: trustResponse.requestedApplicationGrants,
         applicationAccessGrants: binding.applicationAccessGrants,
         effectivePermissions: resourceRegistration.effectivePermissions,
         deniedPermissions: resourceRegistration.deniedPermissions
       }))
-    : blockAllDeclaredActions(trustResponse.agentDeclaredCapabilities, "connector profile missing or invalid");
+    : blockAllDeclaredActions(trustResponse.agentDeclaredSkills, "connector profile missing or invalid");
   const connectorDecisionSource = connectorProfileVerified && connectorProfile ? connectorProfile.connectorId : "missing_connector_profile";
   checks.push({ name: "capabilities_derived", status: "passed" });
   checks.push({ name: "runtime_execution_metadata_only", status: "metadata_only" });
@@ -815,6 +855,7 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     audience: trustResponse.audience,
     requestedScopes: [...trustResponse.requestedScopes],
     requestedApplicationGrants: [...trustResponse.requestedApplicationGrants],
+    agentDeclaredSkills: [...trustResponse.agentDeclaredSkills],
     agentDeclaredCapabilities: [...trustResponse.agentDeclaredCapabilities],
     applicationAccessGrants: [...binding.applicationAccessGrants],
     grantedScopes: [...binding.grantedScopes],
@@ -851,6 +892,7 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
       audience: trustResponse.audience,
       requestedScopes: [...trustResponse.requestedScopes],
       requestedApplicationGrants: [...trustResponse.requestedApplicationGrants],
+      agentDeclaredSkills: [...trustResponse.agentDeclaredSkills],
       agentDeclaredCapabilities: [...trustResponse.agentDeclaredCapabilities]
     },
     agent: {

@@ -7,7 +7,7 @@ import {
   trustedGatewayIssuer,
   trustedGatewayJwksUri
 } from "./config.js";
-import { deriveRequestedApplicationGrants, getConnectorProfile, previewActionReadiness } from "./connectorProfile.js";
+import { deriveRequestedApplicationGrants, getConnectorProfile, getDefaultConnectorProfile, listSupportedConnectors, previewActionReadiness } from "./connectorProfile.js";
 
 export type TrustedGatewayRegistration = {
   gatewayId: string;
@@ -18,7 +18,7 @@ export type TrustedGatewayRegistration = {
 };
 
 export type OAuthApplicationConfig = {
-  resourceSystem: "jira";
+  resourceSystem: string;
   appName: string;
   clientId: string;
   authorizationServerIssuer: string;
@@ -43,6 +43,7 @@ export type CapabilityDeclarationConfig = {
 };
 
 export type AdminConfig = {
+  selectedConnectorId: string;
   trustedGateway: TrustedGatewayRegistration;
   oauthApplication: OAuthApplicationConfig;
   servicePrincipal: ServicePrincipalConfig;
@@ -91,16 +92,17 @@ function normalizeKnownValues(values: string[], allowedIds: string[]): string[] 
 }
 
 function enabledDefaultActions(): string[] {
-  return getConnectorProfile().actionCatalog.map((action) => action.id);
+  return getDefaultConnectorProfile().skillCatalog.map((action) => action.id);
 }
 
 function demoConfig(): AdminConfig {
-  const connectorProfile = getConnectorProfile();
+  const connectorProfile = getDefaultConnectorProfile();
   const enabledActionIds = enabledDefaultActions();
   const applicationAccessGrants = ["read:jira-work", "read:jira-user"];
-  const requestedApplicationGrants = deriveRequestedApplicationGrants(enabledActionIds);
+  const requestedApplicationGrants = deriveRequestedApplicationGrants(enabledActionIds, connectorProfile.connectorId);
 
   return {
+    selectedConnectorId: connectorProfile.connectorId,
     trustedGateway: {
       gatewayId: "secure-a2a-gateway",
       clientId: trustedGatewayClientId(),
@@ -142,6 +144,7 @@ export function resetDemoConfig(): AdminConfig {
 
 export function getAdminConfig(): AdminConfig {
   return {
+    selectedConnectorId: currentConfig.selectedConnectorId,
     trustedGateway: { ...currentConfig.trustedGateway },
     oauthApplication: {
       ...currentConfig.oauthApplication,
@@ -164,6 +167,7 @@ export function getAdminConfig(): AdminConfig {
 
 export function adminAgentMetadata() {
   const issuer = agentIssuer();
+  const connectorProfile = getConnectorProfile(currentConfig.selectedConnectorId);
   return {
     agentId,
     issuer,
@@ -172,8 +176,8 @@ export function adminAgentMetadata() {
     runtimeEndpoint: `${issuer}/a2a/task`,
     adminConsoleUrl: `${issuer}/admin`,
     resourceSystem: currentConfig.oauthApplication.resourceSystem,
-    connectorId: getConnectorProfile().connectorId,
-    connectorDisplayName: getConnectorProfile().displayName,
+    connectorId: connectorProfile.connectorId,
+    connectorDisplayName: connectorProfile.displayName,
     connectorProfileUrl: `${issuer}/.well-known/a2a-connector-profile.json`,
     trustAdapter: "jira",
     runtimeAudience: agentId
@@ -189,6 +193,7 @@ export function readinessStatus(): { ready: boolean; status: "ready" | "readyWit
   if (!currentConfig.oauthApplication.clientId) blockers.push("OAuth client ID is missing.");
   if (!currentConfig.servicePrincipal.principalId) blockers.push("Service account is missing.");
   if (currentConfig.capabilityDeclaration.agentDeclaredCapabilities.length === 0) blockers.push("Agent actions are missing.");
+  if (!listSupportedConnectors().some((connector) => connector.connectorId === currentConfig.selectedConnectorId && connector.status === "available")) blockers.push("Selected connector is not available.");
   if (hasSecretMarker(currentConfig)) blockers.push("Configuration contains forbidden secret markers.");
   if (currentConfig.oauthApplication.applicationAccessGrants.length === 0) warnings.push("No application access grants are selected. Gateway onboarding can proceed, but actions will be blocked.");
   if (currentConfig.servicePrincipal.effectivePermissions.length === 0) warnings.push("No effective permissions are selected. Gateway onboarding can proceed, but actions will be blocked.");
@@ -206,7 +211,9 @@ export function publicAdminConfig() {
   return {
     agent: adminAgentMetadata(),
     ...getAdminConfig(),
-    connectorProfile: getConnectorProfile(),
+    selectedConnector: listSupportedConnectors().find((connector) => connector.connectorId === currentConfig.selectedConnectorId),
+    supportedConnectors: listSupportedConnectors(),
+    connectorProfile: getConnectorProfile(currentConfig.selectedConnectorId),
     actionReadiness: previewActionReadiness(currentConfig),
     ready: readiness.ready,
     readinessStatus: readiness.status,
@@ -238,7 +245,7 @@ export function saveTrustedGateway(value: unknown): { ok: true; config: ReturnTy
 
 export function saveOAuthApplication(value: unknown): { ok: true; config: ReturnType<typeof publicAdminConfig> } | { ok: false; errors: string[] } {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const connectorProfile = getConnectorProfile();
+  const connectorProfile = getConnectorProfile(currentConfig.selectedConnectorId);
   const applicationAccessGrants = normalizeKnownValues(
     lines(input.applicationAccessGrants).length > 0 || "applicationAccessGrants" in input
       ? lines(input.applicationAccessGrants)
@@ -267,7 +274,7 @@ export function saveOAuthApplication(value: unknown): { ok: true; config: Return
 
 export function saveServicePrincipal(value: unknown): { ok: true; config: ReturnType<typeof publicAdminConfig> } | { ok: false; errors: string[] } {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const permissionIds = getConnectorProfile().effectivePermissionCatalog.map((permission) => permission.id);
+  const permissionIds = getConnectorProfile(currentConfig.selectedConnectorId).effectivePermissionCatalog.map((permission) => permission.id);
   const deniedPermissions = normalizeKnownValues(lines(input.deniedPermissions), permissionIds);
   const candidate: ServicePrincipalConfig = {
     principalType: "service_account",
@@ -286,14 +293,14 @@ export function saveServicePrincipal(value: unknown): { ok: true; config: Return
 
 export function saveCapabilityDeclaration(value: unknown): { ok: true; config: ReturnType<typeof publicAdminConfig> } | { ok: false; errors: string[] } {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const actionIds = getConnectorProfile().actionCatalog.map((action) => action.id);
+  const actionIds = getConnectorProfile(currentConfig.selectedConnectorId).skillCatalog.map((action) => action.id);
   const enabledActionIds = normalizeKnownValues(
     lines(input.enabledActionIds).length > 0 || "enabledActionIds" in input
       ? lines(input.enabledActionIds)
       : lines(input.agentDeclaredCapabilities),
     actionIds
   );
-  const requestedApplicationGrants = deriveRequestedApplicationGrants(enabledActionIds);
+  const requestedApplicationGrants = deriveRequestedApplicationGrants(enabledActionIds, currentConfig.selectedConnectorId);
   const candidate: CapabilityDeclarationConfig = {
     enabledActionIds,
     requestedApplicationGrants,

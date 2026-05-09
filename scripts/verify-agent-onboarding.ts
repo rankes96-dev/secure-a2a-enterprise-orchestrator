@@ -124,7 +124,9 @@ async function startOnboarding(): Promise<{ response: Response; body: unknown }>
     method: "POST",
     body: JSON.stringify({
       agentBaseUrl: EXTERNAL_AGENT_URL,
-      expectedAgentId: "external-jira-agent"
+      expectedAgentId: "external-jira-agent",
+      expectedResourceSystem: "jira",
+      expectedConnectorId: "jira-reference"
     })
   });
 }
@@ -135,7 +137,9 @@ async function verifyValidOnboarding(): Promise<void> {
     method: "POST",
     body: JSON.stringify({
       agentBaseUrl: EXTERNAL_AGENT_URL,
-      expectedAgentId: "external-jira-agent"
+      expectedAgentId: "external-jira-agent",
+      expectedResourceSystem: "jira",
+      expectedConnectorId: "jira-reference"
     })
   });
   requireStatus(discoveryResponse.response, discoveryResponse.body, 200, "discover external agent");
@@ -153,6 +157,9 @@ async function verifyValidOnboarding(): Promise<void> {
   if (discovery.connectorId !== "jira-reference" || discovery.connectorProfileUrl !== `${EXTERNAL_AGENT_URL}/.well-known/a2a-connector-profile.json`) {
     throw new Error(`discovery did not include connector profile metadata: ${JSON.stringify(discoveryResponse.body)}`);
   }
+  if (discovery.supportedConnectorProfileUrl !== `${EXTERNAL_AGENT_URL}/.well-known/a2a-supported-connectors.json`) {
+    throw new Error(`discovery did not include supported connector metadata URL: ${JSON.stringify(discoveryResponse.body)}`);
+  }
   const gatewayRegistration = asRecord(discoveryResult.gatewayRegistration);
   if (gatewayRegistration.clientId !== "secure-a2a-gateway-client") {
     throw new Error(`discovery did not include Gateway registration metadata: ${JSON.stringify(discoveryResponse.body)}`);
@@ -169,8 +176,12 @@ async function verifyValidOnboarding(): Promise<void> {
   }
   const discoveredAgent = asRecord(result.discoveredAgent);
   const declaredCapabilities = Array.isArray(discoveredAgent.agentDeclaredCapabilities) ? discoveredAgent.agentDeclaredCapabilities : [];
+  const declaredSkills = Array.isArray(discoveredAgent.agentDeclaredSkills) ? discoveredAgent.agentDeclaredSkills : [];
   if (!declaredCapabilities.includes("jira.issue.create")) {
     throw new Error(`discoveredAgent did not expose agent-declared capabilities: ${JSON.stringify(body)}`);
+  }
+  if (!declaredSkills.includes("jira.issue.create")) {
+    throw new Error(`discoveredAgent did not expose agent-declared skills: ${JSON.stringify(body)}`);
   }
   if (!Array.isArray(discoveredAgent.requestedScopes) || !discoveredAgent.requestedScopes.includes("read:jira-work")) {
     throw new Error(`discoveredAgent did not expose requested scopes: ${JSON.stringify(body)}`);
@@ -325,6 +336,11 @@ async function main(): Promise<void> {
   await verifyNoApplicationGrants();
   await verifyAllAccess();
   await resetExternalAgent();
+  await verifyFailure("mismatched expectedResourceSystem", {
+    agentBaseUrl: EXTERNAL_AGENT_URL,
+    expectedAgentId: "external-jira-agent",
+    expectedResourceSystem: "servicenow"
+  });
   await verifyFailure("wrong expectedAgentId", {
     agentBaseUrl: EXTERNAL_AGENT_URL,
     expectedAgentId: "wrong-agent"

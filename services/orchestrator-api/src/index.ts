@@ -41,7 +41,7 @@ import { createSessionCookie, getSessionToken, hasValidSession } from "./securit
 import { gatewayMetadata, gatewayPublicJwks } from "./security/gatewayIdentity";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
-import { discoverAgentOnboarding, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
+import { discoverAgentOnboarding, listSupportedConnectorGuardrails, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -1882,6 +1882,15 @@ async function start(): Promise<void> {
     }
 
     sendJson(response, 200, { agents: listTrustedOnboardedAgents(registryKey) }, request);
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/agent-onboarding/supported-connectors") {
+    if (!agentCardRegistryKey(request, response)) {
+      return;
+    }
+
+    sendJson(response, 200, { connectors: listSupportedConnectorGuardrails() }, request);
     return;
   }
 

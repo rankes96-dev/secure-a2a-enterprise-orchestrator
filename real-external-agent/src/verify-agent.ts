@@ -10,6 +10,7 @@ let gatewaySessionCookie = "";
 type GatewayOnboardingBody = {
   trustLevel?: string;
   discoveredAgent?: {
+    agentDeclaredSkills?: string[];
     agentDeclaredCapabilities?: string[];
     requestedScopes?: string[];
     requestedApplicationGrants?: string[];
@@ -34,6 +35,7 @@ type GatewayOnboardingBody = {
   externalApplicationAttestation?: {
     connectorId?: string;
     connectorProfileUrl?: string;
+    supportedConnectorProfileUrl?: string;
     connectorProfileHash?: string;
     oauthApplication?: { appName?: string; clientId?: string; applicationAccessGrants?: string[]; grantedScopes?: string[] };
     servicePrincipal?: { principalId?: string; effectivePermissions?: string[]; deniedPermissions?: string[] };
@@ -100,6 +102,7 @@ async function verifyDiscovery(): Promise<{ jwksUri: string }> {
     connectorId: string;
     connectorDisplayName: string;
     connectorProfileUrl: string;
+    supportedConnectorProfileUrl: string;
     trustAdapter: string;
     jwksUri: string;
     onboardingEndpoint: string;
@@ -127,6 +130,7 @@ async function verifyDiscovery(): Promise<{ jwksUri: string }> {
   assertCondition(discovery.connectorId === "jira-reference", "discovery connectorId mismatch");
   assertCondition(discovery.connectorDisplayName === "Jira Cloud Reference Connector", "discovery connector display name mismatch");
   assertCondition(discovery.connectorProfileUrl === `${baseUrl}/.well-known/a2a-connector-profile.json`, "discovery connectorProfileUrl mismatch");
+  assertCondition(discovery.supportedConnectorProfileUrl === `${baseUrl}/.well-known/a2a-supported-connectors.json`, "discovery supportedConnectorProfileUrl mismatch");
   assertCondition(discovery.trustAdapter === "jira", "discovery trustAdapter mismatch");
   assertCondition(discovery.connectionRequirements.requiresGatewayRegistration === true, "discovery missing gateway registration requirement");
   assertCondition(discovery.connectionRequirements.requiresOAuthApplication === true, "discovery missing OAuth app requirement");
@@ -138,6 +142,13 @@ async function verifyDiscovery(): Promise<{ jwksUri: string }> {
   return { jwksUri: discovery.jwksUri };
 }
 
+async function verifySupportedConnectors(): Promise<void> {
+  const connectors = await getJson<Array<{ connectorId: string; resourceSystem: string; displayName: string; status: string }>>("/.well-known/a2a-supported-connectors.json");
+  assertCondition(connectors.some((connector) => connector.connectorId === "jira-reference" && connector.resourceSystem === "jira" && connector.status === "available"), "supported connectors missing available Jira reference connector");
+  assertNoSecretMarkers(connectors);
+  ok("supported connectors");
+}
+
 async function verifyConnectorProfile(): Promise<void> {
   const profile = await getJson<{
     connectorId: string;
@@ -147,7 +158,8 @@ async function verifyConnectorProfile(): Promise<void> {
     profileSource: string;
     applicationAccessGrantCatalog: unknown[];
     effectivePermissionCatalog: unknown[];
-    actionCatalog: Array<{ id?: string; requiredApplicationGrants?: string[]; requiredEffectivePermissions?: string[] }>;
+    skillCatalog?: Array<{ id?: string; requiredApplicationGrants?: string[]; requiredEffectivePermissions?: string[] }>;
+    actionCatalog?: Array<{ id?: string; requiredApplicationGrants?: string[]; requiredEffectivePermissions?: string[] }>;
   }>("/.well-known/a2a-connector-profile.json");
 
   assertCondition(profile.connectorId === "jira-reference", "connector profile connectorId mismatch");
@@ -157,7 +169,8 @@ async function verifyConnectorProfile(): Promise<void> {
   assertCondition(profile.profileSource === "external_agent", "connector profile source mismatch");
   assertCondition(Array.isArray(profile.applicationAccessGrantCatalog) && profile.applicationAccessGrantCatalog.length >= 4, "connector profile missing application access grant catalog");
   assertCondition(Array.isArray(profile.effectivePermissionCatalog) && profile.effectivePermissionCatalog.length >= 5, "connector profile missing effective permission catalog");
-  assertCondition(profile.actionCatalog.some((action) => action.id === "jira.issue.create" && action.requiredApplicationGrants?.includes("write:jira-work") && action.requiredEffectivePermissions?.includes("create_issues")), "connector profile missing create issue requirements");
+  const skills = profile.skillCatalog ?? profile.actionCatalog ?? [];
+  assertCondition(skills.some((action) => action.id === "jira.issue.create" && action.requiredApplicationGrants?.includes("write:jira-work") && action.requiredEffectivePermissions?.includes("create_issues")), "connector profile missing create issue requirements");
   assertNoSecretMarkers(profile);
   ok("connector profile");
 }
@@ -179,6 +192,9 @@ async function verifyAdminConfig(): Promise<void> {
     ready: boolean;
     readinessStatus: string;
     trustedGateway: { clientId: string; issuer: string; jwksUri: string };
+    selectedConnectorId: string;
+    selectedConnector?: { connectorId: string; resourceSystem: string; status: string };
+    supportedConnectors: Array<{ connectorId: string; resourceSystem: string; status: string }>;
     oauthApplication: { appName: string; clientId: string; applicationAccessGrants: string[]; grantedScopes: string[]; status: string };
     servicePrincipal: { principalId: string; effectivePermissions: string[]; deniedPermissions: string[] };
     capabilityDeclaration: { requestedApplicationGrants: string[]; requestedScopes: string[]; agentDeclaredCapabilities: string[] };
@@ -187,6 +203,9 @@ async function verifyAdminConfig(): Promise<void> {
   }>("/admin/config");
 
   assertCondition(config.ready === true, `admin config should be ready: ${config.warnings.join(" ")}`);
+  assertCondition(config.selectedConnectorId === "jira-reference", "selected connector mismatch");
+  assertCondition(config.selectedConnector?.connectorId === "jira-reference", "selected connector metadata missing");
+  assertCondition(config.supportedConnectors.some((connector) => connector.connectorId === "jira-reference" && connector.status === "available"), "admin config missing supported Jira connector");
   assertCondition(config.trustedGateway.clientId === "secure-a2a-gateway-client", "trusted Gateway client mismatch");
   assertCondition(config.oauthApplication.appName === "Jira Agent Connected App", "OAuth app name mismatch");
   assertCondition(config.oauthApplication.clientId === "jira-agent-client", "OAuth client mismatch");
@@ -257,6 +276,7 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
   assertCondition(gatewayOnboarding.response.ok, `Gateway onboarding failed with ${gatewayOnboarding.response.status}: ${JSON.stringify(gatewayOnboarding.body)}`);
   assertCondition(gatewayOnboarding.body.trustLevel === "trusted_metadata_only", "Gateway onboarding trust level mismatch");
   assertCondition(gatewayOnboarding.body.discoveredAgent?.agentDeclaredCapabilities?.includes(agentDeclaredCapabilities[0] ?? ""), "Gateway onboarding missing agent-declared capabilities");
+  assertCondition(gatewayOnboarding.body.discoveredAgent?.agentDeclaredSkills?.includes(agentDeclaredCapabilities[0] ?? ""), "Gateway onboarding missing agent-declared skills");
   assertCondition(gatewayOnboarding.body.discoveredAgent?.requestedScopes?.includes(requestedScopes[0] ?? ""), "Gateway onboarding missing requested scopes");
   assertCondition(gatewayOnboarding.body.discoveredAgent?.requestedApplicationGrants?.includes("write:jira-work"), "Gateway onboarding missing requested application grants");
   assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.clientId === "jira-agent-client", "Gateway onboarding missing external OAuth app attestation");
@@ -385,6 +405,7 @@ async function verifyRuntimeIfTokenProvided(): Promise<void> {
 async function main(): Promise<void> {
   console.log(`Verifying external agent at ${baseUrl}`);
   await verifyAdminConfig();
+  await verifySupportedConnectors();
   const { jwksUri } = await verifyDiscovery();
   await verifyConnectorProfile();
   await verifyJwks();

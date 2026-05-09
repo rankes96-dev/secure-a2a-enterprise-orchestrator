@@ -191,7 +191,7 @@ The Agent Registry exposes **Zero-Trust Agent Onboarding** as the only external 
 
 Agent Cards and discovery documents are declarations, not trust. Trusted onboarding verifies external agent identity through HTTP discovery, a signed Gateway challenge, a signed external agent trust response, external OAuth application binding, and resource permission evaluation.
 
-The Gateway does not create or own the external OAuth app. The external agent owner configures that app in the external agent admin console. In this demo, `real-external-agent` exposes `http://localhost:4201/admin` to configure the trusted Gateway registration, OAuth app, service principal permissions, and agent-declared capabilities.
+The Gateway does not create or own the external OAuth app. The external agent owner configures that app in the external agent admin console. In this demo, `real-external-agent` exposes `http://localhost:4201/admin` to configure the trusted Gateway registration, OAuth app, service principal permissions, and agent-declared skills/actions.
 
 The Gateway verifies the signed external attestation and derives approved actions through a generic **Application Access Grants + Effective Permissions + Action Requirements** model. Application access grants define what the connected app can request. Effective permissions define what the service account or integration user can actually do. An action is approved only when its required application grants are present, its required effective permissions are present, no required permission is explicitly denied, and Gateway policy allows it.
 
@@ -212,6 +212,18 @@ The Gateway onboarding protocol is universal. External agents publish a connecto
 During onboarding, the Gateway fetches and validates the connector profile, verifies the signed profile binding when a hash is present, then runs a generic connector decision engine. An action is approved only when its required application access grants are present, its required effective permissions are present, no required permission is explicitly denied, and Gateway policy allows it.
 
 Jira is only the reference connector profile in this repository. Future ServiceNow, Salesforce, GitHub, Slack, and custom enterprise connectors can provide their own profiles without hardcoding those systems into Gateway core decision logic.
+
+## Supported Connectors
+
+External agents publish connector profiles. The Gateway can also apply an expected external system or connector guardrail during discovery, for example expecting `jira` and `jira-reference` before continuing onboarding. This guardrail is not the source of truth; discovery, the connector profile, and the signed trust response remain authoritative.
+
+The only implemented connector in this demo is the Jira Cloud Reference Connector. Additional ServiceNow, Salesforce, GitHub, Slack, or custom enterprise connectors should be added by registering new connector profiles, not by hardcoding Gateway core logic.
+
+## Skills vs Actions
+
+Connector profiles publish **skills** because that is the developer-facing Agent Card and connector language. BizApps setup screens call them **Agent actions** because that is clearer for admins configuring an integration. The Gateway derives approved and blocked actions from the connector profile requirements, application access grants, effective permissions, denied permissions, and policy.
+
+Some internal response fields still use `capabilityDecision`, `approvedCapabilities`, and `blockedCapabilities` for compatibility while the product language moves to skills/actions.
 
 ## Security Flow
 

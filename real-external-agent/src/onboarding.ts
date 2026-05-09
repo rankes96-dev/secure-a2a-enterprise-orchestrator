@@ -142,7 +142,7 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
   const key = await getSigningKey();
   const now = Math.floor(Date.now() / 1000);
   const issuer = agentIssuer();
-  const connectorProfile = getConnectorProfile();
+  const connectorProfile = getConnectorProfile(config.selectedConnectorId);
   const profileUrl = `${issuer}/.well-known/a2a-connector-profile.json`;
 
   const signedTrustResponse = await new SignJWT({
@@ -158,6 +158,7 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
     connectorProfileUrl: profileUrl,
     connectorProfileHash: connectorProfileHash(connectorProfile),
     trustAdapter: "jira",
+    agentDeclaredSkills: config.capabilityDeclaration.agentDeclaredCapabilities,
     agentDeclaredCapabilities: config.capabilityDeclaration.agentDeclaredCapabilities,
     requestedApplicationGrants: config.capabilityDeclaration.requestedApplicationGrants,
     requestedScopes: config.capabilityDeclaration.requestedScopes,

@@ -747,6 +747,7 @@ type TrustedOnboardedAgent = {
   audience: string;
   requestedScopes: string[];
   requestedApplicationGrants?: string[];
+  agentDeclaredSkills?: string[];
   agentDeclaredCapabilities: string[];
   applicationAccessGrants?: string[];
   grantedScopes: string[];
@@ -774,6 +775,7 @@ type AgentOnboardingResult = {
     audience: string;
     requestedScopes: string[];
     requestedApplicationGrants?: string[];
+    agentDeclaredSkills?: string[];
     agentDeclaredCapabilities: string[];
   };
   agent: {
@@ -859,6 +861,13 @@ type GatewayRegistrationMetadata = {
   supportedOnboardingMethods: string[];
 };
 
+type SupportedConnectorGuardrail = {
+  resourceSystem: string;
+  connectorId: string;
+  displayName: string;
+  status: "available" | "coming_soon";
+};
+
 type AgentDiscoveryMetadata = {
   agentId: string;
   issuer: string;
@@ -866,6 +875,7 @@ type AgentDiscoveryMetadata = {
   connectorId?: string;
   connectorDisplayName?: string;
   connectorProfileUrl?: string;
+  supportedConnectorProfileUrl?: string;
   trustAdapter?: string;
   jwksUri: string;
   onboardingEndpoint: string;
@@ -910,6 +920,7 @@ type RegisteredAgentRow = {
   source: RegisteredAgentSource;
   trustLevel?: TrustedOnboardedAgent["trustLevel"];
   requestedScopes?: string[];
+  agentDeclaredSkills?: string[];
   agentDeclaredCapabilities?: string[];
   grantedScopes?: string[];
   approvedCapabilities?: DerivedCapability[];
@@ -1087,6 +1098,11 @@ function App() {
   const [isHealthLoading, setIsHealthLoading] = useState(false);
   const [zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl] = useState("http://localhost:4201");
   const [zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId] = useState("external-jira-agent");
+  const [zeroTrustExpectedResourceSystem, setZeroTrustExpectedResourceSystem] = useState("");
+  const [zeroTrustExpectedConnectorId, setZeroTrustExpectedConnectorId] = useState("");
+  const [supportedConnectorGuardrails, setSupportedConnectorGuardrails] = useState<SupportedConnectorGuardrail[]>([
+    { resourceSystem: "jira", connectorId: "jira-reference", displayName: "Jira Cloud Reference Connector", status: "available" }
+  ]);
   const [zeroTrustOnboardedAgents, setZeroTrustOnboardedAgents] = useState<TrustedOnboardedAgent[]>([]);
   const [zeroTrustDiscovery, setZeroTrustDiscovery] = useState<AgentOnboardingDiscoveryResult | null>(null);
   const [zeroTrustResult, setZeroTrustResult] = useState<AgentOnboardingResult | null>(null);
@@ -1156,6 +1172,7 @@ function App() {
       source: "zero-trust-onboarded" as const,
       trustLevel: agent.trustLevel,
       requestedScopes: agent.requestedScopes,
+      agentDeclaredSkills: agent.agentDeclaredSkills,
       agentDeclaredCapabilities: agent.agentDeclaredCapabilities,
       grantedScopes: agent.grantedScopes,
       approvedCapabilities: agent.approvedCapabilities,
@@ -1265,6 +1282,7 @@ function App() {
     void checkAgentHealth();
     void loadTrustStatus();
     void loadGatewayRegistrationMetadata();
+    void loadSupportedConnectorGuardrails();
   }, []);
 
   useEffect(() => {
@@ -1475,6 +1493,22 @@ function App() {
     }
   }
 
+  async function loadSupportedConnectorGuardrails() {
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/agent-onboarding/supported-connectors`, {
+        method: "GET",
+        credentials: "include"
+      });
+      if (response.ok) {
+        const body = await response.json() as { connectors: SupportedConnectorGuardrail[] };
+        setSupportedConnectorGuardrails(body.connectors);
+      }
+    } catch {
+      setSupportedConnectorGuardrails([{ resourceSystem: "jira", connectorId: "jira-reference", displayName: "Jira Cloud Reference Connector", status: "available" }]);
+    }
+  }
+
   function resetZeroTrustConnectionState() {
     setZeroTrustDiscovery(null);
     setZeroTrustResult(null);
@@ -1496,7 +1530,9 @@ function App() {
         credentials: "include",
         body: JSON.stringify({
           agentBaseUrl: zeroTrustAgentBaseUrl,
-          expectedAgentId: zeroTrustExpectedAgentId
+          expectedAgentId: zeroTrustExpectedAgentId,
+          ...(zeroTrustExpectedResourceSystem ? { expectedResourceSystem: zeroTrustExpectedResourceSystem } : {}),
+          ...(zeroTrustExpectedConnectorId ? { expectedConnectorId: zeroTrustExpectedConnectorId } : {})
         })
       });
       const body = await response.json() as AgentOnboardingDiscoveryResult | { discovered: false; details?: string[]; error?: string };
@@ -1549,7 +1585,9 @@ function App() {
         credentials: "include",
         body: JSON.stringify({
           agentBaseUrl: zeroTrustAgentBaseUrl,
-          expectedAgentId: zeroTrustExpectedAgentId
+          expectedAgentId: zeroTrustExpectedAgentId,
+          ...(zeroTrustExpectedResourceSystem ? { expectedResourceSystem: zeroTrustExpectedResourceSystem } : {}),
+          ...(zeroTrustExpectedConnectorId ? { expectedConnectorId: zeroTrustExpectedConnectorId } : {})
         })
       });
       const body = await response.json() as AgentOnboardingResult | { error: string; details?: string[]; checks?: AgentOnboardingResult["checks"] };
@@ -1999,6 +2037,7 @@ function App() {
     const checkStatus = (name: string) => resultCheckStatus(name) ?? discoveryCheckStatus(name);
     const activeStepIndex = wizardSteps.findIndex((step) => step.id === connectionWizardStep);
     const adminConsoleUrl = zeroTrustDiscovery?.discovery.adminConsoleUrl ?? "http://localhost:4201/admin";
+    const resourceSystemOptions = [...new Map(supportedConnectorGuardrails.map((connector) => [connector.resourceSystem, connector])).values()];
     const currentStepIndex = activeStepIndex >= 0 ? activeStepIndex : 0;
     const wizardStatus = (step: ConnectionWizardStep, index: number): "waiting" | "active" | "completed" | "failed" => {
       if (zeroTrustError && step === connectionWizardStep && (step === "discovery" || step === "verify")) {
@@ -2137,7 +2176,7 @@ function App() {
                 <details className="wizard-technical-details">
                   <summary>Expected signed trust response fields</summary>
                   <div className="concept-pill-row">
-                    {["agentId", "issuer", "clientId", "audience", "requestedScopes", "agentDeclaredCapabilities", "nonce", "signedTrustResponse"].map((item) => <span key={item}>{item}</span>)}
+                    {["agentId", "issuer", "clientId", "audience", "requestedScopes", "agentDeclaredSkills", "agentDeclaredCapabilities", "nonce", "signedTrustResponse"].map((item) => <span key={item}>{item}</span>)}
                   </div>
                 </details>
                 <div className="wizard-action-row">
@@ -2206,6 +2245,32 @@ function App() {
                 }} />
                 <small>Used in this demo to prevent connecting the wrong agent.</small>
               </label>
+              <label>
+                <span>Expected external system</span>
+                <select value={zeroTrustExpectedResourceSystem} onChange={(event) => {
+                  setZeroTrustExpectedResourceSystem(event.target.value);
+                  resetZeroTrustConnectionState();
+                }}>
+                  <option value="">Auto-detect</option>
+                  {resourceSystemOptions.map((connector) => (
+                    <option value={connector.resourceSystem} key={connector.resourceSystem}>{connector.displayName.replace(" Reference Connector", "")}</option>
+                  ))}
+                </select>
+                <small>Optional guardrail. Discovery remains the source of truth.</small>
+              </label>
+              <label>
+                <span>Expected connector</span>
+                <select value={zeroTrustExpectedConnectorId} onChange={(event) => {
+                  setZeroTrustExpectedConnectorId(event.target.value);
+                  resetZeroTrustConnectionState();
+                }}>
+                  <option value="">Auto-detect</option>
+                  {supportedConnectorGuardrails.map((connector) => (
+                    <option value={connector.connectorId} key={connector.connectorId}>{connector.connectorId}</option>
+                  ))}
+                </select>
+                <small>Optional guardrail for the connector profile ID.</small>
+              </label>
             </div>
             <div className="wizard-action-row">
               {renderBackButton()}
@@ -2220,7 +2285,7 @@ function App() {
                 <li>prepare signed challenge</li>
                 <li>verify signed response</li>
                 <li>validate OAuth binding</li>
-                <li>derive capabilities</li>
+                <li>decide actions</li>
               </ul>
             </div>
           </article>
@@ -2372,7 +2437,7 @@ function App() {
                   <small>Raw assertion: hidden.</small>
                 </article>
               </div>
-              <section className="capability-decision-grid" aria-label="Gateway Capability Decision">
+              <section className="capability-decision-grid" aria-label="Gateway action decision">
                 <div>
                   <h4>Approved actions</h4>
                   {renderCapabilityList(approvedCapabilities, "No approved actions.")}
@@ -2418,7 +2483,7 @@ function App() {
           <div>
             <p className="active-panel-eyebrow">External agent connection</p>
             <h2>Connect External Agent</h2>
-            <p className="muted-note">Connect an independently owned external agent through discovery, signed Gateway challenge, signed agent response, OAuth application binding, permission verification, and capability approval.</p>
+            <p className="muted-note">Connect an independently owned external agent through discovery, signed Gateway challenge, signed agent response, OAuth application binding, permission verification, and action approval.</p>
           </div>
         </div>
         <div className="audience-toggle" aria-label="Audience">
@@ -2447,7 +2512,7 @@ function App() {
             <li>The external agent must return a signed trust response.</li>
             <li>OAuth scopes are checked against application registration.</li>
             <li>Resource permissions are checked through the external-side attestation / adapter.</li>
-            <li>Capabilities are approved only after validation.</li>
+            <li>Actions are approved only after validation.</li>
             <li>Runtime execution stays disabled until runtime JWT validation is enabled.</li>
           </ul>
         </details>
@@ -2642,16 +2707,16 @@ function App() {
                     <strong>{agent.grantedScopes?.join(", ") || "none"}</strong>
                   </div>
                   <div>
-                    <span>Agent-declared actions</span>
-                    <strong>{agent.agentDeclaredCapabilities?.join(", ") || "none"}</strong>
+                    <span>Agent-declared skills</span>
+                    <strong>{(agent.agentDeclaredSkills ?? agent.agentDeclaredCapabilities)?.join(", ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Approved actions</span>
-                    <strong>{agent.approvedCapabilities?.map((item) => item.capability).join(", ") || "none"}</strong>
+                    <strong>{agent.approvedCapabilities?.map((item) => item.label ?? item.capability).join(", ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Blocked actions</span>
-                    <strong>{agent.blockedCapabilities?.map((item) => `${item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
+                    <strong>{agent.blockedCapabilities?.map((item) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Resource principal</span>

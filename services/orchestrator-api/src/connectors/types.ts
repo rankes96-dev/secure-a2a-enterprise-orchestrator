@@ -21,6 +21,7 @@ export type ConnectorProfile = {
   profileSource: "external_agent" | "built_in_reference" | "custom_connector";
   applicationAccessGrantCatalog: ConnectorCatalogItem[];
   effectivePermissionCatalog: ConnectorCatalogItem[];
+  skillCatalog: ConnectorActionRequirement[];
   actionCatalog: ConnectorActionRequirement[];
 };
 
@@ -28,6 +29,7 @@ export type ConnectorDecisionInput = {
   connectorProfile: ConnectorProfile;
   agentId: string;
   clientId: string;
+  declaredSkills?: string[];
   declaredActions: string[];
   requestedApplicationGrants: string[];
   applicationAccessGrants: string[];

@@ -10,7 +10,7 @@ import {
   saveTrustedGateway
 } from "./adminConfig.js";
 import { adminPageHtml } from "./adminPage.js";
-import { getConnectorProfile } from "./connectorProfile.js";
+import { getConnectorProfile, listSupportedConnectors } from "./connectorProfile.js";
 import { bearerToken, readJsonBody, sendJson } from "./http.js";
 import { createSignedTrustResponse, OnboardingError, type OnboardingRequest } from "./onboarding.js";
 import { publicJwks } from "./keys.js";
@@ -26,6 +26,7 @@ function discoveryDocument() {
     connectorId: agent.connectorId,
     connectorDisplayName: agent.connectorDisplayName,
     connectorProfileUrl: agent.connectorProfileUrl,
+    supportedConnectorProfileUrl: `${issuer}/.well-known/a2a-supported-connectors.json`,
     trustAdapter: agent.trustAdapter,
     jwksUri: `${issuer}/.well-known/jwks.json`,
     onboardingEndpoint: `${issuer}/onboarding/challenge`,
@@ -110,7 +111,12 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && request.url === "/.well-known/a2a-connector-profile.json") {
-      sendJson(response, 200, getConnectorProfile());
+      sendJson(response, 200, getConnectorProfile(publicAdminConfig().selectedConnectorId));
+      return;
+    }
+
+    if (request.method === "GET" && request.url === "/.well-known/a2a-supported-connectors.json") {
+      sendJson(response, 200, listSupportedConnectors());
       return;
     }
 

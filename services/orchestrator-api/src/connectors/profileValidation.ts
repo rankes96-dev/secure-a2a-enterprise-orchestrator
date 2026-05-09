@@ -96,7 +96,8 @@ export function validateConnectorProfile(value: unknown): { profile?: ConnectorP
         : "external_agent",
     applicationAccessGrantCatalog: catalog(input.applicationAccessGrantCatalog),
     effectivePermissionCatalog: catalog(input.effectivePermissionCatalog),
-    actionCatalog: actionCatalog(input.actionCatalog)
+    skillCatalog: actionCatalog(input.skillCatalog).length ? actionCatalog(input.skillCatalog) : actionCatalog(input.actionCatalog),
+    actionCatalog: actionCatalog(input.actionCatalog).length ? actionCatalog(input.actionCatalog) : actionCatalog(input.skillCatalog)
   };
 
   if (!profile.connectorId) details.push("connector profile missing connectorId.");
@@ -105,10 +106,10 @@ export function validateConnectorProfile(value: unknown): { profile?: ConnectorP
   if (!profile.version) details.push("connector profile missing version.");
   if (!Array.isArray(input.applicationAccessGrantCatalog)) details.push("connector profile applicationAccessGrantCatalog must be an array.");
   if (!Array.isArray(input.effectivePermissionCatalog)) details.push("connector profile effectivePermissionCatalog must be an array.");
-  if (!Array.isArray(input.actionCatalog)) details.push("connector profile actionCatalog must be an array.");
+  if (!Array.isArray(input.skillCatalog) && !Array.isArray(input.actionCatalog)) details.push("connector profile skillCatalog or actionCatalog must be an array.");
   if (profile.applicationAccessGrantCatalog.some((item) => !item.id || !item.label)) details.push("connector profile contains invalid application access grant catalog entries.");
   if (profile.effectivePermissionCatalog.some((item) => !item.id || !item.label)) details.push("connector profile contains invalid effective permission catalog entries.");
-  if (profile.actionCatalog.some((action) => !action.id || !action.label)) details.push("connector profile contains invalid action catalog entries.");
+  if (profile.skillCatalog.some((action) => !action.id || !action.label)) details.push("connector profile contains invalid skill catalog entries.");
 
   return details.length > 0 ? { details } : { profile, details };
 }

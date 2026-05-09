@@ -9,13 +9,14 @@ function joinReasons(reasons: string[]): string {
 }
 
 export function decideConnectorActions(input: ConnectorDecisionInput): ConnectorActionDecision[] {
-  const actionsById = new Map(input.connectorProfile.actionCatalog.map((action) => [action.id, action]));
+  const catalog = input.connectorProfile.skillCatalog.length ? input.connectorProfile.skillCatalog : input.connectorProfile.actionCatalog;
+  const actionsById = new Map(catalog.map((action) => [action.id, action]));
   const requestedApplicationGrants = new Set(input.requestedApplicationGrants);
   const applicationAccessGrants = new Set(input.applicationAccessGrants);
   const effectivePermissions = new Set(input.effectivePermissions);
   const deniedPermissions = new Set(input.deniedPermissions);
 
-  return input.declaredActions.map((actionId) => {
+  return (input.declaredSkills ?? input.declaredActions).map((actionId) => {
     const action = actionsById.get(actionId);
     if (!action) {
       return {

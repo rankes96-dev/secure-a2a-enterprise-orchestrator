@@ -131,6 +131,14 @@ export function adminPageHtml(): string {
     <div class="layout bizapps-view" id="bizapps-view">
       <div class="setup-flow">
         <section>
+          <p class="section-kicker">Connector</p>
+          <h2>External system / Connector type</h2>
+          <p>Choose the external system profile this agent belongs to. The connector profile defines the available application access grants, effective permissions, and agent skills/actions.</p>
+          <label><span>External system / Connector type</span><select id="connector-select"></select></label>
+          <p class="muted" id="connector-description"></p>
+        </section>
+
+        <section>
           <p class="section-kicker">Step 1</p>
           <h2>Gateway trust</h2>
           <h3>Trust this Gateway</h3>
@@ -273,7 +281,7 @@ export function adminPageHtml(): string {
           <div class="chip-row" id="signed-response-fields"></div>
         </article>
         <article>
-          <h3>Technical capability IDs</h3>
+          <h3>Technical skill IDs</h3>
           <div class="chip-row" id="technical-capabilities"></div>
         </article>
         <article>
@@ -289,7 +297,7 @@ export function adminPageHtml(): string {
   </main>
   <script>
     const $ = (id) => document.getElementById(id);
-    const signedResponseFields = ["agentId", "issuer", "clientId", "audience", "requestedApplicationGrants", "requestedScopes", "agentDeclaredCapabilities", "oauthApplication", "servicePrincipal", "nonce", "signedTrustResponse"];
+    const signedResponseFields = ["agentId", "issuer", "clientId", "audience", "requestedApplicationGrants", "requestedScopes", "agentDeclaredSkills", "agentDeclaredCapabilities", "oauthApplication", "servicePrincipal", "nonce", "signedTrustResponse"];
     let currentConfig = null;
     let connectorProfile = null;
     let selectedApplicationGrants = [];
@@ -380,7 +388,8 @@ export function adminPageHtml(): string {
       return { ready, status, missingApplicationGrants, missingPermissions, denied };
     }
     function renderActions() {
-      $("action-grid").innerHTML = connectorProfile.actionCatalog.map((action) => {
+      const skills = connectorProfile.skillCatalog || connectorProfile.actionCatalog || [];
+      $("action-grid").innerHTML = skills.map((action) => {
         const enabled = enabledActionIds.includes(action.id);
         const preview = actionPreview(action);
         const statusClass = enabled ? (preview.ready ? "ready" : "blocked") : "disabled";
@@ -407,7 +416,8 @@ export function adminPageHtml(): string {
       const permissionsReady = effectivePermissions.length > 0;
       const actionsReady = enabledActionIds.length > 0;
       const noSecrets = ![...config.warnings, ...config.blockers].some((item) => item.toLowerCase().includes("secret"));
-      const previews = connectorProfile.actionCatalog.filter((action) => enabledActionIds.includes(action.id)).map(actionPreview);
+      const skills = connectorProfile.skillCatalog || connectorProfile.actionCatalog || [];
+      const previews = skills.filter((action) => enabledActionIds.includes(action.id)).map(actionPreview);
       const approved = previews.filter((preview) => preview.ready).length;
       const blocked = previews.length - approved;
       const missingGrants = [...new Set(previews.flatMap((preview) => preview.missingApplicationGrants))];
@@ -464,6 +474,10 @@ export function adminPageHtml(): string {
       effectivePermissions = [...config.servicePrincipal.effectivePermissions];
       deniedPermissions = [...config.servicePrincipal.deniedPermissions];
       enabledActionIds = [...(config.capabilityDeclaration.enabledActionIds || config.capabilityDeclaration.agentDeclaredCapabilities)];
+      $("connector-select").innerHTML = (config.supportedConnectors || []).map((connector) => '<option value="' + escapeHtml(connector.connectorId) + '" ' + (connector.status !== "available" ? "disabled" : "") + '>' + escapeHtml(connector.displayName + (connector.status === "available" ? "" : " (coming soon)")) + '</option>').join("");
+      $("connector-select").value = config.selectedConnectorId;
+      $("connector-select").disabled = true;
+      $("connector-description").textContent = (config.selectedConnector?.description || "Reference connector profile for this external system.") + " Additional connector profiles will be enabled through the connector registry.";
       $("gateway-facts").innerHTML = [
         ["Gateway Client ID", config.trustedGateway.clientId],
         ["Gateway Issuer", config.trustedGateway.issuer],

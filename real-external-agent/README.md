@@ -72,6 +72,18 @@ The current Jira reference connector profile is implemented in `src/connectorPro
 
 A future Custom Connector Layer can replace this static file with system-specific catalogs for ServiceNow, Salesforce, GitHub, Slack, and other systems. The Gateway should not need Jira-specific action requirements in its core.
 
+## Connector Registry
+
+Connector registry code lives in `src/connectors/`:
+
+- `types.ts` defines connector profile and supported connector metadata.
+- `jiraReferenceConnector.ts` contains the Jira Cloud reference connector profile.
+- `registry.ts` exposes `listSupportedConnectors()`, `getConnectorProfile(connectorId)`, `getDefaultConnectorProfile()`, and `getConnectorProfileForResourceSystem(resourceSystem)`.
+
+The selected connector controls the admin console catalogs for application access grants, effective permissions, denied permissions, and agent actions. For this phase, only `jira-reference` is available; ServiceNow, Salesforce, and GitHub are listed as future connector placeholders only if enabled in the registry.
+
+To add another connector profile later, add its profile module, register it in `registry.ts`, and make it available through the admin-selected connector. Do not add system-specific action requirements to Gateway core.
+
 ## Environment
 
 Copy `.env.example` to `.env` if you want to override defaults.
