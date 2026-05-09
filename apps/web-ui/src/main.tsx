@@ -79,9 +79,10 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
   }
 ];
 
-type ActiveTab = "run-task" | "agent-registry" | "trust-identity" | "security-timeline";
+type ActiveTab = "demo-guide" | "run-task" | "agent-registry" | "trust-identity" | "security-timeline";
 type ResolveA2ATask = NonNullable<ResolveResponse["a2aTasks"]>[number];
 type GuidedFocusTarget =
+  | "demo-guide"
   | "run-task"
   | "composer"
   | "gateway-response"
@@ -104,6 +105,7 @@ type ConnectionWizardStep =
   | "result";
 
 const tabs: Array<{ id: ActiveTab; label: string }> = [
+  { id: "demo-guide", label: "Demo Guide" },
   { id: "run-task", label: "Run Task" },
   { id: "agent-registry", label: "Agent Registry" },
   { id: "trust-identity", label: "Trust & Identity" },
@@ -1269,7 +1271,7 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>("run-task");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("demo-guide");
   const [message, setMessage] = useState(sampleMessage);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -1305,6 +1307,7 @@ function App() {
   const [isIdentityLoading, setIsIdentityLoading] = useState(false);
   const [securityTimelineFilter, setSecurityTimelineFilter] = useState<SecurityTimelineFilter>("all");
   const [pendingFocusTarget, setPendingFocusTarget] = useState<GuidedFocusTarget | null>(null);
+  const demoGuideRootRef = useRef<HTMLElement | null>(null);
   const runTaskRootRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLFormElement | null>(null);
   const taskTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1528,6 +1531,7 @@ function App() {
   }
 
   useEffect(() => {
+    void loadZeroTrustOnboardedAgents();
     void checkAgentHealth();
     void loadTrustStatus();
     void loadGatewayRegistrationMetadata();
@@ -1535,6 +1539,11 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (activeTab === "demo-guide") {
+      void loadZeroTrustOnboardedAgents();
+      void loadSupportedConnectorGuardrails();
+      void loadTrustStatus();
+    }
     if (activeTab === "agent-registry") {
       void loadZeroTrustOnboardedAgents();
       void checkAgentHealth();
@@ -1550,6 +1559,10 @@ function App() {
     }
 
     const frameId = window.requestAnimationFrame(() => {
+      if (pendingFocusTarget === "demo-guide") {
+        scrollToRef(demoGuideRootRef);
+        highlightSection(demoGuideRootRef);
+      }
       if (pendingFocusTarget === "run-task") {
         scrollToRef(runTaskRootRef);
         highlightSection(runTaskRootRef);
@@ -2112,7 +2125,7 @@ function App() {
               secondaryAction: goToSecurityTimeline
             }
             : {
-              title: "Run the approved connector scenario",
+              title: "Run approved runtime diagnosis",
               text: "Run the Jira diagnosis scenario to show approved runtime execution with scoped A2A JWT.",
               primaryLabel: "Run Jira approved diagnosis",
               primaryAction: () => runScenario(approvedJiraScenario),
@@ -2181,11 +2194,11 @@ function App() {
     ];
 
     return (
-      <section className="demo-readiness-panel cockpit-card" aria-label="Demo Readiness">
+      <section className="demo-readiness-panel cockpit-card" aria-label="Demo Guide progress">
         <div className="section-heading-row">
           <div>
             <p className="active-panel-eyebrow">Presenter control center</p>
-            <h2>Demo Progress</h2>
+            <h2>Demo path</h2>
             <p className="muted-note">Follow one guided path through connector onboarding, approved runtime execution, blocked skills, and audit proof.</p>
           </div>
           <div className="demo-readiness-actions">
@@ -2224,7 +2237,7 @@ function App() {
         <div className="guided-readiness-grid">
           <section className="readiness-checklist">
             <div>
-              <h3>Readiness checklist</h3>
+              <h3>Proof checklist</h3>
               <p className="muted-note">Compact proof that the demo path can run without guessing.</p>
             </div>
             <ul>
@@ -2258,7 +2271,7 @@ function App() {
         </div>
         <section className="demo-script-panel">
           <div>
-            <h3>Demo Script</h3>
+            <h3>Demo script</h3>
             <p className="muted-note">Run these steps in order. Each step has one action and one proof point.</p>
           </div>
           <ol>
@@ -2281,6 +2294,22 @@ function App() {
             </div>
           </details>
         </section>
+      </section>
+    );
+  }
+
+  function renderDemoGuideTab() {
+    return (
+      <section className="control-panel demo-guide-panel scroll-target" aria-label="Demo Guide" ref={demoGuideRootRef} tabIndex={-1}>
+        <div className="panel-header demo-guide-hero">
+          <div>
+            <p className="active-panel-eyebrow">Presenter control center</p>
+            <h2>Demo Guide</h2>
+            <p className="muted-note">Present the zero-trust external connector flow in 5 minutes.</p>
+            <p>Start with zero installed connectors, install an external agent, run an approved skill, show a blocked skill, and verify the audit trail.</p>
+          </div>
+        </div>
+        {renderDemoReadinessPanel()}
       </section>
     );
   }
@@ -3332,8 +3361,6 @@ function App() {
         </div>
 
         {renderCockpitStatusStrip()}
-        {renderDemoReadinessPanel()}
-
         <div className="cockpit-grid">
           <section className="cockpit-main">
             {!isUserAuthenticated ? (
@@ -4340,7 +4367,13 @@ function App() {
             <p className="eyebrow">Secure A2A Control Plane</p>
             <h1>Secure Agent Orchestration Gateway</h1>
             <p className="subtitle">Import external agents through Agent Cards and govern execution with scoped JWTs, policy, and audit.</p>
-            <div className="menu-hint">✨ Demo mode: use tabs + quick scenarios to tour trust, routing, and runtime controls.</div>
+            <div className="menu-hint">
+              <span>Open Demo Guide for the recommended presentation flow.</span>
+              <button type="button" onClick={() => {
+                setActiveTab("demo-guide");
+                guideToTarget("demo-guide");
+              }}>Demo Guide</button>
+            </div>
           </div>
           <div className="topbar-actions">
             {isUserAuthenticated ? (
@@ -4373,6 +4406,9 @@ function App() {
               className={activeTab === tab.id ? "active" : ""}
               onClick={() => {
                 setActiveTab(tab.id);
+                if (tab.id === "demo-guide") {
+                  guideToTarget("demo-guide");
+                }
                 if (tab.id === "run-task") {
                   guideToTarget("composer");
                 }
@@ -4392,6 +4428,7 @@ function App() {
           ))}
         </nav>
 
+        {activeTab === "demo-guide" ? renderDemoGuideTab() : null}
         {activeTab === "run-task" ? renderRunTaskTab() : null}
         {activeTab === "agent-registry" ? renderAgentRegistryTab() : null}
         {activeTab === "trust-identity" ? renderTrustIdentityTab() : null}

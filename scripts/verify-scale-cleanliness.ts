@@ -226,14 +226,17 @@ if (!/function\s+scenarioForApprovedSkill[\s\S]*agent\.approvedActions\s*\?\?\s*
   failed = true;
 }
 for (const phrase of [
-  "Demo Progress",
+  "Demo Guide",
+  "Presenter control center",
   "Next step",
-  "Readiness checklist",
-  "Demo Script",
+  "Demo path",
+  "Proof checklist",
+  "Demo script",
   "Login to start governed execution",
   "Install your first connector agent",
-  "Run the approved connector scenario",
+  "Run approved runtime diagnosis",
   "Runtime proof captured",
+  "Advanced proof steps",
   "Start here",
   "Connector templates are not installed by default",
   "Recommended: Run",
@@ -242,11 +245,24 @@ for (const phrase of [
   "Raw tokens hidden",
   "Scoped A2A JWT",
   "External config hash",
+  "Open Demo Guide for the recommended presentation flow",
   "Open Connector Catalog",
   "View Installed Connector Agents"
 ]) {
   if (!webUi.includes(phrase)) {
-    console.error(`fail - guided Demo Readiness UI should include phrase: ${phrase}`);
+    console.error(`fail - Demo Guide UI should include phrase: ${phrase}`);
+    failed = true;
+  }
+}
+const runTaskStart = webUi.indexOf("function renderRunTaskTab()");
+const agentRegistryStart = webUi.indexOf("function renderAgentRegistryTab()");
+if (runTaskStart === -1 || agentRegistryStart === -1 || agentRegistryStart <= runTaskStart) {
+  console.error("fail - scale check could not identify renderRunTaskTab boundary");
+  failed = true;
+} else {
+  const runTaskBody = webUi.slice(runTaskStart, agentRegistryStart);
+  if (runTaskBody.includes("renderDemoReadinessPanel") || runTaskBody.includes("Demo Progress") || runTaskBody.includes("Demo path")) {
+    console.error("fail - Run Task should not render the full Demo Guide progress/readiness section directly");
     failed = true;
   }
 }

@@ -4712,6 +4712,43 @@ summary:focus-visible,
   font-size: 12px;
 }
 
+.menu-hint button {
+  border: 1px solid var(--info-border);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--info-text);
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.demo-guide-panel {
+  gap: 18px;
+}
+
+.demo-guide-hero {
+  border: 1px solid var(--info-border);
+  border-left: 6px solid var(--primary);
+  border-radius: 18px;
+  padding: 20px;
+  background: linear-gradient(180deg, #ffffff, var(--info-bg));
+  box-shadow: var(--shadow-md);
+}
+
+.demo-guide-hero h2 {
+  margin-bottom: 6px;
+  font-size: 30px;
+}
+
+.demo-guide-hero p:last-child {
+  max-width: 980px;
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
 .demo-readiness-panel {
   display: grid;
   gap: 16px;
