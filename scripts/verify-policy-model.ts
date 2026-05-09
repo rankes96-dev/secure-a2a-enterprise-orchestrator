@@ -14,6 +14,9 @@ const approved = evaluateConnectorPolicy({ connectorRouteStatus: "connector_skil
 if (approved.effect !== "allow") {
   throw new Error(`expected approved connector skill to be allowed, got ${approved.effect}`);
 }
+if (approved.reason.includes("diagnostic skill")) {
+  throw new Error("generic policy allow wording should not say diagnostic skill");
+}
 if (!approved.matchedRuleIds.includes("allow-readonly-diagnostics")) {
   throw new Error("expected approved connector skill to match allow-readonly-diagnostics");
 }

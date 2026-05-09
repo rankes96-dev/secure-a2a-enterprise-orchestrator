@@ -148,6 +148,12 @@ if (!adminPage.includes('post("/admin/skill-declaration"')) {
   failed = true;
 }
 
+const externalVerifyAgent = readFileSync("real-external-agent/src/verify-agent.ts", "utf8");
+if (!externalVerifyAgent.includes("public connector profile exposed demoDefaults")) {
+  console.error("fail - real-external-agent verification should assert public connector profile does not expose demoDefaults");
+  failed = true;
+}
+
 const readme = readFileSync("README.md", "utf8");
 for (const phrase of ["Connector Catalog", "Installed Connectors", "Custom Connector SDK", "zero installed connectors"]) {
   if (!readme.includes(phrase)) {
@@ -160,6 +166,12 @@ const webUi = readFileSync("apps/web-ui/src/main.tsx", "utf8");
 for (const phrase of ["Connector Catalog", "Installed Connectors", "Custom Connector SDK"]) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - Agent Registry UI should include: ${phrase}`);
+    failed = true;
+  }
+}
+for (const phrase of ["Work Management", "ITSM", "DevOps", "Finish and view Installed Connectors", "Legacy Internal Demo Agents"]) {
+  if (!webUi.includes(phrase)) {
+    console.error(`fail - Agent Registry UI should include polish phrase: ${phrase}`);
     failed = true;
   }
 }
@@ -192,6 +204,21 @@ for (const requiredFile of [
     console.error(`fail - expected product-model file is missing: ${requiredFile}`);
     failed = true;
   }
+}
+
+const auditEvents = readFileSync("services/orchestrator-api/src/audit/auditEvents.ts", "utf8");
+const auditEventValues = [...auditEvents.matchAll(/:\s*"([^"]+)"/g)].map((match) => match[1]);
+for (const eventName of auditEventValues) {
+  if (eventName.includes("_")) {
+    console.error(`fail - audit event value should not include underscores: ${eventName}`);
+    failed = true;
+  }
+}
+
+const connectorPolicy = readFileSync("services/orchestrator-api/src/policy/connectorPolicy.ts", "utf8");
+if (connectorPolicy.includes("Default connector policy allowed this approved diagnostic skill")) {
+  console.error("fail - generic connector policy allow wording should not say diagnostic skill");
+  failed = true;
 }
 
 if (failed) {

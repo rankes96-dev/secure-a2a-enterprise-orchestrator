@@ -13,8 +13,8 @@ export const AuditEvents = {
   AGENT_ATTESTATION_RECEIVED: "agent.attestation.received",
   AGENT_ATTESTATION_VERIFIED: "agent.attestation.verified",
 
-  OAUTH_APP_ATTESTATION_VERIFIED: "oauth_app.attestation.verified",
-  SERVICE_PRINCIPAL_ATTESTATION_VERIFIED: "service_principal.attestation.verified",
+  OAUTH_APP_ATTESTATION_VERIFIED: "oauth.app.attestation.verified",
+  SERVICE_PRINCIPAL_ATTESTATION_VERIFIED: "service.principal.attestation.verified",
 
   SKILL_DECISION_DERIVED: "skill.decision.derived",
   SKILL_APPROVED: "skill.approved",
@@ -25,10 +25,10 @@ export const AuditEvents = {
   CONNECTOR_RUNTIME_CALL_STARTED: "connector.runtime.call.started",
   CONNECTOR_RUNTIME_CALL_SUCCEEDED: "connector.runtime.call.succeeded",
   CONNECTOR_RUNTIME_CALL_FAILED: "connector.runtime.call.failed",
-  CONNECTOR_RUNTIME_CONFIG_STALE: "connector.runtime.config_stale",
+  CONNECTOR_RUNTIME_CONFIG_STALE: "connector.runtime.config.stale",
 
   POLICY_EVALUATION_STARTED: "policy.evaluation.started",
   POLICY_EVALUATION_PASSED: "policy.evaluation.passed",
   POLICY_EVALUATION_BLOCKED: "policy.evaluation.blocked",
-  POLICY_EVALUATION_NEEDS_APPROVAL: "policy.evaluation.needs_approval"
+  POLICY_EVALUATION_NEEDS_APPROVAL: "policy.evaluation.needs.approval"
 } as const;

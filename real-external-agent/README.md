@@ -70,7 +70,7 @@ The demo uses a generic model that can scale beyond Jira:
 
 An action is ready only when every required application access grant is present, every required effective permission is present, and no required permission is explicitly denied. The Gateway remains the final authority and may still block actions by policy.
 
-The selected reference connector profile is published at `/.well-known/a2a-connector-profile.json`. Discovery includes the connector ID, resource system, connector profile URL, and supported connectors URL. The signed onboarding response includes the connector ID, profile URL, and a local demo SHA-256 hash over stable JSON for the profile.
+The selected reference connector profile is published at `/.well-known/a2a-connector-profile.json`. Discovery includes the connector ID, resource system, connector profile URL, and supported connectors URL. The public connector profile contains only the connector contract: grant catalog, permission catalog, skills, and action requirements. Internal demo defaults are not published. The signed onboarding response includes the connector ID, profile URL, and a local demo SHA-256 hash over stable JSON for the same public profile payload.
 
 The signed onboarding response also includes `externalConfigHash`, a SHA-256 hash over safe public admin configuration: selected connector, OAuth application metadata, application access grants, service account identity, effective permissions, denied permissions, and enabled actions. It excludes secrets, tokens, private keys, and raw Gateway assertions.
 

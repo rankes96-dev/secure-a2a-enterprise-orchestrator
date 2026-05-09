@@ -16,6 +16,9 @@ export type InstalledConnectorLifecycle = {
   reason: string;
 };
 
+// V1 derives lifecycle from current trusted onboarding metadata only.
+// needs_reverification is surfaced from runtime responses such as
+// connector_configuration_changed. Persistent lifecycle updates are V2.
 export function deriveInstalledConnectorLifecycle(agent: TrustedOnboardedAgent): InstalledConnectorLifecycle {
   const approvedCount = (agent.approvedActions ?? agent.approvedCapabilities).length;
 

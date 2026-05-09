@@ -10,6 +10,8 @@ import type { ConnectorCatalogItem as CatalogItem, ConnectorProfile, ConnectorSk
 export type { ActionCatalogItem, CatalogItem, ConnectorProfile, SupportedConnector };
 export { getConnectorProfileForResourceSystem, getDefaultConnectorProfile, listSupportedConnectors };
 
+export type PublicConnectorProfile = Omit<ConnectorProfile, "demoDefaults">;
+
 export type ActionReadinessPreview = {
   actionId: string;
   label: string;
@@ -28,6 +30,20 @@ export type ActionReadinessPreview = {
 export function getConnectorProfile(connectorId?: string): ConnectorProfile {
   const profile = connectorId ? getRegisteredConnectorProfile(connectorId) : undefined;
   return profile ?? getDefaultConnectorProfile();
+}
+
+export function publicConnectorProfile(profile: ConnectorProfile): PublicConnectorProfile {
+  return {
+    resourceSystem: profile.resourceSystem,
+    connectorId: profile.connectorId,
+    displayName: profile.displayName,
+    version: profile.version,
+    profileSource: profile.profileSource,
+    applicationAccessGrantCatalog: profile.applicationAccessGrantCatalog,
+    effectivePermissionCatalog: profile.effectivePermissionCatalog,
+    skillCatalog: profile.skillCatalog,
+    actionCatalog: profile.actionCatalog
+  };
 }
 
 export function actionRequirementsFor(actionId: string, connectorId?: string): ActionCatalogItem | undefined {

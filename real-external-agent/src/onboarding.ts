@@ -6,7 +6,7 @@ import {
   expectedAudience
 } from "./config.js";
 import { adminConfigHash, getAdminConfig, readinessStatus } from "./adminConfig.js";
-import { getConnectorProfile } from "./connectorProfile.js";
+import { getConnectorProfile, publicConnectorProfile, type PublicConnectorProfile } from "./connectorProfile.js";
 import { getSigningKey } from "./keys.js";
 
 export type OnboardingChallenge = {
@@ -59,7 +59,7 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function connectorProfileHash(profile: ReturnType<typeof getConnectorProfile>): string {
+function connectorProfileHash(profile: PublicConnectorProfile): string {
   return createHash("sha256").update(stableStringify(profile)).digest("hex");
 }
 
@@ -143,6 +143,7 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
   const now = Math.floor(Date.now() / 1000);
   const issuer = agentIssuer();
   const connectorProfile = getConnectorProfile(config.selectedConnectorId);
+  const publicProfile = publicConnectorProfile(connectorProfile);
   const profileUrl = `${issuer}/.well-known/a2a-connector-profile.json`;
 
   const signedTrustResponse = await new SignJWT({
@@ -156,7 +157,7 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
     resourceSystem: config.oauthApplication.resourceSystem,
     connectorId: connectorProfile.connectorId,
     connectorProfileUrl: profileUrl,
-    connectorProfileHash: connectorProfileHash(connectorProfile),
+    connectorProfileHash: connectorProfileHash(publicProfile),
     externalConfigHash: adminConfigHash(),
     trustAdapter: connectorProfile.resourceSystem,
     agentDeclaredSkills: config.capabilityDeclaration.agentDeclaredSkills,

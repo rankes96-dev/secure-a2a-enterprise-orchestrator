@@ -1332,6 +1332,37 @@ h2 {
   gap: 10px;
 }
 
+.agent-registry-anchor-nav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 20px rgba(30, 41, 59, 0.05);
+}
+
+.agent-registry-anchor-nav button {
+  min-height: 32px;
+  border: 1px solid #c7d2d8;
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: #253d47;
+  background: #f6f9fa;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.agent-registry-anchor-nav button:hover {
+  border-color: #235789;
+  color: #235789;
+}
+
 .connector-preset-card {
   display: grid;
   gap: 5px;

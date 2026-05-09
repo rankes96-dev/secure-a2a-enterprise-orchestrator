@@ -10,7 +10,7 @@ import {
   saveTrustedGateway
 } from "./adminConfig.js";
 import { adminPageHtml } from "./adminPage.js";
-import { getConnectorProfile, listSupportedConnectors } from "./connectorProfile.js";
+import { getConnectorProfile, listSupportedConnectors, publicConnectorProfile } from "./connectorProfile.js";
 import { bearerToken, readJsonBody, sendJson } from "./http.js";
 import { createSignedTrustResponse, OnboardingError, type OnboardingRequest } from "./onboarding.js";
 import { publicJwks } from "./keys.js";
@@ -117,7 +117,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && request.url === "/.well-known/a2a-connector-profile.json") {
-      sendJson(response, 200, getConnectorProfile(publicAdminConfig().selectedConnectorId));
+      sendJson(response, 200, publicConnectorProfile(getConnectorProfile(publicAdminConfig().selectedConnectorId)));
       return;
     }
 

@@ -2193,7 +2193,7 @@ async function start(): Promise<void> {
 
     sendJson(response, 200, {
       connectorTemplates,
-      connectors: connectorTemplates.filter((connector) => connector.status === "available")
+      connectors: connectorTemplates
     }, request);
     return;
   }

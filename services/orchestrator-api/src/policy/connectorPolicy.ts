@@ -63,6 +63,9 @@ export const defaultConnectorPolicyRules: ConnectorPolicyRule[] = [
   }
 ];
 
+// V1 policy evaluation is intentionally minimal. Gateway connector route
+// decision remains authoritative. V2 will enforce rule matching by connector,
+// skill, risk level, user role, approval state, and business conditions.
 export function evaluateConnectorPolicy(input: {
   connectorRouteStatus: ConnectorRoutingDecision["status"];
   riskLevel?: "low" | "medium" | "high" | "sensitive";
@@ -70,7 +73,7 @@ export function evaluateConnectorPolicy(input: {
   if (input.connectorRouteStatus === "connector_skill_approved") {
     return {
       effect: "allow",
-      reason: "Default connector policy allowed this approved diagnostic skill.",
+      reason: "Default connector policy allowed this approved connector skill.",
       matchedRuleIds: ["allow-readonly-diagnostics"]
     };
   }

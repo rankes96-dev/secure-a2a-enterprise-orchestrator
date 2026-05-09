@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   assertCondition(profile.connectorId === connectorId, "connector profile connectorId mismatch");
   assertCondition(profile.resourceSystem === resourceSystem, "connector profile resourceSystem mismatch");
   assertCondition(Array.isArray(profile.skillCatalog ?? profile.actionCatalog), "connector profile missing skill/action catalog");
-  assertCondition(typeof profile.demoDefaults === "object" && profile.demoDefaults !== null, "connector profile missing demo defaults");
+  assertCondition(!("demoDefaults" in profile), "public connector profile should not expose demo defaults");
 
   console.log(`External connector instance verification passed for ${connectorId}.`);
 }

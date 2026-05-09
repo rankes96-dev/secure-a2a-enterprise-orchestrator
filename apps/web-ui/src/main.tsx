@@ -80,8 +80,10 @@ type GuidedFocusTarget =
   | "security-summary"
   | "trust-login"
   | "agent-registry"
+  | "connector-catalog"
   | "zero-trust-onboarding"
   | "registered-agents"
+  | "legacy-agents"
   | "security-timeline";
 
 type ConnectionAudience = "bizapps" | "developer";
@@ -121,6 +123,81 @@ const localConnectorPresets = [
     expectedAgentId: "external-github-agent",
     expectedResourceSystem: "github",
     expectedConnectorId: "github-reference"
+  }
+];
+
+const fallbackSupportedConnectorGuardrails: SupportedConnectorGuardrail[] = [
+  {
+    resourceSystem: "jira",
+    connectorId: "jira-reference",
+    displayName: "Jira Cloud Reference Connector",
+    status: "available",
+    source: "local_reference",
+    description: "Reference connector template for Jira issue diagnostics, permission inspection, and controlled issue creation demos.",
+    category: "Work Management",
+    publisher: "Secure A2A Reference",
+    templateVersion: "1.0.0",
+    authModel: "oauth_application_with_service_account",
+    runtimeSupport: "supported",
+    riskLevel: "medium",
+    tags: ["jira", "issues", "permissions", "work-management"],
+    setupRequirements: ["External agent discovery endpoint", "Gateway public registration", "OAuth application grants", "Service account permission attestation"],
+    installed: false,
+    installedCount: 0
+  },
+  {
+    resourceSystem: "servicenow",
+    connectorId: "servicenow-reference",
+    displayName: "ServiceNow Reference Connector",
+    status: "available",
+    source: "local_reference",
+    description: "Reference connector template for ServiceNow incident, catalog request, role, and ACL diagnostics.",
+    category: "ITSM",
+    publisher: "Secure A2A Reference",
+    templateVersion: "1.0.0",
+    authModel: "oauth_application_with_service_account",
+    runtimeSupport: "supported",
+    riskLevel: "medium",
+    tags: ["servicenow", "incident", "catalog", "itsm", "acl"],
+    setupRequirements: ["External agent discovery endpoint", "Gateway public registration", "OAuth application grants", "Service account role and ACL attestation"],
+    installed: false,
+    installedCount: 0
+  },
+  {
+    resourceSystem: "github",
+    connectorId: "github-reference",
+    displayName: "GitHub Reference Connector",
+    status: "available",
+    source: "local_reference",
+    description: "Reference connector template for GitHub repository, pull request, installation access, and rate-limit diagnostics.",
+    category: "DevOps",
+    publisher: "Secure A2A Reference",
+    templateVersion: "1.0.0",
+    authModel: "oauth_application_with_service_account",
+    runtimeSupport: "supported",
+    riskLevel: "medium",
+    tags: ["github", "repository", "pull-request", "rate-limit", "devops"],
+    setupRequirements: ["External agent discovery endpoint", "Gateway public registration", "App installation access attestation", "Repository permission attestation"],
+    installed: false,
+    installedCount: 0
+  },
+  {
+    resourceSystem: "custom",
+    connectorId: "custom-sdk",
+    displayName: "Custom Connector SDK",
+    status: "planned",
+    source: "custom_sdk",
+    description: "Build your own connector using the Secure A2A connector contract. Planned for V2.",
+    category: "Custom",
+    publisher: "Customer / Vendor",
+    templateVersion: "planned",
+    authModel: "custom_sdk_contract",
+    runtimeSupport: "planned",
+    riskLevel: "medium",
+    tags: ["custom", "sdk", "bring-your-own-connector"],
+    setupRequirements: ["Discovery document", "Connector profile", "Public JWKS", "Signed onboarding response", "Scoped runtime endpoint"],
+    installed: false,
+    installedCount: 0
   }
 ];
 
@@ -372,7 +449,7 @@ function shortHash(value?: string): string {
 function connectorRuntimeFailureCopy(error?: string, message?: string): { title: string; body: string; nextStep?: string } {
   if (error === "connector_configuration_changed") {
     return {
-      title: "Connector configuration changed after onboarding",
+      title: "Needs re-verification",
       body: message ?? "The external connector configuration changed after the Gateway trusted its onboarding attestation.",
       nextStep: "Re-run Gateway onboarding to refresh trusted connector attestation."
     };
@@ -1188,12 +1265,7 @@ function App() {
   const [zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId] = useState("external-jira-agent");
   const [zeroTrustExpectedResourceSystem, setZeroTrustExpectedResourceSystem] = useState("");
   const [zeroTrustExpectedConnectorId, setZeroTrustExpectedConnectorId] = useState("");
-  const [supportedConnectorGuardrails, setSupportedConnectorGuardrails] = useState<SupportedConnectorGuardrail[]>([
-    { resourceSystem: "jira", connectorId: "jira-reference", displayName: "Jira Cloud Reference Connector", status: "available", source: "local_reference", installed: false, installedCount: 0 },
-    { resourceSystem: "servicenow", connectorId: "servicenow-reference", displayName: "ServiceNow Reference Connector", status: "available", source: "local_reference", installed: false, installedCount: 0 },
-    { resourceSystem: "github", connectorId: "github-reference", displayName: "GitHub Reference Connector", status: "available", source: "local_reference", installed: false, installedCount: 0 },
-    { resourceSystem: "custom", connectorId: "custom-sdk", displayName: "Custom Connector SDK", status: "planned", source: "custom_sdk", installed: false, installedCount: 0 }
-  ]);
+  const [supportedConnectorGuardrails, setSupportedConnectorGuardrails] = useState<SupportedConnectorGuardrail[]>(fallbackSupportedConnectorGuardrails);
   const [zeroTrustOnboardedAgents, setZeroTrustOnboardedAgents] = useState<TrustedOnboardedAgent[]>([]);
   const [zeroTrustDiscovery, setZeroTrustDiscovery] = useState<AgentOnboardingDiscoveryResult | null>(null);
   const [zeroTrustResult, setZeroTrustResult] = useState<AgentOnboardingResult | null>(null);
@@ -1222,8 +1294,10 @@ function App() {
   const demoUserSelectRef = useRef<HTMLSelectElement | null>(null);
   const loginButtonRef = useRef<HTMLButtonElement | null>(null);
   const agentRegistryRootRef = useRef<HTMLElement | null>(null);
+  const connectorCatalogRef = useRef<HTMLElement | null>(null);
   const zeroTrustOnboardingRef = useRef<HTMLElement | null>(null);
   const registeredAgentsRef = useRef<HTMLElement | null>(null);
+  const legacyAgentsRef = useRef<HTMLDetailsElement | null>(null);
   const securityTimelineRootRef = useRef<HTMLElement | null>(null);
   const timelineListRef = useRef<HTMLElement | null>(null);
   const latestResponse = useMemo(
@@ -1436,6 +1510,10 @@ function App() {
         scrollToRef(agentRegistryRootRef);
         highlightSection(agentRegistryRootRef);
       }
+      if (pendingFocusTarget === "connector-catalog") {
+        scrollToRef(connectorCatalogRef);
+        highlightSection(connectorCatalogRef);
+      }
       if (pendingFocusTarget === "zero-trust-onboarding") {
         scrollToRef(zeroTrustOnboardingRef);
         highlightSection(zeroTrustOnboardingRef);
@@ -1443,6 +1521,10 @@ function App() {
       if (pendingFocusTarget === "registered-agents") {
         scrollToRef(registeredAgentsRef);
         highlightSection(registeredAgentsRef);
+      }
+      if (pendingFocusTarget === "legacy-agents") {
+        scrollToRef(legacyAgentsRef);
+        highlightSection(legacyAgentsRef);
       }
       if (pendingFocusTarget === "security-timeline") {
         const targetRef = timelineListRef.current ? timelineListRef : securityTimelineRootRef;
@@ -1610,12 +1692,7 @@ function App() {
         setSupportedConnectorGuardrails(body.connectorTemplates ?? body.connectors);
       }
     } catch {
-      setSupportedConnectorGuardrails([
-        { resourceSystem: "jira", connectorId: "jira-reference", displayName: "Jira Cloud Reference Connector", status: "available", source: "local_reference", installed: false, installedCount: 0 },
-        { resourceSystem: "servicenow", connectorId: "servicenow-reference", displayName: "ServiceNow Reference Connector", status: "available", source: "local_reference", installed: false, installedCount: 0 },
-        { resourceSystem: "github", connectorId: "github-reference", displayName: "GitHub Reference Connector", status: "available", source: "local_reference", installed: false, installedCount: 0 },
-        { resourceSystem: "custom", connectorId: "custom-sdk", displayName: "Custom Connector SDK", status: "planned", source: "custom_sdk", installed: false, installedCount: 0 }
-      ]);
+      setSupportedConnectorGuardrails(fallbackSupportedConnectorGuardrails);
     }
   }
 
@@ -1962,7 +2039,7 @@ function App() {
             {latestResponse.connectorPolicy ? (
               <p><strong>Policy:</strong> {latestResponse.connectorPolicy.reason}</p>
             ) : latestResponse.connectorRouting.status === "connector_skill_approved" ? (
-              <p><strong>Policy:</strong> Default connector policy allowed this approved diagnostic skill.</p>
+              <p><strong>Policy:</strong> Default connector policy allowed this approved connector skill.</p>
             ) : latestResponse.connectorRouting.status === "connector_skill_blocked" ? (
               <p><strong>Policy:</strong> Skill was not eligible for runtime execution because Gateway action decision blocked it.</p>
             ) : null}
@@ -2378,6 +2455,14 @@ function App() {
       resetZeroTrustConnectionState();
       setConnectionWizardStep("overview");
     };
+    const finishOnboarding = async () => {
+      setZeroTrustError("");
+      await Promise.all([
+        loadZeroTrustOnboardedAgents(),
+        loadSupportedConnectorGuardrails()
+      ]);
+      guideToTarget("registered-agents");
+    };
     const failureTitle = zeroTrustError.toLowerCase().includes("oauth")
       ? "OAuth application binding failed"
       : zeroTrustError.toLowerCase().includes("permission")
@@ -2771,8 +2856,8 @@ function App() {
               <p>The external agent protocol is universal. System-specific action requirements come from the connector profile.</p>
               <p>Agent actions are declared by the external agent, but approved only after application access grants, effective permissions, denied permissions, and Gateway policy are evaluated.</p>
               <div className="wizard-action-row">
-                <button type="button" className="secondary-button compact-button" onClick={() => guideToTarget("registered-agents")}>View registered agents</button>
-                <button type="button" className="secondary-button compact-button" onClick={startAnotherConnection}>Start another connection</button>
+                <button type="button" onClick={() => void finishOnboarding()}>Finish and view Installed Connectors</button>
+                <button type="button" className="secondary-button compact-button" onClick={startAnotherConnection}>Connect another external agent</button>
               </div>
               <details className="wizard-technical-details">
                 <summary>View technical details</summary>
@@ -3001,7 +3086,7 @@ function App() {
 
     function renderConnectorCatalog() {
       return (
-        <section className="registry-section">
+        <section className="registry-section scroll-target" ref={connectorCatalogRef} tabIndex={-1}>
           <div className="section-heading-row">
             <div>
               <p className="active-panel-eyebrow">Supported templates</p>
@@ -3015,26 +3100,28 @@ function App() {
               const installedCount = template.installedCount ?? installedCountForTemplate(template);
               const sourceLabel = template.source === "custom_sdk" ? "SDK / Bring your own connector" : "Local reference template";
               const runtimeSupportLabel = template.runtimeSupport === "planned" ? "Planned" : template.runtimeSupport === "not_supported" ? "Not supported" : "Supported";
+              const metadataUnavailable = !template.category || !template.publisher || !template.templateVersion || !template.authModel || !template.runtimeSupport || !template.riskLevel;
               return (
                 <article className="connector-preset-card" key={template.connectorId}>
                   <strong>{template.displayName}</strong>
                   <p className="muted-note">{template.description ?? "Supported connector template for external agent onboarding."}</p>
-                  <span>Category: {template.category ?? "Custom"}</span>
+                  <span>Category: {template.category ?? "Metadata unavailable"}</span>
                   <small>Source: {sourceLabel}</small>
                   <small>Status: {template.status === "planned" ? "Planned / V2" : "Available"}</small>
-                  <small>Runtime support: {runtimeSupportLabel}</small>
-                  <small>Risk level: {template.riskLevel ?? "medium"}</small>
+                  <small>Runtime support: {template.runtimeSupport ? runtimeSupportLabel : "Metadata unavailable"}</small>
+                  <small>Risk level: {template.riskLevel ?? "Metadata unavailable"}</small>
                   <small>Installed count: {installedCount}</small>
                   <details className="wizard-technical-details">
                     <summary>Template details</summary>
                     <div className="registry-agent-metadata">
+                      {metadataUnavailable ? <div><span>Metadata</span><strong>Metadata unavailable</strong></div> : null}
                       <div><span>Template ID</span><strong>{template.connectorId}</strong></div>
                       <div><span>Resource system</span><strong>{template.resourceSystem}</strong></div>
-                      <div><span>Publisher</span><strong>{template.publisher ?? "unknown"}</strong></div>
-                      <div><span>Template version</span><strong>{template.templateVersion ?? "unknown"}</strong></div>
-                      <div><span>Auth model</span><strong>{template.authModel ?? "unknown"}</strong></div>
-                      <div><span>Setup requirements</span><strong>{template.setupRequirements?.join(", ") ?? "connector profile, signed onboarding response"}</strong></div>
-                      <div><span>Tags</span><strong>{template.tags?.join(", ") ?? "none"}</strong></div>
+                      <div><span>Publisher</span><strong>{template.publisher ?? "Metadata unavailable"}</strong></div>
+                      <div><span>Template version</span><strong>{template.templateVersion ?? "Metadata unavailable"}</strong></div>
+                      <div><span>Auth model</span><strong>{template.authModel ?? "Metadata unavailable"}</strong></div>
+                      <div><span>Setup requirements</span><strong>{template.setupRequirements?.join(", ") ?? "Metadata unavailable"}</strong></div>
+                      <div><span>Tags</span><strong>{template.tags?.join(", ") ?? "Metadata unavailable"}</strong></div>
                     </div>
                   </details>
                   {template.connectorId === "custom-sdk" ? (
@@ -3219,6 +3306,25 @@ function App() {
       );
     }
 
+    function renderAgentRegistryNav() {
+      const navItems: Array<{ label: string; target: GuidedFocusTarget }> = [
+        { label: "Connector Catalog", target: "connector-catalog" },
+        { label: "Connect Agent", target: "zero-trust-onboarding" },
+        { label: "Installed Connectors", target: "registered-agents" },
+        { label: "Legacy Agents", target: "legacy-agents" }
+      ];
+
+      return (
+        <nav className="agent-registry-anchor-nav" aria-label="Agent Registry sections">
+          {navItems.map((item) => (
+            <button type="button" key={item.target} onClick={() => guideToTarget(item.target)}>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      );
+    }
+
     return (
       <section className="control-panel agent-registry-panel scroll-target" aria-label="Agent Registry" ref={agentRegistryRootRef} tabIndex={-1}>
         <div className="panel-header">
@@ -3234,17 +3340,19 @@ function App() {
           </button>
         </div>
 
+        {renderAgentRegistryNav()}
+
         {renderConnectorCatalog()}
 
         {renderZeroTrustOnboardingPanel()}
 
         {renderInstalledConnectors()}
 
-        <details className="registry-overview-section">
+        <details className="registry-overview-section scroll-target" ref={legacyAgentsRef} tabIndex={-1}>
           <summary>
             <div>
               <strong>Legacy Internal Demo Agents</strong>
-              <span>Local mock agents retained for internal demo support. Installed external connectors are the primary product path.</span>
+              <span>These local mock agents are retained only for old demo flows. Installed external connectors are the product path.</span>
             </div>
             <b aria-hidden="true">v</b>
           </summary>

@@ -1,6 +1,7 @@
 import { agentId, agentIssuer, clientId, selectedConnectorId, tokenEndpointAuthMethod } from "./config.js";
 import { deriveRequestedApplicationGrants, getConnectorProfile } from "./connectorProfile.js";
 import type { ConnectorProfile } from "./connectors/types.js";
+import type { PublicConnectorProfile } from "./connectorProfile.js";
 
 const profile = getConnectorProfile(process.env.VERIFY_EXPECTED_CONNECTOR_ID ?? selectedConnectorId);
 const baseUrl = agentIssuer();
@@ -198,7 +199,7 @@ async function verifySupportedConnectors(): Promise<void> {
 }
 
 async function verifyConnectorProfile(): Promise<void> {
-  const actual = await getJson<ConnectorProfile>("/.well-known/a2a-connector-profile.json");
+  const actual = await getJson<PublicConnectorProfile & { demoDefaults?: unknown }>("/.well-known/a2a-connector-profile.json");
   assertCondition(actual.connectorId === profile.connectorId, "connector profile connectorId mismatch");
   assertCondition(actual.resourceSystem === profile.resourceSystem, "connector profile resourceSystem mismatch");
   assertCondition(actual.displayName === profile.displayName, "connector profile display name mismatch");
@@ -207,6 +208,7 @@ async function verifyConnectorProfile(): Promise<void> {
   assertCondition(Array.isArray(actual.applicationAccessGrantCatalog) && actual.applicationAccessGrantCatalog.length === profile.applicationAccessGrantCatalog.length, "connector profile application access grant catalog mismatch");
   assertCondition(Array.isArray(actual.effectivePermissionCatalog) && actual.effectivePermissionCatalog.length === profile.effectivePermissionCatalog.length, "connector profile effective permission catalog mismatch");
   assertCondition(Array.isArray(actual.skillCatalog) && sameMembers(actual.skillCatalog.map((skill) => skill.id), profile.skillCatalog.map((skill) => skill.id)), "connector profile skill catalog mismatch");
+  assertCondition(!("demoDefaults" in actual), "public connector profile exposed demoDefaults");
   assertNoSecretMarkers(actual);
   ok("connector profile");
 }

@@ -1,7 +1,7 @@
 import { AuditEvents } from "../services/orchestrator-api/src/audit/auditEvents";
 
 const eventValues = Object.values(AuditEvents);
-const dotNotation = /^[a-z0-9_]+(\.[a-z0-9_]+)+$/;
+const dotNotation = /^[a-z0-9]+(\.[a-z0-9]+)+$/;
 const forbiddenRuntimeTokenTerms = [
   "raw",
   "secret",
@@ -19,6 +19,9 @@ for (const eventName of eventValues) {
   }
   if (/\s/.test(eventName)) {
     throw new Error(`audit event should not contain spaces: ${eventName}`);
+  }
+  if (eventName.includes("_")) {
+    throw new Error(`audit event should not contain underscores: ${eventName}`);
   }
 }
 
