@@ -31,8 +31,8 @@ export type ConnectorDecisionInput = {
   connectorProfile: ConnectorProfile;
   agentId: string;
   clientId: string;
-  declaredSkills?: string[];
-  declaredActions: string[];
+  declaredSkills: string[];
+  declaredActions?: string[];
   requestedApplicationGrants: string[];
   applicationAccessGrants: string[];
   effectivePermissions: string[];

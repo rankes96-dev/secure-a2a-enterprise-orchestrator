@@ -8,6 +8,40 @@ A vendor-neutral gateway for onboarding external AI agents through zero-trust ve
 
 The current product shell includes an Agent Registry, Zero-Trust Agent Onboarding, secure demo user identity, a Trust & Identity control plane, and a visual Security Timeline.
 
+## Product Model
+
+Each customer organization starts with zero installed connectors. The Gateway shows a **Connector Catalog** of supported connector templates, and an admin installs external connector agents from those templates through signed onboarding.
+
+Successful onboarding creates an **Installed Connector**: a trusted external agent with a verified connector profile, trusted runtime endpoint metadata, approved/blocked skills, and external configuration hash. Jira, ServiceNow, and GitHub are local reference templates for this demo only. A **Custom Connector SDK** is planned so organizations and vendors can build their own connector templates through the Secure A2A connector contract.
+
+## Connector Catalog vs Installed Connectors
+
+Connector Catalog:
+
+- supported connector templates
+- not trusted by default
+- not executable by default
+- no trusted runtime endpoint until an external agent is onboarded
+
+Installed Connectors:
+
+- external agents that passed signed onboarding
+- have a trusted runtime endpoint
+- have approved and blocked skills derived by the Gateway
+- execute only approved skills with scoped A2A JWTs
+
+## V2 Roadmap
+
+- Persistent connector registry / DB
+- Tenant/org ownership
+- Connector SDK
+- Custom connector publishing
+- Audit log
+- Revocation
+- Policy engine
+
+These items are roadmap scope and are not implemented in this local demo.
+
 ```text
 User
   signed user JWT
@@ -60,8 +94,7 @@ Zero-Trust Agent Onboarding uses a Three-Way Trust Binding before promoting meta
 - The gateway derives approved and blocked actions from agent declarations, application access grants, effective permissions, denied permissions, and policy.
 - The gateway rejects unknown clients, disabled apps, wrong issuers/audiences, and malformed OAuth application bindings.
 - Successful onboarding is stored as `trusted_metadata_only`.
-
-Runtime execution for onboarded external agents remains disabled until a future runtime validation phase.
+- Approved skills can execute only through the trusted runtime endpoint with scoped A2A JWT validation.
 
 ## LinkedIn Summary
 
@@ -111,7 +144,7 @@ The current demo includes:
 - Agent Card driven routing
 - Zero-Trust Agent Onboarding in the Agent Registry
 - OAuth application registry binding for verified external agent metadata
-- metadata-only onboarded external agents until runtime validation is enabled
+- metadata-only onboarding plus approved-skill runtime execution with scoped A2A JWT validation
 - OAuth2 Client Credentials token endpoint
 - `private_key_jwt` client authentication
 - `client_secret_post` local fallback
@@ -192,7 +225,7 @@ The AI request interpreter returns structured scope, intent, requested capabilit
 
 ## Agent Registry Onboarding
 
-The Agent Registry exposes **Zero-Trust Agent Onboarding** as the only external onboarding path.
+The Agent Registry exposes a **Connector Catalog** of supported templates and **Installed Connectors** for external agents that have passed Zero-Trust onboarding. Reference connector templates are not trusted or installed by default.
 
 Agent Cards and discovery documents are declarations, not trust. Trusted onboarding verifies external agent identity through HTTP discovery, a signed Gateway challenge, a signed external agent trust response, external OAuth application binding, and resource permission evaluation.
 

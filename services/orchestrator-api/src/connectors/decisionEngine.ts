@@ -16,7 +16,8 @@ export function decideConnectorActions(input: ConnectorDecisionInput): Connector
   const effectivePermissions = new Set(input.effectivePermissions);
   const deniedPermissions = new Set(input.deniedPermissions);
 
-  return (input.declaredSkills ?? input.declaredActions).map((actionId) => {
+  const declaredSkills = input.declaredSkills.length ? input.declaredSkills : input.declaredActions ?? [];
+  return declaredSkills.map((actionId) => {
     const action = actionsById.get(actionId);
     if (!action) {
       return {

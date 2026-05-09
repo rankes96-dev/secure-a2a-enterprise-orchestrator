@@ -41,7 +41,7 @@ import { createSessionCookie, getSessionToken, hasValidSession } from "./securit
 import { gatewayMetadata, gatewayPublicJwks } from "./security/gatewayIdentity";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
-import { discoverAgentOnboarding, listSupportedConnectorGuardrails, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
+import { discoverAgentOnboarding, listSupportedConnectorTemplates, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
 import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting";
 import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime";
 
@@ -417,7 +417,7 @@ function connectorRoutingStatusLabel(status: ConnectorRoutingDecision["status"])
     connector_skill_blocked: "Connector skill blocked",
     connector_skill_not_declared: "Connector skill not enabled",
     connector_skill_not_enabled: "Connector skill not enabled",
-    connector_not_onboarded: "Connector supported but not onboarded",
+    connector_not_onboarded: "Connector template supported, but no agent installed",
     unsupported: "Unsupported request",
     needs_more_info: "Needs more information"
   };
@@ -446,7 +446,7 @@ function connectorRoutingFinalAnswer(decision: ConnectorRoutingDecision): string
   }
 
   if (decision.status === "unsupported") {
-    return `Unsupported request: this demo does not have a connector profile for the requested system or action. ${decision.recommendedNextStep}`;
+    return `Unsupported request: no connector template or profile exists for the requested system or action. ${decision.recommendedNextStep}`;
   }
 
   return `${connectorRoutingStatusLabel(decision.status)}: ${decision.reason} ${decision.recommendedNextStep}`;
@@ -2162,11 +2162,30 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/agent-onboarding/supported-connectors") {
-    if (!agentCardRegistryKey(request, response)) {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
       return;
     }
 
-    sendJson(response, 200, { connectors: listSupportedConnectorGuardrails() }, request);
+    const installedAgents = listTrustedOnboardedAgents(registryKey);
+    const connectorTemplates = listSupportedConnectorTemplates().map((template) => {
+      const installedCount = installedAgents.filter((agent) =>
+        agent.connectorId === template.connectorId ||
+          agent.connectorProfile?.connectorId === template.connectorId ||
+          agent.resourceSystem === template.resourceSystem ||
+          agent.connectorProfile?.resourceSystem === template.resourceSystem
+      ).length;
+      return {
+        ...template,
+        installed: installedCount > 0,
+        installedCount
+      };
+    });
+
+    sendJson(response, 200, {
+      connectorTemplates,
+      connectors: connectorTemplates.filter((connector) => connector.status === "available")
+    }, request);
     return;
   }
 

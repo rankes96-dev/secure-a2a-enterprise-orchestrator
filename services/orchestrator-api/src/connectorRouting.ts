@@ -152,8 +152,8 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       resourceSystem: supported.resourceSystem,
       connectorId: supported.connectorId,
       skillId: intent.requestedSkillId,
-      reason: `${supported.displayName} connector is supported but has not been onboarded.`,
-      recommendedNextStep: `Open Agent Registry and connect the ${supported.displayName} connector, or open a support ticket.`
+      reason: `This organization has not installed a trusted external agent for ${supported.resourceSystem} yet.`,
+      recommendedNextStep: `Open Connector Catalog and connect an external agent for the ${supported.displayName} template, or open a support ticket.`
     };
   }
 
@@ -173,6 +173,8 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
   const approved = approvedActions.find((item) => item.capability === skillId);
   if (approved) {
     const runtimeAvailable = isConnectorRuntimeEndpointAllowed(onboarded.runtimeEndpoint);
+    // In V1, the selected runtime endpoint is the trusted runtime endpoint stored during onboarding.
+    // Future policy routing may choose among multiple trusted runtime endpoints.
     return {
       status: "connector_skill_approved",
       targetSystem: supported.resourceSystem,

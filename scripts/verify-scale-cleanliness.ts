@@ -81,6 +81,12 @@ if (!runtime.includes("trustedRuntimeEndpoint")) {
   failed = true;
 }
 
+const connectorTypes = readFileSync("services/orchestrator-api/src/connectors/types.ts", "utf8");
+if (!/declaredSkills:\s*string\[\]/.test(connectorTypes) || !/declaredActions\?:\s*string\[\]/.test(connectorTypes)) {
+  console.error("fail - ConnectorDecisionInput should require declaredSkills and keep declaredActions optional as compatibility alias");
+  failed = true;
+}
+
 const agentOnboarding = readFileSync("services/orchestrator-api/src/agentOnboarding.ts", "utf8").trim();
 if (agentOnboarding !== 'export * from "./agentOnboarding/index";') {
   console.error("fail - agentOnboarding.ts should be a compatibility re-export only");
@@ -139,6 +145,26 @@ if (!externalIndex.includes('request.url === "/admin/capability-declaration"')) 
 const adminPage = readFileSync("real-external-agent/src/adminPage.ts", "utf8");
 if (!adminPage.includes('post("/admin/skill-declaration"')) {
   console.error("fail - admin UI should prefer /admin/skill-declaration");
+  failed = true;
+}
+
+const readme = readFileSync("README.md", "utf8");
+for (const phrase of ["Connector Catalog", "Installed Connectors", "Custom Connector SDK", "zero installed connectors"]) {
+  if (!readme.includes(phrase)) {
+    console.error(`fail - README should describe product model phrase: ${phrase}`);
+    failed = true;
+  }
+}
+
+const webUi = readFileSync("apps/web-ui/src/main.tsx", "utf8");
+for (const phrase of ["Connector Catalog", "Installed Connectors", "Custom Connector SDK"]) {
+  if (!webUi.includes(phrase)) {
+    console.error(`fail - Agent Registry UI should include: ${phrase}`);
+    failed = true;
+  }
+}
+if (/installed by default/i.test(webUi) || /automatically trusted/i.test(webUi)) {
+  console.error("fail - UI should not imply reference connectors are installed or trusted by default");
   failed = true;
 }
 
