@@ -30,6 +30,7 @@ No private key is committed. The development signing key is generated in memory 
 - `POST /admin/capability-declaration` - save enabled agent actions; requested application grants are derived from action requirements
 - `POST /admin/reset-demo` - restore local demo defaults
 - `GET /.well-known/a2a-agent.json` - public discovery metadata
+- `GET /.well-known/a2a-connector-profile.json` - public connector profile describing grant, permission, and action catalogs
 - `GET /.well-known/jwks.json` - public JWKS for verifying onboarding responses
 - `POST /onboarding/challenge` - returns a signed onboarding trust response
 - `POST /a2a/task` - future runtime endpoint requiring a valid A2A bearer JWT
@@ -67,7 +68,9 @@ The demo uses a generic model that can scale beyond Jira:
 
 An action is ready only when every required application access grant is present, every required effective permission is present, and no required permission is explicitly denied. The Gateway remains the final authority and may still block actions by policy.
 
-The current Jira reference connector profile is implemented in `src/connectorProfile.ts`. A future Custom Connector Layer can replace this static file with system-specific catalogs for ServiceNow, Salesforce, GitHub, Slack, and other systems.
+The current Jira reference connector profile is implemented in `src/connectorProfile.ts` and published at `/.well-known/a2a-connector-profile.json`. Discovery includes the connector profile URL, and the signed onboarding response includes the connector ID, profile URL, and a local demo SHA-256 hash over stable JSON for the profile.
+
+A future Custom Connector Layer can replace this static file with system-specific catalogs for ServiceNow, Salesforce, GitHub, Slack, and other systems. The Gateway should not need Jira-specific action requirements in its core.
 
 ## Environment
 

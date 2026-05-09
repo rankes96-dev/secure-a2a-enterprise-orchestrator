@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { evaluateResourcePermissionRegistration, evaluateResourcePermissions, type ResourcePermissionRegistration } from "./resourcePermissions";
+import { decideConnectorActions } from "./connectors/decisionEngine";
+import { connectorProfileHash, validateConnectorProfile } from "./connectors/profileValidation";
+import type { ConnectorActionDecision, ConnectorProfile } from "./connectors/types";
 import { gatewayMetadata, gatewayPublicIdentity, signGatewayOnboardingChallenge } from "./security/gatewayIdentity";
 import { validateOAuthApplicationBinding } from "./trustedOAuthApplications";
 
@@ -42,6 +44,8 @@ export type ExternalAgentTrustResponse = {
   signatureVerified: boolean;
   resourceSystem?: string;
   connectorId?: string;
+  connectorProfileUrl?: string;
+  connectorProfileHash?: string;
   trustAdapter?: string;
   oauthApplication?: {
     appName?: string;
@@ -66,6 +70,7 @@ export type ExternalAgentDiscovery = {
   resourceSystem?: string;
   connectorId?: string;
   connectorDisplayName?: string;
+  connectorProfileUrl?: string;
   trustAdapter?: string;
   jwksUri: string;
   onboardingEndpoint: string;
@@ -111,6 +116,9 @@ export type TrustedOnboardedAgent = {
   grantedScopes: string[];
   approvedCapabilities: DerivedCapability[];
   blockedCapabilities: DerivedCapability[];
+  connectorProfile?: Pick<ConnectorProfile, "connectorId" | "resourceSystem" | "displayName" | "version" | "profileSource">;
+  connectorProfileVerified: boolean;
+  connectorDecisionSource: string;
   resourcePrincipal?: string;
   trustLevel: AgentTrustLevel;
   executable: false;
@@ -121,7 +129,13 @@ export type TrustedOnboardedAgent = {
 
 export type DerivedCapability = {
   capability: string;
+  label?: string;
   reason: string;
+  requiredApplicationGrants?: string[];
+  requiredEffectivePermissions?: string[];
+  missingApplicationGrants?: string[];
+  missingEffectivePermissions?: string[];
+  deniedEffectivePermissions?: string[];
 };
 
 export type AgentProof = {
@@ -156,6 +170,9 @@ export type ResourcePermissionProof = {
 
 export type ExternalApplicationAttestation = {
   resourceSystem?: string;
+  connectorId?: string;
+  connectorProfileUrl?: string;
+  connectorProfileHash?: string;
   trustAdapter?: string;
   oauthApplication?: ExternalAgentTrustResponse["oauthApplication"];
   servicePrincipal?: ExternalAgentTrustResponse["servicePrincipal"];
@@ -186,6 +203,9 @@ export type AgentOnboardingValidationResult =
       oauthApplicationProof: OAuthApplicationProof;
       resourcePermissionProof: ResourcePermissionProof;
       externalApplicationAttestation?: ExternalApplicationAttestation;
+      connectorProfile?: Pick<ConnectorProfile, "connectorId" | "resourceSystem" | "displayName" | "version" | "profileSource">;
+      connectorProfileVerified: boolean;
+      connectorDecisionSource: string;
       capabilityDecision: {
         approvedCapabilities: DerivedCapability[];
         blockedCapabilities: DerivedCapability[];
@@ -224,6 +244,7 @@ export type AgentOnboardingDiscoveryResult =
 const trustedAgentsByOwner = new Map<string, TrustedOnboardedAgent[]>();
 const httpTimeoutMs = 2_000;
 const maxDiscoveryJsonBytes = 32_000;
+const maxConnectorProfileJsonBytes = 64_000;
 const maxOnboardingJsonBytes = 64_000;
 const allowedAgentBaseUrls = new Set(["http://localhost:4201"]);
 
@@ -338,62 +359,31 @@ function publicTokenEndpointAuthMethod(method: ExternalAgentTrustResponse["token
   return "unknown";
 }
 
-const actionApplicationGrantRequirements = new Map<string, string[]>([
-  ["jira.issue.diagnose_creation_failure", ["read:jira-work"]],
-  ["jira.permission.inspect", ["read:jira-user"]],
-  ["jira.issue.create", ["write:jira-work"]],
-  ["salesforce.access.diagnose", ["salesforce.access.read"]]
-]);
-
-function applicationGrantRequirementsForCapability(capability: string): string[] {
-  return actionApplicationGrantRequirements.get(capability) ?? [];
+function decisionToDerived(decision: ConnectorActionDecision): DerivedCapability {
+  return {
+    capability: decision.actionId,
+    label: decision.label,
+    reason: decision.reason,
+    requiredApplicationGrants: [...decision.requiredApplicationGrants],
+    requiredEffectivePermissions: [...decision.requiredEffectivePermissions],
+    missingApplicationGrants: [...decision.missingApplicationGrants],
+    missingEffectivePermissions: [...decision.missingEffectivePermissions],
+    deniedEffectivePermissions: [...decision.deniedEffectivePermissions]
+  };
 }
 
-function deriveApprovedCapabilities(params: {
-  agentDeclaredCapabilities: string[];
-  requestedApplicationGrants: string[];
-  applicationAccessGrants: string[];
-  resourceRegistration: ResourcePermissionRegistration;
-  resourceEvaluations: ReturnType<typeof evaluateResourcePermissions>["evaluations"];
-}): { approvedCapabilities: DerivedCapability[]; blockedCapabilities: DerivedCapability[] } {
-  const requestedApplicationGrants = new Set(params.requestedApplicationGrants);
-  const applicationAccessGrants = new Set(params.applicationAccessGrants);
-  const evaluations = new Map(params.resourceEvaluations.map((evaluation) => [evaluation.capability, evaluation]));
-  const approvedCapabilities: DerivedCapability[] = [];
-  const blockedCapabilities: DerivedCapability[] = [];
+function blockAllDeclaredActions(declaredActions: string[], reason: string): { approvedCapabilities: DerivedCapability[]; blockedCapabilities: DerivedCapability[] } {
+  return {
+    approvedCapabilities: [],
+    blockedCapabilities: declaredActions.map((capability) => ({ capability, label: capability, reason }))
+  };
+}
 
-  for (const capability of params.agentDeclaredCapabilities) {
-    const requiredApplicationGrants = applicationGrantRequirementsForCapability(capability);
-    const missingRequestedApplicationGrants = requiredApplicationGrants.filter((grant) => !requestedApplicationGrants.has(grant));
-    if (missingRequestedApplicationGrants.length > 0) {
-      blockedCapabilities.push({ capability, reason: `agent did not request required application access grant ${missingRequestedApplicationGrants.join(", ")}` });
-      continue;
-    }
-
-    const resourceEvaluation = evaluations.get(capability);
-    if (!resourceEvaluation) {
-      blockedCapabilities.push({ capability, reason: "no resource permission mapping exists for this capability" });
-      continue;
-    }
-
-    const missingApplicationGrants = requiredApplicationGrants.filter((grant) => !applicationAccessGrants.has(grant));
-    const blockReasons = [
-      ...missingApplicationGrants.map((grant) => `missing application access grant ${grant}`),
-      ...resourceEvaluation.missingPermissions.map((permission) => `missing effective permission ${permission}`),
-      ...resourceEvaluation.deniedPermissions.map((permission) => `denied permission ${permission}`)
-    ];
-    if (blockReasons.length > 0) {
-      blockedCapabilities.push({ capability, reason: blockReasons.join(" and ") });
-      continue;
-    }
-
-    approvedCapabilities.push({
-      capability,
-      reason: "required application access grants and effective permissions are present"
-    });
-  }
-
-  return { approvedCapabilities, blockedCapabilities };
+function deriveCapabilitiesFromConnectorDecisions(decisions: ConnectorActionDecision[]): { approvedCapabilities: DerivedCapability[]; blockedCapabilities: DerivedCapability[] } {
+  return {
+    approvedCapabilities: decisions.filter((decision) => decision.status === "approved").map(decisionToDerived),
+    blockedCapabilities: decisions.filter((decision) => decision.status === "blocked").map(decisionToDerived)
+  };
 }
 
 function stringArray(value: unknown): string[] {
@@ -447,6 +437,7 @@ function validateDiscovery(value: unknown, agentBaseUrl: string, expectedAgentId
     resourceSystem: cleanString(input.resourceSystem) || undefined,
     connectorId: cleanString(input.connectorId) || undefined,
     connectorDisplayName: cleanString(input.connectorDisplayName) || undefined,
+    connectorProfileUrl: cleanString(input.connectorProfileUrl) || undefined,
     trustAdapter: cleanString(input.trustAdapter) || undefined,
     jwksUri: cleanString(input.jwksUri),
     onboardingEndpoint: cleanString(input.onboardingEndpoint),
@@ -486,7 +477,8 @@ function validateDiscovery(value: unknown, agentBaseUrl: string, expectedAgentId
     ["jwksUri", discovery.jwksUri],
     ["onboardingEndpoint", discovery.onboardingEndpoint],
     ["runtimeEndpoint", discovery.runtimeEndpoint],
-    ["adminConsoleUrl", discovery.adminConsoleUrl]
+    ["adminConsoleUrl", discovery.adminConsoleUrl],
+    ["connectorProfileUrl", discovery.connectorProfileUrl]
   ] as const) {
     if (url) {
       const unsafe = validateSafeExternalUrl(url, agentBaseUrl);
@@ -507,6 +499,37 @@ async function discoverExternalAgent(agentBaseUrl: string, expectedAgentId: stri
   } catch (error) {
     return {
       details: [`external agent discovery failed: ${error instanceof Error ? error.message : "unknown error"}`]
+    };
+  }
+}
+
+async function fetchExternalConnectorProfile(discovery: ExternalAgentDiscovery, agentBaseUrl: string): Promise<{ profile?: ConnectorProfile; details: string[] }> {
+  const connectorProfileUrl = discovery.connectorProfileUrl;
+  if (!connectorProfileUrl) {
+    return { details: ["connector profile URL is missing from discovery."] };
+  }
+
+  const unsafe = validateSafeExternalUrl(connectorProfileUrl, agentBaseUrl);
+  if (unsafe) {
+    return { details: [`connectorProfileUrl: ${unsafe}`] };
+  }
+
+  try {
+    const body = await fetchJsonWithLimit<unknown>(connectorProfileUrl, { method: "GET" }, maxConnectorProfileJsonBytes);
+    const validated = validateConnectorProfile(body);
+    if (!validated.profile) {
+      return { details: validated.details };
+    }
+    if (discovery.connectorId && validated.profile.connectorId !== discovery.connectorId) {
+      return { details: ["connector profile connectorId did not match discovery connectorId."] };
+    }
+    if (discovery.resourceSystem && validated.profile.resourceSystem !== discovery.resourceSystem) {
+      return { details: ["connector profile resourceSystem did not match discovery resourceSystem."] };
+    }
+    return { profile: validated.profile, details: [] };
+  } catch (error) {
+    return {
+      details: [`connector profile fetch failed: ${error instanceof Error ? error.message : "unknown error"}`]
     };
   }
 }
@@ -566,6 +589,8 @@ async function requestExternalAgentTrustResponse(challenge: AgentOnboardingChall
       signatureVerified: payload.typ === "agent_onboarding_response",
       resourceSystem: cleanString(payload.resourceSystem) || discovery.resourceSystem,
       connectorId: cleanString(payload.connectorId),
+      connectorProfileUrl: cleanString(payload.connectorProfileUrl) || discovery.connectorProfileUrl,
+      connectorProfileHash: cleanString(payload.connectorProfileHash),
       trustAdapter: cleanString(payload.trustAdapter) || discovery.trustAdapter,
       oauthApplication: oauthApplication.clientId
         ? {
@@ -635,6 +660,8 @@ export async function discoverAgentOnboarding(value: unknown): Promise<AgentOnbo
   }
 
   checks.push({ name: "external_agent_discovery", status: "passed" });
+  const connectorProfileResult = await fetchExternalConnectorProfile(discovered.discovery, request.agentBaseUrl);
+  addCheck(checks, "connector_profile_fetched", Boolean(connectorProfileResult.profile), connectorProfileResult.details.join(" "));
   return {
     discovered: true,
     agentBaseUrl: request.agentBaseUrl,
@@ -677,6 +704,10 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
   const discovery = discovered.discovery;
   checks.push({ name: "external_agent_discovery", status: "passed" });
 
+  const connectorProfileResult = await fetchExternalConnectorProfile(discovery, request.agentBaseUrl);
+  const connectorProfile = connectorProfileResult.profile;
+  addCheck(checks, "connector_profile_fetched", Boolean(connectorProfile), connectorProfileResult.details.join(" "));
+
   const challenge = createChallenge(request);
   checks.push({ name: "challenge_created", status: "passed" });
   const gatewayAssertion = await signGatewayOnboardingChallenge(challenge);
@@ -708,6 +739,24 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
   addCheck(checks, "signed_agent_response_verified", trustResponse.signatureVerified === true);
   if (!trustResponse.signatureVerified) details.push("signed external agent trust response was not verified.");
 
+  const connectorProfileHashMatches = Boolean(
+    connectorProfile &&
+      (!trustResponse.connectorProfileHash || connectorProfileHash(connectorProfile) === trustResponse.connectorProfileHash)
+  );
+  const connectorProfileIdentityMatches = Boolean(
+    connectorProfile &&
+      (!trustResponse.connectorId || connectorProfile.connectorId === trustResponse.connectorId) &&
+      (!trustResponse.resourceSystem || connectorProfile.resourceSystem === trustResponse.resourceSystem) &&
+      (!trustResponse.connectorProfileUrl || trustResponse.connectorProfileUrl === discovery.connectorProfileUrl)
+  );
+  const connectorProfileVerified = Boolean(connectorProfile && connectorProfileHashMatches && connectorProfileIdentityMatches);
+  const connectorProfileDetails = [
+    ...(connectorProfileResult.details.length ? connectorProfileResult.details : []),
+    connectorProfile && !connectorProfileHashMatches ? "connector profile hash did not match signed trust response." : "",
+    connectorProfile && !connectorProfileIdentityMatches ? "connector profile identity did not match signed trust response." : ""
+  ].filter(Boolean).join(" ");
+  addCheck(checks, "connector_profile_verified", connectorProfileVerified, connectorProfileDetails);
+
   const binding = validateOAuthApplicationBinding(trustResponse);
   addCheck(checks, "oauth_application_bound", binding.valid, binding.details.join(" "));
   addCheck(checks, "requested_scopes_granted", binding.valid);
@@ -717,7 +766,7 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     details.push(...binding.details);
   }
 
-  const attestedResourceRegistration: ResourcePermissionRegistration | undefined = trustResponse.servicePrincipal
+  const resourceRegistration = trustResponse.servicePrincipal
     ? {
         resourceSystem: trustResponse.resourceSystem ?? "unknown",
         principal: trustResponse.servicePrincipal.principalId,
@@ -726,14 +775,8 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
         deniedPermissions: [...trustResponse.servicePrincipal.deniedPermissions]
       }
     : undefined;
-  const resourcePermissions = attestedResourceRegistration
-    ? {
-        registration: attestedResourceRegistration,
-        evaluations: evaluateResourcePermissionRegistration(attestedResourceRegistration, trustResponse.agentDeclaredCapabilities)
-      }
-    : evaluateResourcePermissions(trustResponse.clientId, trustResponse.agentDeclaredCapabilities);
-  addCheck(checks, "resource_permissions_loaded", Boolean(resourcePermissions.registration));
-  if (!resourcePermissions.registration) {
+  addCheck(checks, "resource_permissions_loaded", Boolean(resourceRegistration));
+  if (!resourceRegistration) {
     details.push(`resource permissions not registered for clientId ${trustResponse.clientId}`);
   }
 
@@ -741,7 +784,6 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     return { error: "agent_onboarding_failed", details, checks };
   }
 
-  const resourceRegistration = resourcePermissions.registration;
   if (!resourceRegistration) {
     return {
       error: "agent_onboarding_failed",
@@ -750,13 +792,19 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     };
   }
 
-  const derivedCapabilities = deriveApprovedCapabilities({
-    agentDeclaredCapabilities: trustResponse.agentDeclaredCapabilities,
-    requestedApplicationGrants: trustResponse.requestedApplicationGrants,
-    applicationAccessGrants: binding.applicationAccessGrants,
-    resourceRegistration,
-    resourceEvaluations: resourcePermissions.evaluations
-  });
+  const derivedCapabilities = connectorProfileVerified && connectorProfile
+    ? deriveCapabilitiesFromConnectorDecisions(decideConnectorActions({
+        connectorProfile,
+        agentId: trustResponse.agentId,
+        clientId: trustResponse.clientId,
+        declaredActions: trustResponse.agentDeclaredCapabilities,
+        requestedApplicationGrants: trustResponse.requestedApplicationGrants,
+        applicationAccessGrants: binding.applicationAccessGrants,
+        effectivePermissions: resourceRegistration.effectivePermissions,
+        deniedPermissions: resourceRegistration.deniedPermissions
+      }))
+    : blockAllDeclaredActions(trustResponse.agentDeclaredCapabilities, "connector profile missing or invalid");
+  const connectorDecisionSource = connectorProfileVerified && connectorProfile ? connectorProfile.connectorId : "missing_connector_profile";
   checks.push({ name: "capabilities_derived", status: "passed" });
   checks.push({ name: "runtime_execution_metadata_only", status: "metadata_only" });
 
@@ -772,6 +820,17 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     grantedScopes: [...binding.grantedScopes],
     approvedCapabilities: [...derivedCapabilities.approvedCapabilities],
     blockedCapabilities: [...derivedCapabilities.blockedCapabilities],
+    connectorProfile: connectorProfile
+      ? {
+          connectorId: connectorProfile.connectorId,
+          resourceSystem: connectorProfile.resourceSystem,
+          displayName: connectorProfile.displayName,
+          version: connectorProfile.version,
+          profileSource: connectorProfile.profileSource
+        }
+      : undefined,
+    connectorProfileVerified,
+    connectorDecisionSource,
     resourcePrincipal: resourceRegistration.principal,
     trustLevel: "trusted_metadata_only",
     executable: false,
@@ -828,10 +887,24 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     },
     externalApplicationAttestation: {
       resourceSystem: trustResponse.resourceSystem,
+      connectorId: trustResponse.connectorId,
+      connectorProfileUrl: trustResponse.connectorProfileUrl,
+      connectorProfileHash: trustResponse.connectorProfileHash,
       trustAdapter: trustResponse.trustAdapter,
       oauthApplication: trustResponse.oauthApplication,
       servicePrincipal: trustResponse.servicePrincipal
     },
+    connectorProfile: connectorProfile
+      ? {
+          connectorId: connectorProfile.connectorId,
+          resourceSystem: connectorProfile.resourceSystem,
+          displayName: connectorProfile.displayName,
+          version: connectorProfile.version,
+          profileSource: connectorProfile.profileSource
+        }
+      : undefined,
+    connectorProfileVerified,
+    connectorDecisionSource,
     capabilityDecision: {
       approvedCapabilities: [...derivedCapabilities.approvedCapabilities],
       blockedCapabilities: [...derivedCapabilities.blockedCapabilities]

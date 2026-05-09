@@ -731,7 +731,13 @@ type AgentCardEndpointScheme = "https" | "http" | "session" | "unknown";
 
 type DerivedCapability = {
   capability: string;
+  label?: string;
   reason: string;
+  requiredApplicationGrants?: string[];
+  requiredEffectivePermissions?: string[];
+  missingApplicationGrants?: string[];
+  missingEffectivePermissions?: string[];
+  deniedEffectivePermissions?: string[];
 };
 
 type TrustedOnboardedAgent = {
@@ -746,6 +752,9 @@ type TrustedOnboardedAgent = {
   grantedScopes: string[];
   approvedCapabilities: DerivedCapability[];
   blockedCapabilities: DerivedCapability[];
+  connectorProfile?: ConnectorProfileSummary;
+  connectorProfileVerified?: boolean;
+  connectorDecisionSource?: string;
   resourcePrincipal?: string;
   trustLevel: "untrusted" | "schema_valid" | "oauth_bound" | "signed_response_verified" | "endpoint_control_verified" | "trusted_metadata_only" | "executable_pending_runtime_validation";
   executable: false;
@@ -801,6 +810,9 @@ type AgentOnboardingResult = {
   };
   externalApplicationAttestation?: {
     resourceSystem?: string;
+    connectorId?: string;
+    connectorProfileUrl?: string;
+    connectorProfileHash?: string;
     trustAdapter?: string;
     oauthApplication?: {
       appName?: string;
@@ -818,6 +830,9 @@ type AgentOnboardingResult = {
       deniedPermissions: string[];
     };
   };
+  connectorProfile?: ConnectorProfileSummary;
+  connectorProfileVerified: boolean;
+  connectorDecisionSource: string;
   capabilityDecision: {
     approvedCapabilities: DerivedCapability[];
     blockedCapabilities: DerivedCapability[];
@@ -826,6 +841,14 @@ type AgentOnboardingResult = {
   message: string;
   trustedAgent: TrustedOnboardedAgent;
   trustedAgents?: TrustedOnboardedAgent[];
+};
+
+type ConnectorProfileSummary = {
+  connectorId: string;
+  resourceSystem: string;
+  displayName: string;
+  version: string;
+  profileSource: "external_agent" | "built_in_reference" | "custom_connector";
 };
 
 type GatewayRegistrationMetadata = {
@@ -840,6 +863,9 @@ type AgentDiscoveryMetadata = {
   agentId: string;
   issuer: string;
   resourceSystem?: string;
+  connectorId?: string;
+  connectorDisplayName?: string;
+  connectorProfileUrl?: string;
   trustAdapter?: string;
   jwksUri: string;
   onboardingEndpoint: string;
@@ -2025,23 +2051,21 @@ function App() {
         Back
       </button>
     );
-    const actionLabel = (capability: string) => ({
-      "jira.issue.diagnose_creation_failure": "Diagnose Jira issue creation failures",
-      "jira.permission.inspect": "Inspect Jira permissions",
-      "jira.issue.create": "Create Jira issues"
-    }[capability] ?? capability);
+    const renderDecisionValues = (label: string, values?: string[]) => values?.length ? (
+      <small>{label}: {values.join(", ")}</small>
+    ) : null;
     const renderCapabilityList = (items: DerivedCapability[], emptyLabel: string) => (
       <div className="capability-list">
         {items.length ? items.map((item) => (
           <article key={item.capability}>
-            <strong>{actionLabel(item.capability)}</strong>
+            <strong>{item.label ?? item.capability}</strong>
+            <small>{item.capability}</small>
             <span>{item.reason}</span>
-            {(zeroTrustResult?.discoveredAgent.requestedApplicationGrants?.length ?? 0) > 0
-              ? <small>Requested application grants: {zeroTrustResult?.discoveredAgent.requestedApplicationGrants?.join(", ")}</small>
-              : zeroTrustResult?.discoveredAgent.requestedScopes.length
-                ? <small>Requested application grants: {zeroTrustResult.discoveredAgent.requestedScopes.join(", ")}</small>
-                : null}
-            {zeroTrustResult?.resourcePermissionProof.effectivePermissions.length ? <small>Effective permissions present: {zeroTrustResult.resourcePermissionProof.effectivePermissions.join(", ")}</small> : null}
+            {renderDecisionValues("Required application grants", item.requiredApplicationGrants)}
+            {renderDecisionValues("Required effective permissions", item.requiredEffectivePermissions)}
+            {renderDecisionValues("Missing application grants", item.missingApplicationGrants)}
+            {renderDecisionValues("Missing effective permissions", item.missingEffectivePermissions)}
+            {renderDecisionValues("Denied permissions", item.deniedEffectivePermissions)}
           </article>
         )) : <p className="muted-note">{emptyLabel}</p>}
       </div>
@@ -2213,7 +2237,7 @@ function App() {
                   <div><small>Agent ID</small><strong>{zeroTrustDiscovery.discovery.agentId}</strong></div>
                   <div><small>Issuer</small><strong>{zeroTrustDiscovery.discovery.issuer}</strong></div>
                   <div><small>Resource system</small><strong>{zeroTrustDiscovery.discovery.resourceSystem ?? "unknown"}</strong></div>
-                  <div><small>Trust adapter</small><strong>{zeroTrustDiscovery.discovery.trustAdapter ?? "unknown"}</strong></div>
+                  <div><small>Connector</small><strong>{zeroTrustDiscovery.discovery.connectorDisplayName ?? zeroTrustDiscovery.discovery.connectorId ?? "unknown"}</strong></div>
                   <div><small>Admin console</small><strong>{zeroTrustDiscovery.discovery.adminConsoleUrl ?? "not declared"}</strong></div>
                 </div>
                 <details className="wizard-technical-details">
@@ -2222,6 +2246,7 @@ function App() {
                     <div><small>JWKS URI</small><strong>{zeroTrustDiscovery.discovery.jwksUri}</strong></div>
                     <div><small>Onboarding endpoint</small><strong>{zeroTrustDiscovery.discovery.onboardingEndpoint}</strong></div>
                     <div><small>Runtime endpoint</small><strong>{zeroTrustDiscovery.discovery.runtimeEndpoint}</strong></div>
+                    <div><small>Connector profile URL</small><strong>{zeroTrustDiscovery.discovery.connectorProfileUrl ?? "not declared"}</strong></div>
                     <div><small>Runtime audience</small><strong>{zeroTrustDiscovery.discovery.auth.audience}</strong></div>
                     <div><small>Token auth method</small><strong>{zeroTrustDiscovery.discovery.auth.tokenEndpointAuthMethod}</strong></div>
                     <div><small>Connection requirements</small><strong>{zeroTrustDiscovery.discovery.connectionRequirements ? Object.entries(zeroTrustDiscovery.discovery.connectionRequirements).map(([key, value]) => `${key}: ${value}`).join(", ") : "not declared"}</strong></div>
@@ -2310,10 +2335,20 @@ function App() {
                   <ul>
                     <li>Gateway identity verified by external agent</li>
                     <li>Agent identity verified by Gateway</li>
+                    <li>Connector profile fetched and validated</li>
                     <li>Application access grants checked</li>
                     <li>Effective permissions evaluated</li>
                     <li>Agent actions decided by Gateway policy</li>
                   </ul>
+                </article>
+                <article>
+                  <span>Connector Profile</span>
+                  <strong>{zeroTrustResult.connectorProfile?.displayName ?? zeroTrustDiscovery?.discovery.connectorDisplayName ?? "missing connector profile"}</strong>
+                  <small>Connector ID: {zeroTrustResult.connectorProfile?.connectorId ?? zeroTrustDiscovery?.discovery.connectorId ?? "unknown"}</small>
+                  <small>Resource system: {zeroTrustResult.connectorProfile?.resourceSystem ?? zeroTrustDiscovery?.discovery.resourceSystem ?? "unknown"}</small>
+                  <small>Profile source: {zeroTrustResult.connectorProfile?.profileSource ?? "unknown"}</small>
+                  <small>Profile verified: {zeroTrustResult.connectorProfileVerified ? "yes" : "no"}</small>
+                  <small>Decision source: {zeroTrustResult.connectorDecisionSource}</small>
                 </article>
                 <article>
                   <span>Application Access Proof</span>
@@ -2347,6 +2382,7 @@ function App() {
                   {renderCapabilityList(blockedCapabilities, "No blocked actions.")}
                 </div>
               </section>
+              <p>The external agent protocol is universal. System-specific action requirements come from the connector profile.</p>
               <p>Agent actions are declared by the external agent, but approved only after application access grants, effective permissions, denied permissions, and Gateway policy are evaluated.</p>
               <div className="wizard-action-row">
                 <button type="button" className="secondary-button compact-button" onClick={() => guideToTarget("registered-agents")}>View registered agents</button>

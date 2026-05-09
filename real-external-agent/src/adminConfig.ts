@@ -174,6 +174,7 @@ export function adminAgentMetadata() {
     resourceSystem: currentConfig.oauthApplication.resourceSystem,
     connectorId: getConnectorProfile().connectorId,
     connectorDisplayName: getConnectorProfile().displayName,
+    connectorProfileUrl: `${issuer}/.well-known/a2a-connector-profile.json`,
     trustAdapter: "jira",
     runtimeAudience: agentId
   };

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 import {
   agentId,
@@ -41,6 +42,25 @@ export class OnboardingError extends Error {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const input = value as Record<string, unknown>;
+    return `{${Object.keys(input)
+      .filter((key) => input[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(input[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function connectorProfileHash(profile: ReturnType<typeof getConnectorProfile>): string {
+  return createHash("sha256").update(stableStringify(profile)).digest("hex");
 }
 
 async function verifyGatewayAssertion(request: OnboardingRequest, challenge: OnboardingChallenge): Promise<void> {
@@ -123,6 +143,7 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
   const now = Math.floor(Date.now() / 1000);
   const issuer = agentIssuer();
   const connectorProfile = getConnectorProfile();
+  const profileUrl = `${issuer}/.well-known/a2a-connector-profile.json`;
 
   const signedTrustResponse = await new SignJWT({
     typ: "agent_onboarding_response",
@@ -134,6 +155,8 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
     audience: expectedAudience(),
     resourceSystem: config.oauthApplication.resourceSystem,
     connectorId: connectorProfile.connectorId,
+    connectorProfileUrl: profileUrl,
+    connectorProfileHash: connectorProfileHash(connectorProfile),
     trustAdapter: "jira",
     agentDeclaredCapabilities: config.capabilityDeclaration.agentDeclaredCapabilities,
     requestedApplicationGrants: config.capabilityDeclaration.requestedApplicationGrants,

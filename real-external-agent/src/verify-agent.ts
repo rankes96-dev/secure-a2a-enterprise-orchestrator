@@ -18,11 +18,23 @@ type GatewayOnboardingBody = {
     applicationAccessGrants?: string[];
     grantedScopes?: string[];
   };
+  connectorProfile?: {
+    connectorId?: string;
+    resourceSystem?: string;
+    displayName?: string;
+    version?: string;
+    profileSource?: string;
+  };
+  connectorProfileVerified?: boolean;
+  connectorDecisionSource?: string;
   capabilityDecision?: {
     approvedCapabilities?: Array<{ capability?: string; reason?: string }>;
     blockedCapabilities?: Array<{ capability?: string; reason?: string }>;
   };
   externalApplicationAttestation?: {
+    connectorId?: string;
+    connectorProfileUrl?: string;
+    connectorProfileHash?: string;
     oauthApplication?: { appName?: string; clientId?: string; applicationAccessGrants?: string[]; grantedScopes?: string[] };
     servicePrincipal?: { principalId?: string; effectivePermissions?: string[]; deniedPermissions?: string[] };
   };
@@ -85,6 +97,9 @@ async function verifyDiscovery(): Promise<{ jwksUri: string }> {
     agentId: string;
     issuer: string;
     resourceSystem: string;
+    connectorId: string;
+    connectorDisplayName: string;
+    connectorProfileUrl: string;
     trustAdapter: string;
     jwksUri: string;
     onboardingEndpoint: string;
@@ -109,6 +124,9 @@ async function verifyDiscovery(): Promise<{ jwksUri: string }> {
   assertCondition(discovery.runtimeEndpoint === `${baseUrl}/a2a/task`, "discovery runtimeEndpoint mismatch");
   assertCondition(discovery.adminConsoleUrl === `${baseUrl}/admin`, "discovery adminConsoleUrl mismatch");
   assertCondition(discovery.resourceSystem === "jira", "discovery resourceSystem mismatch");
+  assertCondition(discovery.connectorId === "jira-reference", "discovery connectorId mismatch");
+  assertCondition(discovery.connectorDisplayName === "Jira Cloud Reference Connector", "discovery connector display name mismatch");
+  assertCondition(discovery.connectorProfileUrl === `${baseUrl}/.well-known/a2a-connector-profile.json`, "discovery connectorProfileUrl mismatch");
   assertCondition(discovery.trustAdapter === "jira", "discovery trustAdapter mismatch");
   assertCondition(discovery.connectionRequirements.requiresGatewayRegistration === true, "discovery missing gateway registration requirement");
   assertCondition(discovery.connectionRequirements.requiresOAuthApplication === true, "discovery missing OAuth app requirement");
@@ -118,6 +136,30 @@ async function verifyDiscovery(): Promise<{ jwksUri: string }> {
   assertNoSecretMarkers(discovery);
   ok("discovery metadata");
   return { jwksUri: discovery.jwksUri };
+}
+
+async function verifyConnectorProfile(): Promise<void> {
+  const profile = await getJson<{
+    connectorId: string;
+    resourceSystem: string;
+    displayName: string;
+    version: string;
+    profileSource: string;
+    applicationAccessGrantCatalog: unknown[];
+    effectivePermissionCatalog: unknown[];
+    actionCatalog: Array<{ id?: string; requiredApplicationGrants?: string[]; requiredEffectivePermissions?: string[] }>;
+  }>("/.well-known/a2a-connector-profile.json");
+
+  assertCondition(profile.connectorId === "jira-reference", "connector profile connectorId mismatch");
+  assertCondition(profile.resourceSystem === "jira", "connector profile resourceSystem mismatch");
+  assertCondition(profile.displayName === "Jira Cloud Reference Connector", "connector profile display name mismatch");
+  assertCondition(profile.version === "1.0.0", "connector profile version mismatch");
+  assertCondition(profile.profileSource === "external_agent", "connector profile source mismatch");
+  assertCondition(Array.isArray(profile.applicationAccessGrantCatalog) && profile.applicationAccessGrantCatalog.length >= 4, "connector profile missing application access grant catalog");
+  assertCondition(Array.isArray(profile.effectivePermissionCatalog) && profile.effectivePermissionCatalog.length >= 5, "connector profile missing effective permission catalog");
+  assertCondition(profile.actionCatalog.some((action) => action.id === "jira.issue.create" && action.requiredApplicationGrants?.includes("write:jira-work") && action.requiredEffectivePermissions?.includes("create_issues")), "connector profile missing create issue requirements");
+  assertNoSecretMarkers(profile);
+  ok("connector profile");
 }
 
 function assertNoSecretMarkers(value: unknown): void {
@@ -218,6 +260,12 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
   assertCondition(gatewayOnboarding.body.discoveredAgent?.requestedScopes?.includes(requestedScopes[0] ?? ""), "Gateway onboarding missing requested scopes");
   assertCondition(gatewayOnboarding.body.discoveredAgent?.requestedApplicationGrants?.includes("write:jira-work"), "Gateway onboarding missing requested application grants");
   assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.clientId === "jira-agent-client", "Gateway onboarding missing external OAuth app attestation");
+  assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.connectorId === "jira-reference", "Gateway onboarding missing connectorId attestation");
+  assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.connectorProfileUrl === `${baseUrl}/.well-known/a2a-connector-profile.json`, "Gateway onboarding missing connector profile URL attestation");
+  assertCondition(typeof gatewayOnboarding.body.externalApplicationAttestation?.connectorProfileHash === "string", "Gateway onboarding missing connector profile hash attestation");
+  assertCondition(gatewayOnboarding.body.connectorProfile?.connectorId === "jira-reference", "Gateway onboarding missing connector profile");
+  assertCondition(gatewayOnboarding.body.connectorProfileVerified === true, "Gateway connector profile should be verified");
+  assertCondition(gatewayOnboarding.body.connectorDecisionSource === "jira-reference", "Gateway connector decision source mismatch");
   assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.appName === "Jira Agent Connected App", "Gateway onboarding missing OAuth app name attestation");
   assertCondition(Array.isArray(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.applicationAccessGrants), "Gateway onboarding OAuth attestation missing application access grants array");
   assertCondition(Array.isArray(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.grantedScopes), "Gateway onboarding OAuth attestation missing granted scopes array");
@@ -225,6 +273,7 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
   assertCondition(Array.isArray(gatewayOnboarding.body.externalApplicationAttestation?.servicePrincipal?.effectivePermissions), "Gateway onboarding service principal missing effective permissions array");
   assertCondition(Array.isArray(gatewayOnboarding.body.externalApplicationAttestation?.servicePrincipal?.deniedPermissions), "Gateway onboarding service principal missing denied permissions array");
   assertCondition(gatewayOnboarding.body.checks?.some((check) => check.name === "external_agent_discovery" && check.status === "passed"), "Gateway onboarding did not fetch external discovery");
+  assertCondition(gatewayOnboarding.body.checks?.some((check) => check.name === "connector_profile_verified" && check.status === "passed"), "Gateway onboarding did not verify connector profile");
   assertCondition(gatewayOnboarding.body.checks?.some((check) => check.name === "external_agent_contacted" && check.status === "passed"), "Gateway onboarding did not contact external agent");
   assertCondition(gatewayOnboarding.body.checks?.some((check) => check.name === "signed_gateway_challenge_verified" && check.status === "passed"), "Gateway onboarding did not verify signed gateway challenge");
   ok("signed gateway onboarding exchange");
@@ -337,6 +386,7 @@ async function main(): Promise<void> {
   console.log(`Verifying external agent at ${baseUrl}`);
   await verifyAdminConfig();
   const { jwksUri } = await verifyDiscovery();
+  await verifyConnectorProfile();
   await verifyJwks();
   await verifyOnboarding(jwksUri);
   await verifyRuntimeIfTokenProvided();

@@ -18,6 +18,8 @@ export type ConnectorProfile = {
   resourceSystem: "jira";
   connectorId: "jira-reference";
   displayName: "Jira Cloud Reference Connector";
+  version: "1.0.0";
+  profileSource: "external_agent";
   applicationAccessGrantCatalog: CatalogItem[];
   effectivePermissionCatalog: CatalogItem[];
   actionCatalog: ActionCatalogItem[];
@@ -42,6 +44,8 @@ const jiraConnectorProfile: ConnectorProfile = {
   resourceSystem: "jira",
   connectorId: "jira-reference",
   displayName: "Jira Cloud Reference Connector",
+  version: "1.0.0",
+  profileSource: "external_agent",
   applicationAccessGrantCatalog: [
     {
       id: "read:jira-work",

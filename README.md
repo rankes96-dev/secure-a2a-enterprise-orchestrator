@@ -45,12 +45,12 @@ Mock IdP / JWKS
 
 ## Zero-Trust Agent Onboarding
 
-Agent Cards are declarations, not trust. The gateway must not accept user-provided scopes or capabilities as authoritative.
+Agent Cards and connector profiles are declarations, not trust. The gateway must not accept user-provided grants, permissions, or actions as authoritative.
 
 Zero-Trust Agent Onboarding uses a Three-Way Trust Binding before promoting metadata into the trusted registry:
 
 - The gateway creates a nonce-bound onboarding challenge.
-- The external agent returns a signed trust response proving endpoint/control ownership and declaring requested scopes and agent-declared capabilities.
+- The external agent returns a signed trust response proving endpoint/control ownership and declaring requested application grants and agent actions.
 - The external OAuth application is configured on the external agent/application side, not in the Gateway.
 - The Gateway provides public registration metadata that the external agent owner registers in their admin console.
 - The external agent validates the Gateway challenge, then returns a signed attestation containing OAuth application and service principal metadata.
@@ -200,6 +200,18 @@ Jira is the current reference connector profile. System-specific catalogs for Se
 For this phase, successfully onboarded external agents are stored as `trusted_metadata_only`. Runtime execution for external onboarded agents remains disabled until a future runtime validation phase.
 
 Raw JWTs, access tokens, client assertions, private keys, client secrets, and Authorization headers are never displayed.
+
+## Custom Connector Decision Layer
+
+The Gateway onboarding protocol is universal. External agents publish a connector profile that describes the external system in generic terms:
+
+- application access grants the connected app can request
+- effective permissions or entitlements the service account can actually use
+- agent actions and their action requirements
+
+During onboarding, the Gateway fetches and validates the connector profile, verifies the signed profile binding when a hash is present, then runs a generic connector decision engine. An action is approved only when its required application access grants are present, its required effective permissions are present, no required permission is explicitly denied, and Gateway policy allows it.
+
+Jira is only the reference connector profile in this repository. Future ServiceNow, Salesforce, GitHub, Slack, and custom enterprise connectors can provide their own profiles without hardcoding those systems into Gateway core decision logic.
 
 ## Security Flow
 

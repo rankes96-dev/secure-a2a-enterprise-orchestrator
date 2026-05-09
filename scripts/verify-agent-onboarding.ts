@@ -150,6 +150,9 @@ async function verifyValidOnboarding(): Promise<void> {
   if (discovery.adminConsoleUrl !== `${EXTERNAL_AGENT_URL}/admin`) {
     throw new Error(`discovery did not include external admin console URL: ${JSON.stringify(discoveryResponse.body)}`);
   }
+  if (discovery.connectorId !== "jira-reference" || discovery.connectorProfileUrl !== `${EXTERNAL_AGENT_URL}/.well-known/a2a-connector-profile.json`) {
+    throw new Error(`discovery did not include connector profile metadata: ${JSON.stringify(discoveryResponse.body)}`);
+  }
   const gatewayRegistration = asRecord(discoveryResult.gatewayRegistration);
   if (gatewayRegistration.clientId !== "secure-a2a-gateway-client") {
     throw new Error(`discovery did not include Gateway registration metadata: ${JSON.stringify(discoveryResponse.body)}`);
@@ -199,6 +202,16 @@ async function verifyValidOnboarding(): Promise<void> {
     throw new Error(`resource permissions not loaded: ${JSON.stringify(body)}`);
   }
   const externalApplicationAttestation = asRecord(result.externalApplicationAttestation);
+  const connectorProfile = asRecord(result.connectorProfile);
+  if (connectorProfile.connectorId !== "jira-reference" || connectorProfile.resourceSystem !== "jira" || connectorProfile.displayName !== "Jira Cloud Reference Connector") {
+    throw new Error(`onboarding result missing connector profile summary: ${JSON.stringify(body)}`);
+  }
+  if (result.connectorProfileVerified !== true || result.connectorDecisionSource !== "jira-reference") {
+    throw new Error(`connector profile was not verified as decision source: ${JSON.stringify(body)}`);
+  }
+  if (externalApplicationAttestation.connectorId !== "jira-reference" || externalApplicationAttestation.connectorProfileUrl !== `${EXTERNAL_AGENT_URL}/.well-known/a2a-connector-profile.json`) {
+    throw new Error(`external attestation missing connector profile binding: ${JSON.stringify(body)}`);
+  }
   const externalOauthApplication = asRecord(externalApplicationAttestation.oauthApplication);
   const externalServicePrincipal = asRecord(externalApplicationAttestation.servicePrincipal);
   if (externalOauthApplication.clientId !== "jira-agent-client") {
@@ -226,9 +239,15 @@ async function verifyValidOnboarding(): Promise<void> {
   if (!blockedCreate || typeof blockedCreate.reason !== "string" || !blockedCreate.reason.includes("write:jira-work") || !blockedCreate.reason.includes("create_issues")) {
     throw new Error(`jira.issue.create was not blocked for missing grant and denied create_issues: ${JSON.stringify(body)}`);
   }
+  if (!Array.isArray(blockedCreate.missingApplicationGrants) || !blockedCreate.missingApplicationGrants.includes("write:jira-work")) {
+    throw new Error(`blocked create action missing application grant details: ${JSON.stringify(body)}`);
+  }
+  if (!Array.isArray(blockedCreate.deniedEffectivePermissions) || !blockedCreate.deniedEffectivePermissions.includes("create_issues")) {
+    throw new Error(`blocked create action missing denied permission details: ${JSON.stringify(body)}`);
+  }
 
   const checks = Array.isArray(result.checks) ? result.checks.map((item) => asRecord(item)) : [];
-  for (const checkName of ["safe_agent_base_url", "external_agent_discovery", "gateway_identity_verified", "external_agent_contacted", "signed_gateway_challenge_verified", "signed_agent_response_verified", "oauth_application_bound", "requested_scopes_granted", "resource_permissions_loaded", "capabilities_derived"]) {
+  for (const checkName of ["safe_agent_base_url", "external_agent_discovery", "connector_profile_fetched", "connector_profile_verified", "gateway_identity_verified", "external_agent_contacted", "signed_gateway_challenge_verified", "signed_agent_response_verified", "oauth_application_bound", "requested_scopes_granted", "resource_permissions_loaded", "capabilities_derived"]) {
     const check = checks.find((item) => item.name === checkName);
     if (check?.status !== "passed") {
       throw new Error(`${checkName} check did not pass: ${JSON.stringify(body)}`);
@@ -257,6 +276,9 @@ async function verifyNoApplicationGrants(): Promise<void> {
   if (!blockedCapabilities.every((item) => typeof item.reason === "string" && item.reason.includes("missing application access grant"))) {
     throw new Error(`no grants should block by missing application access grants: ${JSON.stringify(body)}`);
   }
+  if (result.connectorProfileVerified !== true || result.connectorDecisionSource !== "jira-reference") {
+    throw new Error(`no grants onboarding should still verify connector profile: ${JSON.stringify(body)}`);
+  }
   assertNoSecretMarkers(body);
   logOk("no application access grants block all actions without failing onboarding");
 }
@@ -274,6 +296,9 @@ async function verifyAllAccess(): Promise<void> {
   const approvedCapabilities = Array.isArray(capabilityDecision.approvedCapabilities) ? capabilityDecision.approvedCapabilities.map((item) => asRecord(item)) : [];
   if (!approvedCapabilities.some((item) => item.capability === "jira.issue.create")) {
     throw new Error(`all grants and permissions should approve create action: ${JSON.stringify(body)}`);
+  }
+  if (result.connectorProfileVerified !== true || result.connectorDecisionSource !== "jira-reference") {
+    throw new Error(`all access onboarding should use connector profile decision source: ${JSON.stringify(body)}`);
   }
   assertNoSecretMarkers(body);
   logOk("all application grants and effective permissions approve create action");
