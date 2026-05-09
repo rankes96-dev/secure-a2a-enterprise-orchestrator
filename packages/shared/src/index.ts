@@ -68,7 +68,7 @@ export type RequestInterpretation = {
   confidence: "low" | "medium" | "high";
   reason: string;
   interpretationSource?: "ai" | "fallback";
-    aiProvider?: "openrouter";
+  aiProvider?: "openrouter";
   aiModel?: string;
 };
 

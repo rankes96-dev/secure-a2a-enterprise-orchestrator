@@ -2,7 +2,9 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { agentId, expectedAudience, mockIdpJwksUri } from "./config.js";
 import { getConnectorProfile } from "./connectorProfile.js";
 import { adminConfigHash, getAdminConfig } from "./adminConfig.js";
-import { buildJiraRuntimeDiagnosis, type JiraConnectorAccessEvaluation } from "./connectors/jiraRuntimeDiagnosis.js";
+import { buildJiraRuntimeDiagnosis } from "./connectors/jiraRuntimeDiagnosis.js";
+import { buildServiceNowRuntimeDiagnosis } from "./connectors/servicenowRuntimeDiagnosis.js";
+import { buildGitHubRuntimeDiagnosis } from "./connectors/githubRuntimeDiagnosis.js";
 
 const jwksByUri = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
@@ -28,6 +30,14 @@ export type ConnectorRuntimeTask = {
     externalConfigHash?: unknown;
     connectorProfileHash?: unknown;
   };
+};
+
+export type ConnectorAccessEvaluation = {
+  missingApplicationGrants: string[];
+  missingEffectivePermissions: string[];
+  deniedEffectivePermissions: string[];
+  skillApprovedByConfig: boolean;
+  createIssueAccessReady?: boolean;
 };
 
 function jwks(): ReturnType<typeof createRemoteJWKSet> {
@@ -56,7 +66,7 @@ export function runtimeSkillRequirement(skillId: unknown): RuntimeSkillRequireme
     return undefined;
   }
 
-  const profile = getConnectorProfile();
+  const profile = getConnectorProfile(getAdminConfig().selectedConnectorId);
   const catalog = profile.skillCatalog.length ? profile.skillCatalog : profile.actionCatalog;
   const skill = catalog.find((item) => item.id === skillId);
   if (!skill) {
@@ -93,7 +103,7 @@ export async function validateRuntimeToken(token: string, requiredApplicationGra
   };
 }
 
-export function connectorAccessEvaluation(skill: RuntimeSkillRequirement): JiraConnectorAccessEvaluation {
+export function connectorAccessEvaluation(skill: RuntimeSkillRequirement): ConnectorAccessEvaluation {
   const config = getAdminConfig();
   const applicationAccessGrants = new Set(config.oauthApplication.applicationAccessGrants);
   const effectivePermissions = new Set(config.servicePrincipal.effectivePermissions);
@@ -112,7 +122,7 @@ export function connectorAccessEvaluation(skill: RuntimeSkillRequirement): JiraC
 
 export function validateRuntimeTrustedConfig(task: ConnectorRuntimeTask, skill: RuntimeSkillRequirement): {
   ok: true;
-  accessEvaluation: JiraConnectorAccessEvaluation;
+  accessEvaluation: ConnectorAccessEvaluation;
 } | {
   ok: false;
   status: 403 | 409;
@@ -156,17 +166,22 @@ export function safeDiagnosis(params: {
   actor?: string;
   actorRoles: string[];
   scopes: string[];
-  accessEvaluation: JiraConnectorAccessEvaluation;
+  accessEvaluation: ConnectorAccessEvaluation;
 }) {
-  const profile = getConnectorProfile();
-  const diagnosis = buildJiraRuntimeDiagnosis({
+  const profile = getConnectorProfile(getAdminConfig().selectedConnectorId);
+  const diagnosisInput = {
     skillId: params.skill.id,
     message: typeof params.task.message === "string" ? params.task.message : "",
     actor: params.actor,
     requiredApplicationGrants: params.skill.requiredApplicationGrants,
     requiredEffectivePermissions: params.skill.requiredEffectivePermissions,
     connectorAccessEvaluation: params.accessEvaluation
-  });
+  };
+  const diagnosis = profile.connectorId === "servicenow-reference"
+    ? buildServiceNowRuntimeDiagnosis(diagnosisInput)
+    : profile.connectorId === "github-reference"
+      ? buildGitHubRuntimeDiagnosis(diagnosisInput)
+      : buildJiraRuntimeDiagnosis(diagnosisInput as Parameters<typeof buildJiraRuntimeDiagnosis>[0]);
 
   return {
     agentId,

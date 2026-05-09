@@ -262,7 +262,7 @@ const httpTimeoutMs = 2_000;
 const maxDiscoveryJsonBytes = 32_000;
 const maxConnectorProfileJsonBytes = 64_000;
 const maxOnboardingJsonBytes = 64_000;
-const allowedAgentBaseUrls = new Set(["http://localhost:4201"]);
+const allowedAgentBaseUrls = new Set(["http://localhost:4201", "http://localhost:4202", "http://localhost:4203"]);
 
 export function listSupportedConnectorGuardrails() {
   return [
@@ -270,6 +270,18 @@ export function listSupportedConnectorGuardrails() {
       resourceSystem: "jira",
       connectorId: "jira-reference",
       displayName: "Jira Cloud Reference Connector",
+      status: "available" as const
+    },
+    {
+      resourceSystem: "servicenow",
+      connectorId: "servicenow-reference",
+      displayName: "ServiceNow Reference Connector",
+      status: "available" as const
+    },
+    {
+      resourceSystem: "github",
+      connectorId: "github-reference",
+      displayName: "GitHub Reference Connector",
       status: "available" as const
     }
   ];
@@ -364,7 +376,7 @@ function validateOnboardingRequest(request: AgentOnboardingRequest): string[] {
   if (!request.agentBaseUrl) details.push("agentBaseUrl is required.");
   if (!request.expectedAgentId) details.push("expectedAgentId is required.");
   if (request.agentBaseUrl && !allowedAgentBaseUrls.has(request.agentBaseUrl)) {
-    details.push(`unsupported agentBaseUrl ${request.agentBaseUrl}. This phase only supports http://localhost:4201.`);
+    details.push(`unsupported agentBaseUrl ${request.agentBaseUrl}. This phase supports local reference connectors on http://localhost:4201, http://localhost:4202, and http://localhost:4203.`);
   }
   if (request.agentBaseUrl) {
     const unsafe = validateSafeExternalUrl(request.agentBaseUrl, request.agentBaseUrl);
@@ -695,7 +707,7 @@ export async function discoverAgentOnboarding(value: unknown): Promise<AgentOnbo
       discovered: false,
       error: "agent_discovery_failed",
       details: [
-        "Discovery failed. Start real-external-agent on http://localhost:4201 and ensure it exposes GET /.well-known/a2a-agent.json.",
+        "Discovery failed. Start the selected real-external-agent connector instance and ensure it exposes GET /.well-known/a2a-agent.json.",
         ...discovered.details
       ],
       checks,

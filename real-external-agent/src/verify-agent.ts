@@ -148,6 +148,8 @@ async function verifyDiscovery(): Promise<{ jwksUri: string }> {
 async function verifySupportedConnectors(): Promise<void> {
   const connectors = await getJson<Array<{ connectorId: string; resourceSystem: string; displayName: string; status: string }>>("/.well-known/a2a-supported-connectors.json");
   assertCondition(connectors.some((connector) => connector.connectorId === "jira-reference" && connector.resourceSystem === "jira" && connector.status === "available"), "supported connectors missing available Jira reference connector");
+  assertCondition(connectors.some((connector) => connector.connectorId === "servicenow-reference" && connector.resourceSystem === "servicenow" && connector.status === "available"), "supported connectors missing available ServiceNow reference connector");
+  assertCondition(connectors.some((connector) => connector.connectorId === "github-reference" && connector.resourceSystem === "github" && connector.status === "available"), "supported connectors missing available GitHub reference connector");
   assertNoSecretMarkers(connectors);
   ok("supported connectors");
 }

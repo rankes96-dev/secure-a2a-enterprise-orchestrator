@@ -1,0 +1,94 @@
+import type { ConnectorProfile } from "./types.js";
+
+const githubSkills = [
+  {
+    id: "github.repository.rate_limit.diagnose",
+    label: "Diagnose GitHub repository API rate limit",
+    description: "Inspect repository metadata and installation context that affect GitHub API rate limits.",
+    requiredApplicationGrants: ["repo.metadata.read"],
+    requiredEffectivePermissions: ["installation:repo_access", "org:rate_limit:read"]
+  },
+  {
+    id: "github.repository.permission.inspect",
+    label: "Inspect GitHub repository permissions",
+    description: "Review GitHub App installation and repository metadata permissions.",
+    requiredApplicationGrants: ["repo.metadata.read"],
+    requiredEffectivePermissions: ["installation:repo_access", "repo:metadata:read"]
+  },
+  {
+    id: "github.pull_request.access.diagnose",
+    label: "Diagnose GitHub pull request access",
+    description: "Inspect pull request read access and repository permission requirements.",
+    requiredApplicationGrants: ["repo.pull_requests.read"],
+    requiredEffectivePermissions: ["repo:pull_requests:read"]
+  }
+];
+
+export const githubReferenceConnector: ConnectorProfile = {
+  resourceSystem: "github",
+  connectorId: "github-reference",
+  displayName: "GitHub Reference Connector",
+  version: "1.0.0",
+  profileSource: "external_agent",
+  applicationAccessGrantCatalog: [
+    {
+      id: "repo.metadata.read",
+      label: "Read repository metadata",
+      description: "Allows the connected app to read repository metadata."
+    },
+    {
+      id: "repo.contents.read",
+      label: "Read repository contents",
+      description: "Allows the connected app to read repository contents."
+    },
+    {
+      id: "repo.issues.read",
+      label: "Read repository issues",
+      description: "Allows the connected app to read repository issues."
+    },
+    {
+      id: "repo.pull_requests.read",
+      label: "Read pull requests",
+      description: "Allows the connected app to read pull request metadata."
+    },
+    {
+      id: "repo.administration.read",
+      label: "Read repository administration",
+      description: "Allows the connected app to inspect repository administration settings."
+    }
+  ],
+  effectivePermissionCatalog: [
+    {
+      id: "installation:repo_access",
+      label: "Repository installation access",
+      description: "GitHub App installation includes the target repository."
+    },
+    {
+      id: "repo:metadata:read",
+      label: "Read repository metadata",
+      description: "Installation can read repository metadata."
+    },
+    {
+      id: "repo:contents:read",
+      label: "Read repository contents",
+      description: "Installation can read repository contents."
+    },
+    {
+      id: "repo:issues:read",
+      label: "Read repository issues",
+      description: "Installation can read repository issues."
+    },
+    {
+      id: "repo:pull_requests:read",
+      label: "Read pull requests",
+      description: "Installation can read pull requests."
+    },
+    {
+      id: "org:rate_limit:read",
+      label: "Read rate-limit usage",
+      description: "Installation can inspect organization or installation API rate-limit usage."
+    }
+  ],
+  skillCatalog: githubSkills,
+  actionCatalog: githubSkills
+};

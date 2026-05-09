@@ -196,11 +196,11 @@ The Agent Registry exposes **Zero-Trust Agent Onboarding** as the only external 
 
 Agent Cards and discovery documents are declarations, not trust. Trusted onboarding verifies external agent identity through HTTP discovery, a signed Gateway challenge, a signed external agent trust response, external OAuth application binding, and resource permission evaluation.
 
-The Gateway does not create or own the external OAuth app. The external agent owner configures that app in the external agent admin console. In this demo, `real-external-agent` exposes `http://localhost:4201/admin` to configure the trusted Gateway registration, OAuth app, service principal permissions, and agent-declared skills/actions.
+The Gateway does not create or own the external OAuth app. The external agent owner configures that app in the external agent admin console. In this demo, `real-external-agent` can expose Jira at `http://localhost:4201/admin`, ServiceNow at `http://localhost:4202/admin`, and GitHub at `http://localhost:4203/admin` to configure trusted Gateway registration, OAuth app metadata, service account permissions, and agent-declared skills/actions.
 
 The Gateway verifies the signed external attestation and derives approved actions through a generic **Application Access Grants + Effective Permissions + Action Requirements** model. Application access grants define what the connected app can request. Effective permissions define what the service account or integration user can actually do. An action is approved only when its required application grants are present, its required effective permissions are present, no required permission is explicitly denied, and Gateway policy allows it.
 
-Jira is the current reference connector profile. System-specific catalogs for ServiceNow, Salesforce, GitHub, Slack, and other systems will come from the future Custom Connector Layer.
+Jira, ServiceNow, and GitHub are local reference connector profiles. Additional system-specific catalogs for Salesforce, Slack, and other systems will come from the future Custom Connector Layer.
 
 Successfully onboarded external agents are stored as `trusted_metadata_only` until an approved skill is selected at Run Task time. Approved skills can execute through the trusted connector runtime endpoint after scoped A2A JWT validation.
 
@@ -222,7 +222,28 @@ Jira is only the reference connector profile in this repository. Future ServiceN
 
 External agents publish connector profiles. The Gateway can also apply an expected external system or connector guardrail during discovery, for example expecting `jira` and `jira-reference` before continuing onboarding. This guardrail is not the source of truth; discovery, the connector profile, and the signed trust response remain authoritative.
 
-The only implemented connector in this demo is the Jira Cloud Reference Connector. Additional ServiceNow, Salesforce, GitHub, Slack, or custom enterprise connectors should be added by registering new connector profiles, not by hardcoding Gateway core logic.
+The implemented local reference connectors in this demo are Jira Cloud, ServiceNow, and GitHub. They all use the same discovery, connector profile, onboarding, decision, and runtime execution contracts. Additional Salesforce, Slack, or custom enterprise connectors should be added by registering new connector profiles, not by hardcoding Gateway core logic.
+
+## Multi-Connector Reference Demo
+
+The local `real-external-agent` service can run as three connector instances:
+
+- Jira Reference Connector: `http://localhost:4201`
+- ServiceNow Reference Connector: `http://localhost:4202`
+- GitHub Reference Connector: `http://localhost:4203`
+
+Each connector has its own profile, admin config, skills, application access grants, effective permissions, denied permissions, and runtime diagnosis text. No real Jira, ServiceNow, or GitHub APIs are called.
+
+Start the local demo services, then run one terminal per connector:
+
+```powershell
+cd real-external-agent
+npm run dev:jira
+npm run dev:servicenow
+npm run dev:github
+```
+
+In Gateway Agent Registry, use the quick cards to onboard Jira, ServiceNow, and GitHub. Run Task can then route Jira, ServiceNow, and GitHub requests to the approved onboarded connector skills and execute the local connector runtime when the skill is approved.
 
 ## Connector-first Orchestration
 
@@ -244,7 +265,7 @@ Onboarding approves or blocks skills before runtime. When an approved skill is s
 
 Raw access tokens, Authorization headers, client assertions, private keys, and secrets are never returned to the UI. Blocked skills are never executed. Supported but not-onboarded connectors are never executed. Unsupported systems are never executed.
 
-Runtime execution currently supports the local Jira Cloud Reference Connector at `http://localhost:4201/a2a/task`. The Gateway executor is connector-generic; Jira-specific runtime behavior lives in `real-external-agent`, and future connectors can implement the same runtime response contract without Gateway core changes.
+Runtime execution currently supports the local Jira, ServiceNow, and GitHub reference connectors at `http://localhost:4201/a2a/task`, `http://localhost:4202/a2a/task`, and `http://localhost:4203/a2a/task`. The Gateway executor is connector-generic; system-specific runtime behavior lives in `real-external-agent`, and future connectors can implement the same runtime response contract without Gateway core changes.
 
 Connector onboarding stores a signed external configuration hash from the external agent. The Gateway passes that trusted hash to the connector runtime. If the external admin configuration changes after onboarding, the runtime rejects execution with `connector_configuration_changed` and the user must re-run Gateway onboarding to refresh the trusted attestation.
 

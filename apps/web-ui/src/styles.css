@@ -1326,6 +1326,40 @@ h2 {
   gap: 12px;
 }
 
+.connector-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.connector-preset-card {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+  color: #172026;
+  text-align: left;
+  cursor: pointer;
+}
+
+.connector-preset-card:hover {
+  border-color: #94a3b8;
+  background: #f6f8fa;
+}
+
+.connector-preset-card span,
+.connector-preset-card small {
+  color: #526b76;
+  overflow-wrap: anywhere;
+}
+
+.connector-preset-card small {
+  font-size: 12px;
+}
+
 .wizard-card-grid.three-up {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -4329,6 +4363,7 @@ pre {
   .demo-production-setup-grid,
   .discovery-result-grid,
   .connection-summary-grid,
+  .connector-preset-grid,
   .wizard-card-grid.three-up,
   .wizard-card-grid.two-up,
   .capability-decision-grid,

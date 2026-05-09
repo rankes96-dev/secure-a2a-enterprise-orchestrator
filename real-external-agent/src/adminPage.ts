@@ -117,7 +117,7 @@ export function adminPageHtml(): string {
       <div class="top-row">
         <div>
           <p class="eyebrow">Local external system admin</p>
-          <h1>Jira Agent Integration Setup</h1>
+          <h1>External Agent Integration Setup</h1>
           <p>Configure this external agent the way a BizApps admin would configure an integration app before the Secure A2A Gateway onboards it.</p>
         </div>
         <div class="view-toggle" aria-label="View">
@@ -167,7 +167,7 @@ export function adminPageHtml(): string {
           </div>
           <div class="collector">
             <h3>Application access grants</h3>
-            <p class="muted">These are the OAuth/API grants assigned to the connected app. They define what the app can request from the external system. In Jira, these are OAuth scopes.</p>
+            <p class="muted">These are the OAuth/API grants assigned to the connected app. They define what the app can request from the external system.</p>
             <div class="collector-grid">
               <div class="collector-column">
                 <h4>Available grants <span id="available-grants-count">0</span></h4>
@@ -486,7 +486,7 @@ export function adminPageHtml(): string {
       ].map(([label, value]) => '<div class="fact"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + '</strong></div>').join("");
       $("gateway-json").value = JSON.stringify(gatewayRegistration(config), null, 2);
       $("gateway-json-details").open = !config.trustedGateway.clientId;
-      $("oauth-app-name").value = config.oauthApplication.appName || "Jira Agent Connected App";
+      $("oauth-app-name").value = config.oauthApplication.appName || "External Agent Connected App";
       $("oauth-client-id").value = config.oauthApplication.clientId;
       $("authorization-server-issuer").value = config.oauthApplication.authorizationServerIssuer;
       $("token-auth-method").value = config.oauthApplication.tokenEndpointAuthMethod;

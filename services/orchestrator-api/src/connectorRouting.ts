@@ -65,7 +65,7 @@ function isSafeConnectorRuntimeEndpoint(endpoint: string | undefined): boolean {
 
   try {
     const url = new URL(endpoint);
-    const allowedOrigins = new Set((process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS ?? "http://localhost:4201").split(",").map((item) => item.trim()).filter(Boolean));
+    const allowedOrigins = new Set((process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS ?? "http://localhost:4201,http://localhost:4202,http://localhost:4203").split(",").map((item) => item.trim()).filter(Boolean));
     const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
     return (
       (url.protocol === "https:" || (url.protocol === "http:" && isLocalhost)) &&
@@ -116,20 +116,62 @@ export function inferConnectorRoutingIntent(message: string): ConnectorRoutingIn
   }
 
   if (/servicenow|incident|catalog item|requested item|ritm|change request/.test(text)) {
+    if (/catalog|requested item|ritm|approval/.test(text)) {
+      return {
+        targetSystem: "servicenow",
+        connectorId: "servicenow-reference",
+        requestedSkillId: "servicenow.catalog.request.diagnose",
+        confidence: "high",
+        reason: "The request references a ServiceNow catalog request or RITM failure."
+      };
+    }
+
+    if (/role|acl|user access|user cannot|access issue/.test(text)) {
+      return {
+        targetSystem: "servicenow",
+        connectorId: "servicenow-reference",
+        requestedSkillId: "servicenow.user.role.inspect",
+        confidence: "high",
+        reason: "The request references ServiceNow roles, ACLs, or user access."
+      };
+    }
+
     return {
       targetSystem: "servicenow",
       connectorId: "servicenow-reference",
+      requestedSkillId: "servicenow.incident.assignment.diagnose",
       confidence: "high",
-      reason: "The request references ServiceNow incident or catalog workflows."
+      reason: "The request references a ServiceNow incident assignment workflow."
     };
   }
 
   if (/github|repository|repo|pull request|branch|rate limit/.test(text)) {
+    if (/pull request|\bpr\b/.test(text)) {
+      return {
+        targetSystem: "github",
+        connectorId: "github-reference",
+        requestedSkillId: "github.pull_request.access.diagnose",
+        confidence: "high",
+        reason: "The request references GitHub pull request access."
+      };
+    }
+
+    if (/permission|installation|access/.test(text) && !/rate limit/.test(text)) {
+      return {
+        targetSystem: "github",
+        connectorId: "github-reference",
+        requestedSkillId: "github.repository.permission.inspect",
+        confidence: "high",
+        reason: "The request references GitHub repository permissions or installation access."
+      };
+    }
+
     return {
       targetSystem: "github",
       connectorId: "github-reference",
+      requestedSkillId: "github.repository.rate_limit.diagnose",
       confidence: "high",
-      reason: "The request references GitHub repository or API workflows."
+      reason: "The request references GitHub repository or API rate-limit workflows."
     };
   }
 

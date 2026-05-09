@@ -158,7 +158,7 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
     connectorProfileUrl: profileUrl,
     connectorProfileHash: connectorProfileHash(connectorProfile),
     externalConfigHash: adminConfigHash(),
-    trustAdapter: "jira",
+    trustAdapter: connectorProfile.resourceSystem,
     agentDeclaredSkills: config.capabilityDeclaration.agentDeclaredCapabilities,
     agentDeclaredCapabilities: config.capabilityDeclaration.agentDeclaredCapabilities,
     requestedApplicationGrants: config.capabilityDeclaration.requestedApplicationGrants,

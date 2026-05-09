@@ -2,7 +2,7 @@
 
 Standalone Node.js + TypeScript service that simulates an independently owned vendor/domain agent for the Secure A2A Gateway.
 
-This service represents an external Jira agent using a generic connector profile model. Jira is the reference connector profile for this demo; future custom connectors can provide their own application access grant catalogs, effective permission catalogs, and action catalogs. The service exposes public discovery metadata, a public JWKS, a signed zero-trust onboarding response, and a future A2A runtime endpoint.
+This service represents a reusable local external connector runtime using a generic connector profile model. It can run as the Jira, ServiceNow, or GitHub reference connector for the multi-connector demo. Each connector provides its own application access grant catalog, effective permission catalog, skill catalog, admin defaults, and runtime diagnosis text. The service exposes public discovery metadata, a public JWKS, a signed zero-trust onboarding response, and an A2A runtime endpoint.
 
 ## What It Demonstrates
 
@@ -69,13 +69,13 @@ The demo uses a generic model that can scale beyond Jira:
 
 An action is ready only when every required application access grant is present, every required effective permission is present, and no required permission is explicitly denied. The Gateway remains the final authority and may still block actions by policy.
 
-The current Jira reference connector profile is implemented in `src/connectorProfile.ts` and published at `/.well-known/a2a-connector-profile.json`. Discovery includes the connector profile URL, and the signed onboarding response includes the connector ID, profile URL, and a local demo SHA-256 hash over stable JSON for the profile.
+The selected reference connector profile is published at `/.well-known/a2a-connector-profile.json`. Discovery includes the connector ID, resource system, connector profile URL, and supported connectors URL. The signed onboarding response includes the connector ID, profile URL, and a local demo SHA-256 hash over stable JSON for the profile.
 
 The signed onboarding response also includes `externalConfigHash`, a SHA-256 hash over safe public admin configuration: selected connector, OAuth application metadata, application access grants, service account identity, effective permissions, denied permissions, and enabled actions. It excludes secrets, tokens, private keys, and raw Gateway assertions.
 
 At runtime, the Gateway sends the trusted `externalConfigHash` back in `trustedContext`. If the current admin configuration no longer matches that hash, `/a2a/task` returns `connector_configuration_changed` and refuses execution until Gateway onboarding is re-run. The runtime also refuses `skill_not_currently_approved` if the requested skill is no longer enabled or no longer satisfies current application grants/effective permissions.
 
-A future Custom Connector Layer can replace this static file with system-specific catalogs for ServiceNow, Salesforce, GitHub, Slack, and other systems. The Gateway should not need Jira-specific action requirements in its core.
+A future Custom Connector Layer can replace these local static profiles with system-specific catalogs for Salesforce, Slack, and other enterprise systems. The Gateway should not need system-specific action requirements in its core.
 
 ## Connector Registry
 
@@ -83,9 +83,12 @@ Connector registry code lives in `src/connectors/`:
 
 - `types.ts` defines connector profile and supported connector metadata.
 - `jiraReferenceConnector.ts` contains the Jira Cloud reference connector profile.
+- `servicenowReferenceConnector.ts` contains the ServiceNow reference connector profile.
+- `githubReferenceConnector.ts` contains the GitHub reference connector profile.
+- `jiraRuntimeDiagnosis.ts`, `servicenowRuntimeDiagnosis.ts`, and `githubRuntimeDiagnosis.ts` contain system-specific runtime diagnosis text for the local reference connectors.
 - `registry.ts` exposes `listSupportedConnectors()`, `getConnectorProfile(connectorId)`, `getDefaultConnectorProfile()`, and `getConnectorProfileForResourceSystem(resourceSystem)`.
 
-The selected connector controls the admin console catalogs for application access grants, effective permissions, denied permissions, and agent actions. For this phase, only `jira-reference` is available; ServiceNow, Salesforce, and GitHub are listed as future connector placeholders only if enabled in the registry.
+The selected connector controls the admin console catalogs for application access grants, effective permissions, denied permissions, and agent actions. `jira-reference`, `servicenow-reference`, and `github-reference` are available local reference connectors.
 
 To add another connector profile later, add its profile module, register it in `registry.ts`, and make it available through the admin-selected connector. Do not add system-specific action requirements to Gateway core.
 
@@ -96,6 +99,9 @@ Copy `.env.example` to `.env` if you want to override defaults.
 ```env
 PORT=4201
 AGENT_ISSUER=http://localhost:4201
+EXTERNAL_CONNECTOR_ID=jira-reference
+EXTERNAL_AGENT_ID=external-jira-agent
+EXTERNAL_AGENT_CLIENT_ID=jira-agent-client
 MOCK_IDP_JWKS_URI=http://localhost:4110/.well-known/jwks.json
 EXPECTED_AUDIENCE=external-jira-agent
 ```
@@ -108,6 +114,16 @@ npm run dev
 ```
 
 The service listens on `http://localhost:4201` by default.
+
+Run the three local reference connectors in separate terminals:
+
+```powershell
+npm run dev:jira
+npm run dev:servicenow
+npm run dev:github
+```
+
+These scripts bind Jira to `4201`, ServiceNow to `4202`, and GitHub to `4203`.
 
 ## Verify
 

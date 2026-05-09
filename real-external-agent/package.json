@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:jira": "powershell -NoProfile -Command \"$env:EXTERNAL_CONNECTOR_ID='jira-reference'; $env:EXTERNAL_AGENT_ID='external-jira-agent'; $env:EXTERNAL_AGENT_PORT='4201'; $env:EXTERNAL_AGENT_CLIENT_ID='jira-agent-client'; npm run dev\"",
+    "dev:servicenow": "powershell -NoProfile -Command \"$env:EXTERNAL_CONNECTOR_ID='servicenow-reference'; $env:EXTERNAL_AGENT_ID='external-servicenow-agent'; $env:EXTERNAL_AGENT_PORT='4202'; $env:EXTERNAL_AGENT_CLIENT_ID='servicenow-agent-client'; npm run dev\"",
+    "dev:github": "powershell -NoProfile -Command \"$env:EXTERNAL_CONNECTOR_ID='github-reference'; $env:EXTERNAL_AGENT_ID='external-github-agent'; $env:EXTERNAL_AGENT_PORT='4203'; $env:EXTERNAL_AGENT_CLIENT_ID='github-agent-client'; npm run dev\"",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "verify:agent": "tsx src/verify-agent.ts"

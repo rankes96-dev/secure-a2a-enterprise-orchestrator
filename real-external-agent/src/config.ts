@@ -1,5 +1,16 @@
-export const agentId = "external-jira-agent";
-export const clientId = "jira-agent-client";
+export function env(name: string, fallback: string): string {
+  const value = process.env[name]?.trim();
+  return value || fallback;
+}
+
+export function port(): number {
+  const parsed = Number(process.env.EXTERNAL_AGENT_PORT ?? process.env.PORT ?? 4201);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 4201;
+}
+
+export const selectedConnectorId = env("EXTERNAL_CONNECTOR_ID", "jira-reference");
+export const agentId = env("EXTERNAL_AGENT_ID", "external-jira-agent");
+export const clientId = env("EXTERNAL_AGENT_CLIENT_ID", "jira-agent-client");
 export const requestedScopes = ["read:jira-work", "read:jira-user"];
 export const agentDeclaredCapabilities = [
   "jira.issue.diagnose_creation_failure",
@@ -8,18 +19,8 @@ export const agentDeclaredCapabilities = [
 ];
 export const tokenEndpointAuthMethod = "private_key_jwt";
 
-export function env(name: string, fallback: string): string {
-  const value = process.env[name]?.trim();
-  return value || fallback;
-}
-
-export function port(): number {
-  const parsed = Number(process.env.PORT ?? 4201);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 4201;
-}
-
 export function agentIssuer(): string {
-  return env("AGENT_ISSUER", "http://localhost:4201").replace(/\/+$/, "");
+  return env("AGENT_ISSUER", `http://localhost:${port()}`).replace(/\/+$/, "");
 }
 
 export function mockIdpJwksUri(): string {

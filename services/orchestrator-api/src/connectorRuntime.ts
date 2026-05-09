@@ -29,7 +29,7 @@ const maxConnectorRuntimeJsonBytes = 64 * 1024;
 const forbiddenResponseKeys = new Set(["rawtoken", "authorization", "access_token", "refresh_token", "client_assertion", "private_key", "client_secret", "bearer"]);
 
 function allowedConnectorRuntimeOrigins(): Set<string> {
-  const configured = process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS ?? "http://localhost:4201";
+  const configured = process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS ?? "http://localhost:4201,http://localhost:4202,http://localhost:4203";
   return new Set(configured.split(",").map((item) => item.trim()).filter(Boolean));
 }
 

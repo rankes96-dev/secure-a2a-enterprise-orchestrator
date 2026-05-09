@@ -2,12 +2,13 @@ import {
   agentId,
   agentIssuer,
   clientId,
+  selectedConnectorId as configuredConnectorId,
   tokenEndpointAuthMethod,
   trustedGatewayClientId,
   trustedGatewayIssuer,
   trustedGatewayJwksUri
 } from "./config.js";
-import { deriveRequestedApplicationGrants, getConnectorProfile, getDefaultConnectorProfile, listSupportedConnectors, previewActionReadiness } from "./connectorProfile.js";
+import { deriveRequestedApplicationGrants, getConnectorProfile, listSupportedConnectors, previewActionReadiness } from "./connectorProfile.js";
 import { createHash } from "node:crypto";
 
 export type TrustedGatewayRegistration = {
@@ -114,13 +115,64 @@ function normalizeKnownValues(values: string[], allowedIds: string[]): string[] 
 }
 
 function enabledDefaultActions(): string[] {
-  return getDefaultConnectorProfile().skillCatalog.map((action) => action.id);
+  const profile = getConnectorProfile(configuredConnectorId);
+  return profile.skillCatalog.map((action) => action.id);
+}
+
+function connectorDefaultApplicationAccessGrants(connectorId: string): string[] {
+  if (connectorId === "servicenow-reference") {
+    return ["incident.read", "catalog.read", "user.read"];
+  }
+  if (connectorId === "github-reference") {
+    return ["repo.metadata.read", "repo.contents.read", "repo.issues.read", "repo.pull_requests.read"];
+  }
+  return ["read:jira-work", "read:jira-user"];
+}
+
+function connectorDefaultEffectivePermissions(connectorId: string): string[] {
+  if (connectorId === "servicenow-reference") {
+    return ["role:itil", "table:incident:read", "table:sc_req_item:read", "acl:user:read"];
+  }
+  if (connectorId === "github-reference") {
+    return ["installation:repo_access", "repo:metadata:read", "repo:contents:read", "repo:issues:read", "repo:pull_requests:read", "org:rate_limit:read"];
+  }
+  return ["browse_projects", "view_issues", "read_project_roles"];
+}
+
+function connectorDefaultDeniedPermissions(connectorId: string): string[] {
+  if (connectorId === "servicenow-reference") {
+    return ["table:incident:write"];
+  }
+  if (connectorId === "github-reference") {
+    return [];
+  }
+  return ["create_issues"];
+}
+
+function connectorDefaultAppName(connectorId: string): string {
+  if (connectorId === "servicenow-reference") {
+    return "ServiceNow Agent Connected App";
+  }
+  if (connectorId === "github-reference") {
+    return "GitHub Agent Connected App";
+  }
+  return "Jira Agent Connected App";
+}
+
+function connectorDefaultPrincipalId(connectorId: string): string {
+  if (connectorId === "servicenow-reference") {
+    return "svc-a2a-servicenow-agent";
+  }
+  if (connectorId === "github-reference") {
+    return "svc-a2a-github-agent";
+  }
+  return "svc-a2a-jira-agent";
 }
 
 function demoConfig(): AdminConfig {
-  const connectorProfile = getDefaultConnectorProfile();
+  const connectorProfile = getConnectorProfile(configuredConnectorId);
   const enabledActionIds = enabledDefaultActions();
-  const applicationAccessGrants = ["read:jira-work", "read:jira-user"];
+  const applicationAccessGrants = connectorDefaultApplicationAccessGrants(connectorProfile.connectorId);
   const requestedApplicationGrants = deriveRequestedApplicationGrants(enabledActionIds, connectorProfile.connectorId);
 
   return {
@@ -134,7 +186,7 @@ function demoConfig(): AdminConfig {
     },
     oauthApplication: {
       resourceSystem: connectorProfile.resourceSystem,
-      appName: "Jira Agent Connected App",
+      appName: connectorDefaultAppName(connectorProfile.connectorId),
       clientId,
       authorizationServerIssuer: "http://localhost:4110",
       tokenEndpointAuthMethod,
@@ -144,9 +196,9 @@ function demoConfig(): AdminConfig {
     },
     servicePrincipal: {
       principalType: "service_account",
-      principalId: "svc-a2a-jira-agent",
-      effectivePermissions: ["browse_projects", "view_issues", "read_project_roles"],
-      deniedPermissions: ["create_issues"]
+      principalId: connectorDefaultPrincipalId(connectorProfile.connectorId),
+      effectivePermissions: connectorDefaultEffectivePermissions(connectorProfile.connectorId),
+      deniedPermissions: connectorDefaultDeniedPermissions(connectorProfile.connectorId)
     },
     capabilityDeclaration: {
       enabledActionIds,
@@ -236,7 +288,7 @@ export function adminAgentMetadata() {
     connectorProfileUrl: `${issuer}/.well-known/a2a-connector-profile.json`,
     externalConfigHash: adminConfigHash(),
     externalConfigUpdatedAt: currentConfigUpdatedAt,
-    trustAdapter: "jira",
+    trustAdapter: connectorProfile.resourceSystem,
     runtimeAudience: agentId
   };
 }
@@ -314,7 +366,7 @@ export function saveOAuthApplication(value: unknown): { ok: true; config: Return
   );
   const candidate: OAuthApplicationConfig = {
     resourceSystem: connectorProfile.resourceSystem,
-    appName: stringValue(input.appName) || "Jira Agent Connected App",
+    appName: stringValue(input.appName) || connectorDefaultAppName(connectorProfile.connectorId),
     clientId: stringValue(input.clientId),
     authorizationServerIssuer: stringValue(input.authorizationServerIssuer).replace(/\/+$/, ""),
     tokenEndpointAuthMethod: "private_key_jwt",

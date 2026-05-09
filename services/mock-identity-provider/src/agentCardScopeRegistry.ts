@@ -14,6 +14,16 @@ const localExternalConnectorResources = [
     agentId: "external-jira-agent",
     audience: "external-jira-agent",
     scopes: ["read:jira-work", "read:jira-user", "write:jira-work", "manage:jira-project"]
+  },
+  {
+    agentId: "external-servicenow-agent",
+    audience: "external-servicenow-agent",
+    scopes: ["incident.read", "incident.write", "catalog.read", "user.read"]
+  },
+  {
+    agentId: "external-github-agent",
+    audience: "external-github-agent",
+    scopes: ["repo.metadata.read", "repo.contents.read", "repo.issues.read", "repo.pull_requests.read", "repo.administration.read"]
   }
 ];
 

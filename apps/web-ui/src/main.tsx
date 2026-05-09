@@ -33,18 +33,32 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         badge: "Blocked action"
       },
       {
-        label: "ServiceNow connector not onboarded",
+        label: "ServiceNow incident assignment",
         message: "ServiceNow incident assignment keeps failing for network tickets",
-        subtitle: "Supported connector family, not connected in this demo",
-        purpose: "Shows connector_not_onboarded and points to Agent Registry.",
-        badge: "Not onboarded"
+        subtitle: "Runs when the ServiceNow reference connector is onboarded",
+        purpose: "Routes to the ServiceNow connector profile and incident assignment diagnosis skill.",
+        badge: "ServiceNow"
       },
       {
-        label: "GitHub connector not onboarded",
+        label: "ServiceNow catalog request",
+        message: "ServiceNow catalog request RITM keeps failing during approval",
+        subtitle: "Catalog request diagnosis through the ServiceNow connector",
+        purpose: "Shows another ServiceNow skill selected from the same connector profile.",
+        badge: "ServiceNow"
+      },
+      {
+        label: "GitHub repository rate limit",
         message: "GitHub repository sync is failing after API rate limit",
-        subtitle: "Supported connector family, not connected in this demo",
-        purpose: "Shows connector_not_onboarded instead of routing to legacy mock agents.",
-        badge: "Not onboarded"
+        subtitle: "Runs when the GitHub reference connector is onboarded",
+        purpose: "Routes to the GitHub connector profile and rate-limit diagnosis skill.",
+        badge: "GitHub"
+      },
+      {
+        label: "GitHub pull request access",
+        message: "GitHub pull request checks cannot read the repository",
+        subtitle: "Pull request access diagnosis through the GitHub connector",
+        purpose: "Shows connector-specific runtime diagnosis without Gateway-specific GitHub logic.",
+        badge: "GitHub"
       },
       {
         label: "Unsupported request",
@@ -86,11 +100,37 @@ const tabs: Array<{ id: ActiveTab; label: string }> = [
   { id: "security-timeline", label: "Security Timeline" }
 ];
 
+const localConnectorPresets = [
+  {
+    label: "Connect Jira Reference Connector",
+    agentBaseUrl: "http://localhost:4201",
+    expectedAgentId: "external-jira-agent",
+    expectedResourceSystem: "jira",
+    expectedConnectorId: "jira-reference"
+  },
+  {
+    label: "Connect ServiceNow Reference Connector",
+    agentBaseUrl: "http://localhost:4202",
+    expectedAgentId: "external-servicenow-agent",
+    expectedResourceSystem: "servicenow",
+    expectedConnectorId: "servicenow-reference"
+  },
+  {
+    label: "Connect GitHub Reference Connector",
+    agentBaseUrl: "http://localhost:4203",
+    expectedAgentId: "external-github-agent",
+    expectedResourceSystem: "github",
+    expectedConnectorId: "github-reference"
+  }
+];
+
 const quickScenarioLabels = new Set([
   "Jira connector approved diagnosis",
   "Jira create blocked by grants/permissions",
-  "ServiceNow connector not onboarded",
-  "GitHub connector not onboarded",
+  "ServiceNow incident assignment",
+  "ServiceNow catalog request",
+  "GitHub repository rate limit",
+  "GitHub pull request access",
   "Unsupported request"
 ]);
 
@@ -1098,7 +1138,9 @@ function App() {
   const [zeroTrustExpectedResourceSystem, setZeroTrustExpectedResourceSystem] = useState("");
   const [zeroTrustExpectedConnectorId, setZeroTrustExpectedConnectorId] = useState("");
   const [supportedConnectorGuardrails, setSupportedConnectorGuardrails] = useState<SupportedConnectorGuardrail[]>([
-    { resourceSystem: "jira", connectorId: "jira-reference", displayName: "Jira Cloud Reference Connector", status: "available" }
+    { resourceSystem: "jira", connectorId: "jira-reference", displayName: "Jira Cloud Reference Connector", status: "available" },
+    { resourceSystem: "servicenow", connectorId: "servicenow-reference", displayName: "ServiceNow Reference Connector", status: "available" },
+    { resourceSystem: "github", connectorId: "github-reference", displayName: "GitHub Reference Connector", status: "available" }
   ]);
   const [zeroTrustOnboardedAgents, setZeroTrustOnboardedAgents] = useState<TrustedOnboardedAgent[]>([]);
   const [zeroTrustDiscovery, setZeroTrustDiscovery] = useState<AgentOnboardingDiscoveryResult | null>(null);
@@ -1507,7 +1549,11 @@ function App() {
         setSupportedConnectorGuardrails(body.connectors);
       }
     } catch {
-      setSupportedConnectorGuardrails([{ resourceSystem: "jira", connectorId: "jira-reference", displayName: "Jira Cloud Reference Connector", status: "available" }]);
+      setSupportedConnectorGuardrails([
+        { resourceSystem: "jira", connectorId: "jira-reference", displayName: "Jira Cloud Reference Connector", status: "available" },
+        { resourceSystem: "servicenow", connectorId: "servicenow-reference", displayName: "ServiceNow Reference Connector", status: "available" },
+        { resourceSystem: "github", connectorId: "github-reference", displayName: "GitHub Reference Connector", status: "available" }
+      ]);
     }
   }
 
@@ -1516,6 +1562,16 @@ function App() {
     setZeroTrustResult(null);
     setZeroTrustError("");
     setZeroTrustCopyMessage("");
+  }
+
+  function applyLocalConnectorPreset(preset: typeof localConnectorPresets[number]) {
+    setZeroTrustAgentBaseUrl(preset.agentBaseUrl);
+    setZeroTrustExpectedAgentId(preset.expectedAgentId);
+    setZeroTrustExpectedResourceSystem(preset.expectedResourceSystem);
+    setZeroTrustExpectedConnectorId(preset.expectedConnectorId);
+    resetZeroTrustConnectionState();
+    setConnectionWizardStep("connection-input");
+    guideToTarget("zero-trust-onboarding");
   }
 
   async function discoverZeroTrustAgent() {
@@ -1541,7 +1597,7 @@ function App() {
       if (!response.ok || !("discovered" in body) || body.discovered !== true) {
         const details = "details" in body && body.details?.length
           ? body.details.join(" ")
-          : "Discovery failed. Start real-external-agent on http://localhost:4201 and ensure it exposes GET /.well-known/a2a-agent.json.";
+          : "Discovery failed. Start the selected reference connector instance and ensure it exposes GET /.well-known/a2a-agent.json.";
         throw new Error(details);
       }
 
@@ -1551,7 +1607,7 @@ function App() {
       guideToTarget("zero-trust-onboarding");
     } catch (caughtError) {
       setConnectionWizardStep("discovery");
-      setZeroTrustError(caughtError instanceof Error ? caughtError.message : "Discovery failed. Start real-external-agent on http://localhost:4201 and ensure it exposes GET /.well-known/a2a-agent.json.");
+      setZeroTrustError(caughtError instanceof Error ? caughtError.message : "Discovery failed. Start the selected reference connector instance and ensure it exposes GET /.well-known/a2a-agent.json.");
       guideToTarget("zero-trust-onboarding");
     } finally {
       setIsZeroTrustDiscovering(false);
@@ -2402,6 +2458,20 @@ function App() {
         return (
           <article className="wizard-step-panel">
             <h3>Enter Agent URL</h3>
+            <div className="connector-preset-grid" aria-label="Local reference connectors">
+              {localConnectorPresets.map((preset) => (
+                <button
+                  type="button"
+                  className="connector-preset-card"
+                  key={preset.expectedConnectorId}
+                  onClick={() => applyLocalConnectorPreset(preset)}
+                >
+                  <strong>{preset.label}</strong>
+                  <span>{preset.agentBaseUrl}</span>
+                  <small>{preset.expectedConnectorId}</small>
+                </button>
+              ))}
+            </div>
             <div className="zero-trust-form wizard-form">
               <label>
                 <span>Agent Base URL</span>
@@ -2503,7 +2573,7 @@ function App() {
               <>
                 <div className="focused-error-panel" role="alert">
                   <h3>{failureTitle}</h3>
-                  <p>Start real-external-agent on http://localhost:4201 and ensure it exposes GET /.well-known/a2a-agent.json.</p>
+                  <p>Start the selected real-external-agent connector instance and ensure it exposes GET /.well-known/a2a-agent.json.</p>
                 </div>
                 <div className="wizard-action-row">
                   {renderBackButton()}

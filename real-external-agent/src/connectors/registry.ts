@@ -1,4 +1,6 @@
 import { jiraReferenceConnector } from "./jiraReferenceConnector.js";
+import { serviceNowReferenceConnector } from "./servicenowReferenceConnector.js";
+import { githubReferenceConnector } from "./githubReferenceConnector.js";
 import type { ConnectorProfile, SupportedConnector } from "./types.js";
 
 const supportedConnectors: SupportedConnector[] = [
@@ -13,27 +15,22 @@ const supportedConnectors: SupportedConnector[] = [
     connectorId: "servicenow-reference",
     resourceSystem: "servicenow",
     displayName: "ServiceNow Reference Connector",
-    status: "coming_soon",
-    description: "Placeholder for a future ServiceNow connector profile."
-  },
-  {
-    connectorId: "salesforce-reference",
-    resourceSystem: "salesforce",
-    displayName: "Salesforce Reference Connector",
-    status: "coming_soon",
-    description: "Placeholder for a future Salesforce connector profile."
+    status: "available",
+    description: "Reference connector profile for ServiceNow."
   },
   {
     connectorId: "github-reference",
     resourceSystem: "github",
     displayName: "GitHub Reference Connector",
-    status: "coming_soon",
-    description: "Placeholder for a future GitHub connector profile."
+    status: "available",
+    description: "Reference connector profile for GitHub."
   }
 ];
 
 const availableProfiles = new Map<string, ConnectorProfile>([
-  [jiraReferenceConnector.connectorId, jiraReferenceConnector]
+  [jiraReferenceConnector.connectorId, jiraReferenceConnector],
+  [serviceNowReferenceConnector.connectorId, serviceNowReferenceConnector],
+  [githubReferenceConnector.connectorId, githubReferenceConnector]
 ]);
 
 export function listSupportedConnectors(): SupportedConnector[] {
