@@ -1835,11 +1835,40 @@ function App() {
         <section className="supporting-agents-section">
           <div className="section-heading-row compact-heading">
             <div>
-              <span>Supporting agents</span>
+              <span>{latestResponse.connectorRouting ? "Execution path" : "Supporting agents"}</span>
             </div>
           </div>
+          {latestResponse.connectorRouting ? (
+            <div className="connector-execution-summary">
+              <p><strong>Connector-backed route selected.</strong></p>
+              <dl>
+                <div>
+                  <dt>Target system</dt>
+                  <dd>{latestResponse.connectorRouting.targetSystem ?? "unknown"}</dd>
+                </div>
+                <div>
+                  <dt>Connector</dt>
+                  <dd>{latestResponse.connectorRouting.connectorId ?? "not selected"}</dd>
+                </div>
+                <div>
+                  <dt>Skill / Action</dt>
+                  <dd>{latestResponse.connectorRouting.skillLabel ?? latestResponse.connectorRouting.skillId ?? "not mapped"}</dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</dd>
+                </div>
+                <div>
+                  <dt>Runtime mode</dt>
+                  <dd>metadata-only</dd>
+                </div>
+              </dl>
+              <p className="muted-note">No external runtime call was executed yet.</p>
+            </div>
+          ) : null}
           {supportingAgents.length ? (
             <div className="supporting-agent-list">
+              {latestResponse.connectorRouting ? <p className="muted-note">Supporting legacy/internal agents</p> : null}
               {supportingAgents.map((agent) => (
                 <article key={`${agent.agentId}-${agent.skillId ?? "default"}`}>
                   <strong>{agent.agentId}</strong>
@@ -1849,7 +1878,7 @@ function App() {
               ))}
             </div>
           ) : (
-            <p className="muted-note">No supporting agents selected yet.</p>
+            <p className="muted-note">{latestResponse.connectorRouting ? "No legacy internal agents were used for this connector-first route." : "No supporting agents selected yet."}</p>
           )}
         </section>
         <details className="full-gateway-response">
@@ -1885,7 +1914,7 @@ function App() {
           </div>
           <div>
             <span>Routing</span>
-            <strong>{latestResponse?.connectorRouting ? connectorRoutingStatusLabel(latestResponse.connectorRouting.status) : latestResponse ? `${latestResponse.selectedAgents.length} selected / ${primarySelectedAgent}` : "No route selected yet"}</strong>
+            <strong>{latestResponse?.connectorRouting ? `Connector route: ${connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}` : latestResponse ? `${latestResponse.selectedAgents.length} selected / ${primarySelectedAgent}` : "No route selected yet"}</strong>
           </div>
           <div>
             <span>Policy</span>
@@ -2630,19 +2659,32 @@ function App() {
               <div className="section-heading-row">
                 <div>
                   <p className="active-panel-eyebrow">Routing</p>
-                  <h2>Selected Agents</h2>
+                  <h2>{latestResponse?.connectorRouting ? "Connector Route" : "Selected Agents"}</h2>
                 </div>
               </div>
+              {latestResponse?.connectorRouting ? (
+                <div className="connector-side-route">
+                  <strong>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</strong>
+                  <span>{latestResponse.connectorRouting.targetSystem ?? "unknown"} / {latestResponse.connectorRouting.connectorId ?? "no connector"}</span>
+                  <p>{latestResponse.connectorRouting.skillLabel ?? latestResponse.connectorRouting.skillId ?? "No skill/action mapped"}</p>
+                  <small>Runtime mode: metadata-only</small>
+                </div>
+              ) : null}
               {latestResponse?.selectedAgents.length ? (
-                <ul className="agent-list compact">
-                  {latestResponse.selectedAgents.map((agent) => (
-                    <li key={`${agent.agentId}-${agent.skillId ?? "default"}`}>
-                      <strong>{agent.agentId}</strong>
-                      <span>{agent.role}{agent.skillId ? ` / ${agent.skillId}` : ""}</span>
-                      <p>{agent.matchedCapability ?? agent.reason}</p>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  {latestResponse.connectorRouting ? <p className="muted-note">Supporting legacy/internal agents</p> : null}
+                  <ul className="agent-list compact">
+                    {latestResponse.selectedAgents.map((agent) => (
+                      <li key={`${agent.agentId}-${agent.skillId ?? "default"}`}>
+                        <strong>{agent.agentId}</strong>
+                        <span>{agent.role}{agent.skillId ? ` / ${agent.skillId}` : ""}</span>
+                        <p>{agent.matchedCapability ?? agent.reason}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : latestResponse?.connectorRouting ? (
+                <p className="muted-note">No legacy internal agents were used for this connector-first route.</p>
               ) : (
                 <p className="muted-note">No agents selected yet.</p>
               )}
