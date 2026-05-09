@@ -1,14 +1,13 @@
 import {
-  agentDeclaredCapabilities,
   agentId,
   agentIssuer,
   clientId,
-  requestedScopes,
   tokenEndpointAuthMethod,
   trustedGatewayClientId,
   trustedGatewayIssuer,
   trustedGatewayJwksUri
 } from "./config.js";
+import { deriveRequestedApplicationGrants, getConnectorProfile, previewActionReadiness } from "./connectorProfile.js";
 
 export type TrustedGatewayRegistration = {
   gatewayId: string;
@@ -24,6 +23,7 @@ export type OAuthApplicationConfig = {
   clientId: string;
   authorizationServerIssuer: string;
   tokenEndpointAuthMethod: "private_key_jwt";
+  applicationAccessGrants: string[];
   grantedScopes: string[];
   status: "active" | "disabled";
 };
@@ -36,6 +36,8 @@ export type ServicePrincipalConfig = {
 };
 
 export type CapabilityDeclarationConfig = {
+  enabledActionIds: string[];
+  requestedApplicationGrants: string[];
   requestedScopes: string[];
   agentDeclaredCapabilities: string[];
 };
@@ -79,7 +81,25 @@ function hasSecretMarker(value: unknown): boolean {
   return forbiddenSecretPatterns.some((pattern) => pattern.test(text));
 }
 
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function normalizeKnownValues(values: string[], allowedIds: string[]): string[] {
+  const allowed = new Set(allowedIds);
+  return unique(values).filter((value) => allowed.has(value));
+}
+
+function enabledDefaultActions(): string[] {
+  return getConnectorProfile().actionCatalog.map((action) => action.id);
+}
+
 function demoConfig(): AdminConfig {
+  const connectorProfile = getConnectorProfile();
+  const enabledActionIds = enabledDefaultActions();
+  const applicationAccessGrants = ["read:jira-work", "read:jira-user"];
+  const requestedApplicationGrants = deriveRequestedApplicationGrants(enabledActionIds);
+
   return {
     trustedGateway: {
       gatewayId: "secure-a2a-gateway",
@@ -89,12 +109,13 @@ function demoConfig(): AdminConfig {
       onboardingMethod: "signed_gateway_challenge"
     },
     oauthApplication: {
-      resourceSystem: "jira",
+      resourceSystem: connectorProfile.resourceSystem,
       appName: "Jira Agent Connected App",
       clientId,
       authorizationServerIssuer: "http://localhost:4110",
       tokenEndpointAuthMethod,
-      grantedScopes: [...requestedScopes],
+      applicationAccessGrants,
+      grantedScopes: [...applicationAccessGrants],
       status: "active"
     },
     servicePrincipal: {
@@ -104,8 +125,10 @@ function demoConfig(): AdminConfig {
       deniedPermissions: ["create_issues"]
     },
     capabilityDeclaration: {
-      requestedScopes: [...requestedScopes],
-      agentDeclaredCapabilities: [...agentDeclaredCapabilities]
+      enabledActionIds,
+      requestedApplicationGrants,
+      requestedScopes: [...requestedApplicationGrants],
+      agentDeclaredCapabilities: [...enabledActionIds]
     }
   };
 }
@@ -122,6 +145,7 @@ export function getAdminConfig(): AdminConfig {
     trustedGateway: { ...currentConfig.trustedGateway },
     oauthApplication: {
       ...currentConfig.oauthApplication,
+      applicationAccessGrants: [...currentConfig.oauthApplication.applicationAccessGrants],
       grantedScopes: [...currentConfig.oauthApplication.grantedScopes]
     },
     servicePrincipal: {
@@ -130,6 +154,8 @@ export function getAdminConfig(): AdminConfig {
       deniedPermissions: [...currentConfig.servicePrincipal.deniedPermissions]
     },
     capabilityDeclaration: {
+      enabledActionIds: [...currentConfig.capabilityDeclaration.enabledActionIds],
+      requestedApplicationGrants: [...currentConfig.capabilityDeclaration.requestedApplicationGrants],
       requestedScopes: [...currentConfig.capabilityDeclaration.requestedScopes],
       agentDeclaredCapabilities: [...currentConfig.capabilityDeclaration.agentDeclaredCapabilities]
     }
@@ -146,24 +172,32 @@ export function adminAgentMetadata() {
     runtimeEndpoint: `${issuer}/a2a/task`,
     adminConsoleUrl: `${issuer}/admin`,
     resourceSystem: currentConfig.oauthApplication.resourceSystem,
+    connectorId: getConnectorProfile().connectorId,
+    connectorDisplayName: getConnectorProfile().displayName,
     trustAdapter: "jira",
     runtimeAudience: agentId
   };
 }
 
-export function readinessStatus(): { ready: boolean; warnings: string[] } {
+export function readinessStatus(): { ready: boolean; status: "ready" | "readyWithWarnings" | "incomplete"; warnings: string[]; blockers: string[] } {
+  const blockers: string[] = [];
   const warnings: string[] = [];
-  if (!currentConfig.trustedGateway.clientId || !currentConfig.trustedGateway.issuer || !currentConfig.trustedGateway.jwksUri) warnings.push("Gateway registration is incomplete.");
-  if (currentConfig.trustedGateway.onboardingMethod !== "signed_gateway_challenge") warnings.push("Gateway onboarding method must be signed_gateway_challenge.");
-  if (currentConfig.oauthApplication.status !== "active") warnings.push("OAuth application is disabled.");
-  if (!currentConfig.oauthApplication.clientId) warnings.push("OAuth client ID is missing.");
-  if (currentConfig.oauthApplication.grantedScopes.length === 0) warnings.push("Granted scopes are missing.");
-  if (!currentConfig.servicePrincipal.principalId) warnings.push("Service principal is missing.");
-  if (currentConfig.servicePrincipal.effectivePermissions.length === 0) warnings.push("Granted roles and permissions are missing.");
-  if (currentConfig.capabilityDeclaration.agentDeclaredCapabilities.length === 0) warnings.push("Agent-declared capabilities are missing.");
-  if (hasSecretMarker(currentConfig)) warnings.push("Configuration contains forbidden secret markers.");
+  if (!currentConfig.trustedGateway.clientId || !currentConfig.trustedGateway.issuer || !currentConfig.trustedGateway.jwksUri) blockers.push("Gateway registration is incomplete.");
+  if (currentConfig.trustedGateway.onboardingMethod !== "signed_gateway_challenge") blockers.push("Gateway onboarding method must be signed_gateway_challenge.");
+  if (currentConfig.oauthApplication.status !== "active") blockers.push("OAuth application is disabled.");
+  if (!currentConfig.oauthApplication.clientId) blockers.push("OAuth client ID is missing.");
+  if (!currentConfig.servicePrincipal.principalId) blockers.push("Service account is missing.");
+  if (currentConfig.capabilityDeclaration.agentDeclaredCapabilities.length === 0) blockers.push("Agent actions are missing.");
+  if (hasSecretMarker(currentConfig)) blockers.push("Configuration contains forbidden secret markers.");
+  if (currentConfig.oauthApplication.applicationAccessGrants.length === 0) warnings.push("No application access grants are selected. Gateway onboarding can proceed, but actions will be blocked.");
+  if (currentConfig.servicePrincipal.effectivePermissions.length === 0) warnings.push("No effective permissions are selected. Gateway onboarding can proceed, but actions will be blocked.");
 
-  return { ready: warnings.length === 0, warnings };
+  return {
+    ready: blockers.length === 0,
+    status: blockers.length > 0 ? "incomplete" : warnings.length > 0 ? "readyWithWarnings" : "ready",
+    warnings,
+    blockers
+  };
 }
 
 export function publicAdminConfig() {
@@ -171,8 +205,12 @@ export function publicAdminConfig() {
   return {
     agent: adminAgentMetadata(),
     ...getAdminConfig(),
+    connectorProfile: getConnectorProfile(),
+    actionReadiness: previewActionReadiness(currentConfig),
     ready: readiness.ready,
-    warnings: readiness.warnings
+    readinessStatus: readiness.status,
+    warnings: readiness.warnings,
+    blockers: readiness.blockers
   };
 }
 
@@ -199,20 +237,27 @@ export function saveTrustedGateway(value: unknown): { ok: true; config: ReturnTy
 
 export function saveOAuthApplication(value: unknown): { ok: true; config: ReturnType<typeof publicAdminConfig> } | { ok: false; errors: string[] } {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const connectorProfile = getConnectorProfile();
+  const applicationAccessGrants = normalizeKnownValues(
+    lines(input.applicationAccessGrants).length > 0 || "applicationAccessGrants" in input
+      ? lines(input.applicationAccessGrants)
+      : lines(input.grantedScopes),
+    connectorProfile.applicationAccessGrantCatalog.map((grant) => grant.id)
+  );
   const candidate: OAuthApplicationConfig = {
-    resourceSystem: "jira",
+    resourceSystem: connectorProfile.resourceSystem,
     appName: stringValue(input.appName) || "Jira Agent Connected App",
     clientId: stringValue(input.clientId),
     authorizationServerIssuer: stringValue(input.authorizationServerIssuer).replace(/\/+$/, ""),
     tokenEndpointAuthMethod: "private_key_jwt",
-    grantedScopes: lines(input.grantedScopes),
+    applicationAccessGrants,
+    grantedScopes: [...applicationAccessGrants],
     status: stringValue(input.status) === "disabled" ? "disabled" : "active"
   };
   const errors: string[] = [];
   if (hasSecretMarker(input)) errors.push("OAuth application config must not include client secrets, private keys, or tokens.");
   if (!candidate.clientId) errors.push("OAuth Client ID is required.");
   if (!candidate.authorizationServerIssuer) errors.push("Authorization server issuer is required.");
-  if (candidate.grantedScopes.length === 0) errors.push("Granted scopes are required.");
   if (errors.length > 0) return { ok: false, errors };
 
   currentConfig.oauthApplication = candidate;
@@ -221,16 +266,17 @@ export function saveOAuthApplication(value: unknown): { ok: true; config: Return
 
 export function saveServicePrincipal(value: unknown): { ok: true; config: ReturnType<typeof publicAdminConfig> } | { ok: false; errors: string[] } {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const permissionIds = getConnectorProfile().effectivePermissionCatalog.map((permission) => permission.id);
+  const deniedPermissions = normalizeKnownValues(lines(input.deniedPermissions), permissionIds);
   const candidate: ServicePrincipalConfig = {
     principalType: "service_account",
     principalId: stringValue(input.principalId),
-    effectivePermissions: lines(input.effectivePermissions),
-    deniedPermissions: lines(input.deniedPermissions)
+    effectivePermissions: normalizeKnownValues(lines(input.effectivePermissions), permissionIds).filter((permission) => !deniedPermissions.includes(permission)),
+    deniedPermissions
   };
   const errors: string[] = [];
   if (hasSecretMarker(input)) errors.push("Service principal config must not include secrets or tokens.");
   if (!candidate.principalId) errors.push("Principal ID is required.");
-  if (candidate.effectivePermissions.length === 0) errors.push("Effective permissions are required.");
   if (errors.length > 0) return { ok: false, errors };
 
   currentConfig.servicePrincipal = candidate;
@@ -239,13 +285,22 @@ export function saveServicePrincipal(value: unknown): { ok: true; config: Return
 
 export function saveCapabilityDeclaration(value: unknown): { ok: true; config: ReturnType<typeof publicAdminConfig> } | { ok: false; errors: string[] } {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const actionIds = getConnectorProfile().actionCatalog.map((action) => action.id);
+  const enabledActionIds = normalizeKnownValues(
+    lines(input.enabledActionIds).length > 0 || "enabledActionIds" in input
+      ? lines(input.enabledActionIds)
+      : lines(input.agentDeclaredCapabilities),
+    actionIds
+  );
+  const requestedApplicationGrants = deriveRequestedApplicationGrants(enabledActionIds);
   const candidate: CapabilityDeclarationConfig = {
-    requestedScopes: lines(input.requestedScopes),
-    agentDeclaredCapabilities: lines(input.agentDeclaredCapabilities)
+    enabledActionIds,
+    requestedApplicationGrants,
+    requestedScopes: [...requestedApplicationGrants],
+    agentDeclaredCapabilities: [...enabledActionIds]
   };
   const errors: string[] = [];
   if (hasSecretMarker(input)) errors.push("Capability declaration must not include secrets or tokens.");
-  if (candidate.requestedScopes.length === 0) errors.push("Requested scopes are required.");
   if (candidate.agentDeclaredCapabilities.length === 0) errors.push("Agent-declared capabilities are required.");
   if (errors.length > 0) return { ok: false, errors };
 

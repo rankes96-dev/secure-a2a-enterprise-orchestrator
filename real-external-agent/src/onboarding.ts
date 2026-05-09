@@ -5,6 +5,7 @@ import {
   expectedAudience
 } from "./config.js";
 import { getAdminConfig, readinessStatus } from "./adminConfig.js";
+import { getConnectorProfile } from "./connectorProfile.js";
 import { getSigningKey } from "./keys.js";
 
 export type OnboardingChallenge = {
@@ -121,6 +122,7 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
   const key = await getSigningKey();
   const now = Math.floor(Date.now() / 1000);
   const issuer = agentIssuer();
+  const connectorProfile = getConnectorProfile();
 
   const signedTrustResponse = await new SignJWT({
     typ: "agent_onboarding_response",
@@ -131,14 +133,17 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
     clientId: config.oauthApplication.clientId,
     audience: expectedAudience(),
     resourceSystem: config.oauthApplication.resourceSystem,
+    connectorId: connectorProfile.connectorId,
     trustAdapter: "jira",
     agentDeclaredCapabilities: config.capabilityDeclaration.agentDeclaredCapabilities,
+    requestedApplicationGrants: config.capabilityDeclaration.requestedApplicationGrants,
     requestedScopes: config.capabilityDeclaration.requestedScopes,
     tokenEndpointAuthMethod: config.oauthApplication.tokenEndpointAuthMethod,
     oauthApplication: {
       appName: config.oauthApplication.appName,
       clientId: config.oauthApplication.clientId,
       authorizationServerIssuer: config.oauthApplication.authorizationServerIssuer,
+      applicationAccessGrants: config.oauthApplication.applicationAccessGrants,
       grantedScopes: config.oauthApplication.grantedScopes,
       tokenEndpointAuthMethod: config.oauthApplication.tokenEndpointAuthMethod,
       status: config.oauthApplication.status

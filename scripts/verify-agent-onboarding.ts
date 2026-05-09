@@ -1,4 +1,8 @@
 const API_URL = process.env.ORCHESTRATOR_API_URL ?? "http://127.0.0.1:4000";
+const EXTERNAL_AGENT_URL = process.env.EXTERNAL_AGENT_URL ?? "http://localhost:4201";
+const allApplicationAccessGrants = ["read:jira-work", "read:jira-user", "write:jira-work", "manage:jira-project"];
+const allEffectivePermissions = ["browse_projects", "view_issues", "read_project_roles", "create_issues", "administer_projects"];
+const allActionIds = ["jira.issue.diagnose_creation_failure", "jira.permission.inspect", "jira.issue.create"];
 
 let sessionCookie = "";
 
@@ -52,6 +56,51 @@ async function request(path: string, init: RequestInit = {}): Promise<{ response
   return { response, body: await readJson(response) };
 }
 
+async function externalRequest(path: string, body: unknown = {}): Promise<{ response: Response; body: unknown }> {
+  const response = await fetch(`${EXTERNAL_AGENT_URL}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  return { response, body: await readJson(response) };
+}
+
+async function resetExternalAgent(): Promise<void> {
+  const { response, body } = await externalRequest("/admin/reset-demo");
+  requireStatus(response, body, 200, "reset external agent demo config");
+}
+
+async function configureExternalAgent(input: {
+  applicationAccessGrants: string[];
+  effectivePermissions: string[];
+  deniedPermissions: string[];
+}): Promise<void> {
+  let result = await externalRequest("/admin/oauth-application", {
+    appName: "Jira Agent Connected App",
+    clientId: "jira-agent-client",
+    authorizationServerIssuer: "http://localhost:4110",
+    tokenEndpointAuthMethod: "private_key_jwt",
+    applicationAccessGrants: input.applicationAccessGrants,
+    grantedScopes: input.applicationAccessGrants,
+    status: "active"
+  });
+  requireStatus(result.response, result.body, 200, "configure external OAuth application");
+
+  result = await externalRequest("/admin/service-principal", {
+    principalType: "service_account",
+    principalId: "svc-a2a-jira-agent",
+    effectivePermissions: input.effectivePermissions,
+    deniedPermissions: input.deniedPermissions
+  });
+  requireStatus(result.response, result.body, 200, "configure external service principal");
+
+  result = await externalRequest("/admin/capability-declaration", {
+    enabledActionIds: allActionIds,
+    agentDeclaredCapabilities: allActionIds
+  });
+  requireStatus(result.response, result.body, 200, "configure external agent actions");
+}
+
 function assertNoSecretMarkers(value: unknown): void {
   const text = JSON.stringify(value);
   const forbidden = [
@@ -70,11 +119,22 @@ function assertNoSecretMarkers(value: unknown): void {
   }
 }
 
+async function startOnboarding(): Promise<{ response: Response; body: unknown }> {
+  return request("/agent-onboarding/start", {
+    method: "POST",
+    body: JSON.stringify({
+      agentBaseUrl: EXTERNAL_AGENT_URL,
+      expectedAgentId: "external-jira-agent"
+    })
+  });
+}
+
 async function verifyValidOnboarding(): Promise<void> {
+  await resetExternalAgent();
   const discoveryResponse = await request("/agent-onboarding/discover", {
     method: "POST",
     body: JSON.stringify({
-      agentBaseUrl: "http://localhost:4201",
+      agentBaseUrl: EXTERNAL_AGENT_URL,
       expectedAgentId: "external-jira-agent"
     })
   });
@@ -84,10 +144,10 @@ async function verifyValidOnboarding(): Promise<void> {
     throw new Error(`expected discovery to succeed: ${JSON.stringify(discoveryResponse.body)}`);
   }
   const discovery = asRecord(discoveryResult.discovery);
-  if (discovery.agentId !== "external-jira-agent" || discovery.issuer !== "http://localhost:4201") {
+  if (discovery.agentId !== "external-jira-agent" || discovery.issuer !== EXTERNAL_AGENT_URL) {
     throw new Error(`discovery returned unexpected agent metadata: ${JSON.stringify(discoveryResponse.body)}`);
   }
-  if (discovery.adminConsoleUrl !== "http://localhost:4201/admin") {
+  if (discovery.adminConsoleUrl !== `${EXTERNAL_AGENT_URL}/admin`) {
     throw new Error(`discovery did not include external admin console URL: ${JSON.stringify(discoveryResponse.body)}`);
   }
   const gatewayRegistration = asRecord(discoveryResult.gatewayRegistration);
@@ -97,13 +157,7 @@ async function verifyValidOnboarding(): Promise<void> {
   assertNoSecretMarkers(discoveryResponse.body);
   logOk("discovered external agent metadata");
 
-  const { response, body } = await request("/agent-onboarding/start", {
-    method: "POST",
-    body: JSON.stringify({
-      agentBaseUrl: "http://localhost:4201",
-      expectedAgentId: "external-jira-agent"
-    })
-  });
+  const { response, body } = await startOnboarding();
   requireStatus(response, body, 200, "valid onboarding");
   const result = asRecord(body);
 
@@ -117,6 +171,9 @@ async function verifyValidOnboarding(): Promise<void> {
   }
   if (!Array.isArray(discoveredAgent.requestedScopes) || !discoveredAgent.requestedScopes.includes("read:jira-work")) {
     throw new Error(`discoveredAgent did not expose requested scopes: ${JSON.stringify(body)}`);
+  }
+  if (!Array.isArray(discoveredAgent.requestedApplicationGrants) || !discoveredAgent.requestedApplicationGrants.includes("write:jira-work")) {
+    throw new Error(`discoveredAgent did not expose requested application grants: ${JSON.stringify(body)}`);
   }
 
   const agentProof = asRecord(result.agentProof);
@@ -134,8 +191,8 @@ async function verifyValidOnboarding(): Promise<void> {
   if (oauthApplicationProof.clientBound !== true) {
     throw new Error(`OAuth app binding did not pass: ${JSON.stringify(body)}`);
   }
-  if (!Array.isArray(oauthApplicationProof.grantedScopes) || !oauthApplicationProof.grantedScopes.includes("read:jira-work") || !oauthApplicationProof.grantedScopes.includes("read:jira-user")) {
-    throw new Error(`granted scopes missing expected Jira scopes: ${JSON.stringify(body)}`);
+  if (!Array.isArray(oauthApplicationProof.applicationAccessGrants) || !oauthApplicationProof.applicationAccessGrants.includes("read:jira-work") || !oauthApplicationProof.applicationAccessGrants.includes("read:jira-user")) {
+    throw new Error(`application access grants missing expected Jira grants: ${JSON.stringify(body)}`);
   }
   const resourcePermissionProof = asRecord(result.resourcePermissionProof);
   if (resourcePermissionProof.principal !== "svc-a2a-jira-agent") {
@@ -146,6 +203,9 @@ async function verifyValidOnboarding(): Promise<void> {
   const externalServicePrincipal = asRecord(externalApplicationAttestation.servicePrincipal);
   if (externalOauthApplication.clientId !== "jira-agent-client") {
     throw new Error(`external OAuth application attestation missing: ${JSON.stringify(body)}`);
+  }
+  if (!Array.isArray(externalOauthApplication.applicationAccessGrants)) {
+    throw new Error(`external OAuth application attestation missing applicationAccessGrants: ${JSON.stringify(body)}`);
   }
   if (externalServicePrincipal.principalId !== "svc-a2a-jira-agent") {
     throw new Error(`external service principal attestation missing: ${JSON.stringify(body)}`);
@@ -160,8 +220,11 @@ async function verifyValidOnboarding(): Promise<void> {
     throw new Error(`jira.permission.inspect was not approved: ${JSON.stringify(body)}`);
   }
   const blockedCreate = blockedCapabilities.find((item) => item.capability === "jira.issue.create");
-  if (!blockedCreate || typeof blockedCreate.reason !== "string" || !blockedCreate.reason.includes("create_issues")) {
-    throw new Error(`jira.issue.create was not blocked for missing create_issues: ${JSON.stringify(body)}`);
+  if (approvedCapabilities.length !== 2 || blockedCapabilities.length !== 1) {
+    throw new Error(`default should approve 2 and block 1 action: ${JSON.stringify(body)}`);
+  }
+  if (!blockedCreate || typeof blockedCreate.reason !== "string" || !blockedCreate.reason.includes("write:jira-work") || !blockedCreate.reason.includes("create_issues")) {
+    throw new Error(`jira.issue.create was not blocked for missing grant and denied create_issues: ${JSON.stringify(body)}`);
   }
 
   const checks = Array.isArray(result.checks) ? result.checks.map((item) => asRecord(item)) : [];
@@ -174,6 +237,46 @@ async function verifyValidOnboarding(): Promise<void> {
 
   assertNoSecretMarkers(body);
   logOk("valid zero-trust onboarding returned trusted metadata");
+}
+
+async function verifyNoApplicationGrants(): Promise<void> {
+  await configureExternalAgent({
+    applicationAccessGrants: [],
+    effectivePermissions: allEffectivePermissions,
+    deniedPermissions: []
+  });
+  const { response, body } = await startOnboarding();
+  requireStatus(response, body, 200, "no application grants onboarding");
+  const result = asRecord(body);
+  const capabilityDecision = asRecord(result.capabilityDecision);
+  const approvedCapabilities = Array.isArray(capabilityDecision.approvedCapabilities) ? capabilityDecision.approvedCapabilities.map((item) => asRecord(item)) : [];
+  const blockedCapabilities = Array.isArray(capabilityDecision.blockedCapabilities) ? capabilityDecision.blockedCapabilities.map((item) => asRecord(item)) : [];
+  if (approvedCapabilities.length !== 0 || blockedCapabilities.length !== 3) {
+    throw new Error(`no grants should approve 0 and block all actions: ${JSON.stringify(body)}`);
+  }
+  if (!blockedCapabilities.every((item) => typeof item.reason === "string" && item.reason.includes("missing application access grant"))) {
+    throw new Error(`no grants should block by missing application access grants: ${JSON.stringify(body)}`);
+  }
+  assertNoSecretMarkers(body);
+  logOk("no application access grants block all actions without failing onboarding");
+}
+
+async function verifyAllAccess(): Promise<void> {
+  await configureExternalAgent({
+    applicationAccessGrants: allApplicationAccessGrants,
+    effectivePermissions: allEffectivePermissions,
+    deniedPermissions: []
+  });
+  const { response, body } = await startOnboarding();
+  requireStatus(response, body, 200, "all access onboarding");
+  const result = asRecord(body);
+  const capabilityDecision = asRecord(result.capabilityDecision);
+  const approvedCapabilities = Array.isArray(capabilityDecision.approvedCapabilities) ? capabilityDecision.approvedCapabilities.map((item) => asRecord(item)) : [];
+  if (!approvedCapabilities.some((item) => item.capability === "jira.issue.create")) {
+    throw new Error(`all grants and permissions should approve create action: ${JSON.stringify(body)}`);
+  }
+  assertNoSecretMarkers(body);
+  logOk("all application grants and effective permissions approve create action");
 }
 
 async function verifyFailure(label: string, requestBody: Record<string, unknown>): Promise<void> {
@@ -194,14 +297,18 @@ async function main(): Promise<void> {
   console.info(`Verifying zero-trust Agent Onboarding against ${API_URL}`);
   await createSession();
   await verifyValidOnboarding();
+  await verifyNoApplicationGrants();
+  await verifyAllAccess();
+  await resetExternalAgent();
   await verifyFailure("wrong expectedAgentId", {
-    agentBaseUrl: "http://localhost:4201",
+    agentBaseUrl: EXTERNAL_AGENT_URL,
     expectedAgentId: "wrong-agent"
   });
   await verifyFailure("unsupported base URL", {
     agentBaseUrl: "https://evil.example.com",
     expectedAgentId: "external-jira-agent"
   });
+  await resetExternalAgent();
   console.info("Zero-trust Agent Onboarding verification passed.");
 }
 

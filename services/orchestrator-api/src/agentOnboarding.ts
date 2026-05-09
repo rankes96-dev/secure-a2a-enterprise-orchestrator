@@ -35,16 +35,19 @@ export type ExternalAgentTrustResponse = {
   audience: string;
   nonce: string;
   agentDeclaredCapabilities: string[];
+  requestedApplicationGrants: string[];
   requestedScopes: string[];
   tokenEndpointAuthMethod: "private_key_jwt" | "client_secret_post" | "unknown";
   jwksUri: string;
   signatureVerified: boolean;
   resourceSystem?: string;
+  connectorId?: string;
   trustAdapter?: string;
   oauthApplication?: {
     appName?: string;
     clientId: string;
     authorizationServerIssuer: string;
+    applicationAccessGrants: string[];
     grantedScopes: string[];
     tokenEndpointAuthMethod: "private_key_jwt" | "client_secret_post" | "unknown";
     status: "active" | "disabled" | "unknown";
@@ -61,6 +64,8 @@ export type ExternalAgentDiscovery = {
   agentId: string;
   issuer: string;
   resourceSystem?: string;
+  connectorId?: string;
+  connectorDisplayName?: string;
   trustAdapter?: string;
   jwksUri: string;
   onboardingEndpoint: string;
@@ -82,6 +87,7 @@ export type OAuthApplicationRegistration = {
   agentId: string;
   issuer: string;
   audience: string;
+  applicationAccessGrants: string[];
   grantedScopes: string[];
   tokenEndpointAuthMethod: "private_key_jwt" | "client_secret_post" | "unknown";
   status: "active" | "disabled";
@@ -99,7 +105,9 @@ export type TrustedOnboardedAgent = {
   clientId: string;
   audience: string;
   requestedScopes: string[];
+  requestedApplicationGrants: string[];
   agentDeclaredCapabilities: string[];
+  applicationAccessGrants: string[];
   grantedScopes: string[];
   approvedCapabilities: DerivedCapability[];
   blockedCapabilities: DerivedCapability[];
@@ -132,7 +140,9 @@ export type GatewayProof = {
 
 export type OAuthApplicationProof = {
   clientBound: boolean;
+  applicationAccessGrants: string[];
   grantedScopes: string[];
+  missingRequestedApplicationGrants?: string[];
   allowedClientId?: string;
   tokenEndpointAuthMethod?: TrustedOnboardedAgent["tokenEndpointAuthMethod"];
   status?: "active" | "disabled";
@@ -162,6 +172,7 @@ export type AgentOnboardingValidationResult =
         clientId: string;
         audience: string;
         requestedScopes: string[];
+        requestedApplicationGrants: string[];
         agentDeclaredCapabilities: string[];
       };
       agent: {
@@ -327,44 +338,35 @@ function publicTokenEndpointAuthMethod(method: ExternalAgentTrustResponse["token
   return "unknown";
 }
 
-function requestedScopeForCapability(capability: string): string | undefined {
-  if (capability === "jira.permission.inspect") {
-    return "read:jira-user";
-  }
+const actionApplicationGrantRequirements = new Map<string, string[]>([
+  ["jira.issue.diagnose_creation_failure", ["read:jira-work"]],
+  ["jira.permission.inspect", ["read:jira-user"]],
+  ["jira.issue.create", ["write:jira-work"]],
+  ["salesforce.access.diagnose", ["salesforce.access.read"]]
+]);
 
-  if (capability.startsWith("jira.")) {
-    return "read:jira-work";
-  }
-
-  if (capability.startsWith("salesforce.")) {
-    return "salesforce.access.read";
-  }
-
-  return undefined;
+function applicationGrantRequirementsForCapability(capability: string): string[] {
+  return actionApplicationGrantRequirements.get(capability) ?? [];
 }
 
 function deriveApprovedCapabilities(params: {
   agentDeclaredCapabilities: string[];
-  requestedScopes: string[];
-  grantedScopes: string[];
+  requestedApplicationGrants: string[];
+  applicationAccessGrants: string[];
   resourceRegistration: ResourcePermissionRegistration;
   resourceEvaluations: ReturnType<typeof evaluateResourcePermissions>["evaluations"];
 }): { approvedCapabilities: DerivedCapability[]; blockedCapabilities: DerivedCapability[] } {
-  const requestedScopes = new Set(params.requestedScopes);
-  const grantedScopes = new Set(params.grantedScopes);
+  const requestedApplicationGrants = new Set(params.requestedApplicationGrants);
+  const applicationAccessGrants = new Set(params.applicationAccessGrants);
   const evaluations = new Map(params.resourceEvaluations.map((evaluation) => [evaluation.capability, evaluation]));
   const approvedCapabilities: DerivedCapability[] = [];
   const blockedCapabilities: DerivedCapability[] = [];
 
   for (const capability of params.agentDeclaredCapabilities) {
-    const requiredScope = requestedScopeForCapability(capability);
-    if (requiredScope && !requestedScopes.has(requiredScope)) {
-      blockedCapabilities.push({ capability, reason: `agent did not request required OAuth scope ${requiredScope}` });
-      continue;
-    }
-
-    if (requiredScope && !grantedScopes.has(requiredScope)) {
-      blockedCapabilities.push({ capability, reason: `OAuth application was not granted required scope ${requiredScope}` });
+    const requiredApplicationGrants = applicationGrantRequirementsForCapability(capability);
+    const missingRequestedApplicationGrants = requiredApplicationGrants.filter((grant) => !requestedApplicationGrants.has(grant));
+    if (missingRequestedApplicationGrants.length > 0) {
+      blockedCapabilities.push({ capability, reason: `agent did not request required application access grant ${missingRequestedApplicationGrants.join(", ")}` });
       continue;
     }
 
@@ -374,25 +376,20 @@ function deriveApprovedCapabilities(params: {
       continue;
     }
 
-    if (resourceEvaluation.deniedPermissions.length > 0) {
-      blockedCapabilities.push({
-        capability,
-        reason: `missing resource permission ${resourceEvaluation.deniedPermissions.join(", ")}`
-      });
-      continue;
-    }
-
-    if (resourceEvaluation.missingPermissions.length > 0) {
-      blockedCapabilities.push({
-        capability,
-        reason: `missing resource permission ${resourceEvaluation.missingPermissions.join(", ")}`
-      });
+    const missingApplicationGrants = requiredApplicationGrants.filter((grant) => !applicationAccessGrants.has(grant));
+    const blockReasons = [
+      ...missingApplicationGrants.map((grant) => `missing application access grant ${grant}`),
+      ...resourceEvaluation.missingPermissions.map((permission) => `missing effective permission ${permission}`),
+      ...resourceEvaluation.deniedPermissions.map((permission) => `denied permission ${permission}`)
+    ];
+    if (blockReasons.length > 0) {
+      blockedCapabilities.push({ capability, reason: blockReasons.join(" and ") });
       continue;
     }
 
     approvedCapabilities.push({
       capability,
-      reason: "required OAuth scope and resource permissions are present"
+      reason: "required application access grants and effective permissions are present"
     });
   }
 
@@ -448,6 +445,8 @@ function validateDiscovery(value: unknown, agentBaseUrl: string, expectedAgentId
     agentId: cleanString(input.agentId),
     issuer: cleanString(input.issuer),
     resourceSystem: cleanString(input.resourceSystem) || undefined,
+    connectorId: cleanString(input.connectorId) || undefined,
+    connectorDisplayName: cleanString(input.connectorDisplayName) || undefined,
     trustAdapter: cleanString(input.trustAdapter) || undefined,
     jwksUri: cleanString(input.jwksUri),
     onboardingEndpoint: cleanString(input.onboardingEndpoint),
@@ -553,7 +552,12 @@ async function requestExternalAgentTrustResponse(challenge: AgentOnboardingChall
       audience: cleanString(payload.audience),
       nonce: cleanString(payload.nonce),
       agentDeclaredCapabilities: stringArray(payload.agentDeclaredCapabilities),
-      requestedScopes: stringArray(payload.requestedScopes),
+      requestedApplicationGrants: stringArray(payload.requestedApplicationGrants).length
+        ? stringArray(payload.requestedApplicationGrants)
+        : stringArray(payload.requestedScopes),
+      requestedScopes: stringArray(payload.requestedScopes).length
+        ? stringArray(payload.requestedScopes)
+        : stringArray(payload.requestedApplicationGrants),
       tokenEndpointAuthMethod:
         payload.tokenEndpointAuthMethod === "private_key_jwt" || payload.tokenEndpointAuthMethod === "client_secret_post"
           ? payload.tokenEndpointAuthMethod
@@ -561,12 +565,16 @@ async function requestExternalAgentTrustResponse(challenge: AgentOnboardingChall
       jwksUri: discovery.jwksUri,
       signatureVerified: payload.typ === "agent_onboarding_response",
       resourceSystem: cleanString(payload.resourceSystem) || discovery.resourceSystem,
+      connectorId: cleanString(payload.connectorId),
       trustAdapter: cleanString(payload.trustAdapter) || discovery.trustAdapter,
       oauthApplication: oauthApplication.clientId
         ? {
             appName: cleanString(oauthApplication.appName),
             clientId: cleanString(oauthApplication.clientId),
             authorizationServerIssuer: cleanString(oauthApplication.authorizationServerIssuer),
+            applicationAccessGrants: stringArray(oauthApplication.applicationAccessGrants).length
+              ? stringArray(oauthApplication.applicationAccessGrants)
+              : stringArray(oauthApplication.grantedScopes),
             grantedScopes: stringArray(oauthApplication.grantedScopes),
             tokenEndpointAuthMethod:
               oauthApplication.tokenEndpointAuthMethod === "private_key_jwt" || oauthApplication.tokenEndpointAuthMethod === "client_secret_post"
@@ -642,7 +650,7 @@ export async function discoverAgentOnboarding(value: unknown): Promise<AgentOnbo
       externalAgentDeveloper: [
         "Publish discovery and public JWKS endpoints.",
         "Validate signed Gateway challenges before returning a signed trust response.",
-        "Declare requested scopes and agent capabilities in the signed trust response."
+        "Declare requested application access grants and agent actions in the signed trust response."
       ]
     },
     checks
@@ -702,7 +710,8 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
 
   const binding = validateOAuthApplicationBinding(trustResponse);
   addCheck(checks, "oauth_application_bound", binding.valid, binding.details.join(" "));
-  addCheck(checks, "requested_scopes_granted", binding.valid && trustResponse.requestedScopes.every((scope) => binding.grantedScopes.includes(scope)));
+  addCheck(checks, "requested_scopes_granted", binding.valid);
+  addCheck(checks, "application_access_grants_evaluated", binding.valid);
 
   if (!binding.valid) {
     details.push(...binding.details);
@@ -743,8 +752,8 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
 
   const derivedCapabilities = deriveApprovedCapabilities({
     agentDeclaredCapabilities: trustResponse.agentDeclaredCapabilities,
-    requestedScopes: trustResponse.requestedScopes,
-    grantedScopes: binding.grantedScopes,
+    requestedApplicationGrants: trustResponse.requestedApplicationGrants,
+    applicationAccessGrants: binding.applicationAccessGrants,
     resourceRegistration,
     resourceEvaluations: resourcePermissions.evaluations
   });
@@ -757,7 +766,9 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     clientId: trustResponse.clientId,
     audience: trustResponse.audience,
     requestedScopes: [...trustResponse.requestedScopes],
+    requestedApplicationGrants: [...trustResponse.requestedApplicationGrants],
     agentDeclaredCapabilities: [...trustResponse.agentDeclaredCapabilities],
+    applicationAccessGrants: [...binding.applicationAccessGrants],
     grantedScopes: [...binding.grantedScopes],
     approvedCapabilities: [...derivedCapabilities.approvedCapabilities],
     blockedCapabilities: [...derivedCapabilities.blockedCapabilities],
@@ -780,6 +791,7 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
       clientId: trustResponse.clientId,
       audience: trustResponse.audience,
       requestedScopes: [...trustResponse.requestedScopes],
+      requestedApplicationGrants: [...trustResponse.requestedApplicationGrants],
       agentDeclaredCapabilities: [...trustResponse.agentDeclaredCapabilities]
     },
     agent: {
@@ -802,7 +814,9 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     },
     oauthApplicationProof: {
       clientBound: binding.valid,
+      applicationAccessGrants: [...binding.applicationAccessGrants],
       grantedScopes: [...binding.grantedScopes],
+      missingRequestedApplicationGrants: trustResponse.requestedApplicationGrants.filter((grant) => !binding.applicationAccessGrants.includes(grant)),
       allowedClientId: binding.registration?.clientId,
       tokenEndpointAuthMethod: publicTokenEndpointAuthMethod(trustResponse.tokenEndpointAuthMethod),
       status: binding.registration?.status
@@ -823,7 +837,7 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
       blockedCapabilities: [...derivedCapabilities.blockedCapabilities]
     },
     checks,
-    message: "External agent identity verified. Approved capabilities were derived from signed agent declarations, OAuth application grants, resource-system permissions, and gateway policy.",
+    message: "External agent identity verified. Approved actions were derived from signed agent declarations, application access grants, effective permissions, denied permissions, and gateway policy.",
     trustedAgent
   };
 }

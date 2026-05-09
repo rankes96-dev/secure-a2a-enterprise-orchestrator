@@ -2,14 +2,19 @@
 
 Standalone Node.js + TypeScript service that simulates an independently owned vendor/domain agent for the Secure A2A Gateway.
 
-This service represents an external Jira agent. It exposes public discovery metadata, a public JWKS, a signed zero-trust onboarding response, and a future A2A runtime endpoint.
+This service represents an external Jira agent using a generic connector profile model. Jira is the reference connector profile for this demo; future custom connectors can provide their own application access grant catalogs, effective permission catalogs, and action catalogs. The service exposes public discovery metadata, a public JWKS, a signed zero-trust onboarding response, and a future A2A runtime endpoint.
 
 ## What It Demonstrates
 
 - The Agent Card/discovery document is a declaration, not trust.
 - The agent proves control by signing an onboarding response with its private key.
-- Requested scopes and agent-declared capabilities are returned only after a nonce-bound gateway challenge.
-- The gateway must still derive approved capabilities from OAuth grants and resource permissions.
+- Application access grants define what the connected app can request from the external system.
+- Effective permissions define what the service account / integration user can actually do.
+- Agent actions require both application access grants and effective permissions.
+- Missing application grants block an action even if all effective permissions exist.
+- Missing effective permissions block an action even if all application access grants exist.
+- Requested application grants and agent-declared actions are returned only after a nonce-bound gateway challenge.
+- The gateway must still derive approved actions from application access grants, effective permissions, denied permissions, and policy.
 - The gateway can verify the signed trust response using the agent JWKS.
 - Runtime task execution requires a scoped A2A JWT and validates it before returning a diagnosis.
 
@@ -20,9 +25,9 @@ No private key is committed. The development signing key is generated in memory 
 - `GET /admin` - local development admin console for external-side setup
 - `GET /admin/config` - safe current admin configuration
 - `POST /admin/trusted-gateway` - save Gateway public registration metadata
-- `POST /admin/oauth-application` - save external OAuth application binding metadata
-- `POST /admin/service-principal` - save integration principal permissions
-- `POST /admin/capability-declaration` - save requested scopes and agent-declared capabilities
+- `POST /admin/oauth-application` - save external OAuth application binding metadata and application access grants
+- `POST /admin/service-principal` - save integration user effective and denied permissions
+- `POST /admin/capability-declaration` - save enabled agent actions; requested application grants are derived from action requirements
 - `POST /admin/reset-demo` - restore local demo defaults
 - `GET /.well-known/a2a-agent.json` - public discovery metadata
 - `GET /.well-known/jwks.json` - public JWKS for verifying onboarding responses
@@ -39,8 +44,9 @@ Use it to configure:
 
 - trusted Gateway registration copied from the Gateway UI
 - OAuth application metadata owned by the external system
-- service principal / integration user permissions
-- requested scopes and agent-declared capabilities
+- application access grants assigned to the connected app
+- service account / integration user effective and denied permissions
+- enabled agent actions from the connector action catalog
 
 No client secrets, private keys, access tokens, refresh tokens, bearer headers, or Authorization headers are stored or displayed.
 
@@ -49,7 +55,19 @@ During onboarding, the agent uses this config to:
 - verify the signed Gateway challenge with the registered Gateway issuer, client ID, and JWKS URI
 - confirm the OAuth application is active
 - include signed OAuth application and service principal attestations in the onboarding response
-- declare requested scopes and capabilities without claiming they are approved
+- declare requested application grants and agent actions without claiming they are approved
+
+## Authorization Model
+
+The demo uses a generic model that can scale beyond Jira:
+
+- Application access grants: OAuth/API grants assigned to the connected app. In Jira, these are OAuth scopes such as `read:jira-work`.
+- Effective permissions: roles, permissions, or entitlements held by the service account / integration user in the external system.
+- Agent actions: business actions the external agent can declare, each with required application grants and required effective permissions.
+
+An action is ready only when every required application access grant is present, every required effective permission is present, and no required permission is explicitly denied. The Gateway remains the final authority and may still block actions by policy.
+
+The current Jira reference connector profile is implemented in `src/connectorProfile.ts`. A future Custom Connector Layer can replace this static file with system-specific catalogs for ServiceNow, Salesforce, GitHub, Slack, and other systems.
 
 ## Environment
 

@@ -1,8 +1,35 @@
 import { agentDeclaredCapabilities, agentId, agentIssuer, requestedScopes, tokenEndpointAuthMethod } from "./config.js";
 
+const allApplicationAccessGrants = ["read:jira-work", "read:jira-user", "write:jira-work", "manage:jira-project"];
+const allEffectivePermissions = ["browse_projects", "view_issues", "read_project_roles", "create_issues", "administer_projects"];
+
 const baseUrl = agentIssuer();
 const gatewayUrl = process.env.ORCHESTRATOR_API_URL ?? "http://127.0.0.1:4000";
 let gatewaySessionCookie = "";
+
+type GatewayOnboardingBody = {
+  trustLevel?: string;
+  discoveredAgent?: {
+    agentDeclaredCapabilities?: string[];
+    requestedScopes?: string[];
+    requestedApplicationGrants?: string[];
+  };
+  oauthApplicationProof?: {
+    applicationAccessGrants?: string[];
+    grantedScopes?: string[];
+  };
+  capabilityDecision?: {
+    approvedCapabilities?: Array<{ capability?: string; reason?: string }>;
+    blockedCapabilities?: Array<{ capability?: string; reason?: string }>;
+  };
+  externalApplicationAttestation?: {
+    oauthApplication?: { appName?: string; clientId?: string; applicationAccessGrants?: string[]; grantedScopes?: string[] };
+    servicePrincipal?: { principalId?: string; effectivePermissions?: string[]; deniedPermissions?: string[] };
+  };
+  checks?: Array<{ name?: string; status?: string }>;
+  error?: string;
+  details?: string[];
+};
 
 function ok(message: string): void {
   console.log(`ok - ${message}`);
@@ -108,10 +135,12 @@ async function verifyAdminConfig(): Promise<void> {
   await postJson("/admin/reset-demo", {});
   const config = await getJson<{
     ready: boolean;
+    readinessStatus: string;
     trustedGateway: { clientId: string; issuer: string; jwksUri: string };
-    oauthApplication: { appName: string; clientId: string; grantedScopes: string[]; status: string };
+    oauthApplication: { appName: string; clientId: string; applicationAccessGrants: string[]; grantedScopes: string[]; status: string };
     servicePrincipal: { principalId: string; effectivePermissions: string[]; deniedPermissions: string[] };
-    capabilityDeclaration: { requestedScopes: string[]; agentDeclaredCapabilities: string[] };
+    capabilityDeclaration: { requestedApplicationGrants: string[]; requestedScopes: string[]; agentDeclaredCapabilities: string[] };
+    actionReadiness: Array<{ actionId: string; status: string; missingApplicationGrants: string[]; deniedPermissions: string[] }>;
     warnings: string[];
   }>("/admin/config");
 
@@ -119,6 +148,8 @@ async function verifyAdminConfig(): Promise<void> {
   assertCondition(config.trustedGateway.clientId === "secure-a2a-gateway-client", "trusted Gateway client mismatch");
   assertCondition(config.oauthApplication.appName === "Jira Agent Connected App", "OAuth app name mismatch");
   assertCondition(config.oauthApplication.clientId === "jira-agent-client", "OAuth client mismatch");
+  assertCondition(Array.isArray(config.oauthApplication.applicationAccessGrants), "applicationAccessGrants should be an array");
+  assertCondition(config.oauthApplication.applicationAccessGrants.includes("read:jira-work"), "applicationAccessGrants missing read:jira-work");
   assertCondition(Array.isArray(config.oauthApplication.grantedScopes), "grantedScopes should be an array");
   assertCondition(config.oauthApplication.grantedScopes.includes("read:jira-work"), "grantedScopes missing read:jira-work");
   assertCondition(config.oauthApplication.status === "active", "OAuth application should be active");
@@ -128,7 +159,12 @@ async function verifyAdminConfig(): Promise<void> {
   assertCondition(config.servicePrincipal.effectivePermissions.includes("browse_projects"), "effectivePermissions missing browse_projects");
   assertCondition(config.servicePrincipal.deniedPermissions.includes("create_issues"), "deniedPermissions missing create_issues");
   assertCondition(Array.isArray(config.capabilityDeclaration.agentDeclaredCapabilities), "agentDeclaredCapabilities should be an array");
+  assertCondition(config.capabilityDeclaration.requestedApplicationGrants.includes("write:jira-work"), "derived requestedApplicationGrants missing write:jira-work");
   assertCondition(config.capabilityDeclaration.agentDeclaredCapabilities.includes(agentDeclaredCapabilities[0] ?? ""), "capability declaration missing expected capability");
+  const createPreview = config.actionReadiness.find((item) => item.actionId === "jira.issue.create");
+  assertCondition(createPreview?.status === "blocked_application_grant_and_permission", "default create action should be blocked by grant and permission");
+  assertCondition(createPreview.missingApplicationGrants.includes("write:jira-work"), "create preview missing write grant reason");
+  assertCondition(createPreview.deniedPermissions.includes("create_issues"), "create preview missing denied permission reason");
   assertNoSecretMarkers(config);
   ok("admin config ready");
 }
@@ -165,30 +201,25 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
   gatewaySessionCookie = session.response.headers.get("set-cookie")?.split(";")[0] ?? "";
   assertCondition(Boolean(gatewaySessionCookie), "Gateway session cookie missing");
 
-  const gatewayOnboarding = await gatewayRequest<{
-    trustLevel?: string;
-    discoveredAgent?: {
-      agentDeclaredCapabilities?: string[];
-      requestedScopes?: string[];
-    };
-    externalApplicationAttestation?: {
-      oauthApplication?: { appName?: string; clientId?: string; grantedScopes?: string[] };
-      servicePrincipal?: { principalId?: string; effectivePermissions?: string[]; deniedPermissions?: string[] };
-    };
-    checks?: Array<{ name?: string; status?: string }>;
-  }>("/agent-onboarding/start", {
-    method: "POST",
-    body: JSON.stringify({
-      agentBaseUrl: baseUrl,
-      expectedAgentId: agentId
-    })
-  });
+  async function startGatewayOnboarding() {
+    return gatewayRequest<GatewayOnboardingBody>("/agent-onboarding/start", {
+      method: "POST",
+      body: JSON.stringify({
+        agentBaseUrl: baseUrl,
+        expectedAgentId: agentId
+      })
+    });
+  }
+
+  const gatewayOnboarding = await startGatewayOnboarding();
   assertCondition(gatewayOnboarding.response.ok, `Gateway onboarding failed with ${gatewayOnboarding.response.status}: ${JSON.stringify(gatewayOnboarding.body)}`);
   assertCondition(gatewayOnboarding.body.trustLevel === "trusted_metadata_only", "Gateway onboarding trust level mismatch");
   assertCondition(gatewayOnboarding.body.discoveredAgent?.agentDeclaredCapabilities?.includes(agentDeclaredCapabilities[0] ?? ""), "Gateway onboarding missing agent-declared capabilities");
   assertCondition(gatewayOnboarding.body.discoveredAgent?.requestedScopes?.includes(requestedScopes[0] ?? ""), "Gateway onboarding missing requested scopes");
+  assertCondition(gatewayOnboarding.body.discoveredAgent?.requestedApplicationGrants?.includes("write:jira-work"), "Gateway onboarding missing requested application grants");
   assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.clientId === "jira-agent-client", "Gateway onboarding missing external OAuth app attestation");
   assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.appName === "Jira Agent Connected App", "Gateway onboarding missing OAuth app name attestation");
+  assertCondition(Array.isArray(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.applicationAccessGrants), "Gateway onboarding OAuth attestation missing application access grants array");
   assertCondition(Array.isArray(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.grantedScopes), "Gateway onboarding OAuth attestation missing granted scopes array");
   assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.servicePrincipal?.principalId === "svc-a2a-jira-agent", "Gateway onboarding missing service principal attestation");
   assertCondition(Array.isArray(gatewayOnboarding.body.externalApplicationAttestation?.servicePrincipal?.effectivePermissions), "Gateway onboarding service principal missing effective permissions array");
@@ -201,11 +232,63 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
   const { body } = gatewayOnboarding;
   assertNoSecretMarkers(body);
 
+  const defaultApproved = gatewayOnboarding.body.capabilityDecision?.approvedCapabilities ?? [];
+  const defaultBlocked = gatewayOnboarding.body.capabilityDecision?.blockedCapabilities ?? [];
+  assertCondition(defaultApproved.length === 2, `default should approve 2 actions: ${JSON.stringify(gatewayOnboarding.body)}`);
+  assertCondition(defaultBlocked.length === 1, `default should block 1 action: ${JSON.stringify(gatewayOnboarding.body)}`);
+  assertCondition(defaultBlocked.some((item) => item.capability === "jira.issue.create" && item.reason?.includes("write:jira-work") && item.reason.includes("create_issues")), "default create action block reason mismatch");
+  ok("default action decision preview matches Gateway decision");
+
+  await postJson("/admin/oauth-application", {
+    appName: "Jira Agent Connected App",
+    clientId: "jira-agent-client",
+    authorizationServerIssuer: "http://localhost:4110",
+    tokenEndpointAuthMethod,
+    applicationAccessGrants: [],
+    grantedScopes: [],
+    status: "active"
+  });
+  await postJson("/admin/service-principal", {
+    principalType: "service_account",
+    principalId: "svc-a2a-jira-agent",
+    effectivePermissions: allEffectivePermissions,
+    deniedPermissions: []
+  });
+  const noGrantOnboarding = await startGatewayOnboarding();
+  assertCondition(noGrantOnboarding.response.ok, `no-grant onboarding should succeed: ${JSON.stringify(noGrantOnboarding.body)}`);
+  assertCondition(noGrantOnboarding.body.trustLevel === "trusted_metadata_only", "no-grant onboarding trust level mismatch");
+  assertCondition((noGrantOnboarding.body.capabilityDecision?.approvedCapabilities ?? []).length === 0, "no-grant onboarding should approve zero actions");
+  assertCondition((noGrantOnboarding.body.capabilityDecision?.blockedCapabilities ?? []).every((item) => item.reason?.includes("missing application access grant")), "no-grant blocked reasons should mention missing application access grants");
+  assertNoSecretMarkers(noGrantOnboarding.body);
+  ok("no application grants blocks all actions without failing onboarding");
+
+  await postJson("/admin/oauth-application", {
+    appName: "Jira Agent Connected App",
+    clientId: "jira-agent-client",
+    authorizationServerIssuer: "http://localhost:4110",
+    tokenEndpointAuthMethod,
+    applicationAccessGrants: allApplicationAccessGrants,
+    grantedScopes: allApplicationAccessGrants,
+    status: "active"
+  });
+  await postJson("/admin/service-principal", {
+    principalType: "service_account",
+    principalId: "svc-a2a-jira-agent",
+    effectivePermissions: allEffectivePermissions,
+    deniedPermissions: []
+  });
+  const fullAccessOnboarding = await startGatewayOnboarding();
+  assertCondition(fullAccessOnboarding.response.ok, `full-access onboarding should succeed: ${JSON.stringify(fullAccessOnboarding.body)}`);
+  assertCondition((fullAccessOnboarding.body.capabilityDecision?.approvedCapabilities ?? []).some((item) => item.capability === "jira.issue.create"), "full-access onboarding should approve create issue action");
+  assertNoSecretMarkers(fullAccessOnboarding.body);
+  ok("all grants and permissions approve create issue action");
+
   const disabled = await postJson("/admin/oauth-application", {
     appName: "Jira Agent Connected App",
     clientId: "jira-agent-client",
     authorizationServerIssuer: "http://localhost:4110",
     tokenEndpointAuthMethod,
+    applicationAccessGrants: requestedScopes,
     grantedScopes: requestedScopes,
     status: "disabled"
   });

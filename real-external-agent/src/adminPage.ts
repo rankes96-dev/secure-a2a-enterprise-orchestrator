@@ -56,6 +56,9 @@ export function adminPageHtml(): string {
     .checklist li.pass::before { background: #1d6d3d; }
     .checklist li.warn::before { background: #a1272d; }
     .collector { display: grid; gap: 9px; }
+    .collector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .collector-column { display: grid; gap: 8px; min-width: 0; border: 1px solid #edf1f3; border-radius: 10px; padding: 10px; background: #fbfcfd; }
+    .collector-column h4 { display: flex; justify-content: space-between; gap: 8px; color: #253d47; }
     .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
     .selected-chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid #c7d2d8; border-radius: 999px; padding: 6px 8px; color: #253d47; background: #f8fafb; font-size: 12px; font-weight: 800; }
     .selected-chip button { border-radius: 999px; padding: 1px 6px; color: #526b76; background: #e9eff2; font-size: 12px; }
@@ -75,7 +78,7 @@ export function adminPageHtml(): string {
     .contract-list code { border: 1px solid #dbe3e8; border-radius: 999px; padding: 7px 9px; background: #f8fafb; font-size: 12px; }
     .muted { color: #526b76; font-size: 13px; }
     @media (max-width: 980px) {
-      .layout, .developer-grid, .action-grid, .field-grid, .facts { grid-template-columns: 1fr; }
+      .layout, .developer-grid, .action-grid, .field-grid, .facts, .collector-grid { grid-template-columns: 1fr; }
       .readiness-panel { position: static; }
     }
     @media (max-width: 640px) {
@@ -126,7 +129,7 @@ export function adminPageHtml(): string {
         <section>
           <p class="section-kicker">Step 2</p>
           <h2>OAuth application</h2>
-          <p>The OAuth application belongs to the external system. The Gateway will verify that this agent's signed response references this registered application and granted scopes.</p>
+          <p>The OAuth application belongs to the external system. The Gateway will verify that this agent's signed response references this registered application and application access grants.</p>
           <div class="field-grid">
             <label><span>OAuth application name</span><input id="oauth-app-name" /></label>
             <label><span>OAuth Client ID</span><input id="oauth-client-id" /></label>
@@ -134,10 +137,18 @@ export function adminPageHtml(): string {
             <label><span>Application status</span><select id="application-status"><option value="active">active</option><option value="disabled">disabled</option></select></label>
           </div>
           <div class="collector">
-            <h3>Granted scopes</h3>
-            <p class="muted">Choose the OAuth scopes granted to this connected app. No client secret is requested or displayed.</p>
-            <div class="chip-row" id="available-scopes"></div>
-            <div class="chip-row" id="selected-scopes"></div>
+            <h3>Application access grants</h3>
+            <p class="muted">These are the OAuth/API grants assigned to the connected app. They define what the app can request from the external system. In Jira, these are OAuth scopes.</p>
+            <div class="collector-grid">
+              <div class="collector-column">
+                <h4>Available grants <span id="available-grants-count">0</span></h4>
+                <div class="chip-row" id="available-grants"></div>
+              </div>
+              <div class="collector-column">
+                <h4>Selected grants <span id="selected-grants-count">0</span></h4>
+                <div class="chip-row" id="selected-grants"></div>
+              </div>
+            </div>
           </div>
           <details>
             <summary>Advanced OAuth details</summary>
@@ -151,20 +162,38 @@ export function adminPageHtml(): string {
           <p class="section-kicker">Step 3</p>
           <h2>Service account access</h2>
           <h3>Integration user access</h3>
-          <p>OAuth scopes define what the app can ask for. The service account / integration user defines what it can actually do in the resource system.</p>
+          <p>Application access grants define what the app can ask for. The service account / integration user defines what it can actually do in the resource system.</p>
           <div class="field-grid">
             <label><span>Account type</span><select id="principal-type"><option value="service_account">service account</option></select></label>
             <label><span>Service account / Integration user</span><input id="principal-id" /></label>
           </div>
           <div class="collector">
-            <h3>Granted roles & permissions</h3>
-            <div class="chip-row" id="available-permissions"></div>
-            <div class="chip-row" id="selected-permissions"></div>
+            <h3>Effective permissions</h3>
+            <p class="muted">These are the roles/permissions held by the service account or integration user inside the external system.</p>
+            <div class="collector-grid">
+              <div class="collector-column">
+                <h4>Available permissions <span id="available-permissions-count">0</span></h4>
+                <div class="chip-row" id="available-permissions"></div>
+              </div>
+              <div class="collector-column">
+                <h4>Granted permissions <span id="selected-permissions-count">0</span></h4>
+                <div class="chip-row" id="selected-permissions"></div>
+              </div>
+            </div>
           </div>
           <div class="collector">
             <h3>Explicitly denied permissions</h3>
-            <div class="chip-row" id="available-denied-permissions"></div>
-            <div class="chip-row" id="selected-denied-permissions"></div>
+            <p class="muted">These permissions are explicitly blocked for this integration user.</p>
+            <div class="collector-grid">
+              <div class="collector-column">
+                <h4>Available to deny <span id="available-denied-permissions-count">0</span></h4>
+                <div class="chip-row" id="available-denied-permissions"></div>
+              </div>
+              <div class="collector-column">
+                <h4>Denied permissions <span id="selected-denied-permissions-count">0</span></h4>
+                <div class="chip-row" id="selected-denied-permissions"></div>
+              </div>
+            </div>
           </div>
           <button id="save-principal">Save service account access</button>
           <p class="message" id="principal-message"></p>
@@ -174,7 +203,7 @@ export function adminPageHtml(): string {
           <p class="section-kicker">Step 4</p>
           <h2>Agent actions</h2>
           <h3>Actions this agent can expose</h3>
-          <p>These are actions the external agent can declare. The Gateway decides which actions are approved after checking OAuth scopes and service account permissions.</p>
+          <p>These are actions the external agent can declare. The Gateway approves or blocks each action based on application access grants and effective permissions.</p>
           <div class="action-grid" id="action-grid"></div>
           <button id="save-capabilities">Save agent actions</button>
           <p class="message" id="capability-message"></p>
@@ -239,40 +268,15 @@ export function adminPageHtml(): string {
   </main>
   <script>
     const $ = (id) => document.getElementById(id);
-    const availableScopes = ["read:jira-work", "read:jira-user", "write:jira-work", "manage:jira-project"];
-    const availablePermissions = ["browse_projects", "view_issues", "read_project_roles", "create_issues", "administer_projects"];
-    const actionCatalog = [
-      {
-        label: "Diagnose Jira issue creation failures",
-        capability: "jira.issue.diagnose_creation_failure",
-        description: "Inspect project and issue metadata to explain why Jira issue creation is failing.",
-        requiredScopes: ["read:jira-work"],
-        requiredPermissions: ["browse_projects", "view_issues"]
-      },
-      {
-        label: "Inspect Jira permissions",
-        capability: "jira.permission.inspect",
-        description: "Review project roles and user visibility that affect Jira access.",
-        requiredScopes: ["read:jira-user"],
-        requiredPermissions: ["read_project_roles"]
-      },
-      {
-        label: "Create Jira issues",
-        capability: "jira.issue.create",
-        description: "Create new Jira issues through the external agent runtime.",
-        requiredScopes: ["write:jira-work"],
-        requiredPermissions: ["create_issues"]
-      }
-    ];
-    const signedResponseFields = ["agentId", "issuer", "clientId", "audience", "requestedScopes", "agentDeclaredCapabilities", "oauthApplication", "servicePrincipal", "nonce", "signedTrustResponse"];
+    const signedResponseFields = ["agentId", "issuer", "clientId", "audience", "requestedApplicationGrants", "requestedScopes", "agentDeclaredCapabilities", "oauthApplication", "servicePrincipal", "nonce", "signedTrustResponse"];
     let currentConfig = null;
-    let selectedScopes = [];
+    let connectorProfile = null;
+    let selectedApplicationGrants = [];
     let effectivePermissions = [];
     let deniedPermissions = [];
-    let enabledCapabilities = [];
+    let enabledActionIds = [];
 
     const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
-    const hasAll = (selected, required) => required.every((item) => selected.includes(item));
     const post = async (path, body) => {
       const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
       const json = await response.json();
@@ -289,70 +293,87 @@ export function adminPageHtml(): string {
         onboardingMethod: config.trustedGateway.onboardingMethod
       };
     }
-    function chipButton(label, selected, onClickName, extraClass = "") {
-      return '<button type="button" class="chip ' + (selected ? "selected " : "") + extraClass + '" data-action="' + onClickName + '" data-value="' + escapeHtml(label) + '">' + escapeHtml(label) + '</button>';
-    }
-    function selectedChip(label, onClickName) {
-      return '<span class="selected-chip">' + escapeHtml(label) + '<button type="button" data-action="' + onClickName + '" data-value="' + escapeHtml(label) + '">x</button></span>';
-    }
     function toggleItem(list, item) {
       return list.includes(item) ? list.filter((value) => value !== item) : [...list, item];
     }
+    function catalogButton(item, action, extraClass = "") {
+      return '<button type="button" class="chip ' + extraClass + '" data-action="' + action + '" data-value="' + escapeHtml(item.id) + '">' + escapeHtml(item.label) + '<br><small>' + escapeHtml(item.description) + '</small></button>';
+    }
+    function renderCollector(catalog, selected, availableId, selectedId, availableCountId, selectedCountId, addAction, removeAction, selectedClass = "") {
+      const selectedSet = new Set(selected);
+      const available = catalog.filter((item) => !selectedSet.has(item.id));
+      const selectedItems = selected.map((id) => catalog.find((item) => item.id === id) || { id, label: id, description: id });
+      $(availableCountId).textContent = String(available.length);
+      $(selectedCountId).textContent = String(selectedItems.length);
+      $(availableId).innerHTML = available.length ? available.map((item) => catalogButton(item, addAction)).join("") : '<p class="muted">None available.</p>';
+      $(selectedId).innerHTML = selectedItems.length ? selectedItems.map((item) => '<span class="selected-chip ' + selectedClass + '">' + escapeHtml(item.label) + '<button type="button" data-action="' + removeAction + '" data-value="' + escapeHtml(item.id) + '">x</button></span>').join("") : '<p class="muted">None selected.</p>';
+    }
     function renderCollectors() {
-      $("available-scopes").innerHTML = availableScopes.map((scope) => chipButton(scope, selectedScopes.includes(scope), "toggle-scope")).join("");
-      $("selected-scopes").innerHTML = selectedScopes.length ? selectedScopes.map((scope) => selectedChip(scope, "toggle-scope")).join("") : '<p class="muted">No scopes selected.</p>';
-      $("available-permissions").innerHTML = availablePermissions.map((permission) => chipButton(permission, effectivePermissions.includes(permission), "toggle-permission")).join("");
-      $("selected-permissions").innerHTML = effectivePermissions.length ? effectivePermissions.map((permission) => selectedChip(permission, "toggle-permission")).join("") : '<p class="muted">No permissions selected.</p>';
-      $("available-denied-permissions").innerHTML = availablePermissions.map((permission) => chipButton(permission, deniedPermissions.includes(permission), "toggle-denied", deniedPermissions.includes(permission) ? "warn" : "")).join("");
-      $("selected-denied-permissions").innerHTML = deniedPermissions.length ? deniedPermissions.map((permission) => selectedChip(permission, "toggle-denied")).join("") : '<p class="muted">No explicitly denied permissions.</p>';
+      renderCollector(connectorProfile.applicationAccessGrantCatalog, selectedApplicationGrants, "available-grants", "selected-grants", "available-grants-count", "selected-grants-count", "add-grant", "remove-grant");
+      renderCollector(connectorProfile.effectivePermissionCatalog, effectivePermissions, "available-permissions", "selected-permissions", "available-permissions-count", "selected-permissions-count", "add-permission", "remove-permission");
+      const deniedCatalog = connectorProfile.effectivePermissionCatalog.filter((permission) => !effectivePermissions.includes(permission.id) || deniedPermissions.includes(permission.id));
+      renderCollector(deniedCatalog, deniedPermissions, "available-denied-permissions", "selected-denied-permissions", "available-denied-permissions-count", "selected-denied-permissions-count", "add-denied", "remove-denied", "warn");
     }
     function actionPreview(action) {
-      const missingScopes = action.requiredScopes.filter((scope) => !selectedScopes.includes(scope));
-      const missingPermissions = action.requiredPermissions.filter((permission) => !effectivePermissions.includes(permission));
-      const denied = action.requiredPermissions.filter((permission) => deniedPermissions.includes(permission));
-      const ready = missingScopes.length === 0 && missingPermissions.length === 0 && denied.length === 0;
+      const missingApplicationGrants = action.requiredApplicationGrants.filter((grant) => !selectedApplicationGrants.includes(grant));
+      const denied = action.requiredEffectivePermissions.filter((permission) => deniedPermissions.includes(permission));
+      const missingPermissions = action.requiredEffectivePermissions.filter((permission) => !effectivePermissions.includes(permission) && !deniedPermissions.includes(permission));
+      const ready = missingApplicationGrants.length === 0 && missingPermissions.length === 0 && denied.length === 0;
       const reasons = [
-        ...missingScopes.map((scope) => "missing scope " + scope),
-        ...missingPermissions.map((permission) => "missing permission " + permission),
-        ...denied.map((permission) => permission + " denied")
+        ...missingApplicationGrants.map((grant) => "missing application access grant " + grant),
+        ...missingPermissions.map((permission) => "missing effective permission " + permission),
+        ...denied.map((permission) => "denied permission " + permission)
       ];
-      return { ready, reasons };
+      const status = !ready && missingApplicationGrants.length && (missingPermissions.length || denied.length)
+        ? "Blocked by both application access and permission"
+        : missingApplicationGrants.length
+          ? "Blocked by missing application access grant"
+          : denied.length
+            ? "Blocked by denied permission"
+            : missingPermissions.length
+              ? "Blocked by missing effective permission"
+              : "Ready";
+      return { ready, reasons, status, missingApplicationGrants, missingPermissions, denied };
     }
     function renderActions() {
-      $("action-grid").innerHTML = actionCatalog.map((action) => {
-        const enabled = enabledCapabilities.includes(action.capability);
+      $("action-grid").innerHTML = connectorProfile.actionCatalog.map((action) => {
+        const enabled = enabledActionIds.includes(action.id);
         const preview = actionPreview(action);
         const statusClass = enabled ? (preview.ready ? "ready" : "blocked") : "disabled";
         return '<article class="action-card ' + statusClass + '">' +
           '<div><h3>' + escapeHtml(action.label) + '</h3><p>' + escapeHtml(action.description) + '</p></div>' +
-          '<span class="preview-pill ' + (preview.ready ? "" : "blocked") + '">' + (preview.ready ? "approved-ready" : "blocked-preview") + '</span>' +
-          '<small>Requires scopes: ' + escapeHtml(action.requiredScopes.join(", ")) + '</small>' +
-          '<small>Requires permissions: ' + escapeHtml(action.requiredPermissions.join(", ")) + '</small>' +
+          '<span class="preview-pill ' + (preview.ready ? "" : "blocked") + '">' + (enabled ? preview.status : "Disabled") + '</span>' +
+          '<small>Required application access grants: ' + escapeHtml(action.requiredApplicationGrants.join(", ")) + '</small>' +
+          '<small>Required effective permissions: ' + escapeHtml(action.requiredEffectivePermissions.join(", ")) + '</small>' +
           (!preview.ready ? '<small>' + escapeHtml(preview.reasons.join("; ")) + '</small>' : '') +
-          '<button type="button" class="' + (enabled ? "secondary" : "") + '" data-action="toggle-action" data-value="' + escapeHtml(action.capability) + '">' + (enabled ? "Enabled" : "Disabled") + '</button>' +
+          '<details><summary>Advanced metadata</summary><code>' + escapeHtml(action.id) + '</code></details>' +
+          '<button type="button" class="' + (enabled ? "secondary" : "") + '" data-action="toggle-action" data-value="' + escapeHtml(action.id) + '">' + (enabled ? "Enabled" : "Disabled") + '</button>' +
         '</article>';
       }).join("");
     }
     function renderReadiness(config) {
       const gatewayReady = Boolean(config.trustedGateway.clientId && config.trustedGateway.issuer && config.trustedGateway.jwksUri);
-      const scopesReady = selectedScopes.length > 0;
+      const grantsReady = selectedApplicationGrants.length > 0;
       const serviceAccountReady = Boolean(config.servicePrincipal.principalId);
       const permissionsReady = effectivePermissions.length > 0;
-      const actionsReady = enabledCapabilities.length > 0;
-      const noSecrets = !config.warnings.some((item) => item.toLowerCase().includes("secret"));
-      const previews = actionCatalog.filter((action) => enabledCapabilities.includes(action.capability)).map(actionPreview);
+      const actionsReady = enabledActionIds.length > 0;
+      const noSecrets = ![...config.warnings, ...config.blockers].some((item) => item.toLowerCase().includes("secret"));
+      const previews = connectorProfile.actionCatalog.filter((action) => enabledActionIds.includes(action.id)).map(actionPreview);
       const approved = previews.filter((preview) => preview.ready).length;
       const blocked = previews.length - approved;
-      $("ready-title").textContent = config.ready ? "Ready for Gateway onboarding" : "Configuration incomplete";
-      $("ready-badge").textContent = config.ready ? "Ready" : "Needs setup";
-      $("ready-badge").className = "status-badge " + (config.ready ? "ready" : "");
-      $("warnings").textContent = config.warnings.length ? config.warnings.join(" ") : "No warnings. This local demo config does not store or display secrets.";
+      const missingGrants = [...new Set(previews.flatMap((preview) => preview.missingApplicationGrants))];
+      const missingPermissions = [...new Set(previews.flatMap((preview) => preview.missingPermissions))];
+      const deniedAffectingActions = [...new Set(previews.flatMap((preview) => preview.denied))];
+      $("ready-title").textContent = config.readinessStatus === "incomplete" ? "Configuration incomplete" : config.readinessStatus === "readyWithWarnings" ? "Ready with warnings" : "Ready for Gateway onboarding";
+      $("ready-badge").textContent = config.readinessStatus === "ready" ? "Ready" : config.readinessStatus === "readyWithWarnings" ? "Warnings" : "Needs setup";
+      $("ready-badge").className = "status-badge " + (config.readinessStatus === "ready" ? "ready" : "");
+      $("warnings").textContent = [...config.blockers, ...config.warnings].length ? [...config.blockers, ...config.warnings].join(" ") : "No warnings. This local demo config does not store or display secrets.";
       const checks = [
         ["Gateway trust configured", gatewayReady],
         ["OAuth app active", config.oauthApplication.status === "active"],
-        ["Scopes selected", scopesReady],
+        ["Application access grants selected", grantsReady],
         ["Service account configured", serviceAccountReady],
-        ["Permissions selected", permissionsReady],
+        ["Effective permissions selected", permissionsReady],
         ["Agent actions selected", actionsReady],
         ["No secrets detected", noSecrets]
       ];
@@ -361,8 +382,11 @@ export function adminPageHtml(): string {
       $("readiness-detail").innerHTML = html;
       $("readiness-copy").textContent = config.ready ? "This external agent is ready to respond to a signed Gateway onboarding challenge." : "Complete the required setup items before Gateway onboarding.";
       $("decision-preview").innerHTML = [
-        ["Approved actions preview", approved],
+        ["Ready actions preview", approved],
         ["Blocked actions preview", blocked],
+        ["Missing application access grants", missingGrants.join(", ") || "none"],
+        ["Missing effective permissions", missingPermissions.join(", ") || "none"],
+        ["Denied permissions affecting actions", deniedAffectingActions.join(", ") || "none"],
         ["Gateway authority", "final decision"]
       ].map(([label, value]) => '<div class="fact"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + '</strong></div>').join("");
     }
@@ -374,10 +398,11 @@ export function adminPageHtml(): string {
     }
     function render(config) {
       currentConfig = config;
-      selectedScopes = [...config.oauthApplication.grantedScopes];
+      connectorProfile = config.connectorProfile;
+      selectedApplicationGrants = [...(config.oauthApplication.applicationAccessGrants || config.oauthApplication.grantedScopes || [])];
       effectivePermissions = [...config.servicePrincipal.effectivePermissions];
       deniedPermissions = [...config.servicePrincipal.deniedPermissions];
-      enabledCapabilities = [...config.capabilityDeclaration.agentDeclaredCapabilities];
+      enabledActionIds = [...(config.capabilityDeclaration.enabledActionIds || config.capabilityDeclaration.agentDeclaredCapabilities)];
       $("gateway-facts").innerHTML = [
         ["Gateway Client ID", config.trustedGateway.clientId],
         ["Gateway Issuer", config.trustedGateway.issuer],
@@ -413,7 +438,18 @@ export function adminPageHtml(): string {
       const action = target.getAttribute("data-action");
       const value = target.getAttribute("data-value");
       if (!value) return;
-      if (action === "toggle-scope") selectedScopes = toggleItem(selectedScopes, value);
+      if (action === "add-grant") selectedApplicationGrants = [...selectedApplicationGrants, value];
+      if (action === "remove-grant") selectedApplicationGrants = selectedApplicationGrants.filter((item) => item !== value);
+      if (action === "add-permission") {
+        effectivePermissions = [...effectivePermissions, value];
+        deniedPermissions = deniedPermissions.filter((item) => item !== value);
+      }
+      if (action === "remove-permission") effectivePermissions = effectivePermissions.filter((item) => item !== value);
+      if (action === "add-denied") {
+        deniedPermissions = [...deniedPermissions, value];
+        effectivePermissions = effectivePermissions.filter((item) => item !== value);
+      }
+      if (action === "remove-denied") deniedPermissions = deniedPermissions.filter((item) => item !== value);
       if (action === "toggle-permission") {
         effectivePermissions = toggleItem(effectivePermissions, value);
         if (effectivePermissions.includes(value)) deniedPermissions = deniedPermissions.filter((item) => item !== value);
@@ -422,7 +458,7 @@ export function adminPageHtml(): string {
         deniedPermissions = toggleItem(deniedPermissions, value);
         if (deniedPermissions.includes(value)) effectivePermissions = effectivePermissions.filter((item) => item !== value);
       }
-      if (action === "toggle-action") enabledCapabilities = toggleItem(enabledCapabilities, value);
+      if (action === "toggle-action") enabledActionIds = toggleItem(enabledActionIds, value);
       rerenderLocalPreview();
     });
     $("bizapps-tab").addEventListener("click", () => {
@@ -452,7 +488,8 @@ export function adminPageHtml(): string {
           clientId: $("oauth-client-id").value,
           authorizationServerIssuer: $("authorization-server-issuer").value,
           tokenEndpointAuthMethod: $("token-auth-method").value,
-          grantedScopes: selectedScopes,
+          applicationAccessGrants: selectedApplicationGrants,
+          grantedScopes: selectedApplicationGrants,
           status: $("application-status").value
         }));
         setMessage("oauth-message", "OAuth application saved.");
@@ -472,8 +509,10 @@ export function adminPageHtml(): string {
     $("save-capabilities").addEventListener("click", async () => {
       try {
         render(await post("/admin/capability-declaration", {
-          requestedScopes: selectedScopes,
-          agentDeclaredCapabilities: enabledCapabilities
+          requestedApplicationGrants: selectedApplicationGrants,
+          requestedScopes: selectedApplicationGrants,
+          enabledActionIds,
+          agentDeclaredCapabilities: enabledActionIds
         }));
         setMessage("capability-message", "Agent actions saved.");
       } catch (error) { setMessage("capability-message", error.message, false); }

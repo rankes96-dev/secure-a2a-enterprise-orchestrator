@@ -50,7 +50,7 @@ export function evaluateResourcePermissionRegistration(registration: ResourcePer
     return {
       capability,
       requiredPermissions,
-      missingPermissions: requiredPermissions.filter((permission) => !effectivePermissions.has(permission)),
+      missingPermissions: requiredPermissions.filter((permission) => !effectivePermissions.has(permission) && !deniedPermissions.has(permission)),
       deniedPermissions: requiredPermissions.filter((permission) => deniedPermissions.has(permission))
     };
   });

@@ -22,6 +22,8 @@ function discoveryDocument() {
     agentId,
     issuer,
     resourceSystem: agent.resourceSystem,
+    connectorId: agent.connectorId,
+    connectorDisplayName: agent.connectorDisplayName,
     trustAdapter: agent.trustAdapter,
     jwksUri: `${issuer}/.well-known/jwks.json`,
     onboardingEndpoint: `${issuer}/onboarding/challenge`,

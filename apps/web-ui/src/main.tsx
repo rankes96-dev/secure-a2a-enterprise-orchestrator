@@ -740,7 +740,9 @@ type TrustedOnboardedAgent = {
   clientId: string;
   audience: string;
   requestedScopes: string[];
+  requestedApplicationGrants?: string[];
   agentDeclaredCapabilities: string[];
+  applicationAccessGrants?: string[];
   grantedScopes: string[];
   approvedCapabilities: DerivedCapability[];
   blockedCapabilities: DerivedCapability[];
@@ -762,6 +764,7 @@ type AgentOnboardingResult = {
     clientId: string;
     audience: string;
     requestedScopes: string[];
+    requestedApplicationGrants?: string[];
     agentDeclaredCapabilities: string[];
   };
   agent: {
@@ -784,7 +787,9 @@ type AgentOnboardingResult = {
   };
   oauthApplicationProof: {
     clientBound: boolean;
+    applicationAccessGrants?: string[];
     grantedScopes: string[];
+    missingRequestedApplicationGrants?: string[];
     allowedClientId?: string;
     tokenEndpointAuthMethod?: "private-key-jwt" | "client-secret-post" | "unknown";
     status?: "active" | "disabled";
@@ -798,8 +803,10 @@ type AgentOnboardingResult = {
     resourceSystem?: string;
     trustAdapter?: string;
     oauthApplication?: {
+      appName?: string;
       clientId: string;
       authorizationServerIssuer: string;
+      applicationAccessGrants?: string[];
       grantedScopes: string[];
       tokenEndpointAuthMethod: string;
       status: string;
@@ -1991,7 +1998,7 @@ function App() {
       ["Signed agent response verified", "Verify the external agent trust response with its JWKS.", "signed_agent_response_verified"],
       ["OAuth application binding checked", "Match client, issuer, audience, and token auth method.", "oauth_application_bound"],
       ["Resource permissions loaded", "Load effective and denied permissions for the app principal.", "resource_permissions_loaded"],
-      ["Capabilities derived", "Approve or block capabilities from OAuth grants and permissions.", "capabilities_derived"],
+      ["Actions decided", "Approve or block actions from application access grants and effective permissions.", "capabilities_derived"],
       ["Runtime remains metadata-only", "External runtime execution stays disabled for this phase.", "runtime_execution_metadata_only"]
     ] as const;
     const moveStep = (direction: 1 | -1) => {
@@ -2018,14 +2025,23 @@ function App() {
         Back
       </button>
     );
+    const actionLabel = (capability: string) => ({
+      "jira.issue.diagnose_creation_failure": "Diagnose Jira issue creation failures",
+      "jira.permission.inspect": "Inspect Jira permissions",
+      "jira.issue.create": "Create Jira issues"
+    }[capability] ?? capability);
     const renderCapabilityList = (items: DerivedCapability[], emptyLabel: string) => (
       <div className="capability-list">
         {items.length ? items.map((item) => (
           <article key={item.capability}>
-            <strong>{item.capability}</strong>
+            <strong>{actionLabel(item.capability)}</strong>
             <span>{item.reason}</span>
-            {zeroTrustResult?.discoveredAgent.requestedScopes.length ? <small>Required scopes: {zeroTrustResult.discoveredAgent.requestedScopes.join(", ")}</small> : null}
-            {zeroTrustResult?.resourcePermissionProof.effectivePermissions.length ? <small>Required permissions: {zeroTrustResult.resourcePermissionProof.effectivePermissions.join(", ")}</small> : null}
+            {(zeroTrustResult?.discoveredAgent.requestedApplicationGrants?.length ?? 0) > 0
+              ? <small>Requested application grants: {zeroTrustResult?.discoveredAgent.requestedApplicationGrants?.join(", ")}</small>
+              : zeroTrustResult?.discoveredAgent.requestedScopes.length
+                ? <small>Requested application grants: {zeroTrustResult.discoveredAgent.requestedScopes.join(", ")}</small>
+                : null}
+            {zeroTrustResult?.resourcePermissionProof.effectivePermissions.length ? <small>Effective permissions present: {zeroTrustResult.resourcePermissionProof.effectivePermissions.join(", ")}</small> : null}
           </article>
         )) : <p className="muted-note">{emptyLabel}</p>}
       </div>
@@ -2037,7 +2053,7 @@ function App() {
             {connectionAudience === "bizapps" ? (
               <>
                 <h3>Connect an external agent</h3>
-                <p>This wizard connects an external agent without trusting pasted JSON. The Gateway discovers the agent, proves Gateway identity, verifies the agent signature, checks OAuth application binding, validates service-principal permissions, and derives approved capabilities.</p>
+                <p>This wizard connects an external agent without trusting pasted JSON. The Gateway discovers the agent, proves Gateway identity, verifies the agent signature, checks OAuth application binding, validates effective permissions, and decides approved actions.</p>
                 <div className="wizard-card-grid three-up">
                   <article>
                     <span>What you provide</span>
@@ -2052,7 +2068,7 @@ function App() {
                       <li>Gateway registration</li>
                       <li>OAuth application</li>
                       <li>Service principal</li>
-                      <li>Declared capabilities</li>
+                      <li>Declared agent actions</li>
                     </ul>
                   </article>
                   <article>
@@ -2060,9 +2076,9 @@ function App() {
                     <ul>
                       <li>Signed challenge</li>
                       <li>Signed trust response</li>
-                      <li>OAuth scopes</li>
-                      <li>Resource permissions</li>
-                      <li>Approved/blocked capabilities</li>
+                      <li>Application access grants</li>
+                      <li>Effective permissions</li>
+                      <li>Approved/blocked actions</li>
                     </ul>
                   </article>
                 </div>
@@ -2294,20 +2310,22 @@ function App() {
                   <ul>
                     <li>Gateway identity verified by external agent</li>
                     <li>Agent identity verified by Gateway</li>
-                    <li>OAuth application binding checked</li>
-                    <li>Resource permissions evaluated</li>
-                    <li>Capabilities derived by Gateway</li>
+                    <li>Application access grants checked</li>
+                    <li>Effective permissions evaluated</li>
+                    <li>Agent actions decided by Gateway policy</li>
                   </ul>
                 </article>
                 <article>
-                  <span>External application</span>
-                  <strong>{zeroTrustResult.externalApplicationAttestation?.oauthApplication?.clientId ?? zeroTrustResult.discoveredAgent.clientId}</strong>
+                  <span>Application Access Proof</span>
+                  <strong>{zeroTrustResult.externalApplicationAttestation?.oauthApplication?.appName ?? zeroTrustResult.externalApplicationAttestation?.oauthApplication?.clientId ?? zeroTrustResult.discoveredAgent.clientId}</strong>
+                  <small>Client ID: {zeroTrustResult.externalApplicationAttestation?.oauthApplication?.clientId ?? zeroTrustResult.discoveredAgent.clientId}</small>
                   <small>Authorization server issuer: {zeroTrustResult.externalApplicationAttestation?.oauthApplication?.authorizationServerIssuer ?? zeroTrustResult.discoveredAgent.issuer}</small>
-                  <small>Granted scopes: {zeroTrustResult.oauthApplicationProof.grantedScopes.join(", ") || "none"}</small>
+                  <small>Application access grants: {(zeroTrustResult.oauthApplicationProof.applicationAccessGrants ?? zeroTrustResult.oauthApplicationProof.grantedScopes).join(", ") || "none"}</small>
+                  <small>OAuth scopes / application access grants: {zeroTrustResult.oauthApplicationProof.grantedScopes.join(", ") || "none"}</small>
                   <small>App status: {zeroTrustResult.oauthApplicationProof.status ?? zeroTrustResult.externalApplicationAttestation?.oauthApplication?.status ?? "unknown"}</small>
                 </article>
                 <article>
-                  <span>Service principal</span>
+                  <span>Effective Permission Proof</span>
                   <strong>{zeroTrustResult.externalApplicationAttestation?.servicePrincipal?.principalId ?? zeroTrustResult.resourcePermissionProof.principal}</strong>
                   <small>Effective permissions: {zeroTrustResult.resourcePermissionProof.effectivePermissions.join(", ") || "none"}</small>
                   <small>Denied permissions: {zeroTrustResult.resourcePermissionProof.deniedPermissions.join(", ") || "none"}</small>
@@ -2319,17 +2337,17 @@ function App() {
                   <small>Raw assertion: hidden.</small>
                 </article>
               </div>
-              <section className="capability-decision-grid" aria-label="Capability decision">
+              <section className="capability-decision-grid" aria-label="Gateway Capability Decision">
                 <div>
-                  <h4>Approved capabilities</h4>
-                  {renderCapabilityList(approvedCapabilities, "No approved capabilities.")}
+                  <h4>Approved actions</h4>
+                  {renderCapabilityList(approvedCapabilities, "No approved actions.")}
                 </div>
                 <div>
-                  <h4>Blocked capabilities</h4>
-                  {renderCapabilityList(blockedCapabilities, "No blocked capabilities.")}
+                  <h4>Blocked actions</h4>
+                  {renderCapabilityList(blockedCapabilities, "No blocked actions.")}
                 </div>
               </section>
-              <p>Capabilities are declared by the external agent, but approved only after OAuth scope and resource permission validation.</p>
+              <p>Agent actions are declared by the external agent, but approved only after application access grants, effective permissions, denied permissions, and Gateway policy are evaluated.</p>
               <div className="wizard-action-row">
                 <button type="button" className="secondary-button compact-button" onClick={() => guideToTarget("registered-agents")}>View registered agents</button>
                 <button type="button" className="secondary-button compact-button" onClick={startAnotherConnection}>Start another connection</button>
@@ -2515,7 +2533,7 @@ function App() {
     const agentGroups = [
       {
         title: "Zero-Trust Onboarded Agents",
-        description: "External agents verified through Three-Way Trust Binding: agent proof, OAuth grants, and resource permissions.",
+        description: "External agents verified through Three-Way Trust Binding: agent proof, application access grants, and effective permissions.",
         agents: zeroTrustAgents,
         defaultOpen: zeroTrustAgents.length > 0,
         emptyState: "No zero-trust onboarded agents yet. Start onboarding to verify an external agent."
@@ -2584,19 +2602,19 @@ function App() {
                     <strong>{agent.oauthApplicationBound ? "yes" : "no"}</strong>
                   </div>
                   <div>
-                    <span>Granted scopes</span>
+                    <span>Application access grants</span>
                     <strong>{agent.grantedScopes?.join(", ") || "none"}</strong>
                   </div>
                   <div>
-                    <span>Agent-declared capabilities</span>
+                    <span>Agent-declared actions</span>
                     <strong>{agent.agentDeclaredCapabilities?.join(", ") || "none"}</strong>
                   </div>
                   <div>
-                    <span>Approved capabilities</span>
+                    <span>Approved actions</span>
                     <strong>{agent.approvedCapabilities?.map((item) => item.capability).join(", ") || "none"}</strong>
                   </div>
                   <div>
-                    <span>Blocked capabilities</span>
+                    <span>Blocked actions</span>
                     <strong>{agent.blockedCapabilities?.map((item) => `${item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
                   </div>
                   <div>

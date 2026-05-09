@@ -54,10 +54,10 @@ Zero-Trust Agent Onboarding uses a Three-Way Trust Binding before promoting meta
 - The external OAuth application is configured on the external agent/application side, not in the Gateway.
 - The Gateway provides public registration metadata that the external agent owner registers in their admin console.
 - The external agent validates the Gateway challenge, then returns a signed attestation containing OAuth application and service principal metadata.
-- The OAuth application binding verifies `clientId`, issuer, audience, granted scopes, app status, and token auth method.
-- The Resource Permission proof verifies the app/service principal has effective resource-system permissions.
-- The gateway derives approved and blocked capabilities from agent declarations, OAuth grants, resource permissions, and policy.
-- The gateway rejects unknown clients, disabled apps, wrong issuers/audiences, and ungranted requested scopes.
+- The OAuth application binding verifies `clientId`, issuer, audience, app status, token auth method, and application access grants.
+- The Effective Permission proof verifies the service account / integration user has effective resource-system permissions and no denied permissions required by the action.
+- The gateway derives approved and blocked actions from agent declarations, application access grants, effective permissions, denied permissions, and policy.
+- The gateway rejects unknown clients, disabled apps, wrong issuers/audiences, and malformed OAuth application bindings.
 - Successful onboarding is stored as `trusted_metadata_only`.
 
 Runtime execution for onboarded external agents remains disabled until a future runtime validation phase.
@@ -193,7 +193,9 @@ Agent Cards and discovery documents are declarations, not trust. Trusted onboard
 
 The Gateway does not create or own the external OAuth app. The external agent owner configures that app in the external agent admin console. In this demo, `real-external-agent` exposes `http://localhost:4201/admin` to configure the trusted Gateway registration, OAuth app, service principal permissions, and agent-declared capabilities.
 
-The Gateway verifies the signed external attestation and derives approved capabilities from OAuth grants, resource permissions, and policy. It does not trust user-pasted scopes or agent-declared capabilities by themselves.
+The Gateway verifies the signed external attestation and derives approved actions through a generic **Application Access Grants + Effective Permissions + Action Requirements** model. Application access grants define what the connected app can request. Effective permissions define what the service account or integration user can actually do. An action is approved only when its required application grants are present, its required effective permissions are present, no required permission is explicitly denied, and Gateway policy allows it.
+
+Jira is the current reference connector profile. System-specific catalogs for ServiceNow, Salesforce, GitHub, Slack, and other systems will come from the future Custom Connector Layer.
 
 For this phase, successfully onboarded external agents are stored as `trusted_metadata_only`. Runtime execution for external onboarded agents remains disabled until a future runtime validation phase.
 
@@ -348,7 +350,7 @@ npm run verify:mock-idp-ip-allowlist
 3. Review selected Agent Cards and policy decisions.
 4. Open Security Timeline.
 5. Show scoped JWT / actor metadata with raw tokens hidden.
-6. Start Zero-Trust Agent Onboarding in Agent Registry and show approved and blocked capabilities.
+6. Start Zero-Trust Agent Onboarding in Agent Registry and show approved and blocked actions.
 
 ## Try It
 
