@@ -1258,6 +1258,343 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.audience-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #dbe3e8;
+  border-radius: 10px;
+  padding: 8px;
+  background: #ffffff;
+}
+
+.audience-toggle span {
+  color: #526b76;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.audience-toggle button {
+  border: 1px solid #c7d2d8;
+  border-radius: 8px;
+  padding: 8px 11px;
+  color: #253d47;
+  background: #f6f9fa;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.audience-toggle button.active {
+  color: #ffffff;
+  border-color: #14213d;
+  background: #14213d;
+}
+
+.wizard-step-panel {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  border: 1px solid #dbe3e8;
+  border-radius: 12px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.wizard-step-panel h3 {
+  margin: 0;
+  color: #172026;
+  font-size: 20px;
+}
+
+.wizard-step-panel h4 {
+  margin: 0;
+  color: #172026;
+  font-size: 14px;
+}
+
+.wizard-step-panel p {
+  margin: 0;
+  color: #384b53;
+  line-height: 1.55;
+}
+
+.wizard-card-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.wizard-card-grid.three-up {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.wizard-card-grid.two-up,
+.capability-decision-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.wizard-card-grid article,
+.capability-decision-grid > div,
+.discovery-summary-card,
+.focused-error-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #edf1f3;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fbfcfd;
+}
+
+.wizard-card-grid article span,
+.capability-decision-grid h4,
+.compact-checklist span,
+.wizard-step-panel label span {
+  color: #526b76;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.wizard-card-grid ul,
+.compact-checklist ul,
+.capability-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: #384b53;
+  line-height: 1.45;
+}
+
+.wizard-card-grid article strong,
+.wizard-card-grid article small,
+.capability-list strong,
+.capability-list span,
+.capability-list small {
+  overflow-wrap: anywhere;
+}
+
+.wizard-form {
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  align-items: start;
+}
+
+.wizard-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.wizard-action-row button,
+.wizard-step-panel > .external-console-link {
+  min-height: 40px;
+}
+
+.wizard-action-row button:not(.secondary-button) {
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 13px;
+  color: #ffffff;
+  background: #14213d;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.wizard-action-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.compact-checklist {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #edf1f3;
+  padding-top: 12px;
+}
+
+.compact-checklist ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding-left: 18px;
+}
+
+.wizard-technical-details {
+  min-width: 0;
+  border: 1px solid #dbe3e8;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f8fafb;
+}
+
+.wizard-technical-details summary,
+.why-zero-trust-card summary,
+.registry-overview-section > summary {
+  cursor: pointer;
+  color: #14213d;
+  font-weight: 900;
+}
+
+.wizard-technical-details pre {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  padding: 10px;
+  color: #253d47;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.discovery-summary-card {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.discovery-summary-card div {
+  min-width: 0;
+}
+
+.discovery-summary-card small {
+  display: block;
+  color: #526b76;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.discovery-summary-card strong {
+  display: block;
+  color: #172026;
+  overflow-wrap: anywhere;
+}
+
+.focused-error-panel {
+  border-color: #f3c2c7;
+  background: #fff7f7;
+}
+
+.focused-error-panel h3 {
+  color: #a1272d;
+}
+
+.onboarding-progress-list.vertical {
+  grid-template-columns: 1fr;
+}
+
+.onboarding-progress-list.vertical li {
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.onboarding-progress-list.vertical li::before {
+  grid-row: 1 / span 2;
+}
+
+.onboarding-progress-list.vertical span {
+  grid-column: 2;
+}
+
+.onboarding-progress-list.vertical small {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+}
+
+.result-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.capability-decision-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.capability-list {
+  padding-left: 0;
+  list-style: none;
+}
+
+.capability-list article {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #edf1f3;
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.why-zero-trust-card {
+  padding: 12px 14px;
+}
+
+.why-zero-trust-card ul {
+  margin-top: 10px;
+}
+
+.onboarding-wizard-steps .wizard-completed {
+  border-color: #cfe8d4;
+  background: #f6fbf7;
+}
+
+.onboarding-wizard-steps .wizard-completed span {
+  background: #1d6d3d;
+}
+
+.onboarding-wizard-steps .wizard-failed {
+  border-color: #f3c2c7;
+  background: #fff7f7;
+}
+
+.onboarding-wizard-steps .wizard-failed span {
+  background: #a1272d;
+}
+
+.registry-overview-section {
+  overflow: hidden;
+  border: 1px solid #dbe3e8;
+  border-radius: 12px;
+  background: #fbfcfd;
+}
+
+.registry-overview-section > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 13px 15px;
+  list-style: none;
+}
+
+.registry-overview-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.registry-overview-section > summary div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.registry-overview-section > summary span {
+  color: #526b76;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.registry-overview-section .registry-section {
+  border: 0;
+  border-top: 1px solid #dbe3e8;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .agent-health-panel {
   display: grid;
   gap: 10px;
@@ -3832,19 +4169,47 @@ pre {
   .gateway-registration-card,
   .demo-production-setup-grid,
   .discovery-result-grid,
-  .connection-summary-grid {
+  .connection-summary-grid,
+  .wizard-card-grid.three-up,
+  .wizard-card-grid.two-up,
+  .capability-decision-grid,
+  .discovery-summary-card {
     grid-template-columns: 1fr;
   }
 
   .onboarding-progress-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .onboarding-wizard-steps {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .onboarding-wizard-steps li {
+    min-width: 160px;
+  }
 }
 
 @media (max-width: 768px) {
+  .audience-toggle,
   .zero-trust-form,
   .onboarding-progress-list {
     grid-template-columns: 1fr;
+  }
+
+  .audience-toggle {
+    display: grid;
+  }
+
+  .audience-toggle button,
+  .wizard-action-row button,
+  .wizard-action-row .secondary-button,
+  .external-console-link {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
   }
 
   .zero-trust-form button {
@@ -3854,6 +4219,21 @@ pre {
   .gateway-registration-card pre {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+
+  .onboarding-progress-list.vertical li {
+    grid-template-columns: 12px minmax(0, 1fr);
+  }
+
+  .onboarding-progress-list.vertical small {
+    grid-column: 2;
+    grid-row: auto;
+  }
+
+  .result-title-row,
+  .registry-overview-section > summary {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 }
 

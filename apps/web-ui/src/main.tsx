@@ -138,6 +138,15 @@ type GuidedFocusTarget =
   | "registered-agents"
   | "security-timeline";
 
+type ConnectionAudience = "bizapps" | "developer";
+type ConnectionWizardStep =
+  | "overview"
+  | "gateway-registration"
+  | "connection-input"
+  | "discovery"
+  | "verify"
+  | "result";
+
 const tabs: Array<{ id: ActiveTab; label: string }> = [
   { id: "run-task", label: "Run Task" },
   { id: "agent-registry", label: "Agent Registry" },
@@ -1051,6 +1060,8 @@ function App() {
   const [zeroTrustError, setZeroTrustError] = useState("");
   const [zeroTrustCopyMessage, setZeroTrustCopyMessage] = useState("");
   const [gatewayRegistrationMetadata, setGatewayRegistrationMetadata] = useState<GatewayRegistrationMetadata | null>(null);
+  const [connectionAudience, setConnectionAudience] = useState<ConnectionAudience>("bizapps");
+  const [connectionWizardStep, setConnectionWizardStep] = useState<ConnectionWizardStep>("overview");
   const [isZeroTrustDiscovering, setIsZeroTrustDiscovering] = useState(false);
   const [isZeroTrustOnboarding, setIsZeroTrustOnboarding] = useState(false);
   const [identitySession, setIdentitySession] = useState<IdentitySessionResponse | null>(null);
@@ -1465,8 +1476,10 @@ function App() {
 
       setZeroTrustDiscovery(body);
       setGatewayRegistrationMetadata(body.gatewayRegistration);
+      setConnectionWizardStep("discovery");
       guideToTarget("zero-trust-onboarding");
     } catch (caughtError) {
+      setConnectionWizardStep("discovery");
       setZeroTrustError(caughtError instanceof Error ? caughtError.message : "Discovery failed. Start real-external-agent on http://localhost:4201 and ensure it exposes GET /.well-known/a2a-agent.json.");
       guideToTarget("zero-trust-onboarding");
     } finally {
@@ -1488,9 +1501,11 @@ function App() {
     setZeroTrustResult(null);
     if (!zeroTrustDiscovery) {
       setZeroTrustError("Discover the external agent before verifying the connection.");
+      setConnectionWizardStep("connection-input");
       guideToTarget("zero-trust-onboarding");
       return;
     }
+    setConnectionWizardStep("verify");
     setIsZeroTrustOnboarding(true);
 
     try {
@@ -1516,8 +1531,10 @@ function App() {
       } else {
         await loadZeroTrustOnboardedAgents();
       }
+      setConnectionWizardStep("result");
       guideToTarget("zero-trust-onboarding");
     } catch (caughtError) {
+      setConnectionWizardStep("verify");
       setZeroTrustError(caughtError instanceof Error ? caughtError.message : "Zero-trust onboarding failed");
       guideToTarget("zero-trust-onboarding");
     } finally {
@@ -1922,15 +1939,14 @@ function App() {
   function renderZeroTrustOnboardingPanel() {
     const approvedCapabilities = zeroTrustResult?.capabilityDecision.approvedCapabilities ?? [];
     const blockedCapabilities = zeroTrustResult?.capabilityDecision.blockedCapabilities ?? [];
-    const wizardSteps = [
-      ["Discover Agent", ["external_agent_discovery"]],
-      ["Register Gateway", ["external_agent_discovery"]],
-      ["Verify Gateway Identity", ["gateway_identity_verified", "signed_gateway_challenge_verified"]],
-      ["Verify Agent Identity", ["external_agent_contacted", "signed_agent_response_verified", "nonce_matched"]],
-      ["Bind OAuth App", ["oauth_application_bound", "requested_scopes_granted"]],
-      ["Verify Permissions", ["resource_permissions_loaded"]],
-      ["Review Capabilities", ["capabilities_derived"]]
-    ] as const;
+    const wizardSteps: Array<{ id: ConnectionWizardStep; label: string }> = [
+      { id: "overview", label: "Overview" },
+      { id: "gateway-registration", label: "Register Gateway" },
+      { id: "connection-input", label: "Enter Agent URL" },
+      { id: "discovery", label: "Discover Agent" },
+      { id: "verify", label: "Verify Connection" },
+      { id: "result", label: "Review Result" }
+    ];
     const gatewayMetadata = zeroTrustDiscovery?.gatewayRegistration ?? gatewayRegistrationMetadata ?? {
       gatewayId: "secure-a2a-gateway",
       clientId: "secure-a2a-gateway-client",
@@ -1948,32 +1964,399 @@ function App() {
     const discoveryCheckStatus = (name: string) => zeroTrustDiscovery?.checks.find((check) => check.name === name)?.status;
     const resultCheckStatus = (name: string) => zeroTrustResult?.checks.find((check) => check.name === name)?.status;
     const checkStatus = (name: string) => resultCheckStatus(name) ?? discoveryCheckStatus(name);
-    const wizardStatus = (checkNames: readonly string[], index: number) => {
-      if (zeroTrustResult) {
-        return checkNames.every((name) => checkStatus(name) === "passed" || checkStatus(name) === "metadata_only") ? "passed" : "waiting";
+    const activeStepIndex = wizardSteps.findIndex((step) => step.id === connectionWizardStep);
+    const adminConsoleUrl = zeroTrustDiscovery?.discovery.adminConsoleUrl ?? "http://localhost:4201/admin";
+    const currentStepIndex = activeStepIndex >= 0 ? activeStepIndex : 0;
+    const wizardStatus = (step: ConnectionWizardStep, index: number): "waiting" | "active" | "completed" | "failed" => {
+      if (zeroTrustError && step === connectionWizardStep && (step === "discovery" || step === "verify")) {
+        return "failed";
       }
-      if (zeroTrustDiscovery && index <= 1) {
-        return "passed";
-      }
-      if (!zeroTrustDiscovery && index === 0) {
+      if (step === connectionWizardStep) {
         return "active";
       }
-      if (zeroTrustDiscovery && index === 2) {
-        return "active";
+      if (zeroTrustResult && index < wizardSteps.length - 1) {
+        return "completed";
+      }
+      if (zeroTrustDiscovery && (step === "overview" || step === "gateway-registration" || step === "connection-input" || step === "discovery") && index < currentStepIndex) {
+        return "completed";
+      }
+      if (index < currentStepIndex) {
+        return "completed";
       }
       return "waiting";
     };
     const progressSteps = [
-      ["External agent discovery", "Fetch and validate /.well-known/a2a-agent.json.", "external_agent_discovery"],
-      ["Gateway identity challenge", "Create a signed Gateway assertion for the expected external agent.", "gateway_identity_verified"],
+      ["Signed Gateway challenge created", "Create a signed Gateway assertion for the expected external agent.", "gateway_identity_verified"],
       ["External agent contacted", "Send the signed challenge to the discovered onboarding endpoint.", "external_agent_contacted"],
       ["Signed agent response verified", "Verify the external agent trust response with its JWKS.", "signed_agent_response_verified"],
-      ["OAuth application bound", "Match client, issuer, audience, and token auth method.", "oauth_application_bound"],
-      ["Requested scopes granted", "Confirm requested scopes exist in the OAuth app registration.", "requested_scopes_granted"],
+      ["OAuth application binding checked", "Match client, issuer, audience, and token auth method.", "oauth_application_bound"],
       ["Resource permissions loaded", "Load effective and denied permissions for the app principal.", "resource_permissions_loaded"],
       ["Capabilities derived", "Approve or block capabilities from OAuth grants and permissions.", "capabilities_derived"],
       ["Runtime remains metadata-only", "External runtime execution stays disabled for this phase.", "runtime_execution_metadata_only"]
     ] as const;
+    const moveStep = (direction: 1 | -1) => {
+      const nextIndex = Math.min(Math.max(currentStepIndex + direction, 0), wizardSteps.length - 1);
+      setConnectionWizardStep(wizardSteps[nextIndex].id);
+    };
+    const startAnotherConnection = () => {
+      resetZeroTrustConnectionState();
+      setConnectionWizardStep("overview");
+    };
+    const failureTitle = zeroTrustError.toLowerCase().includes("oauth")
+      ? "OAuth application binding failed"
+      : zeroTrustError.toLowerCase().includes("permission")
+        ? "Resource permissions failed"
+        : zeroTrustError.toLowerCase().includes("gateway")
+          ? "Gateway registration mismatch"
+          : zeroTrustError.toLowerCase().includes("proof") || zeroTrustError.toLowerCase().includes("signature")
+            ? "Agent proof failed"
+            : connectionWizardStep === "discovery"
+              ? "External agent discovery failed."
+              : "Connection verification failed";
+    const renderBackButton = () => (
+      <button type="button" className="secondary-button compact-button" onClick={() => moveStep(-1)} disabled={currentStepIndex === 0 || isZeroTrustDiscovering || isZeroTrustOnboarding}>
+        Back
+      </button>
+    );
+    const renderCapabilityList = (items: DerivedCapability[], emptyLabel: string) => (
+      <div className="capability-list">
+        {items.length ? items.map((item) => (
+          <article key={item.capability}>
+            <strong>{item.capability}</strong>
+            <span>{item.reason}</span>
+            {zeroTrustResult?.discoveredAgent.requestedScopes.length ? <small>Required scopes: {zeroTrustResult.discoveredAgent.requestedScopes.join(", ")}</small> : null}
+            {zeroTrustResult?.resourcePermissionProof.effectivePermissions.length ? <small>Required permissions: {zeroTrustResult.resourcePermissionProof.effectivePermissions.join(", ")}</small> : null}
+          </article>
+        )) : <p className="muted-note">{emptyLabel}</p>}
+      </div>
+    );
+    const renderStep = () => {
+      if (connectionWizardStep === "overview") {
+        return (
+          <article className="wizard-step-panel">
+            {connectionAudience === "bizapps" ? (
+              <>
+                <h3>Connect an external agent</h3>
+                <p>This wizard connects an external agent without trusting pasted JSON. The Gateway discovers the agent, proves Gateway identity, verifies the agent signature, checks OAuth application binding, validates service-principal permissions, and derives approved capabilities.</p>
+                <div className="wizard-card-grid three-up">
+                  <article>
+                    <span>What you provide</span>
+                    <ul>
+                      <li>Agent base URL</li>
+                      <li>Expected agent ID</li>
+                    </ul>
+                  </article>
+                  <article>
+                    <span>What the external agent owner configures</span>
+                    <ul>
+                      <li>Gateway registration</li>
+                      <li>OAuth application</li>
+                      <li>Service principal</li>
+                      <li>Declared capabilities</li>
+                    </ul>
+                  </article>
+                  <article>
+                    <span>What the Gateway verifies</span>
+                    <ul>
+                      <li>Signed challenge</li>
+                      <li>Signed trust response</li>
+                      <li>OAuth scopes</li>
+                      <li>Resource permissions</li>
+                      <li>Approved/blocked capabilities</li>
+                    </ul>
+                  </article>
+                </div>
+                <div className="wizard-action-row">
+                  <button type="button" onClick={() => setConnectionWizardStep("gateway-registration")}>Continue</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3>External Agent Integration Contract</h3>
+                <div className="endpoint-contract-list">
+                  <code>GET /.well-known/a2a-agent.json</code>
+                  <code>GET /.well-known/jwks.json</code>
+                  <code>POST /onboarding/challenge</code>
+                  <code>POST /a2a/task</code>
+                </div>
+                <p>The external agent must validate signed Gateway challenges before returning signed trust responses.</p>
+                <details className="wizard-technical-details">
+                  <summary>Expected discovery JSON shape</summary>
+                  <pre>{`{
+  "agentId": "external-jira-agent",
+  "issuer": "http://localhost:4201",
+  "jwksUri": "http://localhost:4201/.well-known/jwks.json",
+  "onboardingEndpoint": "http://localhost:4201/onboarding/challenge",
+  "runtimeEndpoint": "http://localhost:4201/a2a/task",
+  "auth": {
+    "audience": "external-jira-agent",
+    "tokenEndpointAuthMethod": "private_key_jwt"
+  }
+}`}</pre>
+                </details>
+                <details className="wizard-technical-details">
+                  <summary>Expected signed trust response fields</summary>
+                  <div className="concept-pill-row">
+                    {["agentId", "issuer", "clientId", "audience", "requestedScopes", "agentDeclaredCapabilities", "nonce", "signedTrustResponse"].map((item) => <span key={item}>{item}</span>)}
+                  </div>
+                </details>
+                <div className="wizard-action-row">
+                  <button type="button" onClick={() => setConnectionWizardStep("gateway-registration")}>Continue to Gateway registration</button>
+                </div>
+              </>
+            )}
+          </article>
+        );
+      }
+
+      if (connectionWizardStep === "gateway-registration") {
+        return (
+          <article className="wizard-step-panel">
+            {connectionAudience === "bizapps" ? (
+              <>
+                <h3>Register this Gateway in the external agent</h3>
+                <p>Copy this Gateway registration into the external agent admin console. In this local demo, the real-external-agent is already preconfigured.</p>
+                <div className="gateway-registration-facts">
+                  <div><small>Gateway Client ID</small><strong>{gatewayRegistration.clientId}</strong></div>
+                  <div><small>Gateway Issuer</small><strong>{gatewayRegistration.issuer}</strong></div>
+                  <div><small>Gateway JWKS URI</small><strong>{gatewayRegistration.jwksUri}</strong></div>
+                  <div><small>Onboarding method</small><strong>{gatewayRegistration.onboardingMethod}</strong></div>
+                </div>
+                <a className="secondary-button compact-button external-console-link" href={adminConsoleUrl} target="_blank" rel="noreferrer">Open external agent admin console</a>
+              </>
+            ) : (
+              <>
+                <h3>Gateway registration JSON</h3>
+                <p>This JSON contains only public Gateway identity metadata. It does not include private keys, tokens, client secrets, or Authorization headers.</p>
+                <details className="wizard-technical-details">
+                  <summary>Show Gateway registration JSON</summary>
+                  <pre>{JSON.stringify(gatewayRegistration, null, 2)}</pre>
+                  <button type="button" className="secondary-button compact-button" onClick={() => void copyGatewayRegistrationJson(gatewayRegistration)}>Copy JSON</button>
+                  {zeroTrustCopyMessage ? <small>{zeroTrustCopyMessage}</small> : null}
+                </details>
+                <a className="secondary-button compact-button external-console-link" href={adminConsoleUrl} target="_blank" rel="noreferrer">Open external agent admin console</a>
+              </>
+            )}
+            <div className="wizard-action-row">
+              {renderBackButton()}
+              <button type="button" onClick={() => setConnectionWizardStep("connection-input")}>Next</button>
+            </div>
+          </article>
+        );
+      }
+
+      if (connectionWizardStep === "connection-input") {
+        return (
+          <article className="wizard-step-panel">
+            <h3>Enter Agent URL</h3>
+            <div className="zero-trust-form wizard-form">
+              <label>
+                <span>Agent Base URL</span>
+                <input value={zeroTrustAgentBaseUrl} onChange={(event) => {
+                  setZeroTrustAgentBaseUrl(event.target.value);
+                  resetZeroTrustConnectionState();
+                }} />
+                <small>The external agent URL that exposes /.well-known/a2a-agent.json</small>
+              </label>
+              <label>
+                <span>Expected Agent ID</span>
+                <input value={zeroTrustExpectedAgentId} onChange={(event) => {
+                  setZeroTrustExpectedAgentId(event.target.value);
+                  resetZeroTrustConnectionState();
+                }} />
+                <small>Used in this demo to prevent connecting the wrong agent.</small>
+              </label>
+            </div>
+            <div className="wizard-action-row">
+              {renderBackButton()}
+              <button type="button" onClick={() => void discoverZeroTrustAgent()} disabled={isZeroTrustDiscovering || isZeroTrustOnboarding}>
+                {isZeroTrustDiscovering ? "Discovering..." : "Discover agent"}
+              </button>
+            </div>
+            <div className="compact-checklist">
+              <span>The Gateway will:</span>
+              <ul>
+                <li>fetch discovery</li>
+                <li>prepare signed challenge</li>
+                <li>verify signed response</li>
+                <li>validate OAuth binding</li>
+                <li>derive capabilities</li>
+              </ul>
+            </div>
+          </article>
+        );
+      }
+
+      if (connectionWizardStep === "discovery") {
+        return (
+          <article className="wizard-step-panel">
+            {zeroTrustDiscovery ? (
+              <>
+                <h3>Agent discovered</h3>
+                <div className="discovery-summary-card">
+                  <div><small>Agent ID</small><strong>{zeroTrustDiscovery.discovery.agentId}</strong></div>
+                  <div><small>Issuer</small><strong>{zeroTrustDiscovery.discovery.issuer}</strong></div>
+                  <div><small>Resource system</small><strong>{zeroTrustDiscovery.discovery.resourceSystem ?? "unknown"}</strong></div>
+                  <div><small>Trust adapter</small><strong>{zeroTrustDiscovery.discovery.trustAdapter ?? "unknown"}</strong></div>
+                  <div><small>Admin console</small><strong>{zeroTrustDiscovery.discovery.adminConsoleUrl ?? "not declared"}</strong></div>
+                </div>
+                <details className="wizard-technical-details">
+                  <summary>Discovery details</summary>
+                  <div className="discovery-result-grid">
+                    <div><small>JWKS URI</small><strong>{zeroTrustDiscovery.discovery.jwksUri}</strong></div>
+                    <div><small>Onboarding endpoint</small><strong>{zeroTrustDiscovery.discovery.onboardingEndpoint}</strong></div>
+                    <div><small>Runtime endpoint</small><strong>{zeroTrustDiscovery.discovery.runtimeEndpoint}</strong></div>
+                    <div><small>Runtime audience</small><strong>{zeroTrustDiscovery.discovery.auth.audience}</strong></div>
+                    <div><small>Token auth method</small><strong>{zeroTrustDiscovery.discovery.auth.tokenEndpointAuthMethod}</strong></div>
+                    <div><small>Connection requirements</small><strong>{zeroTrustDiscovery.discovery.connectionRequirements ? Object.entries(zeroTrustDiscovery.discovery.connectionRequirements).map(([key, value]) => `${key}: ${value}`).join(", ") : "not declared"}</strong></div>
+                  </div>
+                </details>
+                <p>Discovery is a declaration. Trust is not granted until signed challenge, OAuth binding, and permission validation pass.</p>
+                <div className="wizard-action-row">
+                  {renderBackButton()}
+                  <button type="button" onClick={() => void startZeroTrustOnboarding()} disabled={isZeroTrustOnboarding || isZeroTrustDiscovering}>
+                    {isZeroTrustOnboarding ? "Verifying..." : "Verify connection"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="focused-error-panel" role="alert">
+                  <h3>{failureTitle}</h3>
+                  <p>Start real-external-agent on http://localhost:4201 and ensure it exposes GET /.well-known/a2a-agent.json.</p>
+                </div>
+                <div className="wizard-action-row">
+                  {renderBackButton()}
+                  <button type="button" onClick={() => void discoverZeroTrustAgent()} disabled={isZeroTrustDiscovering || isZeroTrustOnboarding}>
+                    {isZeroTrustDiscovering ? "Discovering..." : "Try discovery again"}
+                  </button>
+                </div>
+              </>
+            )}
+          </article>
+        );
+      }
+
+      if (connectionWizardStep === "verify") {
+        return (
+          <article className="wizard-step-panel">
+            <h3>{isZeroTrustOnboarding ? "Verifying connection..." : zeroTrustResult ? "Connection verified" : "Verify Connection"}</h3>
+            {zeroTrustError ? (
+              <div className="focused-error-panel" role="alert">
+                <h3>{failureTitle}</h3>
+                <p>{zeroTrustError}</p>
+                <details className="wizard-technical-details">
+                  <summary>Technical details</summary>
+                  <p>{zeroTrustError}</p>
+                </details>
+              </div>
+            ) : null}
+            <ol className="onboarding-progress-list vertical">
+              {progressSteps.map(([title, description, checkName]) => {
+                const status = isZeroTrustOnboarding && !zeroTrustResult ? "pending" : checkStatus(checkName) ?? "pending";
+                return (
+                  <li className={`progress-${status}`} key={checkName}>
+                    <strong>{title}</strong>
+                    <span>{description}</span>
+                    <small>{status.replace(/_/g, " ")}</small>
+                  </li>
+                );
+              })}
+            </ol>
+            <div className="wizard-action-row">
+              {renderBackButton()}
+              {zeroTrustResult ? (
+                <button type="button" onClick={() => setConnectionWizardStep("result")}>Review result</button>
+              ) : (
+                <button type="button" onClick={() => void startZeroTrustOnboarding()} disabled={isZeroTrustOnboarding || isZeroTrustDiscovering || !zeroTrustDiscovery}>
+                  {isZeroTrustOnboarding ? "Verifying..." : "Verify connection"}
+                </button>
+              )}
+            </div>
+          </article>
+        );
+      }
+
+      return (
+        <article className="wizard-step-panel">
+          {zeroTrustResult ? (
+            <>
+              <div className="result-title-row">
+                <div>
+                  <h3>Connection verified</h3>
+                  <p>{zeroTrustResult.message}</p>
+                </div>
+                <strong className="metadata-only-badge">Trusted metadata only</strong>
+              </div>
+              <div className="wizard-card-grid two-up">
+                <article>
+                  <span>What was proven</span>
+                  <ul>
+                    <li>Gateway identity verified by external agent</li>
+                    <li>Agent identity verified by Gateway</li>
+                    <li>OAuth application binding checked</li>
+                    <li>Resource permissions evaluated</li>
+                    <li>Capabilities derived by Gateway</li>
+                  </ul>
+                </article>
+                <article>
+                  <span>External application</span>
+                  <strong>{zeroTrustResult.externalApplicationAttestation?.oauthApplication?.clientId ?? zeroTrustResult.discoveredAgent.clientId}</strong>
+                  <small>Authorization server issuer: {zeroTrustResult.externalApplicationAttestation?.oauthApplication?.authorizationServerIssuer ?? zeroTrustResult.discoveredAgent.issuer}</small>
+                  <small>Granted scopes: {zeroTrustResult.oauthApplicationProof.grantedScopes.join(", ") || "none"}</small>
+                  <small>App status: {zeroTrustResult.oauthApplicationProof.status ?? zeroTrustResult.externalApplicationAttestation?.oauthApplication?.status ?? "unknown"}</small>
+                </article>
+                <article>
+                  <span>Service principal</span>
+                  <strong>{zeroTrustResult.externalApplicationAttestation?.servicePrincipal?.principalId ?? zeroTrustResult.resourcePermissionProof.principal}</strong>
+                  <small>Effective permissions: {zeroTrustResult.resourcePermissionProof.effectivePermissions.join(", ") || "none"}</small>
+                  <small>Denied permissions: {zeroTrustResult.resourcePermissionProof.deniedPermissions.join(", ") || "none"}</small>
+                </article>
+                <article>
+                  <span>Runtime</span>
+                  <strong>metadata only</strong>
+                  <small>Runtime execution stays disabled until runtime JWT validation is enabled.</small>
+                  <small>Raw assertion: hidden.</small>
+                </article>
+              </div>
+              <section className="capability-decision-grid" aria-label="Capability decision">
+                <div>
+                  <h4>Approved capabilities</h4>
+                  {renderCapabilityList(approvedCapabilities, "No approved capabilities.")}
+                </div>
+                <div>
+                  <h4>Blocked capabilities</h4>
+                  {renderCapabilityList(blockedCapabilities, "No blocked capabilities.")}
+                </div>
+              </section>
+              <p>Capabilities are declared by the external agent, but approved only after OAuth scope and resource permission validation.</p>
+              <div className="wizard-action-row">
+                <button type="button" className="secondary-button compact-button" onClick={() => guideToTarget("registered-agents")}>View registered agents</button>
+                <button type="button" className="secondary-button compact-button" onClick={startAnotherConnection}>Start another connection</button>
+              </div>
+              <details className="wizard-technical-details">
+                <summary>View technical details</summary>
+                <h4>Raw checks</h4>
+                <JsonBlock value={zeroTrustResult.checks} />
+                <h4>Full discovery metadata</h4>
+                <JsonBlock value={zeroTrustDiscovery?.discovery ?? zeroTrustResult.discoveredAgent} />
+                <h4>Full onboarding result JSON</h4>
+                <JsonBlock value={zeroTrustResult} />
+              </details>
+            </>
+          ) : (
+            <>
+              <h3>Review Result</h3>
+              <p>Verify the connection before reviewing the result.</p>
+              <div className="wizard-action-row">
+                {renderBackButton()}
+                <button type="button" onClick={() => setConnectionWizardStep("verify")}>Go to verification</button>
+              </div>
+            </>
+          )}
+        </article>
+      );
+    };
 
     return (
       <section className="zero-trust-onboarding-panel scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
@@ -1984,328 +2367,36 @@ function App() {
             <p className="muted-note">Connect an independently owned external agent through discovery, signed Gateway challenge, signed agent response, OAuth application binding, permission verification, and capability approval.</p>
           </div>
         </div>
+        <div className="audience-toggle" aria-label="Audience">
+          <span>Audience:</span>
+          <button type="button" className={connectionAudience === "bizapps" ? "active" : ""} onClick={() => setConnectionAudience("bizapps")}>BizApps / Admin</button>
+          <button type="button" className={connectionAudience === "developer" ? "active" : ""} onClick={() => setConnectionAudience("developer")}>Developer</button>
+        </div>
         <ol className="onboarding-wizard-steps" aria-label="External agent onboarding steps">
-          {wizardSteps.map(([step, checks], index) => (
-            <li className={`wizard-${wizardStatus(checks, index)}`} key={step}>
+          {wizardSteps.map((step, index) => {
+            const status = wizardStatus(step.id, index);
+            return (
+            <li className={`wizard-${status}`} key={step.id}>
               <span>{index + 1}</span>
-              <strong>{step}</strong>
-              <small>{wizardStatus(checks, index).replace(/_/g, " ")}</small>
+              <strong>{step.label}</strong>
+              <small>{status}</small>
             </li>
-          ))}
+            );
+          })}
         </ol>
-
-        <div className="onboarding-audience-grid">
-          <article className="onboarding-guidance-card">
-            <span>For BizApps / Admin</span>
-            <h3>What you need to do</h3>
-            <ol>
-              <li>Get the external agent base URL from the agent owner.</li>
-              <li>Copy/register this Gateway identity in the external agent system.</li>
-              <li>Create or verify the OAuth application in the external system.</li>
-              <li>Bind a service account / integration principal.</li>
-              <li>Run verification to check scopes, permissions, and capabilities.</li>
-            </ol>
-            <p>You do not manually enter scopes or capabilities. The gateway discovers agent-declared capabilities, verifies OAuth grants, checks resource permissions, and derives what is approved.</p>
-          </article>
-          <article className="onboarding-guidance-card">
-            <span>For External Agent Developer</span>
-            <h3>Integration contract</h3>
-            <div className="endpoint-contract-list">
-              <code>GET /.well-known/a2a-agent.json</code>
-              <code>GET /.well-known/jwks.json</code>
-              <code>POST /onboarding/challenge</code>
-              <code>POST /a2a/task</code>
-            </div>
-            <p>The agent must validate the signed Gateway challenge before returning a signed trust response.</p>
-            <ul className="developer-contract-list">
-              <li>publish discovery metadata</li>
-              <li>publish public JWKS</li>
-              <li>validate signed Gateway challenges</li>
-              <li>return a signed trust response</li>
-              <li>declare requested scopes</li>
-              <li>declare agent capabilities</li>
-              <li>validate scoped A2A JWT at runtime in a future phase</li>
-            </ul>
-            <div className="concept-pill-row" aria-label="Required signed response concepts">
-              {["agentId", "issuer", "clientId", "requestedScopes", "agentDeclaredCapabilities", "signedTrustResponse"].map((item) => (
-                <span key={item}>{item}</span>
-              ))}
-            </div>
-            <p>The external agent declares capabilities. The Gateway approves capabilities only after OAuth and permission validation.</p>
-          </article>
-        </div>
-
-        <article className="gateway-registration-card">
-          <div>
-            <span>Gateway registration to configure in the external agent</span>
-            <h3>Trust the Gateway caller</h3>
-            <p>This registration is generated from this Gateway&apos;s public identity metadata. It contains only public information. Copy it into the external agent admin/config screen so the external agent can verify signed Gateway challenges.</p>
-            <small>Source: <code>/.well-known/a2a-gateway.json</code></small>
-            <div className="gateway-registration-facts">
-              <div><small>Gateway Client ID</small><strong>{gatewayRegistration.clientId}</strong></div>
-              <div><small>Gateway Issuer</small><strong>{gatewayRegistration.issuer}</strong></div>
-              <div><small>Gateway JWKS URI</small><strong>{gatewayRegistration.jwksUri}</strong></div>
-              <div><small>Onboarding method</small><strong>{gatewayRegistration.onboardingMethod}</strong></div>
-              <div><small>Expected audience</small><strong>external agent id</strong></div>
-            </div>
-          </div>
-          <details open={Boolean(zeroTrustDiscovery)}>
-            <summary>Gateway registration JSON</summary>
-            <pre>{JSON.stringify(gatewayRegistration, null, 2)}</pre>
-            <button type="button" className="secondary-button compact-button" onClick={() => void copyGatewayRegistrationJson(gatewayRegistration)}>Copy JSON</button>
-            {zeroTrustCopyMessage ? <small>{zeroTrustCopyMessage}</small> : null}
-          </details>
-        </article>
-
-        <div className="demo-production-setup-grid">
-          <article>
-            <span>Demo setup</span>
-            <p>The local real-external-agent is preconfigured with:</p>
-            <code>TRUSTED_GATEWAY_ISSUER={gatewayRegistration.issuer}</code>
-            <code>TRUSTED_GATEWAY_CLIENT_ID={gatewayRegistration.clientId}</code>
-            <code>TRUSTED_GATEWAY_JWKS_URI={gatewayRegistration.jwksUri}</code>
-          </article>
-          <article>
-            <span>Production setup</span>
-            <p>An external agent owner would paste the Gateway registration JSON into their agent admin/config screen.</p>
-          </article>
-        </div>
-
-        <article className="zero-trust-connection-card">
-          <div>
-            <span>Connection input</span>
-            <h3>Start from a discovery URL</h3>
-          </div>
-          <div className="gateway-will-list">
-            <span>The Gateway will</span>
-            <ol>
-              <li>fetch the external agent discovery document</li>
-              <li>generate a signed Gateway challenge</li>
-              <li>send the challenge to the external agent</li>
-              <li>verify the signed agent response</li>
-              <li>validate OAuth application binding</li>
-              <li>check resource permissions</li>
-              <li>derive approved and blocked capabilities</li>
-            </ol>
-          </div>
-          <div className="zero-trust-form">
-            <label>
-              <span>Agent base URL</span>
-              <input value={zeroTrustAgentBaseUrl} onChange={(event) => {
-                setZeroTrustAgentBaseUrl(event.target.value);
-                resetZeroTrustConnectionState();
-              }} />
-              <small>URL where the external agent publishes /.well-known/a2a-agent.json. Example: http://localhost:4201</small>
-            </label>
-            <label>
-              <span>Expected Agent ID</span>
-              <input value={zeroTrustExpectedAgentId} onChange={(event) => {
-                setZeroTrustExpectedAgentId(event.target.value);
-                resetZeroTrustConnectionState();
-              }} />
-              <small>Used in this demo to prevent connecting the wrong agent.</small>
-            </label>
-            <div className="connection-button-row">
-              <button type="button" onClick={() => void discoverZeroTrustAgent()} disabled={isZeroTrustDiscovering || isZeroTrustOnboarding}>
-                {isZeroTrustDiscovering ? "Discovering..." : "Discover agent"}
-              </button>
-              <button type="button" onClick={() => void startZeroTrustOnboarding()} disabled={isZeroTrustOnboarding || isZeroTrustDiscovering || !zeroTrustDiscovery}>
-                {isZeroTrustOnboarding ? "Verifying..." : "Verify connection"}
-              </button>
-            </div>
-          </div>
-        </article>
-
-        {zeroTrustDiscovery ? (
-          <article className="discovery-result-card">
-            <span>Discovered Agent</span>
-            <h3>{zeroTrustDiscovery.discovery.agentId}</h3>
-            <div className="discovery-result-grid">
-              <div><small>Agent ID</small><strong>{zeroTrustDiscovery.discovery.agentId}</strong></div>
-              <div><small>Issuer</small><strong>{zeroTrustDiscovery.discovery.issuer}</strong></div>
-              <div><small>JWKS URI</small><strong>{zeroTrustDiscovery.discovery.jwksUri}</strong></div>
-              <div><small>Onboarding endpoint</small><strong>{zeroTrustDiscovery.discovery.onboardingEndpoint}</strong></div>
-              <div><small>Runtime endpoint</small><strong>{zeroTrustDiscovery.discovery.runtimeEndpoint}</strong></div>
-              <div><small>Resource system</small><strong>{zeroTrustDiscovery.discovery.resourceSystem ?? "unknown"}</strong></div>
-              <div><small>Trust adapter</small><strong>{zeroTrustDiscovery.discovery.trustAdapter ?? "unknown"}</strong></div>
-              <div><small>Runtime audience</small><strong>{zeroTrustDiscovery.discovery.auth.audience}</strong></div>
-              <div><small>Token auth method</small><strong>{zeroTrustDiscovery.discovery.auth.tokenEndpointAuthMethod}</strong></div>
-            </div>
-            <p>This discovery document is a declaration. Trust is not granted until signed challenge, OAuth binding, and permission validation pass.</p>
-          </article>
-        ) : null}
-
-        {zeroTrustDiscovery?.discovery.adminConsoleUrl ? (
-          <article className="external-admin-console-card">
-            <span>External agent admin console</span>
-            <h3>Configure OAuth app binding outside the Gateway</h3>
-            <p>The external OAuth application is configured on the external agent side. Open the external admin console to register this Gateway and configure OAuth scopes/service principal.</p>
-            <p>This Gateway does not create the external OAuth application. It verifies the signed attestation returned by the external agent.</p>
-            <a className="secondary-button compact-button" href={zeroTrustDiscovery.discovery.adminConsoleUrl} target="_blank" rel="noreferrer">Open external agent admin console</a>
-          </article>
-        ) : null}
-
-        <article className="why-zero-trust-card">
-          <span>Why this is Zero Trust</span>
+        {renderStep()}
+        <details className="why-zero-trust-card">
+          <summary>Why this is Zero Trust</summary>
           <ul>
             <li>The Gateway does not trust pasted JSON.</li>
             <li>The external agent must validate a signed Gateway challenge.</li>
             <li>The external agent must return a signed trust response.</li>
-            <li>Scopes are checked against OAuth application registration.</li>
-            <li>Permissions are checked through a trust adapter.</li>
+            <li>OAuth scopes are checked against application registration.</li>
+            <li>Resource permissions are checked through the external-side attestation / adapter.</li>
             <li>Capabilities are approved only after validation.</li>
             <li>Runtime execution stays disabled until runtime JWT validation is enabled.</li>
           </ul>
-        </article>
-
-        <div className="onboarding-progress-card" aria-label="Onboarding progress">
-          <div>
-            <span>Onboarding progress</span>
-            <h3>{isZeroTrustOnboarding ? "Verifying connection..." : zeroTrustResult ? "Connection verified" : "Ready to start"}</h3>
-          </div>
-          <ol className="onboarding-progress-list">
-            {progressSteps.map(([title, description, checkName]) => {
-              const status = isZeroTrustOnboarding && !zeroTrustResult ? "pending" : checkStatus(checkName) ?? "pending";
-              return (
-                <li className={`progress-${status}`} key={checkName}>
-                  <strong>{title}</strong>
-                  <span>{description}</span>
-                  <small>{status.replace(/_/g, " ")}</small>
-                </li>
-              );
-            })}
-          </ol>
-        </div>
-        {zeroTrustError ? <p className="error" role="alert">{zeroTrustError}</p> : null}
-        {zeroTrustResult ? (
-          <div className="zero-trust-result">
-            <div>
-              <span>Trust level</span>
-              <strong>{zeroTrustResult.trustLevel}</strong>
-            </div>
-            <div>
-              <span>Agent identity</span>
-              <strong>{zeroTrustResult.discoveredAgent.agentId}</strong>
-            </div>
-            <div>
-              <span>OAuth client</span>
-              <strong>{zeroTrustResult.discoveredAgent.clientId}</strong>
-            </div>
-            <p>{zeroTrustResult.message}</p>
-            <div className="connection-verified-summary">
-              <span>Connection verified</span>
-              <ul>
-                <li>Gateway proved itself to the external agent.</li>
-                <li>External agent proved control through signed response.</li>
-                <li>OAuth application was bound.</li>
-                <li>Scopes were granted by OAuth registry.</li>
-                <li>Resource permissions were evaluated.</li>
-                <li>Capabilities were derived by the Gateway.</li>
-              </ul>
-            </div>
-            <div className="connection-summary-grid">
-              <article>
-                <span>Status</span>
-                <strong>{zeroTrustResult.status}</strong>
-              </article>
-              <article>
-                <span>Runtime</span>
-                <strong>disabled until runtime validation</strong>
-              </article>
-              <article>
-                <span>External agent contacted</span>
-                <strong>{zeroTrustResult.agentProof.externalAgentContacted ? "yes" : "no"}</strong>
-              </article>
-              <article>
-                <span>Discovery fetched</span>
-                <strong>{zeroTrustResult.agentProof.discoveryFetched ? "yes" : "no"}</strong>
-              </article>
-              <article>
-                <span>Raw tokens/assertions</span>
-                <strong>hidden</strong>
-              </article>
-            </div>
-            <div className="zero-trust-checks">
-              {zeroTrustResult.checks.map((check) => (
-                <span className={`check-${check.status}`} key={check.name}>{check.name.replace(/_/g, " ")}: {check.status}</span>
-              ))}
-            </div>
-            <div className="zero-trust-verified-values">
-              <article>
-                <span>Discovered from external agent</span>
-                <strong>Agent: {zeroTrustResult.discoveredAgent.agentId}</strong>
-                <small>Issuer: {zeroTrustResult.discoveredAgent.issuer}</small>
-                <small>Client: {zeroTrustResult.discoveredAgent.clientId}</small>
-                <small>Requested scopes: {zeroTrustResult.discoveredAgent.requestedScopes.join(", ")}</small>
-                <small>Agent-declared capabilities: {zeroTrustResult.discoveredAgent.agentDeclaredCapabilities.join(", ")}</small>
-              </article>
-              <article>
-                <span>Gateway Proof</span>
-                <strong>{zeroTrustResult.gatewayProof.signedChallengeVerifiedByAgent ? "signed challenge verified by agent" : "not verified"}</strong>
-                <small>Gateway client: {zeroTrustResult.gatewayProof.gatewayClientId}</small>
-                <small>Gateway issuer: {zeroTrustResult.gatewayProof.gatewayIssuer}</small>
-                <small>Raw assertion: hidden</small>
-              </article>
-              <article>
-                <span>Agent Proof</span>
-                <strong>signed response verified: {String(zeroTrustResult.agentProof.signedResponseVerified)}</strong>
-                <small>External agent contacted: {zeroTrustResult.agentProof.externalAgentContacted ? "yes" : "no"}</small>
-                <small>Discovery fetched: {zeroTrustResult.agentProof.discoveryFetched ? "yes" : "no"}</small>
-                <small>Nonce matched: {String(zeroTrustResult.agentProof.nonceMatched)}</small>
-                <small>Issuer matched: {checkStatus("issuer_matched") === "passed" ? "yes" : "not verified"}</small>
-                <small>Audience matched: {checkStatus("audience_matched") === "passed" ? "yes" : "not verified"}</small>
-              </article>
-              <article>
-                <span>OAuth Application Proof</span>
-                <strong>{zeroTrustResult.oauthApplicationProof.clientBound ? "bound" : "not bound"}</strong>
-                <small>Client: {zeroTrustResult.oauthApplicationProof.allowedClientId ?? zeroTrustResult.discoveredAgent.clientId}</small>
-                <small>Granted scopes: {zeroTrustResult.oauthApplicationProof.grantedScopes.join(", ")}</small>
-                <small>Token auth: {zeroTrustResult.oauthApplicationProof.tokenEndpointAuthMethod ?? "unknown"}</small>
-                <small>Status: {zeroTrustResult.oauthApplicationProof.status ?? "unknown"}</small>
-              </article>
-              {zeroTrustResult.externalApplicationAttestation?.oauthApplication ? (
-                <article>
-                  <span>External OAuth App Attestation</span>
-                  <strong>{zeroTrustResult.externalApplicationAttestation.oauthApplication.clientId}</strong>
-                  <small>Issuer: {zeroTrustResult.externalApplicationAttestation.oauthApplication.authorizationServerIssuer}</small>
-                  <small>Granted scopes: {zeroTrustResult.externalApplicationAttestation.oauthApplication.grantedScopes.join(", ")}</small>
-                  <small>Status: {zeroTrustResult.externalApplicationAttestation.oauthApplication.status}</small>
-                  <small>Resource system: {zeroTrustResult.externalApplicationAttestation.resourceSystem ?? "unknown"}</small>
-                </article>
-              ) : null}
-              <article>
-                <span>Resource Permission Proof</span>
-                <strong>{zeroTrustResult.resourcePermissionProof.principal}</strong>
-                <small>Effective permissions: {zeroTrustResult.resourcePermissionProof.effectivePermissions.join(", ")}</small>
-                <small>Denied permissions: {zeroTrustResult.resourcePermissionProof.deniedPermissions.join(", ") || "none"}</small>
-              </article>
-              {zeroTrustResult.externalApplicationAttestation?.servicePrincipal ? (
-                <article>
-                  <span>External Service Principal Attestation</span>
-                  <strong>{zeroTrustResult.externalApplicationAttestation.servicePrincipal.principalId}</strong>
-                  <small>Type: {zeroTrustResult.externalApplicationAttestation.servicePrincipal.principalType}</small>
-                  <small>Effective: {zeroTrustResult.externalApplicationAttestation.servicePrincipal.effectivePermissions.join(", ")}</small>
-                  <small>Denied: {zeroTrustResult.externalApplicationAttestation.servicePrincipal.deniedPermissions.join(", ") || "none"}</small>
-                </article>
-              ) : null}
-              <article>
-                <span>Gateway-approved capabilities</span>
-                <small>Capabilities are declared by the external agent, but approved only after OAuth scope and resource permission validation.</small>
-                <strong>{approvedCapabilities.map((item) => item.capability).join(", ") || "none"}</strong>
-                {approvedCapabilities.map((item) => <small key={item.capability}>{item.capability}: {item.reason}</small>)}
-              </article>
-              <article>
-                <span>Blocked capabilities</span>
-                <strong>{blockedCapabilities.map((item) => item.capability).join(", ") || "none"}</strong>
-                {blockedCapabilities.map((item) => <small key={item.capability}>{item.capability}: {item.reason}</small>)}
-              </article>
-              <article>
-                <span>Runtime execution</span>
-                <strong>metadata only</strong>
-              </article>
-            </div>
-          </div>
-        ) : null}
+        </details>
       </section>
     );
   }
@@ -2426,7 +2517,7 @@ function App() {
         title: "Zero-Trust Onboarded Agents",
         description: "External agents verified through Three-Way Trust Binding: agent proof, OAuth grants, and resource permissions.",
         agents: zeroTrustAgents,
-        defaultOpen: true,
+        defaultOpen: zeroTrustAgents.length > 0,
         emptyState: "No zero-trust onboarded agents yet. Start onboarding to verify an external agent."
       },
       {
@@ -2542,54 +2633,60 @@ function App() {
 
         {renderZeroTrustOnboardingPanel()}
 
-        <section className="registry-section">
-          <p className="active-panel-eyebrow">Section A</p>
-          <h2>Registry Summary</h2>
-          <div className="registry-summary-grid">
-            <article>
-              <span>Zero-trust onboarded</span>
-              <strong>{zeroTrustAgents.length}</strong>
-            </article>
-            <article>
-              <span>Built-in agents</span>
-              <strong>{builtInAgentsCount}</strong>
-            </article>
-            <article>
-              <span>Healthy services</span>
-              <strong>{healthyAgentsCount}</strong>
-            </article>
-            <article>
-              <span>Auth mode</span>
-              <strong>{health?.orchestrator.authMode ?? "unknown"}</strong>
-            </article>
-          </div>
-        </section>
-
-        <section className="registry-section scroll-target" ref={registeredAgentsRef} tabIndex={-1}>
-          <p className="active-panel-eyebrow">Section B</p>
-          <h2>Registered Agents</h2>
-          {healthError ? <p className="error">{healthError}</p> : null}
-          {registeredAgentRows.length ? (
-            <div className="registry-agent-list">
-              {agentGroups.map((group) => (
-                <details className="registry-agent-group" key={group.title} open={group.defaultOpen}>
-                  <summary>
-                    <div>
-                      <strong>{group.title} ({group.agents.length})</strong>
-                      <span>{group.description}</span>
-                    </div>
-                    <b aria-hidden="true">v</b>
-                  </summary>
-                  <div className="registry-agent-group-body">
-                    {group.agents.length ? group.agents.map(renderRegisteredAgentCard) : <p className="muted-note">{group.emptyState}</p>}
-                  </div>
-                </details>
-              ))}
+        <details className="registry-overview-section" open={zeroTrustAgents.length > 0}>
+          <summary>
+            <div>
+              <strong>Registry overview</strong>
+              <span>Zero-Trust onboarded: {zeroTrustAgents.length} / Built-in: {builtInAgentsCount} / Healthy: {healthyAgentsCount}</span>
             </div>
-          ) : (
-            <p className="muted-note">{isHealthLoading ? "Loading registered agents..." : "Start onboarding to verify an external agent."}</p>
-          )}
-        </section>
+            <b aria-hidden="true">v</b>
+          </summary>
+          <section className="registry-section">
+            <div className="registry-summary-grid">
+              <article>
+                <span>Zero-trust onboarded</span>
+                <strong>{zeroTrustAgents.length}</strong>
+              </article>
+              <article>
+                <span>Built-in agents</span>
+                <strong>{builtInAgentsCount}</strong>
+              </article>
+              <article>
+                <span>Healthy services</span>
+                <strong>{healthyAgentsCount}</strong>
+              </article>
+              <article>
+                <span>Auth mode</span>
+                <strong>{health?.orchestrator.authMode ?? "unknown"}</strong>
+              </article>
+            </div>
+          </section>
+
+          <section className="registry-section scroll-target" ref={registeredAgentsRef} tabIndex={-1}>
+            <h2>Registered Agents</h2>
+            {healthError ? <p className="error">{healthError}</p> : null}
+            {registeredAgentRows.length ? (
+              <div className="registry-agent-list">
+                {agentGroups.map((group) => (
+                  <details className="registry-agent-group" key={group.title} open={group.defaultOpen}>
+                    <summary>
+                      <div>
+                        <strong>{group.title} ({group.agents.length})</strong>
+                        <span>{group.description}</span>
+                      </div>
+                      <b aria-hidden="true">v</b>
+                    </summary>
+                    <div className="registry-agent-group-body">
+                      {group.agents.length ? group.agents.map(renderRegisteredAgentCard) : <p className="muted-note">{group.emptyState}</p>}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            ) : (
+              <p className="muted-note">{isHealthLoading ? "Loading registered agents..." : "Start onboarding to verify an external agent."}</p>
+            )}
+          </section>
+        </details>
       </section>
     );
   }
