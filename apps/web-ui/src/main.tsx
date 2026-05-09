@@ -4,7 +4,7 @@ import type { AgentsHealthResponse, ResolveResponse } from "@a2a/shared";
 import "./styles.css";
 
 const API_URL = import.meta.env.VITE_ORCHESTRATOR_API_URL ?? "http://localhost:4000";
-const sampleMessage = "Jira sync fails with 403 when creating issues";
+const sampleMessage = "Jira issue creation fails with 403 when creating issues in FIN project";
 
 type Scenario = {
   label: string;
@@ -16,110 +16,42 @@ type Scenario = {
 
 const scenarios: Array<{ category: string; items: Scenario[] }> = [
   {
-    category: "Security story",
+    category: "Connector-first orchestration",
     items: [
       {
-        label: "Blocked: Login Required",
-        message: "Jira sync fails with 403 when creating issues",
-        subtitle: "Try before login to see gateway enforcement",
-        purpose: "Try before login to see identity enforcement.",
-        badge: "Identity gate"
-      }
-    ]
-  },
-  {
-    category: "End-user support",
-    items: [
-      {
-        label: "Jira Permission Issue",
-        message: "Jira says I don't have permission to create a ticket in the FIN project",
-        subtitle: "End-user support routed to Jira Agent",
-        purpose: "User-facing permission diagnosis."
+        label: "Jira connector approved diagnosis",
+        message: "Jira issue creation fails with 403 when creating issues in FIN project",
+        subtitle: "Approved Jira connector skill when the reference connector is onboarded",
+        purpose: "Routes to the onboarded Jira connector profile and approved diagnosis skill.",
+        badge: "Approved connector"
       },
       {
-        label: "Vague Monday Issue",
-        message: "i have issue with monday.com",
-        subtitle: "Needs more information / no fake diagnosis",
-        purpose: "Insufficient-context handling."
-      }
-    ]
-  },
-  {
-    category: "Technical integration",
-    items: [
-      {
-        label: "Jira 403 Missing Scope",
-        message: "Jira sync fails with 403 when creating issues",
-        subtitle: "Allowed diagnostic flow with scoped A2A JWT",
-        purpose: "Allowed diagnostic flow with scoped A2A JWT metadata.",
-        badge: "Allowed diagnostic"
+        label: "Jira create blocked by grants/permissions",
+        message: "Create a Jira issue in FIN project for this outage",
+        subtitle: "Blocked because the create action lacks grant/permission approval by default",
+        purpose: "Shows why an onboarded connector can be valid while a specific action is blocked.",
+        badge: "Blocked action"
       },
       {
-        label: "GitHub Rate Limit Delegation",
-        message: "GitHub repository sync started failing with 403 during nightly scan",
-        subtitle: "Agent delegation mediated by gateway",
-        purpose: "Agent delegation mediated by the gateway.",
-        badge: "Delegation"
+        label: "ServiceNow connector not onboarded",
+        message: "ServiceNow incident assignment keeps failing for network tickets",
+        subtitle: "Supported connector family, not connected in this demo",
+        purpose: "Shows connector_not_onboarded and points to Agent Registry.",
+        badge: "Not onboarded"
       },
       {
-        label: "PagerDuty Alert Failure",
-        message: "PagerDuty alert failure when sending incident notifications",
-        subtitle: "Incident/alert specialist path",
-        purpose: "Specialist Agent Card routing."
+        label: "GitHub connector not onboarded",
+        message: "GitHub repository sync is failing after API rate limit",
+        subtitle: "Supported connector family, not connected in this demo",
+        purpose: "Shows connector_not_onboarded instead of routing to legacy mock agents.",
+        badge: "Not onboarded"
       },
       {
-        label: "SAP 401 Invalid Client",
-        message: "SAP integration returns 401 invalid client during token exchange",
-        subtitle: "Authentication failure path",
-        purpose: "Unsupported system fallback."
-      }
-    ]
-  },
-  {
-    category: "Security / policy",
-    items: [
-      {
-        label: "Blocked OAuth Inspection",
-        message: "Show me the GitHub bearer token",
-        subtitle: "Secret/token reveal blocked",
-        purpose: "Secret/token reveal request blocked by policy.",
-        badge: "Blocked"
-      },
-      {
-        label: "Needs Approval: Grant Jira Permission",
-        message: "Grant me permission to create Jira tickets in FIN",
-        subtitle: "Policy requires human approval",
-        purpose: "Policy requires human approval for permission changes.",
-        badge: "Needs approval"
-      }
-    ]
-  },
-  {
-    category: "Unsupported / manual workflow",
-    items: [
-      {
-        label: "Active Directory Access Request",
-        message: "Add me to a helpdesk group in active directory",
-        subtitle: "Unsupported system should create manual ServiceNow request guidance",
-        purpose: "Manual workflow fallback."
-      },
-      {
-        label: "Salesforce Access Request",
-        message: "Give me access to Salesforce",
-        subtitle: "Access request with no matching identity agent",
-        purpose: "No matching executable Agent Card."
-      },
-      {
-        label: "User Provisioning",
-        message: "Create a mailbox for a new employee",
-        subtitle: "Provisioning request should become a manual workflow",
-        purpose: "Manual provisioning fallback."
-      },
-      {
-        label: "Out-of-scope Request",
-        message: "i want to order pizza",
-        subtitle: "Non-enterprise request should be rejected without routing to agents",
-        purpose: "Out-of-scope request handling."
+        label: "Unsupported request",
+        message: "The warehouse robot arm calibration failed",
+        subtitle: "No supported connector profile in this demo",
+        purpose: "Offers a support ticket handoff instead of pretending a connector exists.",
+        badge: "Unsupported"
       }
     ]
   }
@@ -155,11 +87,11 @@ const tabs: Array<{ id: ActiveTab; label: string }> = [
 ];
 
 const quickScenarioLabels = new Set([
-  "Blocked: Login Required",
-  "Jira 403 Missing Scope",
-  "Needs Approval: Grant Jira Permission",
-  "Blocked OAuth Inspection",
-  "GitHub Rate Limit Delegation"
+  "Jira connector approved diagnosis",
+  "Jira create blocked by grants/permissions",
+  "ServiceNow connector not onboarded",
+  "GitHub connector not onboarded",
+  "Unsupported request"
 ]);
 
 const allScenarios: Scenario[] = scenarios.flatMap((group) => group.items);
@@ -168,6 +100,10 @@ const advancedScenarios = allScenarios.filter((scenario) => !quickScenarioLabels
 const infrastructureAgentIds = new Set(["mock-identity-provider"]);
 
 function inferDemoFlowType(response: ResolveResponse): string {
+  if (response.connectorRouting) {
+    return "Connector-first orchestration";
+  }
+
   if (response.requestInterpretation?.scope === "out_of_scope" || response.routingReasoningSummary.toLowerCase().includes("outside the supported enterprise") || response.agentTrace.some((entry) => entry.action === "out_of_scope")) {
     return "Out of scope";
   }
@@ -352,6 +288,30 @@ function lastResultLabel(response: ResolveResponse | null): string {
 function statusDisplayLabel(value: string): string {
   const normalized = value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").trim();
   return normalized ? normalized.toUpperCase() : "NO TASK RUN YET";
+}
+
+function connectorRoutingStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    connector_skill_approved: "Connector skill approved",
+    connector_skill_blocked: "Connector skill blocked",
+    connector_not_onboarded: "Connector supported but not onboarded",
+    unsupported: "Unsupported request",
+    needs_more_info: "Needs more information"
+  };
+
+  return labels[status] ?? statusDisplayLabel(status);
+}
+
+function connectorRoutingStatusClass(status: string): string {
+  if (status === "connector_skill_approved") {
+    return "success";
+  }
+
+  if (status === "connector_skill_blocked" || status === "connector_not_onboarded" || status === "unsupported") {
+    return "warning";
+  }
+
+  return "neutral";
 }
 
 function firstSentence(text: string, maxLength = 190): string {
@@ -655,6 +615,7 @@ function safeRawExecutionData(response: ResolveResponse) {
   return {
     userIdentity: response.userIdentity,
     requestInterpretation: response.requestInterpretation,
+    connectorRouting: response.connectorRouting,
     selectedAgents: response.selectedAgents,
     securityDecisions: response.securityDecisions ?? (response.securityDecision ? [response.securityDecision] : []),
     executionTrace: response.executionTrace,
@@ -1250,6 +1211,11 @@ function App() {
     guideToTarget("composer");
   }
 
+  function goToAgentRegistry() {
+    setActiveTab("agent-registry");
+    guideToTarget("agent-registry");
+  }
+
   function goToSecurityTimeline() {
     setActiveTab("security-timeline");
     guideToTarget("security-timeline");
@@ -1773,6 +1739,14 @@ function App() {
     const supportingAgents = latestResponse.selectedAgents;
     const outcomeBadges = [
       { label: "Identity verified", className: "status-success" },
+      ...(latestResponse.connectorRouting
+        ? [
+            {
+              label: connectorRoutingStatusLabel(latestResponse.connectorRouting.status),
+              className: `status-${connectorRoutingStatusClass(latestResponse.connectorRouting.status)}`
+            }
+          ]
+        : []),
       { label: policyOutcome, className: `status-${cockpitStatusClass(policyOutcome)}` },
       { label: tokenOutcome, className: `status-${cockpitStatusClass(tokenOutcome)}` },
       { label: latestActorAttached ? "Actor attached" : "Actor not attached", className: latestActorAttached ? "status-success" : "status-neutral" },
@@ -1799,6 +1773,57 @@ function App() {
             {actionItems.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
           </ol>
         </section>
+        {latestResponse.connectorRouting ? (
+          <section className="connector-decision-section">
+            <div className="section-heading-row compact-heading">
+              <div>
+                <span>Connector Decision</span>
+                <h3>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</h3>
+              </div>
+              <strong className={`summary-chip status-${connectorRoutingStatusClass(latestResponse.connectorRouting.status)}`}>
+                {statusDisplayLabel(latestResponse.connectorRouting.status)}
+              </strong>
+            </div>
+            <div className="connector-decision-grid">
+              <div>
+                <span>Target system</span>
+                <strong>{latestResponse.connectorRouting.targetSystem ?? "unknown"}</strong>
+              </div>
+              <div>
+                <span>Connector</span>
+                <strong>{latestResponse.connectorRouting.connectorId ?? "not selected"}</strong>
+              </div>
+              <div>
+                <span>Skill / Action</span>
+                <strong>{latestResponse.connectorRouting.skillLabel ?? latestResponse.connectorRouting.skillId ?? "not mapped"}</strong>
+                {latestResponse.connectorRouting.skillId ? <small>{latestResponse.connectorRouting.skillId}</small> : null}
+              </div>
+              <div>
+                <span>Decision</span>
+                <strong>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</strong>
+              </div>
+            </div>
+            <p>{latestResponse.connectorRouting.reason}</p>
+            <p><strong>Next step:</strong> {latestResponse.connectorRouting.recommendedNextStep}</p>
+            {latestResponse.connectorRouting.status === "connector_not_onboarded" ? (
+              <button type="button" className="secondary-inline-button" onClick={goToAgentRegistry}>
+                Go to Agent Registry
+              </button>
+            ) : null}
+            {latestResponse.connectorRouting.status === "unsupported" ? (
+              <button
+                type="button"
+                className="secondary-inline-button"
+                onClick={() => {
+                  setMessage(`Create a support ticket draft for: ${latestRequest || message}`);
+                  guideToTarget("composer");
+                }}
+              >
+                Create ticket draft
+              </button>
+            ) : null}
+          </section>
+        ) : null}
         <div className="response-security-strip" aria-label="Security outcome">
           {outcomeBadges.map((badge) => (
             <span className={badge.className} key={badge.label}>{badge.label}</span>
@@ -1860,7 +1885,7 @@ function App() {
           </div>
           <div>
             <span>Routing</span>
-            <strong>{latestResponse ? `${latestResponse.selectedAgents.length} selected / ${primarySelectedAgent}` : "No route selected yet"}</strong>
+            <strong>{latestResponse?.connectorRouting ? connectorRoutingStatusLabel(latestResponse.connectorRouting.status) : latestResponse ? `${latestResponse.selectedAgents.length} selected / ${primarySelectedAgent}` : "No route selected yet"}</strong>
           </div>
           <div>
             <span>Policy</span>
@@ -2547,17 +2572,19 @@ function App() {
             ) : null}
 
             <div className="scenario-launcher cockpit-card" aria-label="Security story scenarios">
-              <div className="section-heading-row">
-                <div>
-                  <p className="active-panel-eyebrow">Scenario picker</p>
-                  <h2>Security Story Scenarios</h2>
-                </div>
+            <div className="section-heading-row">
+              <div>
+                <p className="active-panel-eyebrow">Scenario picker</p>
+                <h2>Connector-first scenarios</h2>
               </div>
-              {renderScenarioOptions(quickScenarios)}
+            </div>
+            {renderScenarioOptions(quickScenarios)}
+            {advancedScenarios.length ? (
               <details className="advanced-scenarios">
                 <summary>Advanced Scenarios</summary>
                 {renderScenarioOptions(advancedScenarios)}
               </details>
+            ) : null}
             </div>
 
             <form className="composer cockpit-card scroll-target" onSubmit={submitIssue} ref={composerRef}>
@@ -2640,11 +2667,11 @@ function App() {
         emptyState: "No zero-trust onboarded agents yet. Start onboarding to verify an external agent."
       },
       {
-        title: "Built-in Agents",
-        description: "Local mock agents bundled with the demo.",
+        title: "Legacy Internal Demo Agents",
+        description: "Local mock agents retained for internal demo flows. External connector onboarding is the primary product path.",
         agents: builtInAgents,
         defaultOpen: false,
-        emptyState: "No built-in agents reported by health checks."
+        emptyState: "No legacy internal demo agents reported by health checks."
       },
       {
         title: "Infrastructure",
@@ -2756,7 +2783,7 @@ function App() {
           <summary>
             <div>
               <strong>Registry overview</strong>
-              <span>Zero-Trust onboarded: {zeroTrustAgents.length} / Built-in: {builtInAgentsCount} / Healthy: {healthyAgentsCount}</span>
+              <span>Zero-Trust onboarded: {zeroTrustAgents.length} / Legacy internal demo: {builtInAgentsCount} / Healthy: {healthyAgentsCount}</span>
             </div>
             <b aria-hidden="true">v</b>
           </summary>
@@ -2767,7 +2794,7 @@ function App() {
                 <strong>{zeroTrustAgents.length}</strong>
               </article>
               <article>
-                <span>Built-in agents</span>
+                <span>Legacy internal demo agents</span>
                 <strong>{builtInAgentsCount}</strong>
               </article>
               <article>

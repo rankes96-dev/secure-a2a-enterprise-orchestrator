@@ -332,6 +332,15 @@ export interface ResolveResponse {
   securityDecision?: SecurityDecision;
   securityDecisions?: SecurityDecision[];
   requestInterpretation?: RequestInterpretation;
+  connectorRouting?: {
+    status: string;
+    targetSystem?: string;
+    connectorId?: string;
+    skillId?: string;
+    skillLabel?: string;
+    reason: string;
+    recommendedNextStep: string;
+  };
   followUpInterpretation?: FollowUpInterpretation;
   incidentContext?: {
     targetSystemText?: string;

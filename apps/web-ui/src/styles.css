@@ -4016,6 +4016,7 @@ pre {
 }
 
 .gateway-response-section,
+.connector-decision-section,
 .supporting-agents-section,
 .full-gateway-response {
   border: 1px solid #e3ebe7;
@@ -4030,6 +4031,7 @@ pre {
 }
 
 .gateway-response-section span,
+.connector-decision-section span,
 .supporting-agents-section span,
 .full-gateway-response span {
   color: #526b76;
@@ -4039,11 +4041,51 @@ pre {
 }
 
 .gateway-response-section p,
+.connector-decision-section p,
 .full-gateway-response p {
   margin: 0;
   color: #172026;
   line-height: 1.55;
   overflow-wrap: anywhere;
+}
+
+.connector-decision-section {
+  display: grid;
+  gap: 12px;
+  border-left: 4px solid #3f6f86;
+}
+
+.connector-decision-section h3 {
+  margin: 0;
+  color: #172026;
+  font-size: 16px;
+}
+
+.connector-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.connector-decision-grid div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid #edf1f3;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.connector-decision-grid strong,
+.connector-decision-grid small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.connector-decision-grid small {
+  color: #526b76;
+  font-size: 11px;
 }
 
 .recommended-actions-section ol {
@@ -4143,6 +4185,7 @@ pre {
 
 @media (max-width: 768px) {
   .gateway-response-header,
+  .connector-decision-grid,
   .supporting-agent-list article {
     display: grid;
     grid-template-columns: 1fr;

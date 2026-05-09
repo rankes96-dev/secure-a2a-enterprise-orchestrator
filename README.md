@@ -18,7 +18,7 @@ Secure Agent Orchestration Gateway
   Security Timeline
   A2A Token Client
          scoped JWT
-External / Built-in Agents
+External Connectors / Legacy Internal Demo Agents
 
 Mock IdP / JWKS
 ```
@@ -27,10 +27,11 @@ Mock IdP / JWKS
 
 1. Login as demo user.
 2. Start Zero-Trust Agent Onboarding.
-3. Run the Jira 403 scenario.
-4. Inspect Trust & Identity.
-5. Inspect Security Timeline.
-6. Confirm raw tokens are redacted.
+3. Connect the Jira Cloud Reference Connector.
+4. Run the Jira 403 connector scenario.
+5. Inspect Trust & Identity.
+6. Inspect Security Timeline.
+7. Confirm raw tokens are redacted.
 
 ## What This Demonstrates
 
@@ -218,6 +219,19 @@ Jira is only the reference connector profile in this repository. Future ServiceN
 External agents publish connector profiles. The Gateway can also apply an expected external system or connector guardrail during discovery, for example expecting `jira` and `jira-reference` before continuing onboarding. This guardrail is not the source of truth; discovery, the connector profile, and the signed trust response remain authoritative.
 
 The only implemented connector in this demo is the Jira Cloud Reference Connector. Additional ServiceNow, Salesforce, GitHub, Slack, or custom enterprise connectors should be added by registering new connector profiles, not by hardcoding Gateway core logic.
+
+## Connector-first Orchestration
+
+The Run Task demo now treats external connector profiles as the primary product path. For Jira, ServiceNow, and GitHub-style requests, the orchestrator first detects the target system and requested skill/action with deterministic rules, then checks the trusted onboarded connector registry.
+
+Connector onboarding does not automatically enable full external runtime execution. The Gateway can still use trusted connector profile decisions to explain routing:
+
+- approved connector skills return a connector-backed, metadata-only diagnosis path
+- blocked connector skills explain missing application access grants, missing effective permissions, or denied permissions
+- supported systems that are not connected return `connector_not_onboarded`
+- unsupported systems or actions recommend opening a support ticket
+
+Legacy built-in/local mock agents remain available for internal demo support, but they are not the primary path for connector-shaped requests.
 
 ## Skills vs Actions
 

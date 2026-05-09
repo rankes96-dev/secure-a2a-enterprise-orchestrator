@@ -42,6 +42,7 @@ import { gatewayMetadata, gatewayPublicJwks } from "./security/gatewayIdentity";
 import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
 import { discoverAgentOnboarding, listSupportedConnectorGuardrails, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
+import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -407,6 +408,88 @@ function buildFinalAnswer(params: {
   }
 
   return `${primary.summary}${primary.probableCause ? ` Probable cause: ${sentence(primary.probableCause)}` : ""}${actions}${supporting ? ` Supporting findings: ${supporting}` : ""}`;
+}
+
+function connectorRoutingStatusLabel(status: ConnectorRoutingDecision["status"]): string {
+  const labels: Record<ConnectorRoutingDecision["status"], string> = {
+    connector_skill_approved: "Connector skill approved",
+    connector_skill_blocked: "Connector skill blocked",
+    connector_not_onboarded: "Connector supported but not onboarded",
+    unsupported: "Unsupported request",
+    needs_more_info: "Needs more information"
+  };
+
+  return labels[status];
+}
+
+function connectorRoutingFinalAnswer(decision: ConnectorRoutingDecision): string {
+  const target = decision.targetSystem ? `${decision.targetSystem} ` : "";
+  const skill = decision.skillLabel ?? decision.skillId ?? "requested skill/action";
+
+  if (decision.status === "connector_skill_approved") {
+    return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is approved by the onboarded connector profile. Runtime execution remains metadata-only in this demo phase; the Gateway can use the connector-backed diagnosis path and will not fall back to the legacy internal Jira mock agent.`;
+  }
+
+  if (decision.status === "connector_skill_blocked") {
+    return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is blocked. ${decision.reason} ${decision.recommendedNextStep}`;
+  }
+
+  if (decision.status === "connector_not_onboarded") {
+    return `${connectorRoutingStatusLabel(decision.status)}: ${decision.reason} ${decision.recommendedNextStep}`;
+  }
+
+  if (decision.status === "unsupported") {
+    return `Unsupported request: this demo does not have a connector profile for the requested system or action. ${decision.recommendedNextStep}`;
+  }
+
+  return `${connectorRoutingStatusLabel(decision.status)}: ${decision.reason} ${decision.recommendedNextStep}`;
+}
+
+function connectorRoutingDiagnosis(decision: ConnectorRoutingDecision): ResolveResponse["diagnosis"] {
+  if (decision.status === "connector_skill_approved") {
+    return {
+      probableCause: "Connector profile and action decision are available",
+      recommendedFix: "Use the connector-backed diagnosis flow. Runtime execution is intentionally metadata-only until external runtime JWT validation is enabled."
+    };
+  }
+
+  if (decision.status === "connector_skill_blocked") {
+    return {
+      probableCause: "The onboarded connector profile blocks the requested action",
+      recommendedFix: decision.recommendedNextStep
+    };
+  }
+
+  if (decision.status === "connector_not_onboarded") {
+    return {
+      probableCause: "Supported connector is not onboarded",
+      recommendedFix: decision.recommendedNextStep
+    };
+  }
+
+  if (decision.status === "unsupported") {
+    return {
+      probableCause: "No supported connector profile matches this request",
+      recommendedFix: decision.recommendedNextStep
+    };
+  }
+
+  return {
+    probableCause: "More connector routing detail is needed",
+    recommendedFix: decision.recommendedNextStep
+  };
+}
+
+function connectorRoutingResolutionStatus(decision: ConnectorRoutingDecision): ResolveResponse["resolutionStatus"] {
+  if (decision.status === "connector_skill_approved" || decision.status === "connector_skill_blocked") {
+    return "resolved";
+  }
+
+  if (decision.status === "needs_more_info") {
+    return "needs_more_info";
+  }
+
+  return "unsupported";
 }
 
 function primarySecurityDecision(decisions: SecurityDecision[]): SecurityDecision | undefined {
@@ -983,6 +1066,10 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     `${effectiveMessage}\n${requestBody.message}\n${conversationState.lastRequestInterpretation?.requestedActionText ?? ""}\n${conversationState.lastIncidentContext?.errorText ?? ""}`,
     incidentInterpretation ?? routingDecision.requestInterpretation
   );
+  const connectorRouting = routeConnectorRequest(
+    effectiveMessage,
+    sessionToken ? listTrustedOnboardedAgents(sessionToken) : []
+  );
   const finalize = (response: Omit<ResolveResponse, "userIdentity">): ResolveResponse => {
     const userIdentityTrace = verifiedUser
       ? [
@@ -1070,6 +1157,85 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       a2aResponses: [],
       diagnosis,
       conversationId
+    });
+  }
+
+  if (connectorRouting.status !== "needs_more_info") {
+    const connectorStatus = connectorRoutingStatusLabel(connectorRouting.status);
+    const diagnosis = connectorRoutingDiagnosis(connectorRouting);
+    const connectorEvidence: AgentEvidence[] = [
+      {
+        agent: orchestratorAgentId,
+        title: "Connector route decision",
+        data: {
+          status: connectorRouting.status,
+          targetSystem: connectorRouting.targetSystem,
+          connectorId: connectorRouting.connectorId,
+          skillId: connectorRouting.skillId,
+          skillLabel: connectorRouting.skillLabel,
+          reason: connectorRouting.reason,
+          recommendedNextStep: connectorRouting.recommendedNextStep
+        }
+      }
+    ];
+    const skippedAgents = requestAgentCards.map((card) => ({
+      agentId: card.agentId,
+      reason: "Connector-first routing handled this request; legacy internal demo agents were not invoked."
+    }));
+
+    return finalize({
+      conversationId,
+      finalAnswer: connectorRoutingFinalAnswer(connectorRouting),
+      classification,
+      selectedAgents: [],
+      skippedAgents,
+      routingSource: "rules_fallback",
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: connectorRouting.reason,
+      resolutionStatus: connectorRoutingResolutionStatus(connectorRouting),
+      evidence: connectorEvidence,
+      agentTrace: [
+        trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
+        {
+          ...trace("connector_intent_detected", connectorRouting.reason),
+          toAgent: connectorRouting.connectorId,
+          skillId: connectorRouting.skillId,
+          decision: connectorRouting.status === "connector_skill_approved" ? "Allowed" : connectorRouting.status === "connector_skill_blocked" ? "Blocked" : "NeedsMoreContext"
+        },
+        {
+          ...trace("connector_route_decision", `${connectorStatus}: ${connectorRouting.recommendedNextStep}`),
+          toAgent: connectorRouting.connectorId,
+          skillId: connectorRouting.skillId,
+          decision: connectorRouting.status === "connector_skill_approved" ? "Allowed" : connectorRouting.status === "connector_skill_blocked" ? "Blocked" : "NeedsMoreContext"
+        }
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        ...(routingDecision.requestInterpretation
+          ? [
+              executionStep(
+                "orchestrator",
+                "interpret_request",
+                `${routingDecision.requestInterpretation.scope} / ${routingDecision.requestInterpretation.intentType}: ${routingDecision.requestInterpretation.reason}`
+              )
+            ]
+          : []),
+        executionStep("orchestrator", "route_connector_intent", `${connectorRouting.targetSystem ?? "unknown"} / ${connectorRouting.connectorId ?? "no connector"} / ${connectorRouting.skillId ?? "no skill"}`),
+        executionStep("orchestrator", "evaluate_onboarded_connector", `${connectorStatus}: ${connectorRouting.reason}`),
+        executionStep(
+          "orchestrator",
+          connectorRouting.status === "connector_skill_approved" ? "return_connector_metadata_only_response" : "return_connector_guidance",
+          connectorRouting.recommendedNextStep
+        )
+      ],
+      securityDecisions: [],
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      followUpInterpretation: followUp,
+      incidentContext: mergedIncidentContext,
+      connectorRouting,
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
     });
   }
 
