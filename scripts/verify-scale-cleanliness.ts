@@ -226,17 +226,27 @@ if (!/function\s+scenarioForApprovedSkill[\s\S]*agent\.approvedActions\s*\?\?\s*
   failed = true;
 }
 for (const phrase of [
-  "Demo Readiness",
-  "Recommended Demo Flow",
+  "Demo Progress",
+  "Next step",
+  "Readiness checklist",
+  "Demo Script",
+  "Login to start governed execution",
+  "Install your first connector agent",
+  "Run the approved connector scenario",
+  "Runtime proof captured",
+  "Start here",
+  "Connector templates are not installed by default",
+  "Recommended: Run",
+  "Use local Jira reference agent",
   "What this proves",
   "Raw tokens hidden",
   "Scoped A2A JWT",
   "External config hash",
-  "Go to Connector Catalog",
-  "Go to Installed Connector Agents"
+  "Open Connector Catalog",
+  "View Installed Connector Agents"
 ]) {
   if (!webUi.includes(phrase)) {
-    console.error(`fail - Demo Readiness UI should include phrase: ${phrase}`);
+    console.error(`fail - guided Demo Readiness UI should include phrase: ${phrase}`);
     failed = true;
   }
 }

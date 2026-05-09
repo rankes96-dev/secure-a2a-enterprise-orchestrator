@@ -1409,7 +1409,6 @@ function App() {
       Boolean(agent.externalConfigHash)
     );
   }).length;
-  const needsReverificationConnectorAgentCount = zeroTrustOnboardedAgents.filter((agent) => agent.lifecycle?.state === "needs_reverification").length;
   const latestRequest = [...messages].reverse().find((item) => item.role === "user")?.content ?? "";
   const executionState = isUserAuthenticated ? "allowed" : "login required";
   const authModeSummary = health?.orchestrator.authMode ?? trustStatus?.gatewayIdentity.a2aAuthMode ?? "unknown";
@@ -1475,17 +1474,6 @@ function App() {
   function goToSecurityTimeline() {
     setActiveTab("security-timeline");
     guideToTarget("security-timeline");
-  }
-
-  function runRecommendedScenario() {
-    setMessage(sampleMessage);
-    if (!isUserAuthenticated) {
-      goToTrustIdentity();
-      return;
-    }
-    setActiveTab("run-task");
-    guideToTarget("composer");
-    void resolveIssue(sampleMessage);
   }
 
   function hasInstalledConnector(connectorId: string) {
@@ -2068,83 +2056,128 @@ function App() {
   }
 
   function renderDemoReadinessPanel() {
-    const installedStatus = installedConnectorAgentCount > 0 ? "ready" : "needs_setup";
-    const installedSummary = installedConnectorAgentCount >= 3
-      ? "Jira, ServiceNow, and GitHub can be installed for the full multi-connector story."
-      : installedConnectorAgentCount > 0
-        ? "At least one connector agent is installed. Install all three for the full story."
-        : "Install a connector agent from the Connector Catalog.";
-    const readinessCards = [
+    const jiraPreset = localConnectorPresets.find((preset) => preset.expectedConnectorId === "jira-reference") ?? localConnectorPresets[0];
+    const approvedJiraScenario = "Jira issue creation fails with 403 when creating issues in FIN project";
+    const blockedJiraScenario = "Create a Jira issue in FIN project for this outage";
+    const serviceNowScenario = "ServiceNow incident assignment keeps failing for network tickets";
+    const gitHubScenario = "GitHub repository sync is failing after API rate limit";
+    const unsupportedScenario = "The warehouse robot arm calibration failed";
+    const runtimeProofCaptured = latestResponse?.connectorRuntime?.executed === true;
+    const blockedScenarioCaptured = latestResponse?.connectorRouting?.status === "connector_skill_blocked";
+    const hasRuntimeReadyConnector = runtimeReadyConnectorAgentCount > 0;
+    const runScenario = (scenario: string) => {
+      setMessage(scenario);
+      if (!isUserAuthenticated) {
+        goToTrustIdentity();
+        return;
+      }
+      setActiveTab("run-task");
+      guideToTarget("composer");
+      void resolveIssue(scenario);
+    };
+    const nextStep = !isUserAuthenticated
+      ? {
+        title: "Login to start governed execution",
+        text: "Verified user identity is required before the Gateway can attach actor context and issue scoped runtime tokens.",
+        primaryLabel: "Go to Trust & Identity",
+        primaryAction: goToTrustIdentity,
+        secondaryLabel: undefined,
+        secondaryAction: undefined
+      }
+      : installedConnectorAgentCount === 0
+        ? {
+          title: "Install your first connector agent",
+          text: "Choose a connector template from the catalog and onboard an external agent through signed challenge and attestation.",
+          primaryLabel: "Open Connector Catalog",
+          primaryAction: goToConnectorCatalog,
+          secondaryLabel: "Use local Jira reference agent",
+          secondaryAction: () => applyLocalConnectorPreset(jiraPreset)
+        }
+        : !hasRuntimeReadyConnector
+          ? {
+            title: "Connector installed, runtime not ready",
+            text: "The connector was onboarded, but no approved runtime skill is ready. Review grants, permissions, denied permissions, and re-run onboarding.",
+            primaryLabel: "View Installed Connector Agents",
+            primaryAction: goToInstalledConnectorAgents,
+            secondaryLabel: undefined,
+            secondaryAction: undefined
+          }
+          : runtimeProofCaptured
+            ? {
+              title: "Runtime proof captured",
+              text: "The Gateway executed an approved connector skill with scoped A2A JWT. Next, show blocked skill or audit timeline.",
+              primaryLabel: "Run blocked create scenario",
+              primaryAction: () => runScenario(blockedJiraScenario),
+              secondaryLabel: "View Security Timeline",
+              secondaryAction: goToSecurityTimeline
+            }
+            : {
+              title: "Run the approved connector scenario",
+              text: "Run the Jira diagnosis scenario to show approved runtime execution with scoped A2A JWT.",
+              primaryLabel: "Run Jira approved diagnosis",
+              primaryAction: () => runScenario(approvedJiraScenario),
+              secondaryLabel: "View Installed Connector Agents",
+              secondaryAction: goToInstalledConnectorAgents
+            };
+    const activeProgressStep = !isUserAuthenticated
+      ? "login"
+      : installedConnectorAgentCount === 0
+        ? "install"
+        : !hasRuntimeReadyConnector
+          ? "install"
+          : runtimeProofCaptured
+            ? blockedScenarioCaptured ? "audit" : "blocked"
+            : "approved";
+    const progressSteps = [
+      { id: "login", label: "Login", completed: isUserAuthenticated, explanation: "Attach verified user identity." },
+      { id: "install", label: "Install Connector", completed: installedConnectorAgentCount > 0, explanation: "Onboard an external agent." },
+      { id: "approved", label: "Run Approved Skill", completed: runtimeProofCaptured, explanation: "Execute with scoped A2A JWT." },
+      { id: "blocked", label: "Show Blocked Skill", completed: blockedScenarioCaptured, explanation: "Prove blocked skills do not execute." },
+      { id: "audit", label: "Show Audit", completed: activeTab === "security-timeline", explanation: "Review timeline and policy proof." }
+    ];
+    const checklist = [
       {
-        title: "User identity",
+        label: "User identity verified",
         status: isUserAuthenticated ? "ready" : "needs_setup",
-        detail: isUserAuthenticated ? `Authenticated as ${actorEmail ?? "current user"}.` : "Login before running governed tasks.",
-        cta: "Go to Trust & Identity",
+        cta: isUserAuthenticated ? undefined : "Login",
         action: goToTrustIdentity
       },
       {
-        title: "Connector templates",
+        label: "Connector template catalog loaded",
         status: connectorTemplateCount > 0 ? "ready" : "needs_setup",
-        detail: `${connectorTemplateCount} connector template${connectorTemplateCount === 1 ? "" : "s"} loaded.`,
-        cta: "Go to Connector Catalog",
+        cta: "Catalog",
         action: goToConnectorCatalog
       },
       {
-        title: "Installed Connector Agents",
-        status: installedStatus,
-        detail: `${installedConnectorAgentCount} installed. ${installedSummary}`,
-        cta: "Go to Installed Connector Agents",
+        label: "Installed connector agent exists",
+        status: installedConnectorAgentCount > 0 ? "ready" : "needs_setup",
+        cta: installedConnectorAgentCount > 0 ? undefined : "Install",
+        action: goToConnectorCatalog
+      },
+      {
+        label: "Runtime-ready connector agent exists",
+        status: hasRuntimeReadyConnector ? "ready" : installedConnectorAgentCount > 0 ? "runtime_blocked" : "needs_setup",
+        cta: hasRuntimeReadyConnector ? undefined : "Review",
         action: goToInstalledConnectorAgents
       },
-      {
-        title: "Runtime execution",
-        status: runtimeReadyConnectorAgentCount > 0 ? "ready" : installedConnectorAgentCount > 0 ? "runtime_blocked" : "needs_setup",
-        detail: `${runtimeReadyConnectorAgentCount} runtime-ready connector agent${runtimeReadyConnectorAgentCount === 1 ? "" : "s"}.`,
-        cta: "Go to Agent Registry",
-        action: goToAgentRegistry
-      }
+      { label: "Scoped JWT enabled", status: "ready", cta: undefined, action: undefined },
+      { label: "Raw tokens hidden", status: "ready", cta: undefined, action: undefined },
+      { label: "External config hash enforced", status: "ready", cta: undefined, action: undefined },
+      { label: "Policy model available", status: "ready", cta: undefined, action: undefined }
     ] as const;
-    const securityProofs = [
-      "Raw tokens hidden",
-      "Scoped A2A JWT enabled",
-      "External config hash enforced",
-      "Policy evaluated"
-    ];
     const scenarioReadiness = [
-      {
-        label: "Jira diagnosis",
-        status: readinessStatusForSkill("jira-reference", "jira.issue.diagnose_creation_failure", "approved"),
-        proves: "Approved connector skill executes through scoped A2A JWT."
-      },
-      {
-        label: "Jira blocked create",
-        status: readinessStatusForSkill("jira-reference", "jira.issue.create", "blocked"),
-        proves: "Gateway blocks unapproved skills before runtime."
-      },
-      {
-        label: "ServiceNow incident",
-        status: readinessStatusForSkill("servicenow-reference", "servicenow.incident.assignment.diagnose", "approved"),
-        proves: "The route and runtime executor are connector-generic."
-      },
-      {
-        label: "GitHub rate limit",
-        status: readinessStatusForSkill("github-reference", "github.repository.rate_limit.diagnose", "approved"),
-        proves: "System-specific diagnosis stays inside the external runtime."
-      },
-      {
-        label: "Unsupported request",
-        status: "ready",
-        proves: "Unsupported systems get a safe ticket handoff."
-      }
+      { label: "Jira diagnosis", status: readinessStatusForSkill("jira-reference", "jira.issue.diagnose_creation_failure", "approved"), proves: "Approved connector skill executes through scoped A2A JWT." },
+      { label: "Jira blocked create", status: readinessStatusForSkill("jira-reference", "jira.issue.create", "blocked"), proves: "Gateway blocks unapproved skills before runtime." },
+      { label: "ServiceNow incident", status: readinessStatusForSkill("servicenow-reference", "servicenow.incident.assignment.diagnose", "approved"), proves: "The route and runtime executor are connector-generic." },
+      { label: "GitHub rate limit", status: readinessStatusForSkill("github-reference", "github.repository.rate_limit.diagnose", "approved"), proves: "System-specific diagnosis stays inside the external runtime." },
+      { label: "Unsupported request", status: "ready", proves: "Unsupported systems get a safe ticket handoff." }
     ] as const;
-    const demoFlow = [
-      ["Start empty", "Customer org starts with zero installed connector agents."],
-      ["Install connector agent", "Choose a connector template and onboard an external agent through signed challenge and signed attestation."],
-      ["Run approved skill", "Jira issue creation fails with 403 when creating issues in FIN project. Proves Gateway routes to approved skill and executes trusted connector runtime with scoped A2A JWT."],
-      ["Show blocked skill", "Create a Jira issue in FIN project for this outage. Proves declared skills can still be blocked by grants, permissions, denied permissions, or policy."],
-      ["Show multi-connector routing", "Run ServiceNow incident assignment and GitHub repository rate limit. Proves the Gateway is connector-generic, not Jira-specific."],
-      ["Show stale config protection", "Change external connector config after onboarding and re-run. Proves runtime refuses execution after external config changes."],
-      ["Show unsupported request", "The warehouse robot arm calibration failed. Proves Gateway does not invent connectors."]
+    const demoScriptSteps = [
+      { title: "Start with zero installed connector agents", proves: "Connector templates are not installed by default.", actionLabel: "Open Catalog", action: goToConnectorCatalog },
+      { title: "Install Jira reference agent", proves: "External agents become trusted only after signed onboarding.", actionLabel: "Use local Jira reference agent", action: () => applyLocalConnectorPreset(jiraPreset) },
+      { title: "Run approved Jira diagnosis", proves: "Approved connector runtime execution with scoped A2A JWT.", actionLabel: "Run scenario", action: () => runScenario(approvedJiraScenario) },
+      { title: "Run blocked Jira create action", proves: "Blocked or denied skills do not execute.", actionLabel: "Run scenario", action: () => runScenario(blockedJiraScenario) },
+      { title: "Run ServiceNow or GitHub routing", proves: "Gateway is connector-generic, not Jira-specific.", actionLabel: "Run ServiceNow", action: () => runScenario(serviceNowScenario) }
     ];
 
     return (
@@ -2152,65 +2185,102 @@ function App() {
         <div className="section-heading-row">
           <div>
             <p className="active-panel-eyebrow">Presenter control center</p>
-            <h2>Demo Readiness</h2>
-            <p className="muted-note">Follow this checklist to present the zero-trust connector flow end-to-end.</p>
+            <h2>Demo Progress</h2>
+            <p className="muted-note">Follow one guided path through connector onboarding, approved runtime execution, blocked skills, and audit proof.</p>
           </div>
           <div className="demo-readiness-actions">
-            <button type="button" className="secondary-button compact-button" onClick={goToConnectorCatalog}>Go to Connector Catalog</button>
-            <button type="button" className="secondary-button compact-button" onClick={goToInstalledConnectorAgents}>Go to Installed Connector Agents</button>
-            <button type="button" className="secondary-button compact-button" disabled={isLoading} onClick={runRecommendedScenario}>Run recommended scenario</button>
-            <button type="button" className="secondary-button compact-button" onClick={goToSecurityTimeline}>View Security Timeline</button>
+            <button type="button" className="secondary-button compact-button" onClick={goToConnectorCatalog}>Catalog</button>
+            <button type="button" className="secondary-button compact-button" onClick={goToInstalledConnectorAgents}>Installed Agents</button>
+            <button type="button" className="secondary-button compact-button" onClick={goToSecurityTimeline}>Security Timeline</button>
           </div>
         </div>
-        <div className="demo-readiness-grid">
-          {readinessCards.map((card) => (
-            <article className="demo-readiness-card" key={card.title}>
-              <div className="readiness-card-heading">
-                <strong>{card.title}</strong>
-                <span className={`summary-chip status-${demoReadinessStatusClass(card.status)}`}>{demoReadinessStatusLabel(card.status)}</span>
-              </div>
-              <p>{card.detail}</p>
-              <button type="button" className="secondary-inline-button" onClick={card.action}>{card.cta}</button>
-            </article>
-          ))}
-          <article className="demo-readiness-card security-proof-card">
-            <div className="readiness-card-heading">
-              <strong>Security proof</strong>
-              <span className="summary-chip status-success">Ready</span>
+        <ol className="demo-progress-list" aria-label="Demo Progress">
+          {progressSteps.map((step, index) => {
+            const state = step.completed ? "completed" : step.id === activeProgressStep ? "active" : "waiting";
+            return (
+              <li className={`demo-progress-step ${state}`} key={step.id}>
+                <span>{index + 1}</span>
+                <div>
+                  <strong>{step.label}</strong>
+                  <small>{step.explanation}</small>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        <article className="next-step-card">
+          <div>
+            <p className="active-panel-eyebrow">Next step</p>
+            <h3>{nextStep.title}</h3>
+            <p>{nextStep.text}</p>
+          </div>
+          <div className="next-step-actions">
+            <button type="button" className="scenario-run" disabled={isLoading} onClick={nextStep.primaryAction}>{nextStep.primaryLabel}</button>
+            {nextStep.secondaryLabel && nextStep.secondaryAction ? (
+              <button type="button" className="secondary-inline-button" onClick={nextStep.secondaryAction}>{nextStep.secondaryLabel}</button>
+            ) : null}
+          </div>
+        </article>
+        <div className="guided-readiness-grid">
+          <section className="readiness-checklist">
+            <div>
+              <h3>Readiness checklist</h3>
+              <p className="muted-note">Compact proof that the demo path can run without guessing.</p>
             </div>
             <ul>
-              {securityProofs.map((proof) => <li key={proof}>{proof}</li>)}
-            </ul>
-          </article>
-        </div>
-        <div className="scenario-readiness-panel">
-          <div>
-            <h3>Scenario readiness</h3>
-            <p className="muted-note">Ready means the scenario can prove the intended control path with the currently installed connector agents.</p>
-          </div>
-          <div className="scenario-readiness-grid">
-            {scenarioReadiness.map((item) => (
-              <article key={item.label}>
-                <div className="readiness-card-heading">
+              {checklist.map((item) => (
+                <li key={item.label}>
+                  <span className={`check-indicator status-${demoReadinessStatusClass(item.status)}`}>{item.status === "ready" ? "OK" : "!"}</span>
                   <strong>{item.label}</strong>
-                  <span className={`summary-chip status-${demoReadinessStatusClass(item.status)}`}>{demoReadinessStatusLabel(item.status)}</span>
-                </div>
-                <p><strong>What this proves:</strong> {item.proves}</p>
-              </article>
-            ))}
-          </div>
+                  <em>{demoReadinessStatusLabel(item.status)}</em>
+                  {item.cta && item.action ? <button type="button" onClick={item.action}>{item.cta}</button> : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+          <section className="scenario-readiness-panel">
+            <div>
+              <h3>Scenario readiness</h3>
+              <p className="muted-note">Ready means the scenario can prove the intended control path with the currently installed connector agents.</p>
+            </div>
+            <div className="scenario-readiness-grid">
+              {scenarioReadiness.map((item) => (
+                <article key={item.label}>
+                  <div className="readiness-card-heading">
+                    <strong>{item.label}</strong>
+                    <span className={`summary-chip status-${demoReadinessStatusClass(item.status)}`}>{demoReadinessStatusLabel(item.status)}</span>
+                  </div>
+                  <p><strong>What this proves:</strong> {item.proves}</p>
+                </article>
+              ))}
+            </div>
+          </section>
         </div>
-        <details className="recommended-demo-flow">
-          <summary>Recommended Demo Flow</summary>
+        <section className="demo-script-panel">
+          <div>
+            <h3>Demo Script</h3>
+            <p className="muted-note">Run these steps in order. Each step has one action and one proof point.</p>
+          </div>
           <ol>
-            {demoFlow.map(([title, detail]) => (
-              <li key={title}>
-                <strong>{title}</strong>
-                <p>{detail}</p>
+            {demoScriptSteps.map((step) => (
+              <li key={step.title}>
+                <div>
+                  <strong>{step.title}</strong>
+                  <p><b>What this proves:</b> {step.proves}</p>
+                </div>
+                <button type="button" className="secondary-inline-button" disabled={isLoading} onClick={step.action}>{step.actionLabel}</button>
               </li>
             ))}
           </ol>
-        </details>
+          <details className="advanced-demo-script">
+            <summary>Advanced proof steps</summary>
+            <div className="advanced-demo-script-grid">
+              <button type="button" className="secondary-inline-button" onClick={() => runScenario(gitHubScenario)}>Run GitHub rate limit</button>
+              <button type="button" className="secondary-inline-button" onClick={() => runScenario(unsupportedScenario)}>Run unsupported request</button>
+              <p>Change external connector config after onboarding and re-run to show stale connector configuration protection.</p>
+            </div>
+          </details>
+        </section>
       </section>
     );
   }
@@ -3300,6 +3370,11 @@ function App() {
                   <h2>AI command composer</h2>
                 </div>
               </div>
+              <div className={`composer-recommendation ${runtimeReadyConnectorAgentCount > 0 ? "ready" : "setup"}`}>
+                {runtimeReadyConnectorAgentCount > 0
+                  ? "Recommended: Run Jira connector approved diagnosis first."
+                  : "Install a connector agent before running connector-backed scenarios."}
+              </div>
               <div className="composer-surface">
                 <textarea
                   ref={taskTextareaRef}
@@ -3514,6 +3589,8 @@ function App() {
             <div>
               <p className="active-panel-eyebrow">Supported templates</p>
               <h2>Connector Catalog</h2>
+              <p className="strong-note">Start here</p>
+              <p className="muted-note">Choose a template, then connect an external agent instance.</p>
               <p className="muted-note">Connector templates are supported contracts, not installed or trusted agents. A customer organization starts with zero installed connector agents.</p>
             </div>
           </div>
@@ -3707,7 +3784,16 @@ function App() {
               ) : null}
             </div>
           ) : (
-            <p className="muted-note">No connector agents installed yet. Choose a connector template from the Connector Catalog to connect an external agent.</p>
+            <div className="installed-empty-state">
+              <div>
+                <p className="strong-note">No connector agent installed yet.</p>
+                <p className="muted-note">Start from Connector Catalog to install a trusted external agent. Connector templates are not installed by default.</p>
+              </div>
+              <div className="wizard-action-row">
+                <button type="button" className="secondary-button compact-button" onClick={goToConnectorCatalog}>Open Connector Catalog</button>
+                <button type="button" className="secondary-button compact-button" onClick={() => applyLocalConnectorPreset(localConnectorPresets[0])}>Use local Jira reference agent</button>
+              </div>
+            </div>
           )}
         </section>
       );
