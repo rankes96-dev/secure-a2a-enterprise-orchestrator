@@ -11,12 +11,6 @@ export function port(): number {
 export const selectedConnectorId = env("EXTERNAL_CONNECTOR_ID", "jira-reference");
 export const agentId = env("EXTERNAL_AGENT_ID", "external-jira-agent");
 export const clientId = env("EXTERNAL_AGENT_CLIENT_ID", "jira-agent-client");
-export const requestedScopes = ["read:jira-work", "read:jira-user"];
-export const agentDeclaredCapabilities = [
-  "jira.issue.diagnose_creation_failure",
-  "jira.permission.inspect",
-  "jira.issue.create"
-];
 export const tokenEndpointAuthMethod = "private_key_jwt";
 
 export function agentIssuer(): string {
