@@ -33,7 +33,7 @@ No private key is committed. The development signing key is generated in memory 
 - `GET /.well-known/a2a-connector-profile.json` - public connector profile describing grant, permission, and action catalogs
 - `GET /.well-known/jwks.json` - public JWKS for verifying onboarding responses
 - `POST /onboarding/challenge` - returns a signed onboarding trust response
-- `POST /a2a/task` - future runtime endpoint requiring a valid A2A bearer JWT
+- `POST /a2a/task` - connector runtime endpoint requiring a valid scoped A2A bearer JWT
 
 ## External Agent Admin Console
 
@@ -57,6 +57,7 @@ During onboarding, the agent uses this config to:
 - confirm the OAuth application is active
 - include signed OAuth application and service principal attestations in the onboarding response
 - declare requested application grants and agent actions without claiming they are approved
+- publish a safe external configuration hash so the Gateway can detect stale runtime trust assumptions
 
 ## Authorization Model
 
@@ -69,6 +70,10 @@ The demo uses a generic model that can scale beyond Jira:
 An action is ready only when every required application access grant is present, every required effective permission is present, and no required permission is explicitly denied. The Gateway remains the final authority and may still block actions by policy.
 
 The current Jira reference connector profile is implemented in `src/connectorProfile.ts` and published at `/.well-known/a2a-connector-profile.json`. Discovery includes the connector profile URL, and the signed onboarding response includes the connector ID, profile URL, and a local demo SHA-256 hash over stable JSON for the profile.
+
+The signed onboarding response also includes `externalConfigHash`, a SHA-256 hash over safe public admin configuration: selected connector, OAuth application metadata, application access grants, service account identity, effective permissions, denied permissions, and enabled actions. It excludes secrets, tokens, private keys, and raw Gateway assertions.
+
+At runtime, the Gateway sends the trusted `externalConfigHash` back in `trustedContext`. If the current admin configuration no longer matches that hash, `/a2a/task` returns `connector_configuration_changed` and refuses execution until Gateway onboarding is re-run. The runtime also refuses `skill_not_currently_approved` if the requested skill is no longer enabled or no longer satisfies current application grants/effective permissions.
 
 A future Custom Connector Layer can replace this static file with system-specific catalogs for ServiceNow, Salesforce, GitHub, Slack, and other systems. The Gateway should not need Jira-specific action requirements in its core.
 

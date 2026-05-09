@@ -49,6 +49,7 @@ export type ExternalAgentTrustResponse = {
   connectorId?: string;
   connectorProfileUrl?: string;
   connectorProfileHash?: string;
+  externalConfigHash?: string;
   trustAdapter?: string;
   oauthApplication?: {
     appName?: string;
@@ -74,6 +75,7 @@ export type ExternalAgentDiscovery = {
   connectorId?: string;
   connectorDisplayName?: string;
   connectorProfileUrl?: string;
+  externalConfigHash?: string;
   supportedConnectorProfileUrl?: string;
   trustAdapter?: string;
   jwksUri: string;
@@ -118,6 +120,8 @@ export type TrustedOnboardedAgent = {
   connectorId?: string;
   resourceSystem?: string;
   connectorDisplayName?: string;
+  externalConfigHash?: string;
+  connectorProfileHash?: string;
   requestedScopes: string[];
   requestedApplicationGrants: string[];
   agentDeclaredSkills: string[];
@@ -183,6 +187,7 @@ export type ExternalApplicationAttestation = {
   connectorId?: string;
   connectorProfileUrl?: string;
   connectorProfileHash?: string;
+  externalConfigHash?: string;
   trustAdapter?: string;
   oauthApplication?: ExternalAgentTrustResponse["oauthApplication"];
   servicePrincipal?: ExternalAgentTrustResponse["servicePrincipal"];
@@ -462,6 +467,7 @@ function validateDiscovery(value: unknown, request: AgentOnboardingRequest): { d
     connectorId: cleanString(input.connectorId) || undefined,
     connectorDisplayName: cleanString(input.connectorDisplayName) || undefined,
     connectorProfileUrl: cleanString(input.connectorProfileUrl) || undefined,
+    externalConfigHash: cleanString(input.externalConfigHash) || undefined,
     supportedConnectorProfileUrl: cleanString(input.supportedConnectorProfileUrl) || undefined,
     trustAdapter: cleanString(input.trustAdapter) || undefined,
     jwksUri: cleanString(input.jwksUri),
@@ -628,6 +634,7 @@ async function requestExternalAgentTrustResponse(challenge: AgentOnboardingChall
       connectorId: cleanString(payload.connectorId),
       connectorProfileUrl: cleanString(payload.connectorProfileUrl) || discovery.connectorProfileUrl,
       connectorProfileHash: cleanString(payload.connectorProfileHash),
+      externalConfigHash: cleanString(payload.externalConfigHash) || discovery.externalConfigHash,
       trustAdapter: cleanString(payload.trustAdapter) || discovery.trustAdapter,
       oauthApplication: oauthApplication.clientId
         ? {
@@ -863,6 +870,8 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     connectorId: trustResponse.connectorId ?? discovery.connectorId,
     resourceSystem: trustResponse.resourceSystem ?? discovery.resourceSystem,
     connectorDisplayName: connectorProfile?.displayName ?? discovery.connectorDisplayName,
+    externalConfigHash: trustResponse.externalConfigHash ?? discovery.externalConfigHash,
+    connectorProfileHash: trustResponse.connectorProfileHash,
     requestedScopes: [...trustResponse.requestedScopes],
     requestedApplicationGrants: [...trustResponse.requestedApplicationGrants],
     agentDeclaredSkills: [...trustResponse.agentDeclaredSkills],
@@ -942,6 +951,7 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
       connectorId: trustResponse.connectorId,
       connectorProfileUrl: trustResponse.connectorProfileUrl,
       connectorProfileHash: trustResponse.connectorProfileHash,
+      externalConfigHash: trustResponse.externalConfigHash,
       trustAdapter: trustResponse.trustAdapter,
       oauthApplication: trustResponse.oauthApplication,
       servicePrincipal: trustResponse.servicePrincipal

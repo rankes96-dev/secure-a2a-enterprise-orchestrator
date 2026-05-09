@@ -21,6 +21,7 @@ export type ConnectorRuntimeResult = {
   };
   agentResponse?: A2AAgentResponse;
   error?: string;
+  errorMessage?: string;
 };
 
 const connectorRuntimeTimeoutMs = 5_000;
@@ -150,6 +151,18 @@ function normalizeRuntimeResponse(value: unknown): A2AAgentResponse {
   };
 }
 
+function runtimeErrorFromBody(value: unknown): { error: string; errorMessage?: string } {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    return {
+      error: typeof record.error === "string" ? record.error : "external connector runtime failed",
+      errorMessage: typeof record.message === "string" ? record.message : undefined
+    };
+  }
+
+  return { error: "external connector runtime failed" };
+}
+
 export async function executeApprovedConnectorSkill(params: {
   message: string;
   conversationId: string;
@@ -225,6 +238,10 @@ export async function executeApprovedConnectorSkill(params: {
                 roles: [...params.actor.roles]
               }
             : undefined
+        },
+        trustedContext: {
+          externalConfigHash: params.connectorRoute.externalConfigHash,
+          connectorProfileHash: params.connectorRoute.connectorProfileHash
         }
       })
     });
@@ -241,7 +258,7 @@ export async function executeApprovedConnectorSkill(params: {
         skillId: params.connectorRoute.skillId,
         runtimeEndpoint: endpoint.url.toString(),
         tokenMetadata: publicTokenMetadata(issued.metadata),
-        error: "external connector runtime failed"
+        ...runtimeErrorFromBody(body)
       };
     }
 

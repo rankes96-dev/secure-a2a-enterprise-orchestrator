@@ -198,7 +198,7 @@ The Gateway verifies the signed external attestation and derives approved action
 
 Jira is the current reference connector profile. System-specific catalogs for ServiceNow, Salesforce, GitHub, Slack, and other systems will come from the future Custom Connector Layer.
 
-For this phase, successfully onboarded external agents are stored as `trusted_metadata_only`. Runtime execution for external onboarded agents remains disabled until a future runtime validation phase.
+Successfully onboarded external agents are stored as `trusted_metadata_only` until an approved skill is selected at Run Task time. Approved skills can execute through the trusted connector runtime endpoint after scoped A2A JWT validation.
 
 Raw JWTs, access tokens, client assertions, private keys, client secrets, and Authorization headers are never displayed.
 
@@ -229,6 +229,7 @@ The Gateway can use trusted connector profile decisions to explain routing:
 - approved connector skills can execute the allowlisted local external connector runtime
 - blocked connector skills explain missing application access grants, missing effective permissions, or denied permissions
 - supported systems that are not connected return `connector_not_onboarded`
+- known connector skills that were not declared or enabled return `connector_skill_not_declared` / `connector_skill_not_enabled` with guidance to enable the skill and re-run onboarding
 - unsupported systems or actions recommend opening a support ticket
 
 Legacy built-in/local mock agents remain available for internal demo support, but they are not the primary path for connector-shaped requests.
@@ -240,6 +241,10 @@ Onboarding approves or blocks skills before runtime. When an approved skill is s
 Raw access tokens, Authorization headers, client assertions, private keys, and secrets are never returned to the UI. Blocked skills are never executed. Supported but not-onboarded connectors are never executed. Unsupported systems are never executed.
 
 Runtime execution currently supports the local Jira Cloud Reference Connector at `http://localhost:4201/a2a/task`. The Gateway executor is connector-generic; Jira-specific runtime behavior lives in `real-external-agent`, and future connectors can implement the same runtime response contract without Gateway core changes.
+
+Connector onboarding stores a signed external configuration hash from the external agent. The Gateway passes that trusted hash to the connector runtime. If the external admin configuration changes after onboarding, the runtime rejects execution with `connector_configuration_changed` and the user must re-run Gateway onboarding to refresh the trusted attestation.
+
+A known skill that is not enabled is different from an unsupported request. Unsupported means no connector/profile exists for the system or action. Skill not enabled means the connector exists, but the external agent did not declare or currently approve that skill.
 
 ## Skills vs Actions
 

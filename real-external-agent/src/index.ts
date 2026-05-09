@@ -14,7 +14,7 @@ import { getConnectorProfile, listSupportedConnectors } from "./connectorProfile
 import { bearerToken, readJsonBody, sendJson } from "./http.js";
 import { createSignedTrustResponse, OnboardingError, type OnboardingRequest } from "./onboarding.js";
 import { publicJwks } from "./keys.js";
-import { runtimeSkillRequirement, safeDiagnosis, validateRuntimeToken, type ConnectorRuntimeTask } from "./runtime.js";
+import { runtimeSkillRequirement, safeDiagnosis, validateRuntimeToken, validateRuntimeTrustedConfig, type ConnectorRuntimeTask } from "./runtime.js";
 
 function discoveryDocument() {
   const issuer = agentIssuer();
@@ -26,6 +26,7 @@ function discoveryDocument() {
     connectorId: agent.connectorId,
     connectorDisplayName: agent.connectorDisplayName,
     connectorProfileUrl: agent.connectorProfileUrl,
+    externalConfigHash: agent.externalConfigHash,
     supportedConnectorProfileUrl: `${issuer}/.well-known/a2a-supported-connectors.json`,
     trustAdapter: agent.trustAdapter,
     jwksUri: `${issuer}/.well-known/jwks.json`,
@@ -152,9 +153,15 @@ const server = createServer(async (request, response) => {
         return;
       }
 
+      const configGuard = validateRuntimeTrustedConfig(body, skill);
+      if (!configGuard.ok) {
+        sendJson(response, configGuard.status, configGuard.body);
+        return;
+      }
+
       try {
         const tokenContext = await validateRuntimeToken(token, skill.requiredApplicationGrants);
-        sendJson(response, 200, safeDiagnosis({ ...tokenContext, task: body, skill }));
+        sendJson(response, 200, safeDiagnosis({ ...tokenContext, task: body, skill, accessEvaluation: configGuard.accessEvaluation }));
       } catch (error) {
         sendJson(response, 401, {
           error: error instanceof Error && error.message === "missing_required_application_grant"

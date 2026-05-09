@@ -8,6 +8,7 @@ import {
   trustedGatewayJwksUri
 } from "./config.js";
 import { deriveRequestedApplicationGrants, getConnectorProfile, getDefaultConnectorProfile, listSupportedConnectors, previewActionReadiness } from "./connectorProfile.js";
+import { createHash } from "node:crypto";
 
 export type TrustedGatewayRegistration = {
   gatewayId: string;
@@ -86,6 +87,27 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const input = value as Record<string, unknown>;
+    return `{${Object.keys(input)
+      .filter((key) => input[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(input[key])}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value);
+}
+
+function sorted(values: string[]): string[] {
+  return [...values].sort();
+}
+
 function normalizeKnownValues(values: string[], allowedIds: string[]): string[] {
   const allowed = new Set(allowedIds);
   return unique(values).filter((value) => allowed.has(value));
@@ -136,9 +158,42 @@ function demoConfig(): AdminConfig {
 }
 
 let currentConfig = demoConfig();
+let currentConfigUpdatedAt = new Date().toISOString();
+
+function markConfigUpdated(): void {
+  currentConfigUpdatedAt = new Date().toISOString();
+}
+
+function safeHashSnapshot(config: AdminConfig) {
+  return {
+    selectedConnectorId: config.selectedConnectorId,
+    oauthApplication: {
+      appName: config.oauthApplication.appName,
+      clientId: config.oauthApplication.clientId,
+      authorizationServerIssuer: config.oauthApplication.authorizationServerIssuer,
+      tokenEndpointAuthMethod: config.oauthApplication.tokenEndpointAuthMethod,
+      applicationAccessGrants: sorted(config.oauthApplication.applicationAccessGrants)
+    },
+    servicePrincipal: {
+      principalType: config.servicePrincipal.principalType,
+      principalId: config.servicePrincipal.principalId,
+      effectivePermissions: sorted(config.servicePrincipal.effectivePermissions),
+      deniedPermissions: sorted(config.servicePrincipal.deniedPermissions)
+    },
+    capabilityDeclaration: {
+      enabledActionIds: sorted(config.capabilityDeclaration.enabledActionIds),
+      agentDeclaredCapabilities: sorted(config.capabilityDeclaration.agentDeclaredCapabilities)
+    }
+  };
+}
+
+export function adminConfigHash(): string {
+  return createHash("sha256").update(stableStringify(safeHashSnapshot(currentConfig))).digest("hex");
+}
 
 export function resetDemoConfig(): AdminConfig {
   currentConfig = demoConfig();
+  markConfigUpdated();
   return getAdminConfig();
 }
 
@@ -179,6 +234,8 @@ export function adminAgentMetadata() {
     connectorId: connectorProfile.connectorId,
     connectorDisplayName: connectorProfile.displayName,
     connectorProfileUrl: `${issuer}/.well-known/a2a-connector-profile.json`,
+    externalConfigHash: adminConfigHash(),
+    externalConfigUpdatedAt: currentConfigUpdatedAt,
     trustAdapter: "jira",
     runtimeAudience: agentId
   };
@@ -215,6 +272,8 @@ export function publicAdminConfig() {
     supportedConnectors: listSupportedConnectors(),
     connectorProfile: getConnectorProfile(currentConfig.selectedConnectorId),
     actionReadiness: previewActionReadiness(currentConfig),
+    externalConfigHash: adminConfigHash(),
+    externalConfigUpdatedAt: currentConfigUpdatedAt,
     ready: readiness.ready,
     readinessStatus: readiness.status,
     warnings: readiness.warnings,
@@ -240,6 +299,7 @@ export function saveTrustedGateway(value: unknown): { ok: true; config: ReturnTy
   if (errors.length > 0) return { ok: false, errors };
 
   currentConfig.trustedGateway = candidate;
+  markConfigUpdated();
   return { ok: true, config: publicAdminConfig() };
 }
 
@@ -269,6 +329,7 @@ export function saveOAuthApplication(value: unknown): { ok: true; config: Return
   if (errors.length > 0) return { ok: false, errors };
 
   currentConfig.oauthApplication = candidate;
+  markConfigUpdated();
   return { ok: true, config: publicAdminConfig() };
 }
 
@@ -288,6 +349,7 @@ export function saveServicePrincipal(value: unknown): { ok: true; config: Return
   if (errors.length > 0) return { ok: false, errors };
 
   currentConfig.servicePrincipal = candidate;
+  markConfigUpdated();
   return { ok: true, config: publicAdminConfig() };
 }
 
@@ -313,5 +375,6 @@ export function saveCapabilityDeclaration(value: unknown): { ok: true; config: R
   if (errors.length > 0) return { ok: false, errors };
 
   currentConfig.capabilityDeclaration = candidate;
+  markConfigUpdated();
   return { ok: true, config: publicAdminConfig() };
 }

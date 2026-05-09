@@ -5,7 +5,7 @@ import {
   agentIssuer,
   expectedAudience
 } from "./config.js";
-import { getAdminConfig, readinessStatus } from "./adminConfig.js";
+import { adminConfigHash, getAdminConfig, readinessStatus } from "./adminConfig.js";
 import { getConnectorProfile } from "./connectorProfile.js";
 import { getSigningKey } from "./keys.js";
 
@@ -157,6 +157,7 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
     connectorId: connectorProfile.connectorId,
     connectorProfileUrl: profileUrl,
     connectorProfileHash: connectorProfileHash(connectorProfile),
+    externalConfigHash: adminConfigHash(),
     trustAdapter: "jira",
     agentDeclaredSkills: config.capabilityDeclaration.agentDeclaredCapabilities,
     agentDeclaredCapabilities: config.capabilityDeclaration.agentDeclaredCapabilities,

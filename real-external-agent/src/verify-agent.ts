@@ -37,6 +37,7 @@ type GatewayOnboardingBody = {
     connectorProfileUrl?: string;
     supportedConnectorProfileUrl?: string;
     connectorProfileHash?: string;
+    externalConfigHash?: string;
     oauthApplication?: { appName?: string; clientId?: string; applicationAccessGrants?: string[]; grantedScopes?: string[] };
     servicePrincipal?: { principalId?: string; effectivePermissions?: string[]; deniedPermissions?: string[] };
   };
@@ -103,6 +104,7 @@ async function verifyDiscovery(): Promise<{ jwksUri: string }> {
     connectorDisplayName: string;
     connectorProfileUrl: string;
     supportedConnectorProfileUrl: string;
+    externalConfigHash: string;
     trustAdapter: string;
     jwksUri: string;
     onboardingEndpoint: string;
@@ -130,6 +132,7 @@ async function verifyDiscovery(): Promise<{ jwksUri: string }> {
   assertCondition(discovery.connectorId === "jira-reference", "discovery connectorId mismatch");
   assertCondition(discovery.connectorDisplayName === "Jira Cloud Reference Connector", "discovery connector display name mismatch");
   assertCondition(discovery.connectorProfileUrl === `${baseUrl}/.well-known/a2a-connector-profile.json`, "discovery connectorProfileUrl mismatch");
+  assertCondition(typeof discovery.externalConfigHash === "string" && discovery.externalConfigHash.length === 64, "discovery missing externalConfigHash");
   assertCondition(discovery.supportedConnectorProfileUrl === `${baseUrl}/.well-known/a2a-supported-connectors.json`, "discovery supportedConnectorProfileUrl mismatch");
   assertCondition(discovery.trustAdapter === "jira", "discovery trustAdapter mismatch");
   assertCondition(discovery.connectionRequirements.requiresGatewayRegistration === true, "discovery missing gateway registration requirement");
@@ -200,11 +203,15 @@ async function verifyAdminConfig(): Promise<void> {
     capabilityDeclaration: { requestedApplicationGrants: string[]; requestedScopes: string[]; agentDeclaredCapabilities: string[] };
     actionReadiness: Array<{ actionId: string; status: string; missingApplicationGrants: string[]; deniedPermissions: string[] }>;
     warnings: string[];
+    externalConfigHash: string;
+    externalConfigUpdatedAt: string;
   }>("/admin/config");
 
   assertCondition(config.ready === true, `admin config should be ready: ${config.warnings.join(" ")}`);
   assertCondition(config.selectedConnectorId === "jira-reference", "selected connector mismatch");
   assertCondition(config.selectedConnector?.connectorId === "jira-reference", "selected connector metadata missing");
+  assertCondition(typeof config.externalConfigHash === "string" && config.externalConfigHash.length === 64, "admin config missing externalConfigHash");
+  assertCondition(typeof config.externalConfigUpdatedAt === "string", "admin config missing externalConfigUpdatedAt");
   assertCondition(config.supportedConnectors.some((connector) => connector.connectorId === "jira-reference" && connector.status === "available"), "admin config missing supported Jira connector");
   assertCondition(config.trustedGateway.clientId === "secure-a2a-gateway-client", "trusted Gateway client mismatch");
   assertCondition(config.oauthApplication.appName === "Jira Agent Connected App", "OAuth app name mismatch");
@@ -283,6 +290,7 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
   assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.connectorId === "jira-reference", "Gateway onboarding missing connectorId attestation");
   assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.connectorProfileUrl === `${baseUrl}/.well-known/a2a-connector-profile.json`, "Gateway onboarding missing connector profile URL attestation");
   assertCondition(typeof gatewayOnboarding.body.externalApplicationAttestation?.connectorProfileHash === "string", "Gateway onboarding missing connector profile hash attestation");
+  assertCondition(typeof gatewayOnboarding.body.externalApplicationAttestation?.externalConfigHash === "string", "Gateway onboarding missing external config hash attestation");
   assertCondition(gatewayOnboarding.body.connectorProfile?.connectorId === "jira-reference", "Gateway onboarding missing connector profile");
   assertCondition(gatewayOnboarding.body.connectorProfileVerified === true, "Gateway connector profile should be verified");
   assertCondition(gatewayOnboarding.body.connectorDecisionSource === "jira-reference", "Gateway connector decision source mismatch");
@@ -402,10 +410,14 @@ async function verifyRuntimeIfTokenProvided(): Promise<void> {
     console.log("skip - runtime JWT validation requires RUNTIME_BEARER_TOKEN");
     return;
   }
+  const config = await getJson<{ externalConfigHash: string }>("/admin/config");
 
   const { response, body } = await postJson<{ status?: string }>("/a2a/task", {
     skillId: "jira.issue.diagnose_creation_failure",
-    message: "Diagnose Jira access"
+    message: "Diagnose Jira access",
+    trustedContext: {
+      externalConfigHash: config.externalConfigHash
+    }
   }, {
     authorization: `Bearer ${token}`
   });

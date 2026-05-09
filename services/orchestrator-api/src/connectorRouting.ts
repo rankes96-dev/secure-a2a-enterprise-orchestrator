@@ -12,6 +12,8 @@ export type ConnectorRoutingDecision = {
   status:
     | "connector_skill_approved"
     | "connector_skill_blocked"
+    | "connector_skill_not_declared"
+    | "connector_skill_not_enabled"
     | "connector_not_onboarded"
     | "unsupported"
     | "needs_more_info";
@@ -22,6 +24,8 @@ export type ConnectorRoutingDecision = {
   skillLabel?: string;
   runtimeEndpoint?: string;
   audience?: string;
+  externalConfigHash?: string;
+  connectorProfileHash?: string;
   requiredApplicationGrants?: string[];
   requiredEffectivePermissions?: string[];
   missingApplicationGrants?: string[];
@@ -61,11 +65,11 @@ function isSafeConnectorRuntimeEndpoint(endpoint: string | undefined): boolean {
 
   try {
     const url = new URL(endpoint);
+    const allowedOrigins = new Set((process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS ?? "http://localhost:4201").split(",").map((item) => item.trim()).filter(Boolean));
+    const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
     return (
-      url.protocol === "http:" &&
-      url.hostname === "localhost" &&
-      url.port === "4201" &&
-      url.pathname === "/a2a/task" &&
+      (url.protocol === "https:" || (url.protocol === "http:" && isLocalhost)) &&
+      allowedOrigins.has(url.origin) &&
       !url.username &&
       !url.password &&
       !url.search &&
@@ -208,6 +212,8 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       skillLabel: approved.label ?? skillId,
       runtimeEndpoint: onboarded.runtimeEndpoint,
       audience: onboarded.audience,
+      externalConfigHash: onboarded.externalConfigHash,
+      connectorProfileHash: onboarded.connectorProfileHash,
       requiredApplicationGrants: approved.requiredApplicationGrants ?? [],
       requiredEffectivePermissions: approved.requiredEffectivePermissions ?? [],
       runtimeMode: runtimeAvailable ? "external_runtime_available" : "metadata_only",
@@ -233,14 +239,30 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     };
   }
 
+  const declaredSkills = new Set([
+    ...(onboarded.agentDeclaredSkills ?? []),
+    ...(onboarded.agentDeclaredCapabilities ?? [])
+  ]);
+  if (!declaredSkills.has(skillId)) {
+    return {
+      status: "connector_skill_not_declared",
+      targetSystem: supported.targetSystem,
+      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.targetSystem,
+      connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
+      skillId,
+      reason: "The requested skill is known to the connector profile but was not declared by the onboarded external agent.",
+      recommendedNextStep: "Enable this skill in the external agent admin console, then re-run Gateway onboarding."
+    };
+  }
+
   return {
-    status: "unsupported",
+    status: "connector_skill_not_enabled",
     targetSystem: supported.targetSystem,
     resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.targetSystem,
-    connectorId: supported.connectorId,
+    connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
     skillId,
-    reason: `Requested skill ${skillId} is not declared by the onboarded connector profile.`,
-    recommendedNextStep: "Open a support ticket with the issue details."
+    reason: "The requested skill is known to the connector profile but is not enabled in the current Gateway action decision.",
+    recommendedNextStep: "Enable this skill in the external agent admin console, then re-run Gateway onboarding."
   };
 }
 

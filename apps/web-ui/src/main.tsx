@@ -294,6 +294,8 @@ function connectorRoutingStatusLabel(status: string): string {
   const labels: Record<string, string> = {
     connector_skill_approved: "Connector skill approved",
     connector_skill_blocked: "Connector skill blocked",
+    connector_skill_not_declared: "Connector skill not enabled",
+    connector_skill_not_enabled: "Connector skill not enabled",
     connector_not_onboarded: "Connector supported but not onboarded",
     unsupported: "Unsupported request",
     needs_more_info: "Needs more information"
@@ -307,11 +309,39 @@ function connectorRoutingStatusClass(status: string): string {
     return "success";
   }
 
-  if (status === "connector_skill_blocked" || status === "connector_not_onboarded" || status === "unsupported") {
+  if (status === "connector_skill_blocked" || status === "connector_skill_not_declared" || status === "connector_skill_not_enabled" || status === "connector_not_onboarded" || status === "unsupported") {
     return "warning";
   }
 
   return "neutral";
+}
+
+function shortHash(value?: string): string {
+  return value ? value.slice(0, 12) : "not declared";
+}
+
+function connectorRuntimeFailureCopy(error?: string, message?: string): { title: string; body: string; nextStep?: string } {
+  if (error === "connector_configuration_changed") {
+    return {
+      title: "Connector configuration changed after onboarding",
+      body: message ?? "The external connector configuration changed after the Gateway trusted its onboarding attestation.",
+      nextStep: "Re-run Gateway onboarding to refresh trusted connector attestation."
+    };
+  }
+
+  if (error === "skill_not_currently_approved") {
+    return {
+      title: "Connector runtime refused execution",
+      body: message ?? "The skill is no longer approved by current connector configuration.",
+      nextStep: "Enable the skill and required access in the external admin console, then re-run Gateway onboarding."
+    };
+  }
+
+  return {
+    title: "Connector approved, runtime failed safely",
+    body: message ?? error ?? "External connector runtime failed.",
+    nextStep: "Check the local external agent and Mock IdP, then retry."
+  };
 }
 
 function firstSentence(text: string, maxLength = 190): string {
@@ -719,6 +749,8 @@ type TrustedOnboardedAgent = {
   connectorProfile?: ConnectorProfileSummary;
   connectorProfileVerified?: boolean;
   connectorDecisionSource?: string;
+  externalConfigHash?: string;
+  connectorProfileHash?: string;
   resourcePrincipal?: string;
   trustLevel: "untrusted" | "schema_valid" | "oauth_bound" | "signed_response_verified" | "endpoint_control_verified" | "trusted_metadata_only" | "executable_pending_runtime_validation";
   executable: false;
@@ -778,6 +810,7 @@ type AgentOnboardingResult = {
     connectorId?: string;
     connectorProfileUrl?: string;
     connectorProfileHash?: string;
+    externalConfigHash?: string;
     trustAdapter?: string;
     oauthApplication?: {
       appName?: string;
@@ -838,6 +871,7 @@ type AgentDiscoveryMetadata = {
   connectorId?: string;
   connectorDisplayName?: string;
   connectorProfileUrl?: string;
+  externalConfigHash?: string;
   supportedConnectorProfileUrl?: string;
   trustAdapter?: string;
   jwksUri: string;
@@ -1807,12 +1841,12 @@ function App() {
             </div>
             <p>{latestResponse.connectorRouting.reason}</p>
             <p><strong>Next step:</strong> {latestResponse.connectorRouting.recommendedNextStep}</p>
-            {latestResponse.connectorRouting.status === "connector_not_onboarded" ? (
+            {latestResponse.connectorRouting.status === "connector_not_onboarded" || latestResponse.connectorRouting.status === "connector_skill_not_declared" || latestResponse.connectorRouting.status === "connector_skill_not_enabled" ? (
               <button type="button" className="secondary-inline-button" onClick={goToAgentRegistry}>
                 Go to Agent Registry
               </button>
             ) : null}
-            {latestResponse.connectorRouting.status === "unsupported" ? (
+            {latestResponse.connectorRouting.status === "unsupported" || latestResponse.connectorRouting.status === "connector_skill_not_declared" || latestResponse.connectorRouting.status === "connector_skill_not_enabled" ? (
               <button
                 type="button"
                 className="secondary-inline-button"
@@ -1826,12 +1860,16 @@ function App() {
             ) : null}
           </section>
         ) : null}
-        {latestResponse.connectorRuntime ? (
+        {latestResponse.connectorRuntime ? (() => {
+          const runtimeFailure = !latestResponse.connectorRuntime.executed
+            ? connectorRuntimeFailureCopy(latestResponse.connectorRuntime.error, latestResponse.connectorRuntime.errorMessage)
+            : undefined;
+          return (
           <section className="connector-runtime-section">
             <div className="section-heading-row compact-heading">
               <div>
                 <span>Connector Runtime Result</span>
-                <h3>{latestResponse.connectorRuntime.executed ? "Runtime executed with scoped A2A JWT" : "Connector approved, runtime failed safely"}</h3>
+                <h3>{latestResponse.connectorRuntime.executed ? "Runtime executed with scoped A2A JWT" : runtimeFailure?.title}</h3>
               </div>
               <strong className={`summary-chip status-${latestResponse.connectorRuntime.executed ? "success" : "warning"}`}>
                 {latestResponse.connectorRuntime.executed ? "EXECUTED" : statusDisplayLabel(latestResponse.connectorRuntime.runtimeMode)}
@@ -1885,11 +1923,21 @@ function App() {
                   </details>
                 ) : null}
               </div>
-            ) : latestResponse.connectorRuntime.error ? (
-              <p className="muted-note">{latestResponse.connectorRuntime.error}</p>
+            ) : runtimeFailure ? (
+              <div className="connector-runtime-diagnosis">
+                <p><strong>{runtimeFailure.title}</strong></p>
+                <p>{runtimeFailure.body}</p>
+                {runtimeFailure.nextStep ? <p><strong>Next step:</strong> {runtimeFailure.nextStep}</p> : null}
+                {latestResponse.connectorRuntime.error === "connector_configuration_changed" ? (
+                  <button type="button" className="secondary-inline-button" onClick={goToAgentRegistry}>
+                    Go to Agent Registry
+                  </button>
+                ) : null}
+              </div>
             ) : null}
           </section>
-        ) : null}
+          );
+        })() : null}
         <div className="response-security-strip" aria-label="Security outcome">
           {outcomeBadges.map((badge) => (
             <span className={badge.className} key={badge.label}>{badge.label}</span>
@@ -2540,6 +2588,8 @@ function App() {
                   <small>Profile source: {zeroTrustResult.connectorProfile?.profileSource ?? "unknown"}</small>
                   <small>Profile verified: {zeroTrustResult.connectorProfileVerified ? "yes" : "no"}</small>
                   <small>Decision source: {zeroTrustResult.connectorDecisionSource}</small>
+                  <small>External config hash: {shortHash(zeroTrustResult.externalApplicationAttestation?.externalConfigHash ?? zeroTrustResult.trustedAgent.externalConfigHash)}</small>
+                  <small>Connector profile hash: {shortHash(zeroTrustResult.externalApplicationAttestation?.connectorProfileHash ?? zeroTrustResult.trustedAgent.connectorProfileHash)}</small>
                 </article>
                 <article>
                   <span>Application Access Proof</span>
@@ -2558,8 +2608,8 @@ function App() {
                 </article>
                 <article>
                   <span>Runtime</span>
-                  <strong>metadata only</strong>
-                  <small>Runtime execution stays disabled until runtime JWT validation is enabled.</small>
+                  <strong>approved-skill runtime available</strong>
+                  <small>Run Task executes only approved connector skills with scoped A2A JWT validation.</small>
                   <small>Raw assertion: hidden.</small>
                 </article>
               </div>

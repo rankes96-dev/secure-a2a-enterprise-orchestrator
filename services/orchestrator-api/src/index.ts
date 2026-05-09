@@ -415,6 +415,8 @@ function connectorRoutingStatusLabel(status: ConnectorRoutingDecision["status"])
   const labels: Record<ConnectorRoutingDecision["status"], string> = {
     connector_skill_approved: "Connector skill approved",
     connector_skill_blocked: "Connector skill blocked",
+    connector_skill_not_declared: "Connector skill not enabled",
+    connector_skill_not_enabled: "Connector skill not enabled",
     connector_not_onboarded: "Connector supported but not onboarded",
     unsupported: "Unsupported request",
     needs_more_info: "Needs more information"
@@ -433,6 +435,10 @@ function connectorRoutingFinalAnswer(decision: ConnectorRoutingDecision): string
 
   if (decision.status === "connector_skill_blocked") {
     return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is blocked. ${decision.reason} ${decision.recommendedNextStep}`;
+  }
+
+  if (decision.status === "connector_skill_not_declared" || decision.status === "connector_skill_not_enabled") {
+    return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is known to the connector but is not enabled for this onboarded external agent. ${decision.reason} ${decision.recommendedNextStep}`;
   }
 
   if (decision.status === "connector_not_onboarded") {
@@ -455,7 +461,13 @@ function connectorRuntimeFinalAnswer(decision: ConnectorRoutingDecision, runtime
   }
 
   if (runtime.runtimeMode === "external_runtime_failed") {
-    return `Connector runtime execution failed safely for ${decision.skillLabel ?? decision.skillId ?? "the approved skill"}. ${runtime.error ?? "External connector runtime failed."}`;
+    if (runtime.error === "connector_configuration_changed") {
+      return `Connector configuration changed after onboarding. ${runtime.errorMessage ?? "Re-run Gateway onboarding to refresh trusted connector attestation."}`;
+    }
+    if (runtime.error === "skill_not_currently_approved") {
+      return `Connector runtime refused execution because the skill is no longer approved by current connector configuration. ${runtime.errorMessage ?? decision.recommendedNextStep}`;
+    }
+    return `Connector runtime execution failed safely for ${decision.skillLabel ?? decision.skillId ?? "the approved skill"}. ${runtime.errorMessage ?? runtime.error ?? "External connector runtime failed."}`;
   }
 
   return connectorRoutingFinalAnswer(decision);
@@ -472,6 +484,13 @@ function connectorRoutingDiagnosis(decision: ConnectorRoutingDecision): ResolveR
   if (decision.status === "connector_skill_blocked") {
     return {
       probableCause: "The onboarded connector profile blocks the requested action",
+      recommendedFix: decision.recommendedNextStep
+    };
+  }
+
+  if (decision.status === "connector_skill_not_declared" || decision.status === "connector_skill_not_enabled") {
+    return {
+      probableCause: "The connector exists, but the requested skill is not enabled on the onboarded external agent",
       recommendedFix: decision.recommendedNextStep
     };
   }
@@ -505,6 +524,18 @@ function connectorRuntimeDiagnosis(decision: ConnectorRoutingDecision, runtime: 
   }
 
   if (runtime.runtimeMode === "external_runtime_failed") {
+    if (runtime.error === "connector_configuration_changed") {
+      return {
+        probableCause: "External connector configuration changed after Gateway onboarding",
+        recommendedFix: "Re-run Gateway onboarding to refresh the trusted connector attestation before runtime execution."
+      };
+    }
+    if (runtime.error === "skill_not_currently_approved") {
+      return {
+        probableCause: "The external connector runtime refused execution because the skill is no longer approved by current configuration",
+        recommendedFix: "Enable the skill and required access in the external admin console, then re-run Gateway onboarding."
+      };
+    }
     return {
       probableCause: "Approved connector runtime execution failed",
       recommendedFix: "Retry after confirming the local external agent, Mock IdP, and scoped A2A JWT configuration are running."
@@ -515,7 +546,7 @@ function connectorRuntimeDiagnosis(decision: ConnectorRoutingDecision, runtime: 
 }
 
 function connectorRoutingResolutionStatus(decision: ConnectorRoutingDecision): ResolveResponse["resolutionStatus"] {
-  if (decision.status === "connector_skill_approved" || decision.status === "connector_skill_blocked") {
+  if (decision.status === "connector_skill_approved" || decision.status === "connector_skill_blocked" || decision.status === "connector_skill_not_declared" || decision.status === "connector_skill_not_enabled") {
     return "resolved";
   }
 
@@ -1281,13 +1312,13 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           ...trace("connector_intent_detected", connectorRouting.reason),
           toAgent: connectorRouting.connectorId,
           skillId: connectorRouting.skillId,
-          decision: connectorRouting.status === "connector_skill_approved" ? "Allowed" : connectorRouting.status === "connector_skill_blocked" ? "Blocked" : "NeedsMoreContext"
+          decision: connectorRouting.status === "connector_skill_approved" ? "Allowed" : connectorRouting.status === "connector_skill_blocked" || connectorRouting.status === "connector_skill_not_declared" || connectorRouting.status === "connector_skill_not_enabled" ? "Blocked" : "NeedsMoreContext"
         },
         {
           ...trace("connector_route_decision", `${connectorStatus}: ${connectorRouting.recommendedNextStep}`),
           toAgent: connectorRouting.connectorId,
           skillId: connectorRouting.skillId,
-          decision: connectorRouting.status === "connector_skill_approved" ? "Allowed" : connectorRouting.status === "connector_skill_blocked" ? "Blocked" : "NeedsMoreContext"
+          decision: connectorRouting.status === "connector_skill_approved" ? "Allowed" : connectorRouting.status === "connector_skill_blocked" || connectorRouting.status === "connector_skill_not_declared" || connectorRouting.status === "connector_skill_not_enabled" ? "Blocked" : "NeedsMoreContext"
         },
         ...runtimeTrace
       ],

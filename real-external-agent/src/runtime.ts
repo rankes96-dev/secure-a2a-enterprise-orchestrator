@@ -1,7 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { agentId, expectedAudience, mockIdpJwksUri } from "./config.js";
 import { getConnectorProfile } from "./connectorProfile.js";
-import { getAdminConfig } from "./adminConfig.js";
+import { adminConfigHash, getAdminConfig } from "./adminConfig.js";
 import { buildJiraRuntimeDiagnosis, type JiraConnectorAccessEvaluation } from "./connectors/jiraRuntimeDiagnosis.js";
 
 const jwksByUri = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
@@ -23,6 +23,10 @@ export type ConnectorRuntimeTask = {
       email?: unknown;
       roles?: unknown;
     };
+  };
+  trustedContext?: {
+    externalConfigHash?: unknown;
+    connectorProfileHash?: unknown;
   };
 };
 
@@ -106,22 +110,62 @@ export function connectorAccessEvaluation(skill: RuntimeSkillRequirement): JiraC
   };
 }
 
+export function validateRuntimeTrustedConfig(task: ConnectorRuntimeTask, skill: RuntimeSkillRequirement): {
+  ok: true;
+  accessEvaluation: JiraConnectorAccessEvaluation;
+} | {
+  ok: false;
+  status: 403 | 409;
+  body: { error: string; message: string };
+} {
+  const expectedHash = typeof task.trustedContext?.externalConfigHash === "string" ? task.trustedContext.externalConfigHash : "";
+  if (!expectedHash || expectedHash !== adminConfigHash()) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        error: "connector_configuration_changed",
+        message: "External connector configuration changed after Gateway onboarding. Re-run Gateway onboarding before executing runtime."
+      }
+    };
+  }
+
+  const accessEvaluation = connectorAccessEvaluation(skill);
+  if (
+    !accessEvaluation.skillApprovedByConfig ||
+    accessEvaluation.missingApplicationGrants.length > 0 ||
+    accessEvaluation.missingEffectivePermissions.length > 0 ||
+    accessEvaluation.deniedEffectivePermissions.length > 0
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      body: {
+        error: "skill_not_currently_approved",
+        message: "Requested skill is no longer approved by current connector configuration."
+      }
+    };
+  }
+
+  return { ok: true, accessEvaluation };
+}
+
 export function safeDiagnosis(params: {
   task: ConnectorRuntimeTask;
   skill: RuntimeSkillRequirement;
   actor?: string;
   actorRoles: string[];
   scopes: string[];
+  accessEvaluation: JiraConnectorAccessEvaluation;
 }) {
   const profile = getConnectorProfile();
-  const accessEvaluation = connectorAccessEvaluation(params.skill);
   const diagnosis = buildJiraRuntimeDiagnosis({
     skillId: params.skill.id,
     message: typeof params.task.message === "string" ? params.task.message : "",
     actor: params.actor,
     requiredApplicationGrants: params.skill.requiredApplicationGrants,
     requiredEffectivePermissions: params.skill.requiredEffectivePermissions,
-    connectorAccessEvaluation: accessEvaluation
+    connectorAccessEvaluation: params.accessEvaluation
   });
 
   return {
@@ -142,7 +186,7 @@ export function safeDiagnosis(params: {
           requiredApplicationGrants: params.skill.requiredApplicationGrants,
           requiredEffectivePermissions: params.skill.requiredEffectivePermissions,
           tokenScopeValidated: params.skill.requiredApplicationGrants.every((grant) => params.scopes.includes(grant)),
-          connectorAccessEvaluation: accessEvaluation,
+          connectorAccessEvaluation: params.accessEvaluation,
           actorAttached: Boolean(params.actor),
           actor: params.actor,
           actorRoles: params.actorRoles,

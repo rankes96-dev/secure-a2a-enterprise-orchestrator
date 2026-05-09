@@ -101,6 +101,7 @@ async function configureExternalAgent(input: {
   applicationAccessGrants: string[];
   effectivePermissions: string[];
   deniedPermissions: string[];
+  enabledActionIds?: string[];
 }): Promise<void> {
   let result = await externalPost("/admin/oauth-application", {
     appName: "Jira Agent Connected App",
@@ -121,15 +122,16 @@ async function configureExternalAgent(input: {
   });
   requireStatus(result.response, result.body, 200, "configure external service principal");
 
+  const enabledActionIds = input.enabledActionIds ?? allActionIds;
   result = await externalPost("/admin/capability-declaration", {
-    enabledActionIds: allActionIds,
-    agentDeclaredCapabilities: allActionIds
+    enabledActionIds,
+    agentDeclaredCapabilities: enabledActionIds
   });
   requireStatus(result.response, result.body, 200, "configure external agent actions");
 }
 
-async function onboardJiraConnector(options: { expectCreateBlocked?: boolean } = {}): Promise<void> {
-  const expectCreateBlocked = options.expectCreateBlocked ?? true;
+async function onboardJiraConnector(options: { expectCreateBlocked?: boolean; expectCreateDecision?: "blocked" | "approved" | "absent" } = {}): Promise<void> {
+  const expectCreateDecision = options.expectCreateDecision ?? (options.expectCreateBlocked === false ? "approved" : "blocked");
   const { response, body } = await request("/agent-onboarding/start", {
     method: "POST",
     body: JSON.stringify({
@@ -152,11 +154,14 @@ async function onboardJiraConnector(options: { expectCreateBlocked?: boolean } =
   if (!approved.some((item) => item.capability === "jira.issue.diagnose_creation_failure")) {
     throw new Error(`Jira diagnosis action was not approved: ${JSON.stringify(body)}`);
   }
-  if (expectCreateBlocked && !blocked.some((item) => item.capability === "jira.issue.create")) {
+  if (expectCreateDecision === "blocked" && !blocked.some((item) => item.capability === "jira.issue.create")) {
     throw new Error(`Jira create action was not blocked by default: ${JSON.stringify(body)}`);
   }
-  if (!expectCreateBlocked && !approved.some((item) => item.capability === "jira.issue.create")) {
+  if (expectCreateDecision === "approved" && !approved.some((item) => item.capability === "jira.issue.create")) {
     throw new Error(`Jira create action was not approved with full access: ${JSON.stringify(body)}`);
+  }
+  if (expectCreateDecision === "absent" && (approved.some((item) => item.capability === "jira.issue.create") || blocked.some((item) => item.capability === "jira.issue.create"))) {
+    throw new Error(`Jira create action should be absent when not declared: ${JSON.stringify(body)}`);
   }
 
   assertNoSecretMarkers(body);
@@ -251,6 +256,43 @@ async function main(): Promise<void> {
   }
   assertNoSecretMarkers(result);
   logOk("all-access Jira diagnosis executes runtime and shifts to project-specific checks");
+
+  await resetExternalAgent();
+  await onboardJiraConnector();
+
+  await configureExternalAgent({
+    applicationAccessGrants: allApplicationAccessGrants,
+    effectivePermissions: allEffectivePermissions,
+    deniedPermissions: []
+  });
+  result = await resolveMessage("Jira issue creation fails with 403 when creating issues in FIN project");
+  route = expectConnectorStatus(result, "connector_skill_approved", "Jira stale config diagnosis route");
+  const staleRuntime = asRecord(result.connectorRuntime);
+  if (staleRuntime.executed !== false || staleRuntime.runtimeMode !== "external_runtime_failed" || staleRuntime.error !== "connector_configuration_changed") {
+    throw new Error(`stale external config should refuse runtime execution: ${JSON.stringify(staleRuntime)}`);
+  }
+  if (typeof result.finalAnswer !== "string" || !result.finalAnswer.includes("Connector configuration changed after onboarding")) {
+    throw new Error(`stale config final answer should recommend refreshing onboarding: ${JSON.stringify(result.finalAnswer)}`);
+  }
+  logOk("runtime refuses stale connector configuration after admin changes");
+
+  await resetExternalAgent();
+  await configureExternalAgent({
+    applicationAccessGrants: ["read:jira-work", "read:jira-user"],
+    effectivePermissions: ["browse_projects", "view_issues", "read_project_roles"],
+    deniedPermissions: ["create_issues"],
+    enabledActionIds: ["jira.issue.diagnose_creation_failure", "jira.permission.inspect"]
+  });
+  await onboardJiraConnector({ expectCreateDecision: "absent" });
+  result = await resolveMessage("Create a Jira issue in FIN project for this outage");
+  route = expectConnectorStatus(result, "connector_skill_not_declared", "Jira create not declared");
+  if (typeof route.recommendedNextStep !== "string" || !route.recommendedNextStep.includes("Enable this skill") || route.status === "unsupported") {
+    throw new Error(`not-declared Jira create should guide enable and re-onboard, not unsupported: ${JSON.stringify(route)}`);
+  }
+  if (result.connectorRuntime !== undefined) {
+    throw new Error(`Jira create not-declared route should not execute runtime: ${JSON.stringify(result.connectorRuntime)}`);
+  }
+  logOk("known Jira create skill not declared is not treated as unsupported");
 
   await resetExternalAgent();
   await onboardJiraConnector();

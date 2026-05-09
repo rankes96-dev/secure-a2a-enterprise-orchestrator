@@ -297,7 +297,7 @@ export function adminPageHtml(): string {
   </main>
   <script>
     const $ = (id) => document.getElementById(id);
-    const signedResponseFields = ["agentId", "issuer", "clientId", "audience", "requestedApplicationGrants", "requestedScopes", "agentDeclaredSkills", "agentDeclaredCapabilities", "oauthApplication", "servicePrincipal", "nonce", "signedTrustResponse"];
+    const signedResponseFields = ["agentId", "issuer", "clientId", "audience", "connectorId", "resourceSystem", "connectorProfileHash", "externalConfigHash", "requestedApplicationGrants", "requestedScopes", "agentDeclaredSkills", "agentDeclaredCapabilities", "oauthApplication", "servicePrincipal", "nonce", "signedTrustResponse"];
     let currentConfig = null;
     let connectorProfile = null;
     let selectedApplicationGrants = [];
@@ -549,11 +549,11 @@ export function adminPageHtml(): string {
       $("developer-view").classList.add("active");
     });
     $("save-gateway").addEventListener("click", async () => {
-      try { render(await post("/admin/trusted-gateway", JSON.parse($("gateway-json").value))); setMessage("gateway-message", "Gateway trust saved."); }
+      try { render(await post("/admin/trusted-gateway", JSON.parse($("gateway-json").value))); setMessage("gateway-message", "Gateway trust saved. Configuration changed. Re-run Gateway onboarding to refresh trusted connector attestation."); }
       catch (error) { setMessage("gateway-message", error.message, false); }
     });
     $("reset-demo").addEventListener("click", async () => {
-      try { render(await post("/admin/reset-demo")); setMessage("gateway-message", "Demo configuration restored."); }
+      try { render(await post("/admin/reset-demo")); setMessage("gateway-message", "Demo configuration restored. Re-run Gateway onboarding to refresh trusted connector attestation."); }
       catch (error) { setMessage("gateway-message", error.message, false); }
     });
     $("save-oauth").addEventListener("click", async () => {
@@ -567,7 +567,7 @@ export function adminPageHtml(): string {
           grantedScopes: selectedApplicationGrants,
           status: $("application-status").value
         }));
-        setMessage("oauth-message", "OAuth application saved.");
+        setMessage("oauth-message", "OAuth application saved. Configuration changed. Re-run Gateway onboarding to refresh trusted connector attestation.");
       } catch (error) { setMessage("oauth-message", error.message, false); }
     });
     $("save-principal").addEventListener("click", async () => {
@@ -578,7 +578,7 @@ export function adminPageHtml(): string {
           effectivePermissions,
           deniedPermissions
         }));
-        setMessage("principal-message", "Service account access saved.");
+        setMessage("principal-message", "Service account access saved. Configuration changed. Re-run Gateway onboarding to refresh trusted connector attestation.");
       } catch (error) { setMessage("principal-message", error.message, false); }
     });
     $("save-capabilities").addEventListener("click", async () => {
@@ -589,7 +589,7 @@ export function adminPageHtml(): string {
           enabledActionIds,
           agentDeclaredCapabilities: enabledActionIds
         }));
-        setMessage("capability-message", "Agent actions saved.");
+        setMessage("capability-message", "Agent actions saved. Configuration changed. Re-run Gateway onboarding to refresh trusted connector attestation.");
       } catch (error) { setMessage("capability-message", error.message, false); }
     });
     load().catch((error) => { $("ready-title").textContent = "Unable to load config"; $("warnings").textContent = error.message; });

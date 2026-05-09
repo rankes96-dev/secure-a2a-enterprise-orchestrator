@@ -341,6 +341,8 @@ export interface ResolveResponse {
     skillLabel?: string;
     runtimeEndpoint?: string;
     audience?: string;
+    externalConfigHash?: string;
+    connectorProfileHash?: string;
     requiredApplicationGrants?: string[];
     requiredEffectivePermissions?: string[];
     missingApplicationGrants?: string[];
@@ -367,6 +369,7 @@ export interface ResolveResponse {
     };
     agentResponse?: A2AAgentResponse;
     error?: string;
+    errorMessage?: string;
   };
   followUpInterpretation?: FollowUpInterpretation;
   incidentContext?: {
