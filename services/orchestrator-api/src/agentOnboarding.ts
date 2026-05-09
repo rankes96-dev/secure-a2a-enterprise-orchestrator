@@ -42,6 +42,7 @@ export type ExternalAgentTrustResponse = {
   resourceSystem?: string;
   trustAdapter?: string;
   oauthApplication?: {
+    appName?: string;
     clientId: string;
     authorizationServerIssuer: string;
     grantedScopes: string[];
@@ -563,6 +564,7 @@ async function requestExternalAgentTrustResponse(challenge: AgentOnboardingChall
       trustAdapter: cleanString(payload.trustAdapter) || discovery.trustAdapter,
       oauthApplication: oauthApplication.clientId
         ? {
+            appName: cleanString(oauthApplication.appName),
             clientId: cleanString(oauthApplication.clientId),
             authorizationServerIssuer: cleanString(oauthApplication.authorizationServerIssuer),
             grantedScopes: stringArray(oauthApplication.grantedScopes),

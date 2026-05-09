@@ -9,113 +9,270 @@ export function adminPageHtml(): string {
     :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172026; background: #f5f7f9; }
     * { box-sizing: border-box; }
     body { margin: 0; }
-    main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0 48px; }
-    header { display: grid; gap: 8px; margin-bottom: 22px; }
-    h1, h2 { margin: 0; }
-    h1 { font-size: clamp(28px, 4vw, 44px); letter-spacing: 0; }
-    h2 { font-size: 18px; }
+    main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
+    header { display: grid; gap: 10px; margin-bottom: 18px; }
+    h1, h2, h3, h4 { margin: 0; letter-spacing: 0; }
+    h1 { font-size: clamp(28px, 4vw, 42px); }
+    h2 { font-size: 20px; }
+    h3 { font-size: 16px; }
+    h4 { font-size: 14px; }
     p { margin: 0; color: #526b76; line-height: 1.5; }
-    section, .status { display: grid; gap: 14px; border: 1px solid #dbe3e8; border-radius: 14px; padding: 16px; background: #fff; box-shadow: 0 10px 26px rgba(30, 41, 59, 0.05); }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-    .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-    .fact { display: grid; gap: 5px; min-width: 0; border: 1px solid #edf1f3; border-radius: 10px; padding: 10px; background: #fbfcfd; }
-    .fact span, label span, .eyebrow { color: #526b76; font-size: 11px; font-weight: 900; text-transform: uppercase; }
-    .fact strong, code { overflow-wrap: anywhere; }
-    label { display: grid; gap: 6px; }
+    code, pre, strong, span { overflow-wrap: anywhere; }
+    pre { max-width: 100%; overflow-x: auto; white-space: pre-wrap; border: 1px solid #dbe3e8; border-radius: 10px; padding: 10px; color: #253d47; background: #f8fafb; font-size: 12px; }
+    section, .readiness-panel, .developer-panel { display: grid; gap: 14px; border: 1px solid #dbe3e8; border-radius: 14px; padding: 16px; background: #fff; box-shadow: 0 10px 26px rgba(30, 41, 59, 0.05); }
+    label { display: grid; gap: 6px; min-width: 0; }
     input, select, textarea { width: 100%; border: 1px solid #c7d2d8; border-radius: 10px; padding: 10px 11px; color: #172026; background: #fff; font: inherit; }
-    textarea { min-height: 106px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 13px; }
-    button { width: fit-content; border: 0; border-radius: 10px; padding: 10px 13px; color: #fff; background: #14213d; font-weight: 900; cursor: pointer; }
+    textarea { min-height: 104px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 13px; }
+    button, .button-link { display: inline-flex; justify-content: center; align-items: center; width: fit-content; border: 0; border-radius: 10px; padding: 10px 13px; color: #fff; background: #14213d; font-weight: 900; text-decoration: none; cursor: pointer; }
     button.secondary { color: #14213d; background: #eef3f6; }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    button.chip { border: 1px solid #c7d2d8; color: #253d47; background: #f8fafb; font-size: 12px; padding: 7px 9px; }
+    button.chip.selected { color: #fff; border-color: #14213d; background: #14213d; }
+    button.chip.warn { color: #8a5a00; border-color: #f0deaa; background: #fff7df; }
+    details { min-width: 0; border: 1px solid #dbe3e8; border-radius: 10px; padding: 10px; background: #fbfcfd; }
+    details summary { cursor: pointer; color: #14213d; font-weight: 900; }
+    .eyebrow, label span, .fact span, .section-kicker { color: #526b76; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+    .top-row { display: flex; justify-content: space-between; gap: 14px; align-items: start; }
+    .view-toggle { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border: 1px solid #dbe3e8; border-radius: 10px; padding: 8px; background: #fff; }
+    .view-toggle span { color: #526b76; font-size: 12px; font-weight: 900; text-transform: uppercase; }
+    .view-toggle button { border: 1px solid #c7d2d8; color: #253d47; background: #f8fafb; }
+    .view-toggle button.active { color: #fff; border-color: #14213d; background: #14213d; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+    .setup-flow { display: grid; gap: 14px; min-width: 0; }
+    .readiness-panel { position: sticky; top: 16px; }
+    .status-title { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .status-badge { width: fit-content; border-radius: 999px; padding: 5px 9px; color: #6a4f13; background: #fff8e7; font-size: 12px; font-weight: 900; }
+    .status-badge.ready { color: #1d6d3d; background: #eef8f0; }
+    .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .facts.compact { grid-template-columns: 1fr; }
+    .fact { display: grid; gap: 5px; min-width: 0; border: 1px solid #edf1f3; border-radius: 10px; padding: 10px; background: #fbfcfd; }
+    .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .message { min-height: 20px; font-size: 13px; font-weight: 800; }
     .error { color: #a1272d; }
     .ok { color: #1d6d3d; }
     .checklist { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-    .checklist li { display: flex; gap: 8px; align-items: center; color: #384b53; }
-    .checklist li::before { content: ""; width: 9px; height: 9px; border-radius: 999px; background: #9aa8b0; }
+    .checklist li { display: flex; gap: 8px; align-items: center; color: #384b53; font-size: 13px; }
+    .checklist li::before { content: ""; flex: 0 0 auto; width: 9px; height: 9px; border-radius: 999px; background: #9aa8b0; }
     .checklist li.pass::before { background: #1d6d3d; }
     .checklist li.warn::before { background: #a1272d; }
-    @media (max-width: 820px) { .grid, .facts { grid-template-columns: 1fr; } main { width: min(100% - 22px, 1180px); padding-top: 20px; } button { width: 100%; } }
+    .collector { display: grid; gap: 9px; }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .selected-chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid #c7d2d8; border-radius: 999px; padding: 6px 8px; color: #253d47; background: #f8fafb; font-size: 12px; font-weight: 800; }
+    .selected-chip button { border-radius: 999px; padding: 1px 6px; color: #526b76; background: #e9eff2; font-size: 12px; }
+    .action-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .action-card { display: grid; gap: 9px; min-width: 0; border: 1px solid #dbe3e8; border-radius: 12px; padding: 12px; background: #fbfcfd; }
+    .action-card.ready { border-color: #cfe8d4; background: #f6fbf7; }
+    .action-card.blocked { border-color: #f0deaa; background: #fffaf0; }
+    .action-card.disabled { opacity: 0.72; }
+    .action-card small { color: #526b76; line-height: 1.4; }
+    .preview-pill { width: fit-content; border-radius: 999px; padding: 4px 8px; color: #1d6d3d; background: #eef8f0; font-size: 11px; font-weight: 900; }
+    .preview-pill.blocked { color: #8a5a00; background: #fff7df; }
+    .developer-panel { display: none; }
+    .developer-panel.active { display: grid; }
+    .bizapps-view.hidden { display: none; }
+    .developer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .contract-list { display: grid; gap: 8px; }
+    .contract-list code { border: 1px solid #dbe3e8; border-radius: 999px; padding: 7px 9px; background: #f8fafb; font-size: 12px; }
+    .muted { color: #526b76; font-size: 13px; }
+    @media (max-width: 980px) {
+      .layout, .developer-grid, .action-grid, .field-grid, .facts { grid-template-columns: 1fr; }
+      .readiness-panel { position: static; }
+    }
+    @media (max-width: 640px) {
+      main { width: min(100% - 22px, 1180px); padding-top: 18px; }
+      .top-row, .view-toggle, .actions { display: grid; grid-template-columns: 1fr; }
+      button, .button-link, .view-toggle button { width: 100%; }
+      section, .readiness-panel, .developer-panel { padding: 14px; }
+      .chip-row { gap: 7px; }
+    }
   </style>
 </head>
 <body>
   <main>
     <header>
-      <p class="eyebrow">Local demo admin</p>
-      <h1>External Agent Admin Console</h1>
-      <p>Configure the external application identity that this agent uses before it can be onboarded by the Secure A2A Gateway.</p>
+      <div class="top-row">
+        <div>
+          <p class="eyebrow">Local external system admin</p>
+          <h1>Jira Agent Integration Setup</h1>
+          <p>Configure this external agent the way a BizApps admin would configure an integration app before the Secure A2A Gateway onboards it.</p>
+        </div>
+        <div class="view-toggle" aria-label="View">
+          <span>View:</span>
+          <button type="button" id="bizapps-tab" class="active">BizApps setup</button>
+          <button type="button" id="developer-tab">Developer details</button>
+        </div>
+      </div>
     </header>
 
-    <div class="status">
-      <div>
-        <p class="eyebrow">Readiness Status</p>
-        <h2 id="ready-title">Loading...</h2>
+    <div class="layout bizapps-view" id="bizapps-view">
+      <div class="setup-flow">
+        <section>
+          <p class="section-kicker">Step 1</p>
+          <h2>Gateway trust</h2>
+          <h3>Trust this Gateway</h3>
+          <p>Paste the public Gateway registration from the Secure A2A Gateway. This lets this external agent verify signed Gateway onboarding challenges.</p>
+          <div class="facts" id="gateway-facts"></div>
+          <details id="gateway-json-details">
+            <summary>Gateway registration JSON</summary>
+            <label><span>Public Gateway registration</span><textarea id="gateway-json"></textarea></label>
+          </details>
+          <div class="actions">
+            <button id="save-gateway">Save Gateway trust</button>
+            <button class="secondary" id="reset-demo">Reset to local demo Gateway</button>
+          </div>
+          <p class="message" id="gateway-message"></p>
+        </section>
+
+        <section>
+          <p class="section-kicker">Step 2</p>
+          <h2>OAuth application</h2>
+          <p>The OAuth application belongs to the external system. The Gateway will verify that this agent's signed response references this registered application and granted scopes.</p>
+          <div class="field-grid">
+            <label><span>OAuth application name</span><input id="oauth-app-name" /></label>
+            <label><span>OAuth Client ID</span><input id="oauth-client-id" /></label>
+            <label><span>Client authentication method</span><select id="token-auth-method"><option value="private_key_jwt">private_key_jwt</option></select></label>
+            <label><span>Application status</span><select id="application-status"><option value="active">active</option><option value="disabled">disabled</option></select></label>
+          </div>
+          <div class="collector">
+            <h3>Granted scopes</h3>
+            <p class="muted">Choose the OAuth scopes granted to this connected app. No client secret is requested or displayed.</p>
+            <div class="chip-row" id="available-scopes"></div>
+            <div class="chip-row" id="selected-scopes"></div>
+          </div>
+          <details>
+            <summary>Advanced OAuth details</summary>
+            <label><span>Authorization server issuer</span><input id="authorization-server-issuer" /></label>
+          </details>
+          <button id="save-oauth">Save OAuth application</button>
+          <p class="message" id="oauth-message"></p>
+        </section>
+
+        <section>
+          <p class="section-kicker">Step 3</p>
+          <h2>Service account access</h2>
+          <h3>Integration user access</h3>
+          <p>OAuth scopes define what the app can ask for. The service account / integration user defines what it can actually do in the resource system.</p>
+          <div class="field-grid">
+            <label><span>Account type</span><select id="principal-type"><option value="service_account">service account</option></select></label>
+            <label><span>Service account / Integration user</span><input id="principal-id" /></label>
+          </div>
+          <div class="collector">
+            <h3>Granted roles & permissions</h3>
+            <div class="chip-row" id="available-permissions"></div>
+            <div class="chip-row" id="selected-permissions"></div>
+          </div>
+          <div class="collector">
+            <h3>Explicitly denied permissions</h3>
+            <div class="chip-row" id="available-denied-permissions"></div>
+            <div class="chip-row" id="selected-denied-permissions"></div>
+          </div>
+          <button id="save-principal">Save service account access</button>
+          <p class="message" id="principal-message"></p>
+        </section>
+
+        <section>
+          <p class="section-kicker">Step 4</p>
+          <h2>Agent actions</h2>
+          <h3>Actions this agent can expose</h3>
+          <p>These are actions the external agent can declare. The Gateway decides which actions are approved after checking OAuth scopes and service account permissions.</p>
+          <div class="action-grid" id="action-grid"></div>
+          <button id="save-capabilities">Save agent actions</button>
+          <p class="message" id="capability-message"></p>
+        </section>
+
+        <section>
+          <p class="section-kicker">Step 5</p>
+          <h2>Readiness</h2>
+          <p id="readiness-copy">Loading readiness...</p>
+          <ul class="checklist" id="readiness-detail"></ul>
+        </section>
       </div>
-      <ul class="checklist" id="readiness"></ul>
-      <p id="warnings"></p>
-    </div>
 
-    <section>
-      <p class="eyebrow">Agent Identity</p>
-      <h2>Read-only external agent identity</h2>
-      <div class="facts" id="agent-facts"></div>
-    </section>
-
-    <div class="grid">
-      <section>
-        <p class="eyebrow">Trusted Gateway Registration</p>
-        <h2>Which Gateway may onboard this agent?</h2>
-        <p>Paste the Gateway registration JSON from the Secure A2A Gateway. It contains public metadata only and is used to verify signed Gateway challenges.</p>
-        <label><span>Paste Gateway Registration JSON</span><textarea id="gateway-json"></textarea></label>
-        <div class="actions">
-          <button id="save-gateway">Save Gateway Registration</button>
-          <button class="secondary" id="reset-demo">Reset to local demo Gateway</button>
+      <aside class="readiness-panel">
+        <div>
+          <p class="eyebrow">Readiness</p>
+          <div class="status-title">
+            <h2 id="ready-title">Loading...</h2>
+            <span class="status-badge" id="ready-badge">Checking</span>
+          </div>
         </div>
-        <p class="message" id="gateway-message"></p>
-      </section>
-
-      <section>
-        <p class="eyebrow">OAuth Application Binding</p>
-        <h2>External OAuth application</h2>
-        <p>This OAuth application belongs to the external system. The Gateway will only verify that the agent's signed response references this registered application.</p>
-        <label><span>Resource system</span><input id="resource-system" value="jira" disabled /></label>
-        <label><span>OAuth Client ID</span><input id="oauth-client-id" /></label>
-        <label><span>Authorization server / IdP issuer</span><input id="authorization-server-issuer" /></label>
-        <label><span>Token endpoint auth method</span><select id="token-auth-method"><option value="private_key_jwt">private_key_jwt</option></select></label>
-        <label><span>Granted scopes</span><textarea id="granted-scopes"></textarea></label>
-        <label><span>Application status</span><select id="application-status"><option value="active">active</option><option value="disabled">disabled</option></select></label>
-        <button id="save-oauth">Save OAuth Application</button>
-        <p class="message" id="oauth-message"></p>
-      </section>
+        <ul class="checklist" id="readiness"></ul>
+        <div class="facts compact" id="decision-preview"></div>
+        <p id="warnings"></p>
+      </aside>
     </div>
 
-    <div class="grid">
-      <section>
-        <p class="eyebrow">Service Principal / Permissions</p>
-        <h2>Integration principal</h2>
-        <p>OAuth scopes are not enough. The service principal also needs resource-system permissions. The Gateway uses these permissions to derive approved and blocked capabilities.</p>
-        <label><span>Principal type</span><select id="principal-type"><option value="service_account">service_account</option></select></label>
-        <label><span>Principal ID</span><input id="principal-id" /></label>
-        <label><span>Effective permissions</span><textarea id="effective-permissions"></textarea></label>
-        <label><span>Denied permissions</span><textarea id="denied-permissions"></textarea></label>
-        <button id="save-principal">Save Service Principal</button>
-        <p class="message" id="principal-message"></p>
-      </section>
-
-      <section>
-        <p class="eyebrow">Agent Capability Declaration</p>
-        <h2>What this agent declares</h2>
-        <p>These are declarations by the external agent. The Gateway does not approve them until OAuth grants and resource permissions are validated.</p>
-        <label><span>Requested scopes</span><textarea id="requested-scopes"></textarea></label>
-        <label><span>Agent-declared capabilities</span><textarea id="declared-capabilities"></textarea></label>
-        <button id="save-capabilities">Save Capability Declaration</button>
-        <p class="message" id="capability-message"></p>
-      </section>
-    </div>
+    <section class="developer-panel" id="developer-view">
+      <div>
+        <p class="eyebrow">Developer details</p>
+        <h2>External agent integration details</h2>
+        <p>This is for developers integrating an external agent. BizApps users should use the setup view.</p>
+      </div>
+      <div class="developer-grid">
+        <article>
+          <h3>Endpoint contract</h3>
+          <div class="contract-list">
+            <code>GET /.well-known/a2a-agent.json</code>
+            <code>GET /.well-known/jwks.json</code>
+            <code>POST /onboarding/challenge</code>
+            <code>POST /a2a/task</code>
+          </div>
+        </article>
+        <article>
+          <h3>Signed response field names</h3>
+          <div class="chip-row" id="signed-response-fields"></div>
+        </article>
+        <article>
+          <h3>Technical capability IDs</h3>
+          <div class="chip-row" id="technical-capabilities"></div>
+        </article>
+        <article>
+          <h3>Gateway registration JSON</h3>
+          <pre id="developer-gateway-json">{}</pre>
+        </article>
+        <article>
+          <h3>Raw admin config JSON</h3>
+          <pre id="developer-config-json">{}</pre>
+        </article>
+      </div>
+    </section>
   </main>
   <script>
     const $ = (id) => document.getElementById(id);
-    const lines = (items) => (items || []).join("\\n");
+    const availableScopes = ["read:jira-work", "read:jira-user", "write:jira-work", "manage:jira-project"];
+    const availablePermissions = ["browse_projects", "view_issues", "read_project_roles", "create_issues", "administer_projects"];
+    const actionCatalog = [
+      {
+        label: "Diagnose Jira issue creation failures",
+        capability: "jira.issue.diagnose_creation_failure",
+        description: "Inspect project and issue metadata to explain why Jira issue creation is failing.",
+        requiredScopes: ["read:jira-work"],
+        requiredPermissions: ["browse_projects", "view_issues"]
+      },
+      {
+        label: "Inspect Jira permissions",
+        capability: "jira.permission.inspect",
+        description: "Review project roles and user visibility that affect Jira access.",
+        requiredScopes: ["read:jira-user"],
+        requiredPermissions: ["read_project_roles"]
+      },
+      {
+        label: "Create Jira issues",
+        capability: "jira.issue.create",
+        description: "Create new Jira issues through the external agent runtime.",
+        requiredScopes: ["write:jira-work"],
+        requiredPermissions: ["create_issues"]
+      }
+    ];
+    const signedResponseFields = ["agentId", "issuer", "clientId", "audience", "requestedScopes", "agentDeclaredCapabilities", "oauthApplication", "servicePrincipal", "nonce", "signedTrustResponse"];
+    let currentConfig = null;
+    let selectedScopes = [];
+    let effectivePermissions = [];
+    let deniedPermissions = [];
+    let enabledCapabilities = [];
+
+    const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+    const hasAll = (selected, required) => required.every((item) => selected.includes(item));
     const post = async (path, body) => {
       const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
       const json = await response.json();
@@ -132,47 +289,156 @@ export function adminPageHtml(): string {
         onboardingMethod: config.trustedGateway.onboardingMethod
       };
     }
-    function render(config) {
-      $("ready-title").textContent = config.ready ? "Ready for onboarding" : "Configuration incomplete";
+    function chipButton(label, selected, onClickName, extraClass = "") {
+      return '<button type="button" class="chip ' + (selected ? "selected " : "") + extraClass + '" data-action="' + onClickName + '" data-value="' + escapeHtml(label) + '">' + escapeHtml(label) + '</button>';
+    }
+    function selectedChip(label, onClickName) {
+      return '<span class="selected-chip">' + escapeHtml(label) + '<button type="button" data-action="' + onClickName + '" data-value="' + escapeHtml(label) + '">x</button></span>';
+    }
+    function toggleItem(list, item) {
+      return list.includes(item) ? list.filter((value) => value !== item) : [...list, item];
+    }
+    function renderCollectors() {
+      $("available-scopes").innerHTML = availableScopes.map((scope) => chipButton(scope, selectedScopes.includes(scope), "toggle-scope")).join("");
+      $("selected-scopes").innerHTML = selectedScopes.length ? selectedScopes.map((scope) => selectedChip(scope, "toggle-scope")).join("") : '<p class="muted">No scopes selected.</p>';
+      $("available-permissions").innerHTML = availablePermissions.map((permission) => chipButton(permission, effectivePermissions.includes(permission), "toggle-permission")).join("");
+      $("selected-permissions").innerHTML = effectivePermissions.length ? effectivePermissions.map((permission) => selectedChip(permission, "toggle-permission")).join("") : '<p class="muted">No permissions selected.</p>';
+      $("available-denied-permissions").innerHTML = availablePermissions.map((permission) => chipButton(permission, deniedPermissions.includes(permission), "toggle-denied", deniedPermissions.includes(permission) ? "warn" : "")).join("");
+      $("selected-denied-permissions").innerHTML = deniedPermissions.length ? deniedPermissions.map((permission) => selectedChip(permission, "toggle-denied")).join("") : '<p class="muted">No explicitly denied permissions.</p>';
+    }
+    function actionPreview(action) {
+      const missingScopes = action.requiredScopes.filter((scope) => !selectedScopes.includes(scope));
+      const missingPermissions = action.requiredPermissions.filter((permission) => !effectivePermissions.includes(permission));
+      const denied = action.requiredPermissions.filter((permission) => deniedPermissions.includes(permission));
+      const ready = missingScopes.length === 0 && missingPermissions.length === 0 && denied.length === 0;
+      const reasons = [
+        ...missingScopes.map((scope) => "missing scope " + scope),
+        ...missingPermissions.map((permission) => "missing permission " + permission),
+        ...denied.map((permission) => permission + " denied")
+      ];
+      return { ready, reasons };
+    }
+    function renderActions() {
+      $("action-grid").innerHTML = actionCatalog.map((action) => {
+        const enabled = enabledCapabilities.includes(action.capability);
+        const preview = actionPreview(action);
+        const statusClass = enabled ? (preview.ready ? "ready" : "blocked") : "disabled";
+        return '<article class="action-card ' + statusClass + '">' +
+          '<div><h3>' + escapeHtml(action.label) + '</h3><p>' + escapeHtml(action.description) + '</p></div>' +
+          '<span class="preview-pill ' + (preview.ready ? "" : "blocked") + '">' + (preview.ready ? "approved-ready" : "blocked-preview") + '</span>' +
+          '<small>Requires scopes: ' + escapeHtml(action.requiredScopes.join(", ")) + '</small>' +
+          '<small>Requires permissions: ' + escapeHtml(action.requiredPermissions.join(", ")) + '</small>' +
+          (!preview.ready ? '<small>' + escapeHtml(preview.reasons.join("; ")) + '</small>' : '') +
+          '<button type="button" class="' + (enabled ? "secondary" : "") + '" data-action="toggle-action" data-value="' + escapeHtml(action.capability) + '">' + (enabled ? "Enabled" : "Disabled") + '</button>' +
+        '</article>';
+      }).join("");
+    }
+    function renderReadiness(config) {
+      const gatewayReady = Boolean(config.trustedGateway.clientId && config.trustedGateway.issuer && config.trustedGateway.jwksUri);
+      const scopesReady = selectedScopes.length > 0;
+      const serviceAccountReady = Boolean(config.servicePrincipal.principalId);
+      const permissionsReady = effectivePermissions.length > 0;
+      const actionsReady = enabledCapabilities.length > 0;
+      const noSecrets = !config.warnings.some((item) => item.toLowerCase().includes("secret"));
+      const previews = actionCatalog.filter((action) => enabledCapabilities.includes(action.capability)).map(actionPreview);
+      const approved = previews.filter((preview) => preview.ready).length;
+      const blocked = previews.length - approved;
+      $("ready-title").textContent = config.ready ? "Ready for Gateway onboarding" : "Configuration incomplete";
+      $("ready-badge").textContent = config.ready ? "Ready" : "Needs setup";
+      $("ready-badge").className = "status-badge " + (config.ready ? "ready" : "");
       $("warnings").textContent = config.warnings.length ? config.warnings.join(" ") : "No warnings. This local demo config does not store or display secrets.";
-      $("readiness").innerHTML = [
-        ["Gateway registration configured", config.trustedGateway.clientId && config.trustedGateway.issuer && config.trustedGateway.jwksUri],
-        ["OAuth application active", config.oauthApplication.status === "active"],
-        ["OAuth client ID configured", config.oauthApplication.clientId],
-        ["Granted scopes configured", config.oauthApplication.grantedScopes.length],
-        ["Service principal configured", config.servicePrincipal.principalId],
-        ["Agent-declared capabilities configured", config.capabilityDeclaration.agentDeclaredCapabilities.length],
-        ["No secrets detected", !config.warnings.some((item) => item.toLowerCase().includes("secret"))],
-        ["Ready to accept signed Gateway challenge", config.ready]
-      ].map(([label, pass]) => '<li class="' + (pass ? 'pass' : 'warn') + '">' + label + '</li>').join("");
-      $("agent-facts").innerHTML = [
-        ["Agent ID", config.agent.agentId],
-        ["Agent issuer", config.agent.issuer],
-        ["JWKS URI", config.agent.jwksUri],
-        ["Onboarding endpoint", config.agent.onboardingEndpoint],
-        ["Runtime endpoint", config.agent.runtimeEndpoint],
-        ["Resource system", config.agent.resourceSystem],
-        ["Trust adapter", config.agent.trustAdapter],
-        ["Runtime audience", config.agent.runtimeAudience]
-      ].map(([label, value]) => '<div class="fact"><span>' + label + '</span><strong>' + value + '</strong></div>').join("");
+      const checks = [
+        ["Gateway trust configured", gatewayReady],
+        ["OAuth app active", config.oauthApplication.status === "active"],
+        ["Scopes selected", scopesReady],
+        ["Service account configured", serviceAccountReady],
+        ["Permissions selected", permissionsReady],
+        ["Agent actions selected", actionsReady],
+        ["No secrets detected", noSecrets]
+      ];
+      const html = checks.map(([label, pass]) => '<li class="' + (pass ? "pass" : "warn") + '">' + escapeHtml(label) + '</li>').join("");
+      $("readiness").innerHTML = html;
+      $("readiness-detail").innerHTML = html;
+      $("readiness-copy").textContent = config.ready ? "This external agent is ready to respond to a signed Gateway onboarding challenge." : "Complete the required setup items before Gateway onboarding.";
+      $("decision-preview").innerHTML = [
+        ["Approved actions preview", approved],
+        ["Blocked actions preview", blocked],
+        ["Gateway authority", "final decision"]
+      ].map(([label, value]) => '<div class="fact"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + '</strong></div>').join("");
+    }
+    function renderDeveloper(config) {
+      $("signed-response-fields").innerHTML = signedResponseFields.map((field) => '<span class="selected-chip">' + escapeHtml(field) + '</span>').join("");
+      $("technical-capabilities").innerHTML = config.capabilityDeclaration.agentDeclaredCapabilities.map((capability) => '<span class="selected-chip">' + escapeHtml(capability) + '</span>').join("");
+      $("developer-gateway-json").textContent = JSON.stringify(gatewayRegistration(config), null, 2);
+      $("developer-config-json").textContent = JSON.stringify(config, null, 2);
+    }
+    function render(config) {
+      currentConfig = config;
+      selectedScopes = [...config.oauthApplication.grantedScopes];
+      effectivePermissions = [...config.servicePrincipal.effectivePermissions];
+      deniedPermissions = [...config.servicePrincipal.deniedPermissions];
+      enabledCapabilities = [...config.capabilityDeclaration.agentDeclaredCapabilities];
+      $("gateway-facts").innerHTML = [
+        ["Gateway Client ID", config.trustedGateway.clientId],
+        ["Gateway Issuer", config.trustedGateway.issuer],
+        ["Gateway JWKS URI", config.trustedGateway.jwksUri],
+        ["Onboarding method", config.trustedGateway.onboardingMethod]
+      ].map(([label, value]) => '<div class="fact"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + '</strong></div>').join("");
       $("gateway-json").value = JSON.stringify(gatewayRegistration(config), null, 2);
+      $("gateway-json-details").open = !config.trustedGateway.clientId;
+      $("oauth-app-name").value = config.oauthApplication.appName || "Jira Agent Connected App";
       $("oauth-client-id").value = config.oauthApplication.clientId;
       $("authorization-server-issuer").value = config.oauthApplication.authorizationServerIssuer;
       $("token-auth-method").value = config.oauthApplication.tokenEndpointAuthMethod;
-      $("granted-scopes").value = lines(config.oauthApplication.grantedScopes);
       $("application-status").value = config.oauthApplication.status;
       $("principal-id").value = config.servicePrincipal.principalId;
-      $("effective-permissions").value = lines(config.servicePrincipal.effectivePermissions);
-      $("denied-permissions").value = lines(config.servicePrincipal.deniedPermissions);
-      $("requested-scopes").value = lines(config.capabilityDeclaration.requestedScopes);
-      $("declared-capabilities").value = lines(config.capabilityDeclaration.agentDeclaredCapabilities);
+      renderCollectors();
+      renderActions();
+      renderReadiness(config);
+      renderDeveloper(config);
+    }
+    function rerenderLocalPreview() {
+      if (!currentConfig) return;
+      renderCollectors();
+      renderActions();
+      renderReadiness(currentConfig);
     }
     async function load() {
       const response = await fetch("/admin/config");
       render(await response.json());
     }
+    document.body.addEventListener("click", (event) => {
+      const target = event.target.closest("[data-action]");
+      if (!target) return;
+      const action = target.getAttribute("data-action");
+      const value = target.getAttribute("data-value");
+      if (!value) return;
+      if (action === "toggle-scope") selectedScopes = toggleItem(selectedScopes, value);
+      if (action === "toggle-permission") {
+        effectivePermissions = toggleItem(effectivePermissions, value);
+        if (effectivePermissions.includes(value)) deniedPermissions = deniedPermissions.filter((item) => item !== value);
+      }
+      if (action === "toggle-denied") {
+        deniedPermissions = toggleItem(deniedPermissions, value);
+        if (deniedPermissions.includes(value)) effectivePermissions = effectivePermissions.filter((item) => item !== value);
+      }
+      if (action === "toggle-action") enabledCapabilities = toggleItem(enabledCapabilities, value);
+      rerenderLocalPreview();
+    });
+    $("bizapps-tab").addEventListener("click", () => {
+      $("bizapps-tab").classList.add("active");
+      $("developer-tab").classList.remove("active");
+      $("bizapps-view").classList.remove("hidden");
+      $("developer-view").classList.remove("active");
+    });
+    $("developer-tab").addEventListener("click", () => {
+      $("developer-tab").classList.add("active");
+      $("bizapps-tab").classList.remove("active");
+      $("bizapps-view").classList.add("hidden");
+      $("developer-view").classList.add("active");
+    });
     $("save-gateway").addEventListener("click", async () => {
-      try { render(await post("/admin/trusted-gateway", JSON.parse($("gateway-json").value))); setMessage("gateway-message", "Gateway registration saved."); }
+      try { render(await post("/admin/trusted-gateway", JSON.parse($("gateway-json").value))); setMessage("gateway-message", "Gateway trust saved."); }
       catch (error) { setMessage("gateway-message", error.message, false); }
     });
     $("reset-demo").addEventListener("click", async () => {
@@ -180,16 +446,37 @@ export function adminPageHtml(): string {
       catch (error) { setMessage("gateway-message", error.message, false); }
     });
     $("save-oauth").addEventListener("click", async () => {
-      try { render(await post("/admin/oauth-application", { clientId: $("oauth-client-id").value, authorizationServerIssuer: $("authorization-server-issuer").value, tokenEndpointAuthMethod: $("token-auth-method").value, grantedScopes: $("granted-scopes").value, status: $("application-status").value })); setMessage("oauth-message", "OAuth application saved."); }
-      catch (error) { setMessage("oauth-message", error.message, false); }
+      try {
+        render(await post("/admin/oauth-application", {
+          appName: $("oauth-app-name").value,
+          clientId: $("oauth-client-id").value,
+          authorizationServerIssuer: $("authorization-server-issuer").value,
+          tokenEndpointAuthMethod: $("token-auth-method").value,
+          grantedScopes: selectedScopes,
+          status: $("application-status").value
+        }));
+        setMessage("oauth-message", "OAuth application saved.");
+      } catch (error) { setMessage("oauth-message", error.message, false); }
     });
     $("save-principal").addEventListener("click", async () => {
-      try { render(await post("/admin/service-principal", { principalType: $("principal-type").value, principalId: $("principal-id").value, effectivePermissions: $("effective-permissions").value, deniedPermissions: $("denied-permissions").value })); setMessage("principal-message", "Service principal saved."); }
-      catch (error) { setMessage("principal-message", error.message, false); }
+      try {
+        render(await post("/admin/service-principal", {
+          principalType: $("principal-type").value,
+          principalId: $("principal-id").value,
+          effectivePermissions,
+          deniedPermissions
+        }));
+        setMessage("principal-message", "Service account access saved.");
+      } catch (error) { setMessage("principal-message", error.message, false); }
     });
     $("save-capabilities").addEventListener("click", async () => {
-      try { render(await post("/admin/capability-declaration", { requestedScopes: $("requested-scopes").value, agentDeclaredCapabilities: $("declared-capabilities").value })); setMessage("capability-message", "Capability declaration saved."); }
-      catch (error) { setMessage("capability-message", error.message, false); }
+      try {
+        render(await post("/admin/capability-declaration", {
+          requestedScopes: selectedScopes,
+          agentDeclaredCapabilities: enabledCapabilities
+        }));
+        setMessage("capability-message", "Agent actions saved.");
+      } catch (error) { setMessage("capability-message", error.message, false); }
     });
     load().catch((error) => { $("ready-title").textContent = "Unable to load config"; $("warnings").textContent = error.message; });
   </script>

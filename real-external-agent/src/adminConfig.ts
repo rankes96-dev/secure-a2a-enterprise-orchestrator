@@ -20,6 +20,7 @@ export type TrustedGatewayRegistration = {
 
 export type OAuthApplicationConfig = {
   resourceSystem: "jira";
+  appName: string;
   clientId: string;
   authorizationServerIssuer: string;
   tokenEndpointAuthMethod: "private_key_jwt";
@@ -89,6 +90,7 @@ function demoConfig(): AdminConfig {
     },
     oauthApplication: {
       resourceSystem: "jira",
+      appName: "Jira Agent Connected App",
       clientId,
       authorizationServerIssuer: "http://localhost:4110",
       tokenEndpointAuthMethod,
@@ -157,6 +159,7 @@ export function readinessStatus(): { ready: boolean; warnings: string[] } {
   if (!currentConfig.oauthApplication.clientId) warnings.push("OAuth client ID is missing.");
   if (currentConfig.oauthApplication.grantedScopes.length === 0) warnings.push("Granted scopes are missing.");
   if (!currentConfig.servicePrincipal.principalId) warnings.push("Service principal is missing.");
+  if (currentConfig.servicePrincipal.effectivePermissions.length === 0) warnings.push("Granted roles and permissions are missing.");
   if (currentConfig.capabilityDeclaration.agentDeclaredCapabilities.length === 0) warnings.push("Agent-declared capabilities are missing.");
   if (hasSecretMarker(currentConfig)) warnings.push("Configuration contains forbidden secret markers.");
 
@@ -198,6 +201,7 @@ export function saveOAuthApplication(value: unknown): { ok: true; config: Return
   const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const candidate: OAuthApplicationConfig = {
     resourceSystem: "jira",
+    appName: stringValue(input.appName) || "Jira Agent Connected App",
     clientId: stringValue(input.clientId),
     authorizationServerIssuer: stringValue(input.authorizationServerIssuer).replace(/\/+$/, ""),
     tokenEndpointAuthMethod: "private_key_jwt",

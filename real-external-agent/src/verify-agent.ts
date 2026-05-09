@@ -105,10 +105,11 @@ function assertNoSecretMarkers(value: unknown): void {
 }
 
 async function verifyAdminConfig(): Promise<void> {
+  await postJson("/admin/reset-demo", {});
   const config = await getJson<{
     ready: boolean;
     trustedGateway: { clientId: string; issuer: string; jwksUri: string };
-    oauthApplication: { clientId: string; grantedScopes: string[]; status: string };
+    oauthApplication: { appName: string; clientId: string; grantedScopes: string[]; status: string };
     servicePrincipal: { principalId: string; effectivePermissions: string[]; deniedPermissions: string[] };
     capabilityDeclaration: { requestedScopes: string[]; agentDeclaredCapabilities: string[] };
     warnings: string[];
@@ -116,9 +117,17 @@ async function verifyAdminConfig(): Promise<void> {
 
   assertCondition(config.ready === true, `admin config should be ready: ${config.warnings.join(" ")}`);
   assertCondition(config.trustedGateway.clientId === "secure-a2a-gateway-client", "trusted Gateway client mismatch");
+  assertCondition(config.oauthApplication.appName === "Jira Agent Connected App", "OAuth app name mismatch");
   assertCondition(config.oauthApplication.clientId === "jira-agent-client", "OAuth client mismatch");
+  assertCondition(Array.isArray(config.oauthApplication.grantedScopes), "grantedScopes should be an array");
+  assertCondition(config.oauthApplication.grantedScopes.includes("read:jira-work"), "grantedScopes missing read:jira-work");
   assertCondition(config.oauthApplication.status === "active", "OAuth application should be active");
   assertCondition(config.servicePrincipal.principalId === "svc-a2a-jira-agent", "service principal mismatch");
+  assertCondition(Array.isArray(config.servicePrincipal.effectivePermissions), "effectivePermissions should be an array");
+  assertCondition(Array.isArray(config.servicePrincipal.deniedPermissions), "deniedPermissions should be an array");
+  assertCondition(config.servicePrincipal.effectivePermissions.includes("browse_projects"), "effectivePermissions missing browse_projects");
+  assertCondition(config.servicePrincipal.deniedPermissions.includes("create_issues"), "deniedPermissions missing create_issues");
+  assertCondition(Array.isArray(config.capabilityDeclaration.agentDeclaredCapabilities), "agentDeclaredCapabilities should be an array");
   assertCondition(config.capabilityDeclaration.agentDeclaredCapabilities.includes(agentDeclaredCapabilities[0] ?? ""), "capability declaration missing expected capability");
   assertNoSecretMarkers(config);
   ok("admin config ready");
@@ -163,7 +172,7 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
       requestedScopes?: string[];
     };
     externalApplicationAttestation?: {
-      oauthApplication?: { clientId?: string; grantedScopes?: string[] };
+      oauthApplication?: { appName?: string; clientId?: string; grantedScopes?: string[] };
       servicePrincipal?: { principalId?: string; effectivePermissions?: string[]; deniedPermissions?: string[] };
     };
     checks?: Array<{ name?: string; status?: string }>;
@@ -179,7 +188,11 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
   assertCondition(gatewayOnboarding.body.discoveredAgent?.agentDeclaredCapabilities?.includes(agentDeclaredCapabilities[0] ?? ""), "Gateway onboarding missing agent-declared capabilities");
   assertCondition(gatewayOnboarding.body.discoveredAgent?.requestedScopes?.includes(requestedScopes[0] ?? ""), "Gateway onboarding missing requested scopes");
   assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.clientId === "jira-agent-client", "Gateway onboarding missing external OAuth app attestation");
+  assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.appName === "Jira Agent Connected App", "Gateway onboarding missing OAuth app name attestation");
+  assertCondition(Array.isArray(gatewayOnboarding.body.externalApplicationAttestation?.oauthApplication?.grantedScopes), "Gateway onboarding OAuth attestation missing granted scopes array");
   assertCondition(gatewayOnboarding.body.externalApplicationAttestation?.servicePrincipal?.principalId === "svc-a2a-jira-agent", "Gateway onboarding missing service principal attestation");
+  assertCondition(Array.isArray(gatewayOnboarding.body.externalApplicationAttestation?.servicePrincipal?.effectivePermissions), "Gateway onboarding service principal missing effective permissions array");
+  assertCondition(Array.isArray(gatewayOnboarding.body.externalApplicationAttestation?.servicePrincipal?.deniedPermissions), "Gateway onboarding service principal missing denied permissions array");
   assertCondition(gatewayOnboarding.body.checks?.some((check) => check.name === "external_agent_discovery" && check.status === "passed"), "Gateway onboarding did not fetch external discovery");
   assertCondition(gatewayOnboarding.body.checks?.some((check) => check.name === "external_agent_contacted" && check.status === "passed"), "Gateway onboarding did not contact external agent");
   assertCondition(gatewayOnboarding.body.checks?.some((check) => check.name === "signed_gateway_challenge_verified" && check.status === "passed"), "Gateway onboarding did not verify signed gateway challenge");
@@ -188,6 +201,35 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
   const { body } = gatewayOnboarding;
   assertNoSecretMarkers(body);
 
+  const disabled = await postJson("/admin/oauth-application", {
+    appName: "Jira Agent Connected App",
+    clientId: "jira-agent-client",
+    authorizationServerIssuer: "http://localhost:4110",
+    tokenEndpointAuthMethod,
+    grantedScopes: requestedScopes,
+    status: "disabled"
+  });
+  assertCondition(disabled.response.ok, "failed to disable OAuth application for verification");
+
+  const disabledOnboarding = await gatewayRequest<{ error?: string; details?: string[] }>("/agent-onboarding/start", {
+    method: "POST",
+    body: JSON.stringify({
+      agentBaseUrl: baseUrl,
+      expectedAgentId: agentId
+    })
+  });
+  assertCondition(!disabledOnboarding.response.ok, "disabled OAuth app should fail Gateway onboarding");
+  const disabledFailureText = JSON.stringify(disabledOnboarding.body);
+  assertCondition(
+    disabledFailureText.includes("OAuth application is not active") ||
+      disabledFailureText.includes("external_agent_not_ready") ||
+      disabledFailureText.includes("external agent trust response could not be obtained or verified"),
+    "disabled OAuth app failure reason mismatch"
+  );
+  ok("disabled OAuth application rejected during onboarding");
+
+  const reset = await postJson("/admin/reset-demo", {});
+  assertCondition(reset.response.ok, "failed to restore demo config after disabled OAuth verification");
 }
 
 async function verifyRuntimeIfTokenProvided(): Promise<void> {

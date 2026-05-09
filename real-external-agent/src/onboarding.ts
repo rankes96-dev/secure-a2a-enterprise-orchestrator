@@ -136,6 +136,7 @@ export async function createSignedTrustResponse(request: OnboardingRequest): Pro
     requestedScopes: config.capabilityDeclaration.requestedScopes,
     tokenEndpointAuthMethod: config.oauthApplication.tokenEndpointAuthMethod,
     oauthApplication: {
+      appName: config.oauthApplication.appName,
       clientId: config.oauthApplication.clientId,
       authorizationServerIssuer: config.oauthApplication.authorizationServerIssuer,
       grantedScopes: config.oauthApplication.grantedScopes,
