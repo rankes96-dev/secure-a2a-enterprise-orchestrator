@@ -4006,6 +4006,7 @@ function App() {
             <p className="eyebrow">Secure A2A Control Plane</p>
             <h1>Secure Agent Orchestration Gateway</h1>
             <p className="subtitle">Import external agents through Agent Cards and govern execution with scoped JWTs, policy, and audit.</p>
+            <div className="menu-hint">✨ Demo mode: use tabs + quick scenarios to tour trust, routing, and runtime controls.</div>
           </div>
           <div className="topbar-actions">
             {isUserAuthenticated ? (
