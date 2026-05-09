@@ -42,6 +42,8 @@ export function adminPageHtml(): string {
     .status-title { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .status-badge { width: fit-content; border-radius: 999px; padding: 5px 9px; color: #6a4f13; background: #fff8e7; font-size: 12px; font-weight: 900; }
     .status-badge.ready { color: #1d6d3d; background: #eef8f0; }
+    .status-badge.blocked { color: #8a5a00; background: #fff7df; }
+    .status-badge.incomplete { color: #a1272d; background: #fff0f0; }
     .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .facts.compact { grid-template-columns: 1fr; }
     .fact { display: grid; gap: 5px; min-width: 0; border: 1px solid #edf1f3; border-radius: 10px; padding: 10px; background: #fbfcfd; }
@@ -62,6 +64,16 @@ export function adminPageHtml(): string {
     .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
     .selected-chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid #c7d2d8; border-radius: 999px; padding: 6px 8px; color: #253d47; background: #f8fafb; font-size: 12px; font-weight: 800; }
     .selected-chip button { border-radius: 999px; padding: 1px 6px; color: #526b76; background: #e9eff2; font-size: 12px; }
+    .collector-list { display: grid; gap: 8px; min-width: 0; }
+    .collector-option { display: grid; justify-content: stretch; align-items: start; width: 100%; gap: 4px; border: 1px solid #dbe3e8; border-radius: 10px; padding: 10px; color: #172026; background: #fff; text-align: left; font-weight: 800; }
+    .collector-option:hover { border-color: #9fb1bc; background: #f8fafb; }
+    .collector-option strong, .selected-item strong { color: #172026; font-size: 13px; line-height: 1.25; }
+    .collector-option small, .selected-item small, .item-list small { color: #526b76; font-size: 12px; line-height: 1.35; font-weight: 700; }
+    .selected-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; min-width: 0; border: 1px solid #dbe3e8; border-radius: 10px; padding: 9px 10px; color: #172026; background: #fff; }
+    .selected-item > div { display: grid; gap: 2px; min-width: 0; }
+    .selected-item.warning { border-color: #efcf84; background: #fff8e7; }
+    .selected-item.warning strong::before { content: "Denied"; display: inline-flex; margin-right: 7px; border-radius: 999px; padding: 2px 6px; color: #8a5a00; background: #ffe8a8; font-size: 10px; font-weight: 900; text-transform: uppercase; vertical-align: middle; }
+    .selected-item button { border-radius: 8px; padding: 6px 8px; color: #253d47; background: #eef3f6; font-size: 12px; white-space: nowrap; }
     .action-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
     .action-card { display: grid; gap: 9px; min-width: 0; border: 1px solid #dbe3e8; border-radius: 12px; padding: 12px; background: #fbfcfd; }
     .action-card.ready { border-color: #cfe8d4; background: #f6fbf7; }
@@ -70,6 +82,14 @@ export function adminPageHtml(): string {
     .action-card small { color: #526b76; line-height: 1.4; }
     .preview-pill { width: fit-content; border-radius: 999px; padding: 4px 8px; color: #1d6d3d; background: #eef8f0; font-size: 11px; font-weight: 900; }
     .preview-pill.blocked { color: #8a5a00; background: #fff7df; }
+    .preview-pill.disabled { color: #526b76; background: #eef3f6; }
+    .requirement-block { display: grid; gap: 6px; }
+    .requirement-block strong { color: #253d47; font-size: 12px; }
+    .item-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+    .item-list li { display: grid; gap: 1px; border: 1px solid #edf1f3; border-radius: 8px; padding: 7px 8px; background: rgba(255,255,255,0.72); }
+    .item-list.warning li { border-color: #efcf84; background: #fff8e7; }
+    .decision-section { display: grid; gap: 7px; border-top: 1px solid #edf1f3; padding-top: 10px; }
+    .decision-section h3 { font-size: 13px; color: #253d47; }
     .developer-panel { display: none; }
     .developer-panel.active { display: grid; }
     .bizapps-view.hidden { display: none; }
@@ -87,6 +107,7 @@ export function adminPageHtml(): string {
       button, .button-link, .view-toggle button { width: 100%; }
       section, .readiness-panel, .developer-panel { padding: 14px; }
       .chip-row { gap: 7px; }
+      .selected-item { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -142,11 +163,11 @@ export function adminPageHtml(): string {
             <div class="collector-grid">
               <div class="collector-column">
                 <h4>Available grants <span id="available-grants-count">0</span></h4>
-                <div class="chip-row" id="available-grants"></div>
+                <div class="collector-list" id="available-grants"></div>
               </div>
               <div class="collector-column">
                 <h4>Selected grants <span id="selected-grants-count">0</span></h4>
-                <div class="chip-row" id="selected-grants"></div>
+                <div class="collector-list" id="selected-grants"></div>
               </div>
             </div>
           </div>
@@ -173,11 +194,11 @@ export function adminPageHtml(): string {
             <div class="collector-grid">
               <div class="collector-column">
                 <h4>Available permissions <span id="available-permissions-count">0</span></h4>
-                <div class="chip-row" id="available-permissions"></div>
+                <div class="collector-list" id="available-permissions"></div>
               </div>
               <div class="collector-column">
                 <h4>Granted permissions <span id="selected-permissions-count">0</span></h4>
-                <div class="chip-row" id="selected-permissions"></div>
+                <div class="collector-list" id="selected-permissions"></div>
               </div>
             </div>
           </div>
@@ -187,11 +208,11 @@ export function adminPageHtml(): string {
             <div class="collector-grid">
               <div class="collector-column">
                 <h4>Available to deny <span id="available-denied-permissions-count">0</span></h4>
-                <div class="chip-row" id="available-denied-permissions"></div>
+                <div class="collector-list" id="available-denied-permissions"></div>
               </div>
               <div class="collector-column">
                 <h4>Denied permissions <span id="selected-denied-permissions-count">0</span></h4>
-                <div class="chip-row" id="selected-denied-permissions"></div>
+                <div class="collector-list" id="selected-denied-permissions"></div>
               </div>
             </div>
           </div>
@@ -296,56 +317,84 @@ export function adminPageHtml(): string {
     function toggleItem(list, item) {
       return list.includes(item) ? list.filter((value) => value !== item) : [...list, item];
     }
-    function catalogButton(item, action, extraClass = "") {
-      return '<button type="button" class="chip ' + extraClass + '" data-action="' + action + '" data-value="' + escapeHtml(item.id) + '">' + escapeHtml(item.label) + '<br><small>' + escapeHtml(item.description) + '</small></button>';
+    function addUnique(list, item) {
+      return list.includes(item) ? list : [...list, item];
     }
-    function renderCollector(catalog, selected, availableId, selectedId, availableCountId, selectedCountId, addAction, removeAction, selectedClass = "") {
+    function catalogItem(catalog, id) {
+      return catalog.find((item) => item.id === id) || { id, label: id, description: id };
+    }
+    function grantItem(id) {
+      return catalogItem(connectorProfile.applicationAccessGrantCatalog, id);
+    }
+    function permissionItem(id) {
+      return catalogItem(connectorProfile.effectivePermissionCatalog, id);
+    }
+    function collectorOption(item, action, secondary = "id") {
+      const supporting = secondary === "description" ? item.description : item.id;
+      return '<button type="button" class="collector-option" data-action="' + action + '" data-value="' + escapeHtml(item.id) + '">' +
+        '<strong>' + escapeHtml(item.label) + '</strong>' +
+        '<small>' + escapeHtml(supporting) + '</small>' +
+      '</button>';
+    }
+    function selectedItem(item, action, warning = false) {
+      return '<div class="selected-item ' + (warning ? "warning" : "") + '">' +
+        '<div><strong>' + escapeHtml(item.label) + '</strong><small>' + escapeHtml(item.id) + '</small></div>' +
+        '<button type="button" data-action="' + action + '" data-value="' + escapeHtml(item.id) + '">Remove</button>' +
+      '</div>';
+    }
+    function renderCollector(catalog, selected, availableId, selectedId, availableCountId, selectedCountId, addAction, removeAction, options = {}) {
       const selectedSet = new Set(selected);
       const available = catalog.filter((item) => !selectedSet.has(item.id));
-      const selectedItems = selected.map((id) => catalog.find((item) => item.id === id) || { id, label: id, description: id });
+      const selectedItems = selected.map((id) => catalogItem(catalog, id));
       $(availableCountId).textContent = String(available.length);
       $(selectedCountId).textContent = String(selectedItems.length);
-      $(availableId).innerHTML = available.length ? available.map((item) => catalogButton(item, addAction)).join("") : '<p class="muted">None available.</p>';
-      $(selectedId).innerHTML = selectedItems.length ? selectedItems.map((item) => '<span class="selected-chip ' + selectedClass + '">' + escapeHtml(item.label) + '<button type="button" data-action="' + removeAction + '" data-value="' + escapeHtml(item.id) + '">x</button></span>').join("") : '<p class="muted">None selected.</p>';
+      $(availableId).innerHTML = available.length ? available.map((item) => collectorOption(item, addAction, options.availableSecondary || "id")).join("") : '<p class="muted">None available.</p>';
+      $(selectedId).innerHTML = selectedItems.length ? selectedItems.map((item) => selectedItem(item, removeAction, Boolean(options.warning))).join("") : '<p class="muted">' + escapeHtml(options.emptySelected || "None selected.") + '</p>';
     }
     function renderCollectors() {
-      renderCollector(connectorProfile.applicationAccessGrantCatalog, selectedApplicationGrants, "available-grants", "selected-grants", "available-grants-count", "selected-grants-count", "add-grant", "remove-grant");
-      renderCollector(connectorProfile.effectivePermissionCatalog, effectivePermissions, "available-permissions", "selected-permissions", "available-permissions-count", "selected-permissions-count", "add-permission", "remove-permission");
-      const deniedCatalog = connectorProfile.effectivePermissionCatalog.filter((permission) => !effectivePermissions.includes(permission.id) || deniedPermissions.includes(permission.id));
-      renderCollector(deniedCatalog, deniedPermissions, "available-denied-permissions", "selected-denied-permissions", "available-denied-permissions-count", "selected-denied-permissions-count", "add-denied", "remove-denied", "warn");
+      renderCollector(connectorProfile.applicationAccessGrantCatalog, selectedApplicationGrants, "available-grants", "selected-grants", "available-grants-count", "selected-grants-count", "add-grant", "remove-grant", { availableSecondary: "id", emptySelected: "No grants selected." });
+      renderCollector(connectorProfile.effectivePermissionCatalog, effectivePermissions, "available-permissions", "selected-permissions", "available-permissions-count", "selected-permissions-count", "add-permission", "remove-permission", { availableSecondary: "description", emptySelected: "No permissions granted." });
+      const deniedCatalog = connectorProfile.effectivePermissionCatalog;
+      renderCollector(deniedCatalog, deniedPermissions, "available-denied-permissions", "selected-denied-permissions", "available-denied-permissions-count", "selected-denied-permissions-count", "add-denied", "remove-denied", { availableSecondary: "description", warning: true, emptySelected: "No permissions denied." });
+    }
+    function itemList(items, resolver, warning = false) {
+      return '<ul class="item-list ' + (warning ? "warning" : "") + '">' + items.map((id) => {
+        const item = resolver(id);
+        return '<li><strong>' + escapeHtml(item.label) + '</strong><small>' + escapeHtml(item.id) + '</small></li>';
+      }).join("") + '</ul>';
     }
     function actionPreview(action) {
       const missingApplicationGrants = action.requiredApplicationGrants.filter((grant) => !selectedApplicationGrants.includes(grant));
       const denied = action.requiredEffectivePermissions.filter((permission) => deniedPermissions.includes(permission));
       const missingPermissions = action.requiredEffectivePermissions.filter((permission) => !effectivePermissions.includes(permission) && !deniedPermissions.includes(permission));
       const ready = missingApplicationGrants.length === 0 && missingPermissions.length === 0 && denied.length === 0;
-      const reasons = [
-        ...missingApplicationGrants.map((grant) => "missing application access grant " + grant),
-        ...missingPermissions.map((permission) => "missing effective permission " + permission),
-        ...denied.map((permission) => "denied permission " + permission)
-      ];
       const status = !ready && missingApplicationGrants.length && (missingPermissions.length || denied.length)
-        ? "Blocked by both application access and permission"
+        ? "Blocked by multiple requirements"
         : missingApplicationGrants.length
-          ? "Blocked by missing application access grant"
+          ? "Blocked by application access"
           : denied.length
             ? "Blocked by denied permission"
             : missingPermissions.length
-              ? "Blocked by missing effective permission"
+              ? "Blocked by effective permission"
               : "Ready";
-      return { ready, reasons, status, missingApplicationGrants, missingPermissions, denied };
+      return { ready, status, missingApplicationGrants, missingPermissions, denied };
     }
     function renderActions() {
       $("action-grid").innerHTML = connectorProfile.actionCatalog.map((action) => {
         const enabled = enabledActionIds.includes(action.id);
         const preview = actionPreview(action);
         const statusClass = enabled ? (preview.ready ? "ready" : "blocked") : "disabled";
+        const detailBlocks = [
+          preview.missingApplicationGrants.length ? '<div class="requirement-block"><strong>Missing application access</strong>' + itemList(preview.missingApplicationGrants, grantItem, true) + '</div>' : '',
+          preview.missingPermissions.length ? '<div class="requirement-block"><strong>Missing effective permissions</strong>' + itemList(preview.missingPermissions, permissionItem, true) + '</div>' : '',
+          preview.denied.length ? '<div class="requirement-block"><strong>Denied permissions</strong>' + itemList(preview.denied, permissionItem, true) + '</div>' : ''
+        ].join("");
         return '<article class="action-card ' + statusClass + '">' +
           '<div><h3>' + escapeHtml(action.label) + '</h3><p>' + escapeHtml(action.description) + '</p></div>' +
-          '<span class="preview-pill ' + (preview.ready ? "" : "blocked") + '">' + (enabled ? preview.status : "Disabled") + '</span>' +
-          '<small>Required application access grants: ' + escapeHtml(action.requiredApplicationGrants.join(", ")) + '</small>' +
-          '<small>Required effective permissions: ' + escapeHtml(action.requiredEffectivePermissions.join(", ")) + '</small>' +
-          (!preview.ready ? '<small>' + escapeHtml(preview.reasons.join("; ")) + '</small>' : '') +
+          '<span class="preview-pill ' + (enabled ? (preview.ready ? "" : "blocked") : "disabled") + '">' + (enabled ? preview.status : "Disabled") + '</span>' +
+          '<div class="requirement-block"><strong>Required application access grants</strong>' + itemList(action.requiredApplicationGrants, grantItem) + '</div>' +
+          '<div class="requirement-block"><strong>Required effective permissions</strong>' + itemList(action.requiredEffectivePermissions, permissionItem) + '</div>' +
+          (enabled && !preview.ready ? detailBlocks : '') +
           '<details><summary>Advanced metadata</summary><code>' + escapeHtml(action.id) + '</code></details>' +
           '<button type="button" class="' + (enabled ? "secondary" : "") + '" data-action="toggle-action" data-value="' + escapeHtml(action.id) + '">' + (enabled ? "Enabled" : "Disabled") + '</button>' +
         '</article>';
@@ -364,10 +413,15 @@ export function adminPageHtml(): string {
       const missingGrants = [...new Set(previews.flatMap((preview) => preview.missingApplicationGrants))];
       const missingPermissions = [...new Set(previews.flatMap((preview) => preview.missingPermissions))];
       const deniedAffectingActions = [...new Set(previews.flatMap((preview) => preview.denied))];
-      $("ready-title").textContent = config.readinessStatus === "incomplete" ? "Configuration incomplete" : config.readinessStatus === "readyWithWarnings" ? "Ready with warnings" : "Ready for Gateway onboarding";
-      $("ready-badge").textContent = config.readinessStatus === "ready" ? "Ready" : config.readinessStatus === "readyWithWarnings" ? "Warnings" : "Needs setup";
-      $("ready-badge").className = "status-badge " + (config.readinessStatus === "ready" ? "ready" : "");
-      $("warnings").textContent = [...config.blockers, ...config.warnings].length ? [...config.blockers, ...config.warnings].join(" ") : "No warnings. This local demo config does not store or display secrets.";
+      const uiState = !config.ready ? "incomplete" : blocked > 0 ? "blocked" : "ready";
+      $("ready-title").textContent = uiState === "incomplete" ? "Configuration incomplete" : uiState === "blocked" ? "Ready to verify" : "All selected actions ready";
+      $("ready-badge").textContent = uiState === "incomplete" ? "Cannot run" : uiState === "blocked" ? "Can run" : "Ready";
+      $("ready-badge").className = "status-badge " + (uiState === "ready" ? "ready" : uiState === "blocked" ? "blocked" : "incomplete");
+      $("warnings").textContent = [...config.blockers, ...config.warnings].length
+        ? [...config.blockers, ...config.warnings].join(" ")
+        : uiState === "blocked"
+          ? "Configuration is valid; blocked actions need more grants or permissions before the Gateway will approve them."
+          : "No warnings. This local demo config does not store or display secrets.";
       const checks = [
         ["Gateway trust configured", gatewayReady],
         ["OAuth app active", config.oauthApplication.status === "active"],
@@ -380,15 +434,22 @@ export function adminPageHtml(): string {
       const html = checks.map(([label, pass]) => '<li class="' + (pass ? "pass" : "warn") + '">' + escapeHtml(label) + '</li>').join("");
       $("readiness").innerHTML = html;
       $("readiness-detail").innerHTML = html;
-      $("readiness-copy").textContent = config.ready ? "This external agent is ready to respond to a signed Gateway onboarding challenge." : "Complete the required setup items before Gateway onboarding.";
-      $("decision-preview").innerHTML = [
-        ["Ready actions preview", approved],
-        ["Blocked actions preview", blocked],
-        ["Missing application access grants", missingGrants.join(", ") || "none"],
-        ["Missing effective permissions", missingPermissions.join(", ") || "none"],
-        ["Denied permissions affecting actions", deniedAffectingActions.join(", ") || "none"],
-        ["Gateway authority", "final decision"]
-      ].map(([label, value]) => '<div class="fact"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + '</strong></div>').join("");
+      $("readiness-copy").textContent = uiState === "incomplete"
+        ? "Complete the required setup items before Gateway onboarding."
+        : uiState === "blocked"
+          ? "Gateway onboarding can run, but some actions will be blocked."
+          : "Gateway onboarding can run and all selected actions are ready.";
+      const detailSections = [
+        ["Missing application access grants", missingGrants, grantItem],
+        ["Missing effective permissions", missingPermissions, permissionItem],
+        ["Denied permissions", deniedAffectingActions, permissionItem]
+      ].map(([label, values, resolver]) => '<div class="decision-section"><h3>' + escapeHtml(label) + '</h3>' + (values.length ? itemList(values, resolver, true) : '<p class="muted">None.</p>') + '</div>').join("");
+      $("decision-preview").innerHTML =
+        '<div class="fact"><span>Gateway onboarding</span><strong>' + (config.ready ? "Can run" : "Cannot run") + '</strong></div>' +
+        '<div class="fact"><span>Ready actions</span><strong>' + escapeHtml(approved) + '</strong></div>' +
+        '<div class="fact"><span>Blocked actions</span><strong>' + escapeHtml(blocked) + '</strong></div>' +
+        detailSections +
+        '<div class="decision-section"><h3>Gateway authority</h3><p class="muted">Final decision happens in the Gateway.</p></div>';
     }
     function renderDeveloper(config) {
       $("signed-response-fields").innerHTML = signedResponseFields.map((field) => '<span class="selected-chip">' + escapeHtml(field) + '</span>').join("");
@@ -438,15 +499,15 @@ export function adminPageHtml(): string {
       const action = target.getAttribute("data-action");
       const value = target.getAttribute("data-value");
       if (!value) return;
-      if (action === "add-grant") selectedApplicationGrants = [...selectedApplicationGrants, value];
+      if (action === "add-grant") selectedApplicationGrants = addUnique(selectedApplicationGrants, value);
       if (action === "remove-grant") selectedApplicationGrants = selectedApplicationGrants.filter((item) => item !== value);
       if (action === "add-permission") {
-        effectivePermissions = [...effectivePermissions, value];
+        effectivePermissions = addUnique(effectivePermissions, value);
         deniedPermissions = deniedPermissions.filter((item) => item !== value);
       }
       if (action === "remove-permission") effectivePermissions = effectivePermissions.filter((item) => item !== value);
       if (action === "add-denied") {
-        deniedPermissions = [...deniedPermissions, value];
+        deniedPermissions = addUnique(deniedPermissions, value);
         effectivePermissions = effectivePermissions.filter((item) => item !== value);
       }
       if (action === "remove-denied") deniedPermissions = deniedPermissions.filter((item) => item !== value);
