@@ -3241,7 +3241,7 @@ function App() {
     function renderAgentRegistrySummaryBar() {
       const summaryItems = [
         { label: "Connector templates:", value: registrySummary.connectorTemplates },
-        { label: "Installed connectors:", value: registrySummary.installedConnectors },
+        { label: "Installed connector agents:", value: registrySummary.installedConnectors },
         { label: "Runtime ready:", value: registrySummary.runtimeReady },
         { label: "Needs re-verification:", value: registrySummary.needsReverification },
         { label: "Blocked skills:", value: registrySummary.blockedSkills }
@@ -3266,7 +3266,7 @@ function App() {
             <div>
               <p className="active-panel-eyebrow">Supported templates</p>
               <h2>Connector Catalog</h2>
-              <p className="muted-note">Connector templates are supported contracts, not installed or trusted agents. A customer organization starts with zero installed connectors.</p>
+              <p className="muted-note">Connector templates are supported contracts, not installed or trusted agents. A customer organization starts with zero installed connector agents.</p>
             </div>
           </div>
           <div className="connector-preset-grid" aria-label="Connector Catalog">
@@ -3329,7 +3329,7 @@ function App() {
               );
             })}
           </div>
-          <p className="muted-note">Policies can govern which installed connector skills may execute. Advanced policy controls are planned for V2.</p>
+          <p className="muted-note">Policies can govern which installed connector agent skills may execute. Advanced policy controls are planned for V2.</p>
           <details className="wizard-technical-details" open={customConnectorContractOpen} onToggle={(event) => setCustomConnectorContractOpen(event.currentTarget.open)}>
             <summary>Build your own connector</summary>
             <p>Organizations or vendors will be able to implement the Secure A2A connector contract.</p>
@@ -3441,7 +3441,7 @@ function App() {
                   <summary>
                     <div>
                       <strong>{group}</strong>
-                      <span>{matchingAgents.filter((agent) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).length} installed connector agent(s)</span>
+                      <span>{matchingAgents.filter((agent) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).length} installed agent(s)</span>
                     </div>
                     <b aria-hidden="true">v</b>
                   </summary>
@@ -3459,7 +3459,7 @@ function App() {
               ) : null}
             </div>
           ) : (
-            <p className="muted-note">No connectors installed yet. Choose a connector template from the Connector Catalog to connect an external agent.</p>
+            <p className="muted-note">No connector agents installed yet. Choose a connector template from the Connector Catalog to connect an external agent.</p>
           )}
         </section>
       );

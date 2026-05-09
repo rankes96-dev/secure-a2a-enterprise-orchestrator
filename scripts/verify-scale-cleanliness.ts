@@ -177,7 +177,7 @@ for (const phrase of ["Work Management", "ITSM", "DevOps", "Finish and view Inst
 }
 for (const phrase of [
   "Connector templates:",
-  "Installed connectors:",
+  "Installed connector agents:",
   "Runtime ready:",
   "Needs re-verification:",
   "selectedInstalledConnectorTemplateId",
@@ -204,7 +204,10 @@ for (const phrase of [
   "installed agent",
   "installedAgentMatchesTemplate",
   "No approved runtime scenario available",
-  "View Connector Catalog"
+  "View Connector Catalog",
+  "Finish and view Installed Connector Agents",
+  "View Installed Connector Agents",
+  "setSelectedInstalledConnectorTemplateId(undefined)"
 ]) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - Agent Registry UI should include final wording phrase: ${phrase}`);
@@ -213,9 +216,13 @@ for (const phrase of [
 }
 for (const phrase of ["Runtime ready", "Needs re-verification", "Runtime blocked"]) {
   if (!webUi.includes(phrase)) {
-    console.error(`fail - Installed Connectors UI should include lifecycle term: ${phrase}`);
+    console.error(`fail - Installed Connector Agents UI should include lifecycle term: ${phrase}`);
     failed = true;
   }
+}
+if (!/function\s+scenarioForApprovedSkill[\s\S]*agent\.approvedActions\s*\?\?\s*agent\.approvedCapabilities/.test(webUi)) {
+  console.error("fail - runMatchingScenario should choose scenarios from approvedActions/approvedCapabilities");
+  failed = true;
 }
 if (/reference connectors are installed by default/i.test(webUi) || /automatically trusted/i.test(webUi)) {
   console.error("fail - UI should not imply reference connectors are installed or trusted by default");
