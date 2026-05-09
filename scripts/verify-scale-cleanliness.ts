@@ -225,6 +225,21 @@ if (!/function\s+scenarioForApprovedSkill[\s\S]*agent\.approvedActions\s*\?\?\s*
   console.error("fail - runMatchingScenario should choose scenarios from approvedActions/approvedCapabilities");
   failed = true;
 }
+for (const phrase of [
+  "Demo Readiness",
+  "Recommended Demo Flow",
+  "What this proves",
+  "Raw tokens hidden",
+  "Scoped A2A JWT",
+  "External config hash",
+  "Go to Connector Catalog",
+  "Go to Installed Connector Agents"
+]) {
+  if (!webUi.includes(phrase)) {
+    console.error(`fail - Demo Readiness UI should include phrase: ${phrase}`);
+    failed = true;
+  }
+}
 if (/reference connectors are installed by default/i.test(webUi) || /automatically trusted/i.test(webUi)) {
   console.error("fail - UI should not imply reference connectors are installed or trusted by default");
   failed = true;

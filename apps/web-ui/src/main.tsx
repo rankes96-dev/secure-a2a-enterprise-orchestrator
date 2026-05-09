@@ -11,6 +11,7 @@ type Scenario = {
   message: string;
   subtitle: string;
   purpose?: string;
+  proves: string;
   badge?: string;
 };
 
@@ -23,6 +24,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "Jira issue creation fails with 403 when creating issues in FIN project",
         subtitle: "Approved Jira connector skill when the reference connector is onboarded",
         purpose: "Routes to the onboarded Jira connector profile and approved diagnosis skill.",
+        proves: "Approved connector runtime execution with scoped A2A JWT.",
         badge: "Approved connector"
       },
       {
@@ -30,6 +32,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "Create a Jira issue in FIN project for this outage",
         subtitle: "Blocked because the create action lacks grant/permission approval by default",
         purpose: "Shows why an onboarded connector can be valid while a specific action is blocked.",
+        proves: "Gateway blocks unapproved skills even if the agent declares them.",
         badge: "Blocked action"
       },
       {
@@ -37,6 +40,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "ServiceNow incident assignment keeps failing for network tickets",
         subtitle: "Runs when the ServiceNow reference connector is onboarded",
         purpose: "Routes to the ServiceNow connector profile and incident assignment diagnosis skill.",
+        proves: "Connector-generic runtime routing beyond Jira.",
         badge: "ServiceNow"
       },
       {
@@ -44,6 +48,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "ServiceNow catalog request RITM keeps failing during approval",
         subtitle: "Catalog request diagnosis through the ServiceNow connector",
         purpose: "Shows another ServiceNow skill selected from the same connector profile.",
+        proves: "Multiple skills can come from the same connector profile.",
         badge: "ServiceNow"
       },
       {
@@ -51,6 +56,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "GitHub repository sync is failing after API rate limit",
         subtitle: "Runs when the GitHub reference connector is onboarded",
         purpose: "Routes to the GitHub connector profile and rate-limit diagnosis skill.",
+        proves: "System-specific diagnosis lives inside external connector runtime, not Gateway.",
         badge: "GitHub"
       },
       {
@@ -58,6 +64,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "GitHub pull request checks cannot read the repository",
         subtitle: "Pull request access diagnosis through the GitHub connector",
         purpose: "Shows connector-specific runtime diagnosis without Gateway-specific GitHub logic.",
+        proves: "The same runtime contract supports another DevOps skill.",
         badge: "GitHub"
       },
       {
@@ -65,6 +72,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "The warehouse robot arm calibration failed",
         subtitle: "No supported connector profile in this demo",
         purpose: "Offers a support ticket handoff instead of pretending a connector exists.",
+        proves: "Unsupported systems do not get fake routes.",
         badge: "Unsupported"
       }
     ]
@@ -1390,6 +1398,18 @@ function App() {
   ));
   const latestActorRoles = latestResponse?.userIdentity.roles?.join(", ") ?? "none";
   const isUserAuthenticated = identitySession?.authenticated === true || trustStatus?.userIdentity.authenticated === true;
+  const connectorTemplateCount = supportedConnectorGuardrails.length;
+  const installedConnectorAgentCount = zeroTrustOnboardedAgents.length;
+  const runtimeReadyConnectorAgentCount = zeroTrustOnboardedAgents.filter((agent) => {
+    const approvedCount = (agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0;
+    return agent.lifecycle?.state === "runtime_ready" || (
+      approvedCount > 0 &&
+      agent.connectorProfileVerified === true &&
+      Boolean(agent.runtimeEndpoint) &&
+      Boolean(agent.externalConfigHash)
+    );
+  }).length;
+  const needsReverificationConnectorAgentCount = zeroTrustOnboardedAgents.filter((agent) => agent.lifecycle?.state === "needs_reverification").length;
   const latestRequest = [...messages].reverse().find((item) => item.role === "user")?.content ?? "";
   const executionState = isUserAuthenticated ? "allowed" : "login required";
   const authModeSummary = health?.orchestrator.authMode ?? trustStatus?.gatewayIdentity.a2aAuthMode ?? "unknown";
@@ -1442,9 +1462,58 @@ function App() {
     guideToTarget("agent-registry");
   }
 
+  function goToConnectorCatalog() {
+    setActiveTab("agent-registry");
+    guideToTarget("connector-catalog");
+  }
+
+  function goToInstalledConnectorAgents() {
+    setActiveTab("agent-registry");
+    guideToTarget("registered-agents");
+  }
+
   function goToSecurityTimeline() {
     setActiveTab("security-timeline");
     guideToTarget("security-timeline");
+  }
+
+  function runRecommendedScenario() {
+    setMessage(sampleMessage);
+    if (!isUserAuthenticated) {
+      goToTrustIdentity();
+      return;
+    }
+    setActiveTab("run-task");
+    guideToTarget("composer");
+    void resolveIssue(sampleMessage);
+  }
+
+  function hasInstalledConnector(connectorId: string) {
+    return zeroTrustOnboardedAgents.some((agent) => (agent.connectorId ?? agent.connectorProfile?.connectorId) === connectorId);
+  }
+
+  function hasApprovedSkill(connectorId: string, skillId: string) {
+    return zeroTrustOnboardedAgents.some((agent) =>
+      (agent.connectorId ?? agent.connectorProfile?.connectorId) === connectorId &&
+      (agent.approvedActions ?? agent.approvedCapabilities ?? []).some((action) => action.capability === skillId)
+    );
+  }
+
+  function hasBlockedSkill(connectorId: string, skillId: string) {
+    return zeroTrustOnboardedAgents.some((agent) =>
+      (agent.connectorId ?? agent.connectorProfile?.connectorId) === connectorId &&
+      (agent.blockedActions ?? agent.blockedCapabilities ?? []).some((action) => action.capability === skillId)
+    );
+  }
+
+  function readinessStatusForSkill(connectorId: string, skillId: string, expected: "approved" | "blocked"): "ready" | "missing_connector" | "runtime_blocked" {
+    if (!hasInstalledConnector(connectorId)) {
+      return "missing_connector";
+    }
+    if (expected === "approved") {
+      return hasApprovedSkill(connectorId, skillId) ? "ready" : "runtime_blocked";
+    }
+    return hasBlockedSkill(connectorId, skillId) ? "ready" : "runtime_blocked";
   }
 
   async function checkAgentHealth() {
@@ -1933,6 +2002,7 @@ function App() {
               <span className={`scenario-outcome-badge status-${cockpitStatusClass(scenario.badge ?? scenario.subtitle)}`}>{scenario.badge ?? "Advanced"}</span>
               <h3>{scenario.label}</h3>
               <p>{scenario.purpose ?? scenario.subtitle}</p>
+              <p className="scenario-proves"><strong>What this proves:</strong> {scenario.proves}</p>
             </div>
             <div className="scenario-card-actions">
               <button
@@ -1965,6 +2035,183 @@ function App() {
           </article>
         ))}
       </div>
+    );
+  }
+
+  function demoReadinessStatusLabel(status: "ready" | "missing_connector" | "runtime_blocked" | "needs_setup" | "info") {
+    switch (status) {
+      case "ready":
+        return "Ready";
+      case "missing_connector":
+        return "Missing connector";
+      case "runtime_blocked":
+        return "Blocked";
+      case "needs_setup":
+        return "Needs setup";
+      default:
+        return "Info";
+    }
+  }
+
+  function demoReadinessStatusClass(status: "ready" | "missing_connector" | "runtime_blocked" | "needs_setup" | "info") {
+    switch (status) {
+      case "ready":
+        return "success";
+      case "runtime_blocked":
+        return "danger";
+      case "missing_connector":
+      case "needs_setup":
+        return "warning";
+      default:
+        return "info";
+    }
+  }
+
+  function renderDemoReadinessPanel() {
+    const installedStatus = installedConnectorAgentCount > 0 ? "ready" : "needs_setup";
+    const installedSummary = installedConnectorAgentCount >= 3
+      ? "Jira, ServiceNow, and GitHub can be installed for the full multi-connector story."
+      : installedConnectorAgentCount > 0
+        ? "At least one connector agent is installed. Install all three for the full story."
+        : "Install a connector agent from the Connector Catalog.";
+    const readinessCards = [
+      {
+        title: "User identity",
+        status: isUserAuthenticated ? "ready" : "needs_setup",
+        detail: isUserAuthenticated ? `Authenticated as ${actorEmail ?? "current user"}.` : "Login before running governed tasks.",
+        cta: "Go to Trust & Identity",
+        action: goToTrustIdentity
+      },
+      {
+        title: "Connector templates",
+        status: connectorTemplateCount > 0 ? "ready" : "needs_setup",
+        detail: `${connectorTemplateCount} connector template${connectorTemplateCount === 1 ? "" : "s"} loaded.`,
+        cta: "Go to Connector Catalog",
+        action: goToConnectorCatalog
+      },
+      {
+        title: "Installed Connector Agents",
+        status: installedStatus,
+        detail: `${installedConnectorAgentCount} installed. ${installedSummary}`,
+        cta: "Go to Installed Connector Agents",
+        action: goToInstalledConnectorAgents
+      },
+      {
+        title: "Runtime execution",
+        status: runtimeReadyConnectorAgentCount > 0 ? "ready" : installedConnectorAgentCount > 0 ? "runtime_blocked" : "needs_setup",
+        detail: `${runtimeReadyConnectorAgentCount} runtime-ready connector agent${runtimeReadyConnectorAgentCount === 1 ? "" : "s"}.`,
+        cta: "Go to Agent Registry",
+        action: goToAgentRegistry
+      }
+    ] as const;
+    const securityProofs = [
+      "Raw tokens hidden",
+      "Scoped A2A JWT enabled",
+      "External config hash enforced",
+      "Policy evaluated"
+    ];
+    const scenarioReadiness = [
+      {
+        label: "Jira diagnosis",
+        status: readinessStatusForSkill("jira-reference", "jira.issue.diagnose_creation_failure", "approved"),
+        proves: "Approved connector skill executes through scoped A2A JWT."
+      },
+      {
+        label: "Jira blocked create",
+        status: readinessStatusForSkill("jira-reference", "jira.issue.create", "blocked"),
+        proves: "Gateway blocks unapproved skills before runtime."
+      },
+      {
+        label: "ServiceNow incident",
+        status: readinessStatusForSkill("servicenow-reference", "servicenow.incident.assignment.diagnose", "approved"),
+        proves: "The route and runtime executor are connector-generic."
+      },
+      {
+        label: "GitHub rate limit",
+        status: readinessStatusForSkill("github-reference", "github.repository.rate_limit.diagnose", "approved"),
+        proves: "System-specific diagnosis stays inside the external runtime."
+      },
+      {
+        label: "Unsupported request",
+        status: "ready",
+        proves: "Unsupported systems get a safe ticket handoff."
+      }
+    ] as const;
+    const demoFlow = [
+      ["Start empty", "Customer org starts with zero installed connector agents."],
+      ["Install connector agent", "Choose a connector template and onboard an external agent through signed challenge and signed attestation."],
+      ["Run approved skill", "Jira issue creation fails with 403 when creating issues in FIN project. Proves Gateway routes to approved skill and executes trusted connector runtime with scoped A2A JWT."],
+      ["Show blocked skill", "Create a Jira issue in FIN project for this outage. Proves declared skills can still be blocked by grants, permissions, denied permissions, or policy."],
+      ["Show multi-connector routing", "Run ServiceNow incident assignment and GitHub repository rate limit. Proves the Gateway is connector-generic, not Jira-specific."],
+      ["Show stale config protection", "Change external connector config after onboarding and re-run. Proves runtime refuses execution after external config changes."],
+      ["Show unsupported request", "The warehouse robot arm calibration failed. Proves Gateway does not invent connectors."]
+    ];
+
+    return (
+      <section className="demo-readiness-panel cockpit-card" aria-label="Demo Readiness">
+        <div className="section-heading-row">
+          <div>
+            <p className="active-panel-eyebrow">Presenter control center</p>
+            <h2>Demo Readiness</h2>
+            <p className="muted-note">Follow this checklist to present the zero-trust connector flow end-to-end.</p>
+          </div>
+          <div className="demo-readiness-actions">
+            <button type="button" className="secondary-button compact-button" onClick={goToConnectorCatalog}>Go to Connector Catalog</button>
+            <button type="button" className="secondary-button compact-button" onClick={goToInstalledConnectorAgents}>Go to Installed Connector Agents</button>
+            <button type="button" className="secondary-button compact-button" disabled={isLoading} onClick={runRecommendedScenario}>Run recommended scenario</button>
+            <button type="button" className="secondary-button compact-button" onClick={goToSecurityTimeline}>View Security Timeline</button>
+          </div>
+        </div>
+        <div className="demo-readiness-grid">
+          {readinessCards.map((card) => (
+            <article className="demo-readiness-card" key={card.title}>
+              <div className="readiness-card-heading">
+                <strong>{card.title}</strong>
+                <span className={`summary-chip status-${demoReadinessStatusClass(card.status)}`}>{demoReadinessStatusLabel(card.status)}</span>
+              </div>
+              <p>{card.detail}</p>
+              <button type="button" className="secondary-inline-button" onClick={card.action}>{card.cta}</button>
+            </article>
+          ))}
+          <article className="demo-readiness-card security-proof-card">
+            <div className="readiness-card-heading">
+              <strong>Security proof</strong>
+              <span className="summary-chip status-success">Ready</span>
+            </div>
+            <ul>
+              {securityProofs.map((proof) => <li key={proof}>{proof}</li>)}
+            </ul>
+          </article>
+        </div>
+        <div className="scenario-readiness-panel">
+          <div>
+            <h3>Scenario readiness</h3>
+            <p className="muted-note">Ready means the scenario can prove the intended control path with the currently installed connector agents.</p>
+          </div>
+          <div className="scenario-readiness-grid">
+            {scenarioReadiness.map((item) => (
+              <article key={item.label}>
+                <div className="readiness-card-heading">
+                  <strong>{item.label}</strong>
+                  <span className={`summary-chip status-${demoReadinessStatusClass(item.status)}`}>{demoReadinessStatusLabel(item.status)}</span>
+                </div>
+                <p><strong>What this proves:</strong> {item.proves}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+        <details className="recommended-demo-flow">
+          <summary>Recommended Demo Flow</summary>
+          <ol>
+            {demoFlow.map(([title, detail]) => (
+              <li key={title}>
+                <strong>{title}</strong>
+                <p>{detail}</p>
+              </li>
+            ))}
+          </ol>
+        </details>
+      </section>
     );
   }
 
@@ -3015,6 +3262,7 @@ function App() {
         </div>
 
         {renderCockpitStatusStrip()}
+        {renderDemoReadinessPanel()}
 
         <div className="cockpit-grid">
           <section className="cockpit-main">
