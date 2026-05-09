@@ -80,5 +80,16 @@ export const jiraReferenceConnector: ConnectorProfile = {
     }
   ],
   skillCatalog: jiraSkills,
-  actionCatalog: jiraSkills
+  actionCatalog: jiraSkills,
+  demoDefaults: {
+    oauthApplication: {
+      appName: "Jira Agent Connected App",
+      defaultApplicationAccessGrants: ["read:jira-work", "read:jira-user"]
+    },
+    servicePrincipal: {
+      principalId: "svc-a2a-jira-agent",
+      defaultEffectivePermissions: ["browse_projects", "view_issues", "read_project_roles"],
+      defaultDeniedPermissions: ["create_issues"]
+    }
+  }
 };

@@ -23,6 +23,7 @@ export type ConnectorProfile = {
   effectivePermissionCatalog: ConnectorCatalogItem[];
   skillCatalog: ConnectorActionRequirement[];
   actionCatalog: ConnectorActionRequirement[];
+  demoDefaults?: unknown;
 };
 
 export type ConnectorDecisionInput = {

@@ -125,9 +125,13 @@ export type TrustedOnboardedAgent = {
   requestedScopes: string[];
   requestedApplicationGrants: string[];
   agentDeclaredSkills: string[];
+  /** Compatibility alias for agentDeclaredSkills. */
   agentDeclaredCapabilities: string[];
   applicationAccessGrants: string[];
   grantedScopes: string[];
+  approvedActions: DerivedCapability[];
+  blockedActions: DerivedCapability[];
+  /** Compatibility aliases for approvedActions / blockedActions. */
   approvedCapabilities: DerivedCapability[];
   blockedCapabilities: DerivedCapability[];
   connectorProfile?: Pick<ConnectorProfile, "connectorId" | "resourceSystem" | "displayName" | "version" | "profileSource">;
@@ -222,6 +226,11 @@ export type AgentOnboardingValidationResult =
       connectorProfile?: Pick<ConnectorProfile, "connectorId" | "resourceSystem" | "displayName" | "version" | "profileSource">;
       connectorProfileVerified: boolean;
       connectorDecisionSource: string;
+      skillDecision: {
+        approvedActions: DerivedCapability[];
+        blockedActions: DerivedCapability[];
+      };
+      /** Compatibility alias for skillDecision. */
       capabilityDecision: {
         approvedCapabilities: DerivedCapability[];
         blockedCapabilities: DerivedCapability[];
@@ -413,17 +422,24 @@ function decisionToDerived(decision: ConnectorActionDecision): DerivedCapability
   };
 }
 
-function blockAllDeclaredActions(declaredActions: string[], reason: string): { approvedCapabilities: DerivedCapability[]; blockedCapabilities: DerivedCapability[] } {
+function blockAllDeclaredActions(declaredActions: string[], reason: string): { approvedActions: DerivedCapability[]; blockedActions: DerivedCapability[]; approvedCapabilities: DerivedCapability[]; blockedCapabilities: DerivedCapability[] } {
+  const blockedActions = declaredActions.map((capability) => ({ capability, label: capability, reason }));
   return {
+    approvedActions: [],
+    blockedActions,
     approvedCapabilities: [],
-    blockedCapabilities: declaredActions.map((capability) => ({ capability, label: capability, reason }))
+    blockedCapabilities: blockedActions
   };
 }
 
-function deriveCapabilitiesFromConnectorDecisions(decisions: ConnectorActionDecision[]): { approvedCapabilities: DerivedCapability[]; blockedCapabilities: DerivedCapability[] } {
+function deriveCapabilitiesFromConnectorDecisions(decisions: ConnectorActionDecision[]): { approvedActions: DerivedCapability[]; blockedActions: DerivedCapability[]; approvedCapabilities: DerivedCapability[]; blockedCapabilities: DerivedCapability[] } {
+  const approvedActions = decisions.filter((decision) => decision.status === "approved").map(decisionToDerived);
+  const blockedActions = decisions.filter((decision) => decision.status === "blocked").map(decisionToDerived);
   return {
-    approvedCapabilities: decisions.filter((decision) => decision.status === "approved").map(decisionToDerived),
-    blockedCapabilities: decisions.filter((decision) => decision.status === "blocked").map(decisionToDerived)
+    approvedActions,
+    blockedActions,
+    approvedCapabilities: approvedActions,
+    blockedCapabilities: blockedActions
   };
 }
 
@@ -890,6 +906,8 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     agentDeclaredCapabilities: [...trustResponse.agentDeclaredCapabilities],
     applicationAccessGrants: [...binding.applicationAccessGrants],
     grantedScopes: [...binding.grantedScopes],
+    approvedActions: [...derivedCapabilities.approvedActions],
+    blockedActions: [...derivedCapabilities.blockedActions],
     approvedCapabilities: [...derivedCapabilities.approvedCapabilities],
     blockedCapabilities: [...derivedCapabilities.blockedCapabilities],
     connectorProfile: connectorProfile
@@ -979,6 +997,10 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
       : undefined,
     connectorProfileVerified,
     connectorDecisionSource,
+    skillDecision: {
+      approvedActions: [...derivedCapabilities.approvedActions],
+      blockedActions: [...derivedCapabilities.blockedActions]
+    },
     capabilityDecision: {
       approvedCapabilities: [...derivedCapabilities.approvedCapabilities],
       blockedCapabilities: [...derivedCapabilities.blockedCapabilities]

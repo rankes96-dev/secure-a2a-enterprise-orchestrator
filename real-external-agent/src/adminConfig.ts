@@ -41,6 +41,7 @@ export type CapabilityDeclarationConfig = {
   enabledActionIds: string[];
   requestedApplicationGrants: string[];
   requestedScopes: string[];
+  // Compatibility alias for earlier onboarding payloads. Values are enabled connector skill IDs.
   agentDeclaredCapabilities: string[];
 };
 
@@ -114,65 +115,12 @@ function normalizeKnownValues(values: string[], allowedIds: string[]): string[] 
   return unique(values).filter((value) => allowed.has(value));
 }
 
-function enabledDefaultActions(): string[] {
-  const profile = getConnectorProfile(configuredConnectorId);
-  return profile.skillCatalog.map((action) => action.id);
-}
-
-function connectorDefaultApplicationAccessGrants(connectorId: string): string[] {
-  if (connectorId === "servicenow-reference") {
-    return ["incident.read", "catalog.read", "user.read"];
-  }
-  if (connectorId === "github-reference") {
-    return ["repo.metadata.read", "repo.contents.read", "repo.issues.read", "repo.pull_requests.read"];
-  }
-  return ["read:jira-work", "read:jira-user"];
-}
-
-function connectorDefaultEffectivePermissions(connectorId: string): string[] {
-  if (connectorId === "servicenow-reference") {
-    return ["role:itil", "table:incident:read", "table:sc_req_item:read", "acl:user:read"];
-  }
-  if (connectorId === "github-reference") {
-    return ["installation:repo_access", "repo:metadata:read", "repo:contents:read", "repo:issues:read", "repo:pull_requests:read", "org:rate_limit:read"];
-  }
-  return ["browse_projects", "view_issues", "read_project_roles"];
-}
-
-function connectorDefaultDeniedPermissions(connectorId: string): string[] {
-  if (connectorId === "servicenow-reference") {
-    return ["table:incident:write"];
-  }
-  if (connectorId === "github-reference") {
-    return [];
-  }
-  return ["create_issues"];
-}
-
-function connectorDefaultAppName(connectorId: string): string {
-  if (connectorId === "servicenow-reference") {
-    return "ServiceNow Agent Connected App";
-  }
-  if (connectorId === "github-reference") {
-    return "GitHub Agent Connected App";
-  }
-  return "Jira Agent Connected App";
-}
-
-function connectorDefaultPrincipalId(connectorId: string): string {
-  if (connectorId === "servicenow-reference") {
-    return "svc-a2a-servicenow-agent";
-  }
-  if (connectorId === "github-reference") {
-    return "svc-a2a-github-agent";
-  }
-  return "svc-a2a-jira-agent";
-}
-
 function demoConfig(): AdminConfig {
   const connectorProfile = getConnectorProfile(configuredConnectorId);
-  const enabledActionIds = enabledDefaultActions();
-  const applicationAccessGrants = connectorDefaultApplicationAccessGrants(connectorProfile.connectorId);
+  const enabledActionIds = connectorProfile.demoDefaults.defaultEnabledSkillIds?.length
+    ? [...connectorProfile.demoDefaults.defaultEnabledSkillIds]
+    : connectorProfile.skillCatalog.map((action) => action.id);
+  const applicationAccessGrants = [...connectorProfile.demoDefaults.oauthApplication.defaultApplicationAccessGrants];
   const requestedApplicationGrants = deriveRequestedApplicationGrants(enabledActionIds, connectorProfile.connectorId);
 
   return {
@@ -186,7 +134,7 @@ function demoConfig(): AdminConfig {
     },
     oauthApplication: {
       resourceSystem: connectorProfile.resourceSystem,
-      appName: connectorDefaultAppName(connectorProfile.connectorId),
+      appName: connectorProfile.demoDefaults.oauthApplication.appName,
       clientId,
       authorizationServerIssuer: "http://localhost:4110",
       tokenEndpointAuthMethod,
@@ -196,9 +144,9 @@ function demoConfig(): AdminConfig {
     },
     servicePrincipal: {
       principalType: "service_account",
-      principalId: connectorDefaultPrincipalId(connectorProfile.connectorId),
-      effectivePermissions: connectorDefaultEffectivePermissions(connectorProfile.connectorId),
-      deniedPermissions: connectorDefaultDeniedPermissions(connectorProfile.connectorId)
+      principalId: connectorProfile.demoDefaults.servicePrincipal.principalId,
+      effectivePermissions: [...connectorProfile.demoDefaults.servicePrincipal.defaultEffectivePermissions],
+      deniedPermissions: [...connectorProfile.demoDefaults.servicePrincipal.defaultDeniedPermissions]
     },
     capabilityDeclaration: {
       enabledActionIds,
@@ -366,7 +314,7 @@ export function saveOAuthApplication(value: unknown): { ok: true; config: Return
   );
   const candidate: OAuthApplicationConfig = {
     resourceSystem: connectorProfile.resourceSystem,
-    appName: stringValue(input.appName) || connectorDefaultAppName(connectorProfile.connectorId),
+    appName: stringValue(input.appName) || connectorProfile.demoDefaults.oauthApplication.appName,
     clientId: stringValue(input.clientId),
     authorizationServerIssuer: stringValue(input.authorizationServerIssuer).replace(/\/+$/, ""),
     tokenEndpointAuthMethod: "private_key_jwt",

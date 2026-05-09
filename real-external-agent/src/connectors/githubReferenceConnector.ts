@@ -90,5 +90,16 @@ export const githubReferenceConnector: ConnectorProfile = {
     }
   ],
   skillCatalog: githubSkills,
-  actionCatalog: githubSkills
+  actionCatalog: githubSkills,
+  demoDefaults: {
+    oauthApplication: {
+      appName: "GitHub Agent Connected App",
+      defaultApplicationAccessGrants: ["repo.metadata.read", "repo.contents.read", "repo.issues.read", "repo.pull_requests.read"]
+    },
+    servicePrincipal: {
+      principalId: "svc-a2a-github-agent",
+      defaultEffectivePermissions: ["installation:repo_access", "repo:metadata:read", "repo:contents:read", "repo:issues:read", "repo:pull_requests:read", "org:rate_limit:read"],
+      defaultDeniedPermissions: []
+    }
+  }
 };

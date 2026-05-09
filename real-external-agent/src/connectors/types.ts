@@ -13,6 +13,19 @@ export type ConnectorSkillRequirement = {
   riskLevel?: "low" | "medium" | "high" | "sensitive";
 };
 
+export type ConnectorDemoDefaults = {
+  oauthApplication: {
+    appName: string;
+    defaultApplicationAccessGrants: string[];
+  };
+  servicePrincipal: {
+    principalId: string;
+    defaultEffectivePermissions: string[];
+    defaultDeniedPermissions: string[];
+  };
+  defaultEnabledSkillIds?: string[];
+};
+
 export type ConnectorProfile = {
   resourceSystem: string;
   connectorId: string;
@@ -23,6 +36,7 @@ export type ConnectorProfile = {
   effectivePermissionCatalog: ConnectorCatalogItem[];
   skillCatalog: ConnectorSkillRequirement[];
   actionCatalog: ConnectorSkillRequirement[];
+  demoDefaults: ConnectorDemoDefaults;
 };
 
 export type SupportedConnector = {

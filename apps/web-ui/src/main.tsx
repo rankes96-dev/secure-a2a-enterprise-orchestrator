@@ -784,6 +784,8 @@ type TrustedOnboardedAgent = {
   agentDeclaredCapabilities: string[];
   applicationAccessGrants?: string[];
   grantedScopes: string[];
+  approvedActions?: DerivedCapability[];
+  blockedActions?: DerivedCapability[];
   approvedCapabilities: DerivedCapability[];
   blockedCapabilities: DerivedCapability[];
   connectorProfile?: ConnectorProfileSummary;
@@ -871,6 +873,10 @@ type AgentOnboardingResult = {
   connectorProfile?: ConnectorProfileSummary;
   connectorProfileVerified: boolean;
   connectorDecisionSource: string;
+  skillDecision?: {
+    approvedActions: DerivedCapability[];
+    blockedActions: DerivedCapability[];
+  };
   capabilityDecision: {
     approvedCapabilities: DerivedCapability[];
     blockedCapabilities: DerivedCapability[];
@@ -960,6 +966,8 @@ type RegisteredAgentRow = {
   agentDeclaredSkills?: string[];
   agentDeclaredCapabilities?: string[];
   grantedScopes?: string[];
+  approvedActions?: DerivedCapability[];
+  blockedActions?: DerivedCapability[];
   approvedCapabilities?: DerivedCapability[];
   blockedCapabilities?: DerivedCapability[];
   resourcePrincipal?: string;
@@ -1214,6 +1222,8 @@ function App() {
       agentDeclaredSkills: agent.agentDeclaredSkills,
       agentDeclaredCapabilities: agent.agentDeclaredCapabilities,
       grantedScopes: agent.grantedScopes,
+      approvedActions: agent.approvedActions,
+      blockedActions: agent.blockedActions,
       approvedCapabilities: agent.approvedCapabilities,
       blockedCapabilities: agent.blockedCapabilities,
       resourcePrincipal: agent.resourcePrincipal,
@@ -2238,8 +2248,8 @@ function App() {
   }
 
   function renderZeroTrustOnboardingPanel() {
-    const approvedCapabilities = zeroTrustResult?.capabilityDecision.approvedCapabilities ?? [];
-    const blockedCapabilities = zeroTrustResult?.capabilityDecision.blockedCapabilities ?? [];
+    const approvedActions = zeroTrustResult?.skillDecision?.approvedActions ?? zeroTrustResult?.capabilityDecision.approvedCapabilities ?? [];
+    const blockedActions = zeroTrustResult?.skillDecision?.blockedActions ?? zeroTrustResult?.capabilityDecision.blockedCapabilities ?? [];
     const wizardSteps: Array<{ id: ConnectionWizardStep; label: string }> = [
       { id: "overview", label: "Overview" },
       { id: "gateway-registration", label: "Register Gateway" },
@@ -2686,11 +2696,11 @@ function App() {
               <section className="capability-decision-grid" aria-label="Gateway action decision">
                 <div>
                   <h4>Approved actions</h4>
-                  {renderCapabilityList(approvedCapabilities, "No approved actions.")}
+                  {renderCapabilityList(approvedActions, "No approved actions.")}
                 </div>
                 <div>
                   <h4>Blocked actions</h4>
-                  {renderCapabilityList(blockedCapabilities, "No blocked actions.")}
+                  {renderCapabilityList(blockedActions, "No blocked actions.")}
                 </div>
               </section>
               <p>The external agent protocol is universal. System-specific action requirements come from the connector profile.</p>
@@ -2931,8 +2941,8 @@ function App() {
           </div>
           <div className="registry-agent-compact-metadata">
             {agent.source === "zero-trust-onboarded" ? <span><b>Trust</b> {agent.trustLevel}</span> : null}
-            {agent.source === "zero-trust-onboarded" ? <span><b>Approved</b> {agent.approvedCapabilities?.length ?? 0}</span> : null}
-            {agent.source === "zero-trust-onboarded" ? <span><b>Blocked</b> {agent.blockedCapabilities?.length ?? 0}</span> : null}
+            {agent.source === "zero-trust-onboarded" ? <span><b>Approved</b> {(agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0}</span> : null}
+            {agent.source === "zero-trust-onboarded" ? <span><b>Blocked</b> {(agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0}</span> : null}
             <span><b>Auth</b> {agent.authMode}</span>
             <span><b>Endpoint</b> {endpointTypeLabel(agent.endpointType, agent.endpointScheme)}</span>
             <span><b>Agent Card</b> {agent.agentCardAvailable ? "yes" : "no"}</span>
@@ -2973,11 +2983,11 @@ function App() {
                   </div>
                   <div>
                     <span>Approved actions</span>
-                    <strong>{agent.approvedCapabilities?.map((item) => item.label ?? item.capability).join(", ") || "none"}</strong>
+                    <strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item) => item.label ?? item.capability).join(", ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Blocked actions</span>
-                    <strong>{agent.blockedCapabilities?.map((item) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
+                    <strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Resource principal</span>

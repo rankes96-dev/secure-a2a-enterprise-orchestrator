@@ -81,14 +81,14 @@ A future Custom Connector Layer can replace these local static profiles with sys
 
 Connector registry code lives in `src/connectors/`:
 
-- `types.ts` defines connector profile and supported connector metadata.
+- `types.ts` defines connector profile, demo defaults, and supported connector metadata.
 - `jiraReferenceConnector.ts` contains the Jira Cloud reference connector profile.
 - `servicenowReferenceConnector.ts` contains the ServiceNow reference connector profile.
 - `githubReferenceConnector.ts` contains the GitHub reference connector profile.
 - `jiraRuntimeDiagnosis.ts`, `servicenowRuntimeDiagnosis.ts`, and `githubRuntimeDiagnosis.ts` contain system-specific runtime diagnosis text for the local reference connectors.
 - `registry.ts` exposes `listSupportedConnectors()`, `getConnectorProfile(connectorId)`, `getDefaultConnectorProfile()`, and `getConnectorProfileForResourceSystem(resourceSystem)`.
 
-The selected connector controls the admin console catalogs for application access grants, effective permissions, denied permissions, and agent actions. `jira-reference`, `servicenow-reference`, and `github-reference` are available local reference connectors.
+The selected connector controls the admin console catalogs for application access grants, effective permissions, denied permissions, and agent actions. Demo defaults also live on the connector profile so `adminConfig.ts` stays connector-neutral. `jira-reference`, `servicenow-reference`, and `github-reference` are available local reference connectors.
 
 To add another connector profile later, add its profile module, register it in `registry.ts`, and make it available through the admin-selected connector. Do not add system-specific action requirements to Gateway core.
 
@@ -117,7 +117,7 @@ The service listens on `http://localhost:4201` by default.
 
 Run the three local reference connectors in separate terminals:
 
-```powershell
+```bash
 npm run dev:jira
 npm run dev:servicenow
 npm run dev:github
@@ -137,6 +137,13 @@ The verification script checks discovery, JWKS, and the signed onboarding respon
 
 ```bash
 RUNTIME_BEARER_TOKEN=<a2a-jwt> npm run verify:agent
+```
+
+To verify a non-default running connector instance, pass the same connector environment used to start it:
+
+```bash
+EXTERNAL_CONNECTOR_ID=servicenow-reference EXTERNAL_AGENT_ID=external-servicenow-agent EXTERNAL_AGENT_PORT=4202 EXTERNAL_AGENT_CLIENT_ID=servicenow-agent-client npm run verify:agent
+EXTERNAL_CONNECTOR_ID=github-reference EXTERNAL_AGENT_ID=external-github-agent EXTERNAL_AGENT_PORT=4203 EXTERNAL_AGENT_CLIENT_ID=github-agent-client npm run verify:agent
 ```
 
 ## Security Boundaries

@@ -85,5 +85,16 @@ export const serviceNowReferenceConnector: ConnectorProfile = {
     }
   ],
   skillCatalog: serviceNowSkills,
-  actionCatalog: serviceNowSkills
+  actionCatalog: serviceNowSkills,
+  demoDefaults: {
+    oauthApplication: {
+      appName: "ServiceNow Agent Connected App",
+      defaultApplicationAccessGrants: ["incident.read", "catalog.read", "user.read"]
+    },
+    servicePrincipal: {
+      principalId: "svc-a2a-servicenow-agent",
+      defaultEffectivePermissions: ["role:itil", "table:incident:read", "table:sc_req_item:read", "acl:user:read"],
+      defaultDeniedPermissions: ["table:incident:write"]
+    }
+  }
 };

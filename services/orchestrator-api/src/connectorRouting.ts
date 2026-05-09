@@ -1,4 +1,6 @@
 import type { TrustedOnboardedAgent } from "./agentOnboarding";
+import { referenceConnectorCatalog } from "./connectors/referenceConnectorCatalog";
+import { isConnectorRuntimeEndpointAllowed } from "./security/connectorRuntimeSafety";
 
 export type ConnectorRoutingIntent = {
   targetSystem: string;
@@ -36,143 +38,36 @@ export type ConnectorRoutingDecision = {
   recommendedNextStep: string;
 };
 
-const supportedConnectors = [
-  {
-    targetSystem: "jira",
-    connectorId: "jira-reference",
-    displayName: "Jira Cloud Reference Connector"
-  },
-  {
-    targetSystem: "servicenow",
-    connectorId: "servicenow-reference",
-    displayName: "ServiceNow Reference Connector"
-  },
-  {
-    targetSystem: "github",
-    connectorId: "github-reference",
-    displayName: "GitHub Reference Connector"
-  }
-];
-
 function normalize(value: string): string {
   return value.toLowerCase();
 }
 
-function isSafeConnectorRuntimeEndpoint(endpoint: string | undefined): boolean {
-  if (!endpoint) {
-    return false;
-  }
-
-  try {
-    const url = new URL(endpoint);
-    const allowedOrigins = new Set((process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS ?? "http://localhost:4201,http://localhost:4202,http://localhost:4203").split(",").map((item) => item.trim()).filter(Boolean));
-    const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
-    return (
-      (url.protocol === "https:" || (url.protocol === "http:" && isLocalhost)) &&
-      allowedOrigins.has(url.origin) &&
-      !url.username &&
-      !url.password &&
-      !url.search &&
-      !url.hash
-    );
-  } catch {
-    return false;
-  }
+function includesTerm(text: string, term: string): boolean {
+  return text.includes(term.toLowerCase());
 }
 
 export function inferConnectorRoutingIntent(message: string): ConnectorRoutingIntent {
   const text = normalize(message);
 
-  if (/\b(jira)\b/.test(text)) {
-    if (/project role|jira permission|permissions?|user cannot access project|cannot access project/.test(text)) {
-      return {
-        targetSystem: "jira",
-        connectorId: "jira-reference",
-        requestedSkillId: "jira.permission.inspect",
-        confidence: "high",
-        reason: "The request mentions Jira permissions or project roles."
-      };
+  for (const connector of referenceConnectorCatalog) {
+    if (!connector.systemTerms.some((term) => includesTerm(text, term))) {
+      continue;
     }
 
-    if (/\bcreate\b.*\b(jira issue|issue|ticket)\b|\b(jira issue|ticket|issue)\b.*\bcreate\b/.test(text) && !/fail|fails|failing|403|permission/.test(text)) {
+    const skill = connector.skillHints.find((hint) =>
+      hint.includeAny.some((term) => includesTerm(text, term)) &&
+        !(hint.excludeAny ?? []).some((term) => includesTerm(text, term))
+    ) ?? connector.skillHints[0];
+
+    if (skill) {
       return {
-        targetSystem: "jira",
-        connectorId: "jira-reference",
-        requestedSkillId: "jira.issue.create",
+        targetSystem: connector.resourceSystem,
+        connectorId: connector.connectorId,
+        requestedSkillId: skill.skillId,
         confidence: "high",
-        reason: "The request asks the connector to create a Jira issue."
+        reason: skill.reason
       };
     }
-
-    if (/issue|ticket creation|create issue|create ticket|403|project permission|permission/.test(text)) {
-      return {
-        targetSystem: "jira",
-        connectorId: "jira-reference",
-        requestedSkillId: "jira.issue.diagnose_creation_failure",
-        confidence: "high",
-        reason: "The request describes a Jira issue creation or permission failure."
-      };
-    }
-  }
-
-  if (/servicenow|incident|catalog item|requested item|ritm|change request/.test(text)) {
-    if (/catalog|requested item|ritm|approval/.test(text)) {
-      return {
-        targetSystem: "servicenow",
-        connectorId: "servicenow-reference",
-        requestedSkillId: "servicenow.catalog.request.diagnose",
-        confidence: "high",
-        reason: "The request references a ServiceNow catalog request or RITM failure."
-      };
-    }
-
-    if (/role|acl|user access|user cannot|access issue/.test(text)) {
-      return {
-        targetSystem: "servicenow",
-        connectorId: "servicenow-reference",
-        requestedSkillId: "servicenow.user.role.inspect",
-        confidence: "high",
-        reason: "The request references ServiceNow roles, ACLs, or user access."
-      };
-    }
-
-    return {
-      targetSystem: "servicenow",
-      connectorId: "servicenow-reference",
-      requestedSkillId: "servicenow.incident.assignment.diagnose",
-      confidence: "high",
-      reason: "The request references a ServiceNow incident assignment workflow."
-    };
-  }
-
-  if (/github|repository|repo|pull request|branch|rate limit/.test(text)) {
-    if (/pull request|\bpr\b/.test(text)) {
-      return {
-        targetSystem: "github",
-        connectorId: "github-reference",
-        requestedSkillId: "github.pull_request.access.diagnose",
-        confidence: "high",
-        reason: "The request references GitHub pull request access."
-      };
-    }
-
-    if (/permission|installation|access/.test(text) && !/rate limit/.test(text)) {
-      return {
-        targetSystem: "github",
-        connectorId: "github-reference",
-        requestedSkillId: "github.repository.permission.inspect",
-        confidence: "high",
-        reason: "The request references GitHub repository permissions or installation access."
-      };
-    }
-
-    return {
-      targetSystem: "github",
-      connectorId: "github-reference",
-      requestedSkillId: "github.repository.rate_limit.diagnose",
-      confidence: "high",
-      reason: "The request references GitHub repository or API rate-limit workflows."
-    };
   }
 
   if (/warehouse|robot arm|calibration/.test(text)) {
@@ -199,7 +94,7 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     };
   }
 
-  const supported = supportedConnectors.find((connector) => connector.targetSystem === intent.targetSystem || connector.connectorId === intent.connectorId);
+  const supported = referenceConnectorCatalog.find((connector) => connector.resourceSystem === intent.targetSystem || connector.connectorId === intent.connectorId);
   if (!supported || !intent.connectorId) {
     return {
       status: "unsupported",
@@ -214,15 +109,15 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     agent.connectorProfile?.connectorId === supported.connectorId ||
     agent.connectorId === supported.connectorId ||
     agent.connectorDecisionSource === supported.connectorId ||
-    agent.resourceSystem === supported.targetSystem ||
-    agent.connectorProfile?.resourceSystem === supported.targetSystem
+    agent.resourceSystem === supported.resourceSystem ||
+    agent.connectorProfile?.resourceSystem === supported.resourceSystem
   );
 
   if (!onboarded) {
     return {
       status: "connector_not_onboarded",
-      targetSystem: supported.targetSystem,
-      resourceSystem: supported.targetSystem,
+      targetSystem: supported.resourceSystem,
+      resourceSystem: supported.resourceSystem,
       connectorId: supported.connectorId,
       skillId: intent.requestedSkillId,
       reason: `${supported.displayName} connector is supported but has not been onboarded.`,
@@ -234,21 +129,22 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
   if (!skillId) {
     return {
       status: "needs_more_info",
-      targetSystem: supported.targetSystem,
-      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.targetSystem,
+      targetSystem: supported.resourceSystem,
+      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.resourceSystem,
       connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
       reason: "The connector is onboarded, but the requested skill/action is unclear.",
       recommendedNextStep: "Clarify the action you want the connector to perform."
     };
   }
 
-  const approved = onboarded.approvedCapabilities.find((item) => item.capability === skillId);
+  const approvedActions = onboarded.approvedActions ?? onboarded.approvedCapabilities;
+  const approved = approvedActions.find((item) => item.capability === skillId);
   if (approved) {
-    const runtimeAvailable = isSafeConnectorRuntimeEndpoint(onboarded.runtimeEndpoint);
+    const runtimeAvailable = isConnectorRuntimeEndpointAllowed(onboarded.runtimeEndpoint);
     return {
       status: "connector_skill_approved",
-      targetSystem: supported.targetSystem,
-      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.targetSystem,
+      targetSystem: supported.resourceSystem,
+      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.resourceSystem,
       connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
       skillId,
       skillLabel: approved.label ?? skillId,
@@ -264,12 +160,13 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     };
   }
 
-  const blocked = onboarded.blockedCapabilities.find((item) => item.capability === skillId);
+  const blockedActions = onboarded.blockedActions ?? onboarded.blockedCapabilities;
+  const blocked = blockedActions.find((item) => item.capability === skillId);
   if (blocked) {
     return {
       status: "connector_skill_blocked",
-      targetSystem: supported.targetSystem,
-      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.targetSystem,
+      targetSystem: supported.resourceSystem,
+      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.resourceSystem,
       connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
       skillId,
       skillLabel: blocked.label ?? skillId,
@@ -288,8 +185,8 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
   if (!declaredSkills.has(skillId)) {
     return {
       status: "connector_skill_not_declared",
-      targetSystem: supported.targetSystem,
-      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.targetSystem,
+      targetSystem: supported.resourceSystem,
+      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.resourceSystem,
       connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
       skillId,
       reason: "The requested skill is known to the connector profile but was not declared by the onboarded external agent.",
@@ -299,8 +196,8 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
 
   return {
     status: "connector_skill_not_enabled",
-    targetSystem: supported.targetSystem,
-    resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.targetSystem,
+    targetSystem: supported.resourceSystem,
+    resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.resourceSystem,
     connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
     skillId,
     reason: "The requested skill is known to the connector profile but is not enabled in the current Gateway action decision.",

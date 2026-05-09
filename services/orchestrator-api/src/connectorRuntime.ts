@@ -3,6 +3,7 @@ import type { A2AAgentResponse } from "@a2a/shared";
 import { getA2AAccessToken, type A2AIssuedTokenMetadata } from "./security/tokenClient";
 import type { VerifiedUserIdentity } from "./security/userIdentity";
 import type { ConnectorRoutingDecision } from "./connectorRouting";
+import { validateConnectorRuntimeEndpoint } from "./security/connectorRuntimeSafety";
 
 export type ConnectorRuntimeResult = {
   executed: boolean;
@@ -27,47 +28,6 @@ export type ConnectorRuntimeResult = {
 const connectorRuntimeTimeoutMs = 5_000;
 const maxConnectorRuntimeJsonBytes = 64 * 1024;
 const forbiddenResponseKeys = new Set(["rawtoken", "authorization", "access_token", "refresh_token", "client_assertion", "private_key", "client_secret", "bearer"]);
-
-function allowedConnectorRuntimeOrigins(): Set<string> {
-  const configured = process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS ?? "http://localhost:4201,http://localhost:4202,http://localhost:4203";
-  return new Set(configured.split(",").map((item) => item.trim()).filter(Boolean));
-}
-
-function validateTrustedConnectorRuntimeEndpoint(endpoint: string | undefined): { ok: true; url: URL } | { ok: false; error: string } {
-  if (!endpoint) {
-    return { ok: false, error: "external connector runtime endpoint is not available" };
-  }
-
-  let url: URL;
-  try {
-    url = new URL(endpoint);
-  } catch {
-    return { ok: false, error: "external connector runtime endpoint is invalid" };
-  }
-
-  if (url.username || url.password) {
-    return { ok: false, error: "external connector runtime endpoint must not include credentials" };
-  }
-
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return { ok: false, error: "external connector runtime endpoint uses an unsafe scheme" };
-  }
-
-  const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
-  if (url.protocol === "http:" && !isLocalhost) {
-    return { ok: false, error: "external connector runtime endpoint must use https outside localhost" };
-  }
-
-  if (!allowedConnectorRuntimeOrigins().has(url.origin)) {
-    return { ok: false, error: "external connector runtime endpoint is not allowlisted" };
-  }
-
-  if (url.search || url.hash) {
-    return { ok: false, error: "external connector runtime endpoint must not include query or fragment" };
-  }
-
-  return { ok: true, url };
-}
 
 function publicTokenMetadata(metadata: A2AIssuedTokenMetadata): ConnectorRuntimeResult["tokenMetadata"] {
   return {
@@ -177,7 +137,7 @@ export async function executeApprovedConnectorSkill(params: {
     };
   }
 
-  const endpoint = validateTrustedConnectorRuntimeEndpoint(params.connectorRoute.runtimeEndpoint);
+  const endpoint = validateConnectorRuntimeEndpoint(params.connectorRoute.runtimeEndpoint);
   if (!endpoint.ok) {
     return {
       executed: false,

@@ -277,6 +277,28 @@ Connector profiles publish **skills** because that is the developer-facing Agent
 
 Some internal response fields still use `capabilityDecision`, `approvedCapabilities`, and `blockedCapabilities` for compatibility while the product language moves to skills/actions.
 
+## Code Organization / Scale Rules
+
+- Connector-specific catalogs and demo defaults live in `real-external-agent/src/connectors/*ReferenceConnector.ts`.
+- Connector-specific diagnosis text lives only in connector runtime diagnosis files under `real-external-agent/src/connectors/`.
+- Gateway connector decisions are generic and use connector profile requirements, application access grants, effective permissions, denied permissions, and policy.
+- Gateway connector intent routing uses `services/orchestrator-api/src/connectors/referenceConnectorCatalog.ts`.
+- Gateway connector runtime URL validation uses `services/orchestrator-api/src/security/connectorRuntimeSafety.ts`.
+- Signed external OAuth application attestation is required during connector onboarding.
+- Legacy seeded OAuth registry fallback is not part of the connector onboarding path.
+
+## Adding a New Connector
+
+1. Add a connector profile file with grant catalog, permission catalog, skill catalog, and demo defaults.
+2. Add a connector runtime diagnosis file for system-specific safe diagnosis text.
+3. Register the connector in `real-external-agent/src/connectors/registry.ts`.
+4. Add deterministic demo intent hints in `referenceConnectorCatalog.ts`.
+5. Start a local connector instance with a unique connector ID, agent ID, client ID, and port.
+6. Onboard it through Gateway Agent Registry.
+7. Run the connector scenarios and verify approved skills execute only through the trusted runtime endpoint.
+
+No Gateway core decision-engine changes should be required for a connector that follows the profile contract.
+
 ## Security Flow
 
 When `A2A_AUTH_MODE=oauth2_client_credentials_jwt` and `ORCHESTRATOR_TOKEN_AUTH_METHOD=private_key_jwt`:

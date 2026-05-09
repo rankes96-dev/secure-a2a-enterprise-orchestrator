@@ -97,7 +97,8 @@ export function validateConnectorProfile(value: unknown): { profile?: ConnectorP
     applicationAccessGrantCatalog: catalog(input.applicationAccessGrantCatalog),
     effectivePermissionCatalog: catalog(input.effectivePermissionCatalog),
     skillCatalog: actionCatalog(input.skillCatalog).length ? actionCatalog(input.skillCatalog) : actionCatalog(input.actionCatalog),
-    actionCatalog: actionCatalog(input.actionCatalog).length ? actionCatalog(input.actionCatalog) : actionCatalog(input.skillCatalog)
+    actionCatalog: actionCatalog(input.actionCatalog).length ? actionCatalog(input.actionCatalog) : actionCatalog(input.skillCatalog),
+    demoDefaults: input.demoDefaults
   };
 
   if (!profile.connectorId) details.push("connector profile missing connectorId.");
