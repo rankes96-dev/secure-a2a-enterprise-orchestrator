@@ -1361,6 +1361,92 @@ h2 {
 .agent-registry-anchor-nav button:hover {
   border-color: #235789;
   color: #235789;
+  background: #eaf2f8;
+}
+
+.agent-registry-summary-bar {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.agent-registry-summary-bar div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fbfcfd;
+}
+
+.agent-registry-summary-bar span {
+  color: #526b76;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.agent-registry-summary-bar strong {
+  color: #172026;
+  font-size: 18px;
+}
+
+.connector-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.connector-template-badge {
+  width: fit-content;
+  border: 1px solid #c7d2d8;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #384b53;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.connector-template-badge.installed {
+  border-color: #9dc5aa;
+  color: #1d6d3d;
+  background: #effaf2;
+}
+
+.connector-template-badge.planned {
+  border-color: #d4c59b;
+  color: #6b550d;
+  background: #fff8df;
+}
+
+.connector-template-note {
+  margin: 0;
+  color: #526b76;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.connector-card-actions,
+.installed-connector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.installed-connector-details {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #dbe3e8;
+  padding-top: 10px;
+}
+
+.installed-connector-details h4 {
+  margin: 0;
+  color: #172026;
+  font-size: 13px;
 }
 
 .connector-preset-card {
@@ -4367,6 +4453,7 @@ pre {
   .connector-decision-grid,
   .connector-runtime-grid,
   .connector-execution-summary dl,
+  .agent-registry-summary-bar,
   .supporting-agent-list article {
     display: grid;
     grid-template-columns: 1fr;

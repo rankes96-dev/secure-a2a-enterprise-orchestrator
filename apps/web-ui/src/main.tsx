@@ -201,6 +201,15 @@ const fallbackSupportedConnectorGuardrails: SupportedConnectorGuardrail[] = [
   }
 ];
 
+const fallbackConnectorTemplateById = new Map(fallbackSupportedConnectorGuardrails.map((template) => [template.connectorId, template]));
+
+function enrichConnectorTemplate(template: SupportedConnectorGuardrail): SupportedConnectorGuardrail {
+  return {
+    ...fallbackConnectorTemplateById.get(template.connectorId),
+    ...template
+  };
+}
+
 const quickScenarioLabels = new Set([
   "Jira connector approved diagnosis",
   "Jira create blocked by grants/permissions",
@@ -1274,6 +1283,9 @@ function App() {
   const [gatewayRegistrationMetadata, setGatewayRegistrationMetadata] = useState<GatewayRegistrationMetadata | null>(null);
   const [connectionAudience, setConnectionAudience] = useState<ConnectionAudience>("bizapps");
   const [connectionWizardStep, setConnectionWizardStep] = useState<ConnectionWizardStep>("overview");
+  const [connectionWizardCollapsedAfterSuccess, setConnectionWizardCollapsedAfterSuccess] = useState(false);
+  const [customConnectorContractOpen, setCustomConnectorContractOpen] = useState(false);
+  const [expandedInstalledAgentIds, setExpandedInstalledAgentIds] = useState<string[]>([]);
   const [isZeroTrustDiscovering, setIsZeroTrustDiscovering] = useState(false);
   const [isZeroTrustOnboarding, setIsZeroTrustOnboarding] = useState(false);
   const [identitySession, setIdentitySession] = useState<IdentitySessionResponse | null>(null);
@@ -1689,7 +1701,7 @@ function App() {
       });
       if (response.ok) {
         const body = await response.json() as { connectorTemplates?: SupportedConnectorGuardrail[]; connectors: SupportedConnectorGuardrail[] };
-        setSupportedConnectorGuardrails(body.connectorTemplates ?? body.connectors);
+        setSupportedConnectorGuardrails((body.connectorTemplates ?? body.connectors).map(enrichConnectorTemplate));
       }
     } catch {
       setSupportedConnectorGuardrails(fallbackSupportedConnectorGuardrails);
@@ -1701,6 +1713,7 @@ function App() {
     setZeroTrustResult(null);
     setZeroTrustError("");
     setZeroTrustCopyMessage("");
+    setConnectionWizardCollapsedAfterSuccess(false);
   }
 
   function applyLocalConnectorPreset(preset: typeof localConnectorPresets[number]) {
@@ -1794,6 +1807,7 @@ function App() {
       }
       const result = body as AgentOnboardingResult;
       setZeroTrustResult(result);
+      setConnectionWizardCollapsedAfterSuccess(false);
       if (result.trustedAgents) {
         setZeroTrustOnboardedAgents(result.trustedAgents);
       } else {
@@ -2461,8 +2475,14 @@ function App() {
         loadZeroTrustOnboardedAgents(),
         loadSupportedConnectorGuardrails()
       ]);
+      setConnectionWizardCollapsedAfterSuccess(true);
       guideToTarget("registered-agents");
     };
+    const verifiedConnectorName = zeroTrustResult?.trustedAgent.connectorDisplayName
+      ?? zeroTrustResult?.connectorProfile?.displayName
+      ?? zeroTrustDiscovery?.discovery.connectorDisplayName
+      ?? zeroTrustResult?.trustedAgent.connectorId
+      ?? "External connector";
     const failureTitle = zeroTrustError.toLowerCase().includes("oauth")
       ? "OAuth application binding failed"
       : zeroTrustError.toLowerCase().includes("permission")
@@ -2883,6 +2903,28 @@ function App() {
       );
     };
 
+    if (connectionWizardCollapsedAfterSuccess && zeroTrustResult) {
+      return (
+        <section className="zero-trust-onboarding-panel collapsed-success scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
+          <div className="panel-header">
+            <div>
+              <p className="active-panel-eyebrow">Connection verified</p>
+              <h2>Connect External Agent</h2>
+              <p className="muted-note">{verifiedConnectorName} was installed as a trusted external connector agent.</p>
+            </div>
+          </div>
+          <div className="wizard-action-row">
+            <button type="button" className="secondary-button compact-button" onClick={() => guideToTarget("registered-agents")}>View Installed Connectors</button>
+            <button type="button" className="secondary-button compact-button" onClick={startAnotherConnection}>Connect another external agent</button>
+            <button type="button" className="secondary-button compact-button" onClick={() => {
+              setConnectionWizardCollapsedAfterSuccess(false);
+              setConnectionWizardStep("result");
+            }}>Show verification details</button>
+          </div>
+        </section>
+      );
+    }
+
     return (
       <section className="zero-trust-onboarding-panel scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
         <div className="panel-header">
@@ -3084,6 +3126,76 @@ function App() {
       ).length;
     }
 
+    function lifecycleForInstalledAgent(agent: (typeof zeroTrustAgents)[number]) {
+      const approved = (agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0;
+      return agent.lifecycle ?? (
+        approved > 0 && agent.connectorProfileVerified && agent.runtimeEndpoint
+          ? { state: "runtime_ready" as const, label: "Runtime ready", reason: "Approved skills can execute through the trusted runtime endpoint with scoped A2A JWT." }
+          : { state: "runtime_blocked" as const, label: "Runtime blocked", reason: "No approved runtime skills are currently available." }
+      );
+    }
+
+    const registrySummary = {
+      connectorTemplates: connectorTemplates.length,
+      installedConnectors: zeroTrustAgents.length,
+      runtimeReady: zeroTrustAgents.filter((agent) => lifecycleForInstalledAgent(agent).state === "runtime_ready").length,
+      needsReverification: zeroTrustAgents.filter((agent) => lifecycleForInstalledAgent(agent).state === "needs_reverification").length,
+      blockedSkills: zeroTrustAgents.reduce((total, agent) => total + ((agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0), 0)
+    };
+
+    function scenarioForResourceSystem(resourceSystem?: string): string {
+      if (resourceSystem === "servicenow") {
+        return "ServiceNow incident assignment keeps failing for network tickets";
+      }
+      if (resourceSystem === "github") {
+        return "GitHub repository sync is failing after API rate limit";
+      }
+      return "Jira issue creation fails with 403 when creating issues in FIN project";
+    }
+
+    function runMatchingScenario(agent: (typeof zeroTrustAgents)[number]) {
+      setMessage(scenarioForResourceSystem(agent.resourceSystem));
+      setActiveTab("run-task");
+      guideToTarget("composer");
+    }
+
+    function prefillReverification(agent: (typeof zeroTrustAgents)[number]) {
+      const preset = localConnectorPresets.find((item) =>
+        item.expectedConnectorId === agent.connectorId ||
+          item.expectedResourceSystem === agent.resourceSystem
+      );
+      if (preset) {
+        setZeroTrustAgentBaseUrl(preset.agentBaseUrl);
+        setZeroTrustExpectedAgentId(preset.expectedAgentId);
+        setZeroTrustExpectedResourceSystem(preset.expectedResourceSystem);
+        setZeroTrustExpectedConnectorId(preset.expectedConnectorId);
+      }
+      setConnectionWizardCollapsedAfterSuccess(false);
+      setConnectionWizardStep(zeroTrustDiscovery ? "verify" : "connection-input");
+      guideToTarget("zero-trust-onboarding");
+    }
+
+    function renderAgentRegistrySummaryBar() {
+      const summaryItems = [
+        { label: "Connector templates:", value: registrySummary.connectorTemplates },
+        { label: "Installed connectors:", value: registrySummary.installedConnectors },
+        { label: "Runtime ready:", value: registrySummary.runtimeReady },
+        { label: "Needs re-verification:", value: registrySummary.needsReverification },
+        { label: "Blocked skills:", value: registrySummary.blockedSkills }
+      ];
+
+      return (
+        <section className="agent-registry-summary-bar" aria-label="Agent Registry summary">
+          {summaryItems.map((item) => (
+            <div key={item.label}>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </div>
+          ))}
+        </section>
+      );
+    }
+
     function renderConnectorCatalog() {
       return (
         <section className="registry-section scroll-target" ref={connectorCatalogRef} tabIndex={-1}>
@@ -3101,10 +3213,17 @@ function App() {
               const sourceLabel = template.source === "custom_sdk" ? "SDK / Bring your own connector" : "Local reference template";
               const runtimeSupportLabel = template.runtimeSupport === "planned" ? "Planned" : template.runtimeSupport === "not_supported" ? "Not supported" : "Supported";
               const metadataUnavailable = !template.category || !template.publisher || !template.templateVersion || !template.authModel || !template.runtimeSupport || !template.riskLevel;
+              const installedBadge = installedCount > 0 ? `Installed agents: ${installedCount}` : "Not installed";
               return (
                 <article className="connector-preset-card" key={template.connectorId}>
-                  <strong>{template.displayName}</strong>
+                  <div className="connector-card-heading">
+                    <strong>{template.displayName}</strong>
+                    <span className={`connector-template-badge ${installedCount > 0 ? "installed" : template.status === "planned" ? "planned" : "not-installed"}`}>
+                      {template.connectorId === "custom-sdk" ? "Planned / V2" : installedBadge}
+                    </span>
+                  </div>
                   <p className="muted-note">{template.description ?? "Supported connector template for external agent onboarding."}</p>
+                  <p className="connector-template-note">Template, not installed by default.</p>
                   <span>Category: {template.category ?? "Metadata unavailable"}</span>
                   <small>Source: {sourceLabel}</small>
                   <small>Status: {template.status === "planned" ? "Planned / V2" : "Available"}</small>
@@ -3128,16 +3247,24 @@ function App() {
                     <>
                       <p className="muted-note">Build your own connector using the Secure A2A connector contract. Planned for V2.</p>
                       <button type="button" className="secondary-button compact-button" disabled>Planned</button>
+                      <button type="button" className="secondary-button compact-button" onClick={() => setCustomConnectorContractOpen(true)}>View connector contract</button>
                     </>
                   ) : preset ? (
-                    <button type="button" className="secondary-button compact-button" onClick={() => applyLocalConnectorPreset(preset)}>Connect external agent</button>
+                    <div className="connector-card-actions">
+                      <button type="button" className="secondary-button compact-button" onClick={() => applyLocalConnectorPreset(preset)}>
+                        {installedCount > 0 ? "Connect another external agent" : "Connect external agent"}
+                      </button>
+                      {installedCount > 0 ? (
+                        <button type="button" className="secondary-button compact-button" onClick={() => guideToTarget("registered-agents")}>View installed agents</button>
+                      ) : null}
+                    </div>
                   ) : null}
                 </article>
               );
             })}
           </div>
           <p className="muted-note">Policies can govern which installed connector skills may execute. Advanced policy controls are planned for V2.</p>
-          <details className="wizard-technical-details">
+          <details className="wizard-technical-details" open={customConnectorContractOpen} onToggle={(event) => setCustomConnectorContractOpen(event.currentTarget.open)}>
             <summary>Build your own connector</summary>
             <p>Organizations or vendors will be able to implement the Secure A2A connector contract.</p>
             <ul>
@@ -3158,11 +3285,8 @@ function App() {
     function renderInstalledConnectorCard(agent: (typeof zeroTrustAgents)[number]) {
       const approved = (agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0;
       const blocked = (agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0;
-      const lifecycle = agent.lifecycle ?? (
-        approved > 0 && agent.connectorProfileVerified && agent.runtimeEndpoint
-          ? { state: "runtime_ready" as const, label: "Runtime ready", reason: "Approved skills can execute through the trusted runtime endpoint with scoped A2A JWT." }
-          : { state: "runtime_blocked" as const, label: "Runtime blocked", reason: "No approved runtime skills are currently available." }
-      );
+      const lifecycle = lifecycleForInstalledAgent(agent);
+      const detailsOpen = expandedInstalledAgentIds.includes(agent.agentId);
       return (
         <article className="registry-agent-card compact-agent-card" key={`installed-${agent.agentId}`}>
           <div className="registry-agent-card-header">
@@ -3185,8 +3309,32 @@ function App() {
             <span><b>Blocked actions</b> {blocked}</span>
             <span><b>Runtime endpoint</b> {agent.runtimeEndpoint ?? "not declared"}</span>
             <span><b>External config</b> {shortHash(agent.externalConfigHash)}</span>
-            <span><b>Last onboarding</b> trusted metadata only</span>
+            <span><b>Last onboarding</b> local session</span>
           </div>
+          <div className="installed-connector-actions">
+            <button type="button" className="secondary-button compact-button" onClick={() => {
+              setExpandedInstalledAgentIds((current) =>
+                current.includes(agent.agentId)
+                  ? current.filter((id) => id !== agent.agentId)
+                  : [...current, agent.agentId]
+              );
+            }}>View details</button>
+            <button type="button" className="secondary-button compact-button" onClick={() => runMatchingScenario(agent)}>Run matching scenario</button>
+            <button type="button" className="secondary-button compact-button" onClick={() => prefillReverification(agent)}>Re-verify</button>
+          </div>
+          {detailsOpen ? (
+            <div className="installed-connector-details">
+              <h4>Trusted connector metadata</h4>
+              <div className="registry-agent-metadata">
+                <div><span>Requested grants</span><strong>{agent.requestedScopes?.join(", ") || "none"}</strong></div>
+                <div><span>Agent-declared skills</span><strong>{(agent.agentDeclaredSkills ?? agent.agentDeclaredCapabilities)?.join(", ") || "none"}</strong></div>
+                <div><span>Approved actions</span><strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item) => item.label ?? item.capability).join(", ") || "none"}</strong></div>
+                <div><span>Blocked actions</span><strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong></div>
+                <div><span>Resource principal</span><strong>{agent.resourcePrincipal ?? "unknown"}</strong></div>
+                <div><span>Execution state</span><strong>{agent.executionState}</strong></div>
+              </div>
+            </div>
+          ) : null}
         </article>
       );
     }
@@ -3308,9 +3456,9 @@ function App() {
 
     function renderAgentRegistryNav() {
       const navItems: Array<{ label: string; target: GuidedFocusTarget }> = [
-        { label: "Connector Catalog", target: "connector-catalog" },
+        { label: `Connector Catalog (${registrySummary.connectorTemplates})`, target: "connector-catalog" },
         { label: "Connect Agent", target: "zero-trust-onboarding" },
-        { label: "Installed Connectors", target: "registered-agents" },
+        { label: `Installed Connectors (${registrySummary.installedConnectors})`, target: "registered-agents" },
         { label: "Legacy Agents", target: "legacy-agents" }
       ];
 
@@ -3340,6 +3488,8 @@ function App() {
           </button>
         </div>
 
+        {renderAgentRegistrySummaryBar()}
+
         {renderAgentRegistryNav()}
 
         {renderConnectorCatalog()}
@@ -3352,7 +3502,7 @@ function App() {
           <summary>
             <div>
               <strong>Legacy Internal Demo Agents</strong>
-              <span>These local mock agents are retained only for old demo flows. Installed external connectors are the product path.</span>
+              <span>Legacy internal mock agents are retained only for old demo flows. They are not part of the external connector product path.</span>
             </div>
             <b aria-hidden="true">v</b>
           </summary>

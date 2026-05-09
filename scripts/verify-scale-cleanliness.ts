@@ -175,14 +175,35 @@ for (const phrase of ["Work Management", "ITSM", "DevOps", "Finish and view Inst
     failed = true;
   }
 }
+for (const phrase of [
+  "Connector templates:",
+  "Installed connectors:",
+  "Runtime ready:",
+  "Needs re-verification:",
+  "Connect another external agent",
+  "View installed agents",
+  "Not installed",
+  "Installed agents:",
+  "Show verification details",
+  "Legacy internal mock agents are retained only for old demo flows"
+]) {
+  if (!webUi.includes(phrase)) {
+    console.error(`fail - Agent Registry UI should include demo-readiness phrase: ${phrase}`);
+    failed = true;
+  }
+}
 for (const phrase of ["Runtime ready", "Needs re-verification", "Runtime blocked"]) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - Installed Connectors UI should include lifecycle term: ${phrase}`);
     failed = true;
   }
 }
-if (/installed by default/i.test(webUi) || /automatically trusted/i.test(webUi)) {
+if (/reference connectors are installed by default/i.test(webUi) || /automatically trusted/i.test(webUi)) {
   console.error("fail - UI should not imply reference connectors are installed or trusted by default");
+  failed = true;
+}
+if (/template\.category\s*\?\?\s*["']Custom["']/.test(webUi)) {
+  console.error("fail - UI should not default missing connector template category to Custom");
   failed = true;
 }
 
