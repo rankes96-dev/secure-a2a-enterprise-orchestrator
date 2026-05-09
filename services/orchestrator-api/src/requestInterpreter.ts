@@ -1,7 +1,7 @@
 import { OpenRouter } from "@openrouter/sdk";
 import OpenAI from "openai";
 import type { RequestInterpretation, RequestIntentType, RequestScope } from "@a2a/shared";
-import { getAiConfig } from "./config/aiConfig";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
 
 const scopes: RequestScope[] = ["enterprise_support", "manual_enterprise_workflow", "out_of_scope", "unknown"];
 const intentTypes: RequestIntentType[] = [
@@ -348,6 +348,8 @@ export async function interpretRequest(message: string): Promise<RequestInterpre
   console.info(`[request-interpreter] provider=${aiConfig.provider} model=${aiConfig.model} hasKey=${aiConfig.hasApiKey}`);
 
   if (!aiConfig.apiKey?.trim()) {
+    const summary = getSafeAiConfigSummary();
+    console.info(`[request-interpreter] fallback used reason=AI API key is not configured provider=${summary.provider} expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
     return fallbackInterpretRequest(message, "AI API key is not configured; deterministic fallback was used.");
   }
 

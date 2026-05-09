@@ -8,6 +8,14 @@ export interface AiConfig {
   baseURL?: string;
 }
 
+export interface SafeAiConfigSummary {
+  provider: AiProvider;
+  model: string;
+  hasApiKey: boolean;
+  expectedKeyName: "OPENROUTER_API_KEY" | "OPENAI_API_KEY";
+  envFileHint: "services/orchestrator-api/.env";
+}
+
 function readProvider(): AiProvider {
   return process.env.AI_PROVIDER === "openai" ? "openai" : "openrouter";
 }
@@ -34,5 +42,16 @@ export function getAiConfig(): AiConfig {
     hasApiKey: Boolean(apiKey?.trim()),
     model: process.env.OPENROUTER_MODEL || "openai/gpt-4o-mini",
     baseURL: "https://openrouter.ai/api/v1"
+  };
+}
+
+export function getSafeAiConfigSummary(): SafeAiConfigSummary {
+  const config = getAiConfig();
+  return {
+    provider: config.provider,
+    model: config.model,
+    hasApiKey: config.hasApiKey,
+    expectedKeyName: config.provider === "openrouter" ? "OPENROUTER_API_KEY" : "OPENAI_API_KEY",
+    envFileHint: "services/orchestrator-api/.env"
   };
 }

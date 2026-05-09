@@ -174,15 +174,17 @@ Generate local keys with `npm run generate:orchestrator-client-key`, then copy `
 
 ## AI Routing
 
-Optional AI setup lives in `services/orchestrator-api/.env`:
+Optional AI setup lives in `services/orchestrator-api/.env`. The orchestrator process loads environment values from that file at startup.
 
 ```env
 AI_PROVIDER=openrouter
-OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_API_KEY=
 OPENROUTER_MODEL=openai/gpt-4o-mini
 ```
 
 If no API key is configured, if the AI request fails, or if the AI returns an invalid/unsafe route, the orchestrator uses deterministic local fallback logic. API keys stay server-side and are never sent to the React frontend.
+
+For safe diagnostics, authenticated clients can call `GET /debug/ai-config`. It returns only provider, model, whether a key is present, the expected key name, and the env file hint. It never returns the API key value.
 
 The AI request interpreter returns structured scope, intent, requested capability, target system text, resource text, and approval hints. The backend validates selected agent IDs, skill IDs, and capabilities against Agent Cards before invoking any local mock agent. AI can help interpret and route; it does not execute actions or make final authorization decisions.
 

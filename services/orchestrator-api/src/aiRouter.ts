@@ -14,7 +14,7 @@ import type {
   SkippedAgent
 } from "@a2a/shared";
 import { findAgentSkillsByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard, type AgentCard, type CapabilityMatch } from "./agentCards";
-import { getAiConfig } from "./config/aiConfig";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
 import { interpretRequest } from "./requestInterpreter";
 
 const systems: EnterpriseSystem[] = ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday", "Unknown"];
@@ -657,7 +657,8 @@ export async function routeWithAI(message: string, context: RoutingContext = {})
   console.info(`[router] provider=${aiConfig.provider} model=${aiConfig.model} hasKey=${aiConfig.hasApiKey}`);
 
   if (!aiConfig.apiKey?.trim()) {
-    console.info(`[router] ${aiConfig.provider} key is not configured; using capability routing fallback`);
+    const summary = getSafeAiConfigSummary();
+    console.info(`[router] fallback used reason=AI API key is not configured provider=${summary.provider} expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
     return fallback;
   }
 

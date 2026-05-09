@@ -2,7 +2,7 @@ import { OpenRouter } from "@openrouter/sdk";
 import OpenAI from "openai";
 import type { FollowUpInterpretation, RequestInterpretation } from "@a2a/shared";
 import { incidentTaxonomy } from "./config/incidentTaxonomy";
-import { getAiConfig } from "./config/aiConfig";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
 import type { IncidentContext } from "./incidentContext";
 
 const followUpPrompt = `You are a ServiceNow enterprise support follow-up interpreter.
@@ -215,7 +215,8 @@ export async function interpretFollowUp(params: {
   console.info(`[follow-up-interpreter] provider=${aiConfig.provider} model=${aiConfig.model} hasKey=${aiConfig.hasApiKey}`);
 
   if (!aiConfig.apiKey?.trim()) {
-    console.info("[follow-up-interpreter] fallback used reason=AI API key is not configured");
+    const summary = getSafeAiConfigSummary();
+    console.info(`[follow-up-interpreter] fallback used reason=AI API key is not configured provider=${summary.provider} expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
     return fallbackInterpretFollowUp({ ...params, reason: "AI API key is not configured; deterministic follow-up fallback was used." });
   }
 

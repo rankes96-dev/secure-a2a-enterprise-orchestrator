@@ -24,7 +24,7 @@ import { assertSecureA2AAuthMode, secureA2AAuthRequired } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
 import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards";
 import { routeWithAI } from "./aiRouter";
-import { getAiConfig } from "./config/aiConfig";
+import { getSafeAiConfigSummary } from "./config/aiConfig";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
 import { getA2AAccessToken } from "./security/tokenClient";
 import {
@@ -2039,12 +2039,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    const aiConfig = getAiConfig();
-    sendJson(response, 200, {
-      provider: aiConfig.provider,
-      model: aiConfig.model,
-      hasApiKey: aiConfig.hasApiKey
-    });
+    sendJson(response, 200, getSafeAiConfigSummary());
     return;
   }
 
