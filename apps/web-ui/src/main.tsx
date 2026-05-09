@@ -1718,6 +1718,7 @@ function App() {
   }
 
   function applyLocalConnectorPreset(preset: typeof localConnectorPresets[number]) {
+    setSelectedInstalledConnectorTemplateId(undefined);
     setZeroTrustAgentBaseUrl(preset.agentBaseUrl);
     setZeroTrustExpectedAgentId(preset.expectedAgentId);
     setZeroTrustExpectedResourceSystem(preset.expectedResourceSystem);
@@ -2467,6 +2468,7 @@ function App() {
       setConnectionWizardStep(wizardSteps[nextIndex].id);
     };
     const startAnotherConnection = () => {
+      setSelectedInstalledConnectorTemplateId(undefined);
       resetZeroTrustConnectionState();
       setConnectionWizardStep("overview");
     };
@@ -2476,6 +2478,10 @@ function App() {
         loadZeroTrustOnboardedAgents(),
         loadSupportedConnectorGuardrails()
       ]);
+      const installedConnectorId = zeroTrustResult?.trustedAgent.connectorId ?? zeroTrustResult?.connectorProfile?.connectorId;
+      if (installedConnectorId) {
+        setSelectedInstalledConnectorTemplateId(installedConnectorId);
+      }
       setConnectionWizardCollapsedAfterSuccess(true);
       guideToTarget("registered-agents");
     };
@@ -2884,7 +2890,7 @@ function App() {
               <p>The external agent protocol is universal. System-specific action requirements come from the connector profile.</p>
               <p>Agent actions are declared by the external agent, but approved only after application access grants, effective permissions, denied permissions, and Gateway policy are evaluated.</p>
               <div className="wizard-action-row">
-                <button type="button" onClick={() => void finishOnboarding()}>Finish and view Installed Connectors</button>
+                <button type="button" onClick={() => void finishOnboarding()}>Finish and view Installed Connector Agents</button>
                 <button type="button" className="secondary-button compact-button" onClick={startAnotherConnection}>Connect another external agent</button>
               </div>
               <details className="wizard-technical-details">
@@ -2922,7 +2928,7 @@ function App() {
             </div>
           </div>
           <div className="wizard-action-row">
-            <button type="button" className="secondary-button compact-button" onClick={() => guideToTarget("registered-agents")}>View Installed Connectors</button>
+            <button type="button" className="secondary-button compact-button" onClick={() => guideToTarget("registered-agents")}>View Installed Connector Agents</button>
             <button type="button" className="secondary-button compact-button" onClick={startAnotherConnection}>Connect another external agent</button>
             <button type="button" className="secondary-button compact-button" onClick={() => {
               setConnectionWizardCollapsedAfterSuccess(false);
@@ -2940,9 +2946,15 @@ function App() {
             <div>
               <p className="active-panel-eyebrow">Connect Agent</p>
               <h2>Connect External Agent</h2>
-              <p className="muted-note">Choose a connector template above to connect an external agent.</p>
+              <p className="muted-note">Choose a connector template from the catalog, or start a manual connection.</p>
             </div>
-            <button type="button" className="secondary-button" onClick={() => setConnectionWizardStep("connection-input")}>Start manual connection</button>
+            <div className="wizard-action-row">
+              <button type="button" className="secondary-button" onClick={() => {
+                setSelectedInstalledConnectorTemplateId(undefined);
+                setConnectionWizardStep("connection-input");
+              }}>Start manual connection</button>
+              <button type="button" className="secondary-button" onClick={() => guideToTarget("connector-catalog")}>View Connector Catalog</button>
+            </div>
           </div>
         </section>
       );
@@ -3140,20 +3152,20 @@ function App() {
       }
     ];
 
+    function installedAgentMatchesTemplate(agent: TrustedOnboardedAgent | (typeof zeroTrustAgents)[number], template: SupportedConnectorGuardrail): boolean {
+      if (agent.connectorId) {
+        return agent.connectorId === template.connectorId;
+      }
+
+      return agent.resourceSystem === template.resourceSystem;
+    }
+
     function installedCountForTemplate(template: SupportedConnectorGuardrail): number {
-      return zeroTrustOnboardedAgents.filter((agent) =>
-        agent.connectorId === template.connectorId ||
-          agent.connectorProfile?.connectorId === template.connectorId ||
-          agent.resourceSystem === template.resourceSystem ||
-          agent.connectorProfile?.resourceSystem === template.resourceSystem
-      ).length;
+      return zeroTrustOnboardedAgents.filter((agent) => installedAgentMatchesTemplate(agent, template)).length;
     }
 
     function templateForAgent(agent: (typeof zeroTrustAgents)[number]): SupportedConnectorGuardrail | undefined {
-      return connectorTemplates.find((template) =>
-        template.connectorId === agent.connectorId ||
-          template.resourceSystem === agent.resourceSystem
-      );
+      return connectorTemplates.find((template) => installedAgentMatchesTemplate(agent, template));
     }
 
     function lifecycleForInstalledAgent(agent: (typeof zeroTrustAgents)[number]) {
@@ -3173,18 +3185,35 @@ function App() {
       blockedSkills: zeroTrustAgents.reduce((total, agent) => total + ((agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0), 0)
     };
 
-    function scenarioForResourceSystem(resourceSystem?: string): string {
-      if (resourceSystem === "servicenow") {
-        return "ServiceNow incident assignment keeps failing for network tickets";
+    const approvedSkillScenarioMap: Record<string, string> = {
+      "jira.issue.diagnose_creation_failure": "Jira issue creation fails with 403 when creating issues in FIN project",
+      "jira.permission.inspect": "Jira inspect project roles for a user",
+      "jira.issue.create": "Create a Jira issue in FIN project for this outage",
+      "servicenow.incident.assignment.diagnose": "ServiceNow incident assignment keeps failing for network tickets",
+      "servicenow.catalog.request.diagnose": "ServiceNow catalog request RITM keeps failing during approval",
+      "servicenow.user.role.inspect": "ServiceNow user ACL access issue keeps blocking assignment",
+      "github.repository.rate_limit.diagnose": "GitHub repository sync is failing after API rate limit",
+      "github.repository.permission.inspect": "GitHub repository permission issue blocks installation access",
+      "github.pull_request.access.diagnose": "GitHub pull request checks cannot read the repository"
+    };
+
+    function scenarioForApprovedSkill(agent: (typeof zeroTrustAgents)[number]): string | undefined {
+      const approved = agent.approvedActions ?? agent.approvedCapabilities ?? [];
+      for (const action of approved) {
+        const scenario = approvedSkillScenarioMap[action.capability];
+        if (scenario) {
+          return scenario;
+        }
       }
-      if (resourceSystem === "github") {
-        return "GitHub repository sync is failing after API rate limit";
-      }
-      return "Jira issue creation fails with 403 when creating issues in FIN project";
+      return undefined;
     }
 
     function runMatchingScenario(agent: (typeof zeroTrustAgents)[number]) {
-      setMessage(scenarioForResourceSystem(agent.resourceSystem));
+      const scenario = scenarioForApprovedSkill(agent);
+      if (!scenario) {
+        return;
+      }
+      setMessage(scenario);
       setActiveTab("run-task");
       guideToTarget("composer");
     }
@@ -3325,6 +3354,7 @@ function App() {
       const lifecycle = lifecycleForInstalledAgent(agent);
       const detailsOpen = expandedInstalledAgentIds.includes(agent.agentId);
       const template = templateForAgent(agent);
+      const matchingScenario = scenarioForApprovedSkill(agent);
       return (
         <article className="registry-agent-card compact-agent-card" key={`installed-${agent.agentId}`}>
           <div className="registry-agent-card-header">
@@ -3332,7 +3362,7 @@ function App() {
               <strong>{agent.connectorDisplayName ?? agent.connectorId ?? agent.agentId}</strong>
               <small>Agent ID: {agent.agentId}</small>
               <div className="registry-agent-badges">
-                <span className="source-badge">installed connector</span>
+                <span className="source-badge">installed agent</span>
                 <strong className={`health-pill ${lifecycle.state === "runtime_ready" ? "healthy" : "warning"}`}>{lifecycle.label}</strong>
               </div>
             </div>
@@ -3359,9 +3389,10 @@ function App() {
                   : [...current, agent.agentId]
               );
             }}>View details</button>
-            <button type="button" className="secondary-button compact-button" onClick={() => runMatchingScenario(agent)}>Run matching scenario</button>
+            <button type="button" className="secondary-button compact-button" disabled={!matchingScenario} title={matchingScenario ? "Run a scenario for the first approved skill." : "No approved runtime scenario available."} onClick={() => runMatchingScenario(agent)}>Run matching scenario</button>
             <button type="button" className="secondary-button compact-button" onClick={() => prefillReverification(agent)}>Re-verify</button>
           </div>
+          {!matchingScenario ? <p className="muted-note">No approved runtime scenario available.</p> : null}
           {detailsOpen ? (
             <div className="installed-connector-details">
               <h4>Trusted connector metadata</h4>
@@ -3384,10 +3415,7 @@ function App() {
         ? connectorTemplates.find((template) => template.connectorId === selectedInstalledConnectorTemplateId)
         : undefined;
       const matchingAgents = selectedTemplate
-        ? zeroTrustAgents.filter((agent) =>
-            agent.connectorId === selectedTemplate.connectorId ||
-              agent.resourceSystem === selectedTemplate.resourceSystem
-          )
+        ? zeroTrustAgents.filter((agent) => installedAgentMatchesTemplate(agent, selectedTemplate))
         : zeroTrustAgents;
       const groups = [...new Map(matchingAgents.map((agent) => [agent.resourceSystem ?? agent.connectorId ?? "unknown", agent])).keys()];
       return (
@@ -3395,8 +3423,8 @@ function App() {
           <div className="section-heading-row">
             <div>
               <p className="active-panel-eyebrow">Trusted agents</p>
-              <h2>Installed Connectors</h2>
-              <p className="muted-note">Installed connectors are external agents that passed signed onboarding and have trusted runtime metadata.</p>
+              <h2>Installed Connector Agents</h2>
+              <p className="muted-note">Installed connector agents are external agent instances that passed signed onboarding from a connector template.</p>
               <p className="muted-note">Multiple external agents can be installed from the same connector template.</p>
             </div>
           </div>
@@ -3520,7 +3548,7 @@ function App() {
     function renderAgentRegistryNav() {
       const navItems: Array<{ label: string; target: GuidedFocusTarget }> = [
         { label: `Catalog (${registrySummary.connectorTemplates})`, target: "connector-catalog" },
-        { label: `Installed (${registrySummary.installedConnectors})`, target: "registered-agents" },
+        { label: `Installed Agents (${registrySummary.installedConnectors})`, target: "registered-agents" },
         { label: "Connect Agent", target: "zero-trust-onboarding" },
         { label: "Legacy Agents", target: "legacy-agents" }
       ];

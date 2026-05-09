@@ -163,13 +163,13 @@ for (const phrase of ["Connector Catalog", "Installed Connectors", "Custom Conne
 }
 
 const webUi = readFileSync("apps/web-ui/src/main.tsx", "utf8");
-for (const phrase of ["Connector Catalog", "Installed Connectors", "Custom Connector SDK"]) {
+for (const phrase of ["Connector Catalog", "Installed Connector Agents", "Custom Connector SDK"]) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - Agent Registry UI should include: ${phrase}`);
     failed = true;
   }
 }
-for (const phrase of ["Work Management", "ITSM", "DevOps", "Finish and view Installed Connectors", "Legacy Internal Demo Agents"]) {
+for (const phrase of ["Work Management", "ITSM", "DevOps", "Finish and view Installed Connector Agents", "Legacy Internal Demo Agents"]) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - Agent Registry UI should include polish phrase: ${phrase}`);
     failed = true;
@@ -186,7 +186,7 @@ for (const phrase of [
   "Multiple external agents can be installed from the same connector template",
   "Start manual connection",
   "Advanced / legacy demo only",
-  "Choose a connector template above to connect an external agent",
+  "Choose a connector template from the catalog, or start a manual connection",
   "Connect another external agent",
   "View installed agents",
   "Not installed",
@@ -196,6 +196,18 @@ for (const phrase of [
 ]) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - Agent Registry UI should include demo-readiness phrase: ${phrase}`);
+    failed = true;
+  }
+}
+for (const phrase of [
+  "Installed Connector Agents",
+  "installed agent",
+  "installedAgentMatchesTemplate",
+  "No approved runtime scenario available",
+  "View Connector Catalog"
+]) {
+  if (!webUi.includes(phrase)) {
+    console.error(`fail - Agent Registry UI should include final wording phrase: ${phrase}`);
     failed = true;
   }
 }
