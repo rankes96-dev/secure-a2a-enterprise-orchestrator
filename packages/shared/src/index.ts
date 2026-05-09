@@ -68,7 +68,7 @@ export type RequestInterpretation = {
   confidence: "low" | "medium" | "high";
   reason: string;
   interpretationSource?: "ai" | "fallback";
-  aiProvider?: "openrouter" | "openai";
+    aiProvider?: "openrouter";
   aiModel?: string;
 };
 
@@ -84,7 +84,7 @@ export type FollowUpInterpretation = {
   shouldPreservePreviousTargetSystem?: boolean;
   shouldPreservePreviousAction?: boolean;
   interpretationSource?: "ai" | "fallback";
-  aiProvider?: "openrouter" | "openai";
+    aiProvider?: "openrouter";
   aiModel?: string;
 };
 
@@ -96,7 +96,7 @@ export interface Classification {
   confidence: "low" | "medium" | "high";
   reasoningSummary: string;
   classificationSource: "ai" | "rules_fallback";
-  aiProvider?: "openrouter" | "openai";
+    aiProvider?: "openrouter";
   aiModel?: string;
   reporterType: ReporterType;
   supportMode: SupportMode;

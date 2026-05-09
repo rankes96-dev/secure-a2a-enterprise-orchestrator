@@ -16,6 +16,7 @@
     "verify:private-key-jwt-replay": "tsx scripts/verify-private-key-jwt-replay.ts",
     "verify:agent-onboarding": "tsx scripts/verify-agent-onboarding.ts",
     "verify:connector-routing": "tsx scripts/verify-connector-routing.ts",
+    "verify:ai-config": "tsx scripts/verify-ai-config.ts",
     "verify:user-identity": "tsx scripts/verify-user-identity.ts",
     "verify:user-identity-required": "tsx scripts/verify-user-identity-required.ts",
     "verify:trust-status": "tsx scripts/verify-trust-status.ts",

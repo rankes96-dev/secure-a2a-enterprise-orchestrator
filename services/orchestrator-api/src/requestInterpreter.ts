@@ -1,5 +1,4 @@
 import { OpenRouter } from "@openrouter/sdk";
-import OpenAI from "openai";
 import type { RequestInterpretation, RequestIntentType, RequestScope } from "@a2a/shared";
 import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
 
@@ -15,7 +14,7 @@ const intentTypes: RequestIntentType[] = [
   "unknown"
 ];
 const interpretationSources = ["ai", "fallback"] as const;
-const aiProviders = ["openrouter", "openai"] as const;
+const aiProviders = ["openrouter"] as const;
 
 const interpreterPrompt = `You are a ServiceNow enterprise request interpreter.
 Classify the user's request before agent routing.
@@ -327,21 +326,6 @@ async function callOpenRouter(message: string, apiKey: string, model: string): P
   return typeof content === "string" ? content : undefined;
 }
 
-async function callOpenAi(message: string, apiKey: string, model: string): Promise<string | undefined> {
-  const client = new OpenAI({ apiKey });
-  const completion = await client.chat.completions.create({
-    model,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: interpreterPrompt },
-      { role: "user", content: JSON.stringify({ message }) }
-    ],
-    temperature: 0
-  });
-
-  return completion.choices[0]?.message.content ?? undefined;
-}
-
 export async function interpretRequest(message: string): Promise<RequestInterpretation> {
   const fallback = fallbackInterpretRequest(message);
   const aiConfig = getAiConfig();
@@ -349,16 +333,13 @@ export async function interpretRequest(message: string): Promise<RequestInterpre
 
   if (!aiConfig.apiKey?.trim()) {
     const summary = getSafeAiConfigSummary();
-    console.info(`[request-interpreter] fallback used reason=AI API key is not configured provider=${summary.provider} expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
-    return fallbackInterpretRequest(message, "AI API key is not configured; deterministic fallback was used.");
+    console.info(`[request-interpreter] fallback used reason=OpenRouter API key is not configured expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
+    return fallbackInterpretRequest(message, "OpenRouter API key is not configured; deterministic fallback was used.");
   }
 
   try {
     console.info(`[request-interpreter] calling ${aiConfig.provider} model=${aiConfig.model}`);
-    const content =
-      aiConfig.provider === "openrouter"
-        ? await callOpenRouter(message, aiConfig.apiKey, aiConfig.model)
-        : await callOpenAi(message, aiConfig.apiKey, aiConfig.model);
+    const content = await callOpenRouter(message, aiConfig.apiKey, aiConfig.model);
 
     if (!content) {
       return fallbackInterpretRequest(message, "AI request interpretation returned no content; deterministic fallback was used.");

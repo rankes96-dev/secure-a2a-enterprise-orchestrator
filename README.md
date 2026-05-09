@@ -177,10 +177,12 @@ Generate local keys with `npm run generate:orchestrator-client-key`, then copy `
 Optional AI setup lives in `services/orchestrator-api/.env`. The orchestrator process loads environment values from that file at startup.
 
 ```env
-AI_PROVIDER=openrouter
 OPENROUTER_API_KEY=
 OPENROUTER_MODEL=openai/gpt-4o-mini
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
+
+The orchestrator supports OpenRouter only. To use OpenAI models, configure them through OpenRouter model names, for example `OPENROUTER_MODEL=openai/gpt-4o-mini`.
 
 If no API key is configured, if the AI request fails, or if the AI returns an invalid/unsafe route, the orchestrator uses deterministic local fallback logic. API keys stay server-side and are never sent to the React frontend.
 

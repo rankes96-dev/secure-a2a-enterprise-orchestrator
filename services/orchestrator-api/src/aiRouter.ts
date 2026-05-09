@@ -1,5 +1,4 @@
 import { OpenRouter } from "@openrouter/sdk";
-import OpenAI from "openai";
 import type {
   AgentName,
   Classification,
@@ -474,7 +473,7 @@ export function routeWithRules(
   };
 }
 
-function normalizeClassification(value: unknown, fallback: Classification, aiProvider: "openrouter" | "openai", aiModel: string): Classification {
+function normalizeClassification(value: unknown, fallback: Classification, aiProvider: "openrouter", aiModel: string): Classification {
   const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 
   return {
@@ -507,7 +506,7 @@ function parseAgentList(value: unknown): SelectedAgent[] {
     }));
 }
 
-function normalizeRoutingDecision(value: unknown, fallback: RoutingDecision, aiProvider: "openrouter" | "openai", aiModel: string, context: RoutingContext = {}): RoutingDecision {
+function normalizeRoutingDecision(value: unknown, fallback: RoutingDecision, aiProvider: "openrouter", aiModel: string, context: RoutingContext = {}): RoutingDecision {
   const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   const classification = normalizeClassification(record.classification, fallback.classification, aiProvider, aiModel);
   const selectedAgents = parseAgentList(record.selectedAgents);
@@ -613,28 +612,6 @@ async function callOpenRouter(message: string, interpretation: RequestInterpreta
   return typeof content === "string" ? content : undefined;
 }
 
-async function callOpenAi(message: string, interpretation: RequestInterpretation, apiKey: string, model: string, context: RoutingContext = {}): Promise<string | undefined> {
-  const client = new OpenAI({ apiKey });
-  const completion = await client.chat.completions.create({
-    model,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: routerPrompt },
-      {
-        role: "user",
-        content: JSON.stringify({
-          message,
-          requestInterpretation: interpretation,
-          agentCards: getExecutableAgentCards(cardsForContext(context))
-        })
-      }
-    ],
-    temperature: 0
-  });
-
-  return completion.choices[0]?.message.content ?? undefined;
-}
-
 export async function routeWithAI(message: string, context: RoutingContext = {}): Promise<RoutingDecision> {
   const requestInterpretation = await interpretRequest(message);
   const fallback = routeWithRules(message, "Capability routing fallback was used.", requestInterpretation, context);
@@ -658,16 +635,13 @@ export async function routeWithAI(message: string, context: RoutingContext = {})
 
   if (!aiConfig.apiKey?.trim()) {
     const summary = getSafeAiConfigSummary();
-    console.info(`[router] fallback used reason=AI API key is not configured provider=${summary.provider} expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
+    console.info(`[router] fallback used reason=OpenRouter API key is not configured expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
     return fallback;
   }
 
   try {
     console.info("[router] calling secondary AI router");
-    const content =
-      aiConfig.provider === "openrouter"
-        ? await callOpenRouter(message, requestInterpretation, aiConfig.apiKey, aiConfig.model, context)
-        : await callOpenAi(message, requestInterpretation, aiConfig.apiKey, aiConfig.model, context);
+    const content = await callOpenRouter(message, requestInterpretation, aiConfig.apiKey, aiConfig.model, context);
 
     if (!content) {
       console.warn("[router] secondary AI router returned empty content; using capability fallback");

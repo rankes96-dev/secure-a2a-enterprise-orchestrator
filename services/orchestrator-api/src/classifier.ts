@@ -1,7 +1,6 @@
 import { OpenRouter } from "@openrouter/sdk";
-import OpenAI from "openai";
 import type { Classification, EnterpriseSystem, ErrorCode, IntegrationOperation, IssueType } from "@a2a/shared";
-import { getAiConfig } from "./config/aiConfig";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
 
 const systems: EnterpriseSystem[] = ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday", "Unknown"];
 const errorCodes: ErrorCode[] = ["401", "403", "404", "429", "500", "502", "503", "504"];
@@ -121,7 +120,7 @@ function asOptionalErrorCode(value: unknown, fallback?: ErrorCode): ErrorCode | 
   return typeof value === "string" && errorCodes.includes(value as ErrorCode) ? (value as ErrorCode) : fallback;
 }
 
-function normalizeAiClassification(value: unknown, fallback: Classification, aiProvider: "openrouter" | "openai", aiModel: string): Classification {
+function normalizeAiClassification(value: unknown, fallback: Classification, aiProvider: "openrouter", aiModel: string): Classification {
   const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 
   return {
@@ -158,36 +157,19 @@ async function classifyWithOpenRouter(message: string, apiKey: string, model: st
   return typeof content === "string" ? content : undefined;
 }
 
-async function classifyWithOpenAi(message: string, apiKey: string, model: string): Promise<string | undefined> {
-  const client = new OpenAI({ apiKey });
-  const completion = await client.chat.completions.create({
-    model,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: classifierPrompt },
-      { role: "user", content: message }
-    ],
-    temperature: 0
-  });
-
-  return completion.choices[0]?.message?.content ?? undefined;
-}
-
 export async function classify(message: string): Promise<Classification> {
   const fallback = ruleBasedClassify(message, "AI classifier unavailable; local rules were used.");
   const aiConfig = getAiConfig();
 
   if (!aiConfig.apiKey?.trim()) {
-    console.info(`[classifier] ${aiConfig.provider} key is not configured; using rules fallback`);
+    const summary = getSafeAiConfigSummary();
+    console.info(`[classifier] fallback used reason=OpenRouter API key is not configured expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
     return fallback;
   }
 
   try {
     console.info(`[classifier] calling ${aiConfig.provider} model=${aiConfig.model}`);
-    const content =
-      aiConfig.provider === "openrouter"
-        ? await classifyWithOpenRouter(message, aiConfig.apiKey, aiConfig.model)
-        : await classifyWithOpenAi(message, aiConfig.apiKey, aiConfig.model);
+    const content = await classifyWithOpenRouter(message, aiConfig.apiKey, aiConfig.model);
 
     if (!content) {
       console.info(`[classifier] ${aiConfig.provider} returned empty content; using rules fallback`);

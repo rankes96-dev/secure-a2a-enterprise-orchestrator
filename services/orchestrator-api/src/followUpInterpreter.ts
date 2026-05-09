@@ -1,5 +1,4 @@
 import { OpenRouter } from "@openrouter/sdk";
-import OpenAI from "openai";
 import type { FollowUpInterpretation, RequestInterpretation } from "@a2a/shared";
 import { incidentTaxonomy } from "./config/incidentTaxonomy";
 import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
@@ -183,21 +182,6 @@ async function callOpenRouter(input: unknown, apiKey: string, model: string): Pr
   return typeof content === "string" ? content : undefined;
 }
 
-async function callOpenAi(input: unknown, apiKey: string, model: string): Promise<string | undefined> {
-  const client = new OpenAI({ apiKey });
-  const result = await client.chat.completions.create({
-    model,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: followUpPrompt },
-      { role: "user", content: JSON.stringify(input) }
-    ],
-    temperature: 0
-  });
-
-  return result.choices[0]?.message.content ?? undefined;
-}
-
 export async function interpretFollowUp(params: {
   currentMessage: string;
   previousUserMessage?: string;
@@ -216,8 +200,8 @@ export async function interpretFollowUp(params: {
 
   if (!aiConfig.apiKey?.trim()) {
     const summary = getSafeAiConfigSummary();
-    console.info(`[follow-up-interpreter] fallback used reason=AI API key is not configured provider=${summary.provider} expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
-    return fallbackInterpretFollowUp({ ...params, reason: "AI API key is not configured; deterministic follow-up fallback was used." });
+    console.info(`[follow-up-interpreter] fallback used reason=OpenRouter API key is not configured expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
+    return fallbackInterpretFollowUp({ ...params, reason: "OpenRouter API key is not configured; deterministic follow-up fallback was used." });
   }
 
   try {
@@ -228,10 +212,7 @@ export async function interpretFollowUp(params: {
       previousInterpretation: params.previousInterpretation,
       previousIncidentContext: params.previousIncidentContext
     };
-    const content =
-      aiConfig.provider === "openrouter"
-        ? await callOpenRouter(input, aiConfig.apiKey, aiConfig.model)
-        : await callOpenAi(input, aiConfig.apiKey, aiConfig.model);
+    const content = await callOpenRouter(input, aiConfig.apiKey, aiConfig.model);
 
     if (!content) {
       console.info("[follow-up-interpreter] fallback used reason=AI returned empty content");
