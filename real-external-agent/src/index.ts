@@ -14,7 +14,7 @@ import { getConnectorProfile, listSupportedConnectors } from "./connectorProfile
 import { bearerToken, readJsonBody, sendJson } from "./http.js";
 import { createSignedTrustResponse, OnboardingError, type OnboardingRequest } from "./onboarding.js";
 import { publicJwks } from "./keys.js";
-import { runtimeSkillRequirement, safeDiagnosis, validateRuntimeToken } from "./runtime.js";
+import { runtimeSkillRequirement, safeDiagnosis, validateRuntimeToken, type ConnectorRuntimeTask } from "./runtime.js";
 
 function discoveryDocument() {
   const issuer = agentIssuer();
@@ -139,7 +139,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && request.url === "/a2a/task") {
-      const body = await readJsonBody<{ skillId?: unknown }>(request);
+      const body = await readJsonBody<ConnectorRuntimeTask>(request);
       const skill = runtimeSkillRequirement(body.skillId);
       if (!skill) {
         sendJson(response, 400, { error: "unknown_skill" });
@@ -154,7 +154,7 @@ const server = createServer(async (request, response) => {
 
       try {
         const tokenContext = await validateRuntimeToken(token, skill.requiredApplicationGrants);
-        sendJson(response, 200, safeDiagnosis({ ...tokenContext, skill }));
+        sendJson(response, 200, safeDiagnosis({ ...tokenContext, task: body, skill }));
       } catch (error) {
         sendJson(response, 401, {
           error: error instanceof Error && error.message === "missing_required_application_grant"

@@ -1,5 +1,8 @@
 const API_URL = process.env.ORCHESTRATOR_API_URL ?? "http://127.0.0.1:4000";
 const EXTERNAL_AGENT_URL = process.env.EXTERNAL_AGENT_URL ?? "http://localhost:4201";
+const allApplicationAccessGrants = ["read:jira-work", "read:jira-user", "write:jira-work", "manage:jira-project"];
+const allEffectivePermissions = ["browse_projects", "view_issues", "read_project_roles", "create_issues", "administer_projects"];
+const allActionIds = ["jira.issue.diagnose_creation_failure", "jira.permission.inspect", "jira.issue.create"];
 
 let sessionCookie = "";
 
@@ -94,7 +97,39 @@ async function resetExternalAgent(): Promise<void> {
   logOk("reset external agent demo config");
 }
 
-async function onboardJiraConnector(): Promise<void> {
+async function configureExternalAgent(input: {
+  applicationAccessGrants: string[];
+  effectivePermissions: string[];
+  deniedPermissions: string[];
+}): Promise<void> {
+  let result = await externalPost("/admin/oauth-application", {
+    appName: "Jira Agent Connected App",
+    clientId: "jira-agent-client",
+    authorizationServerIssuer: "http://localhost:4110",
+    tokenEndpointAuthMethod: "private_key_jwt",
+    applicationAccessGrants: input.applicationAccessGrants,
+    grantedScopes: input.applicationAccessGrants,
+    status: "active"
+  });
+  requireStatus(result.response, result.body, 200, "configure external OAuth application");
+
+  result = await externalPost("/admin/service-principal", {
+    principalType: "service_account",
+    principalId: "svc-a2a-jira-agent",
+    effectivePermissions: input.effectivePermissions,
+    deniedPermissions: input.deniedPermissions
+  });
+  requireStatus(result.response, result.body, 200, "configure external service principal");
+
+  result = await externalPost("/admin/capability-declaration", {
+    enabledActionIds: allActionIds,
+    agentDeclaredCapabilities: allActionIds
+  });
+  requireStatus(result.response, result.body, 200, "configure external agent actions");
+}
+
+async function onboardJiraConnector(options: { expectCreateBlocked?: boolean } = {}): Promise<void> {
+  const expectCreateBlocked = options.expectCreateBlocked ?? true;
   const { response, body } = await request("/agent-onboarding/start", {
     method: "POST",
     body: JSON.stringify({
@@ -117,8 +152,11 @@ async function onboardJiraConnector(): Promise<void> {
   if (!approved.some((item) => item.capability === "jira.issue.diagnose_creation_failure")) {
     throw new Error(`Jira diagnosis action was not approved: ${JSON.stringify(body)}`);
   }
-  if (!blocked.some((item) => item.capability === "jira.issue.create")) {
+  if (expectCreateBlocked && !blocked.some((item) => item.capability === "jira.issue.create")) {
     throw new Error(`Jira create action was not blocked by default: ${JSON.stringify(body)}`);
+  }
+  if (!expectCreateBlocked && !approved.some((item) => item.capability === "jira.issue.create")) {
+    throw new Error(`Jira create action was not approved with full access: ${JSON.stringify(body)}`);
   }
 
   assertNoSecretMarkers(body);
@@ -183,7 +221,39 @@ async function main(): Promise<void> {
   if (runtimeValidationData.tokenScopeValidated !== true || runtimeValidationData.rawToken !== "hidden" || runtimeValidationData.actorAttached !== true) {
     throw new Error(`Jira diagnosis runtime evidence did not confirm token validation safely: ${JSON.stringify(runtimeValidationData)}`);
   }
-  logOk("Jira diagnosis routes to approved connector skill and executes external runtime");
+  if (typeof agentResponse.probableCause !== "string" || !agentResponse.probableCause.includes("issue creation access is not fully enabled")) {
+    throw new Error(`default Jira diagnosis did not explain blocked create access: ${JSON.stringify(agentResponse)}`);
+  }
+  logOk("default Jira diagnosis executes runtime and explains create access is not fully enabled");
+
+  await configureExternalAgent({
+    applicationAccessGrants: allApplicationAccessGrants,
+    effectivePermissions: allEffectivePermissions,
+    deniedPermissions: []
+  });
+  await onboardJiraConnector({ expectCreateBlocked: false });
+  result = await resolveMessage("Jira issue creation fails with 403 when creating issues in FIN project");
+  route = expectConnectorStatus(result, "connector_skill_approved", "Jira all-access diagnosis");
+  const allAccessRuntime = asRecord(result.connectorRuntime);
+  if (allAccessRuntime.executed !== true) {
+    throw new Error(`all-access Jira diagnosis did not execute runtime: ${JSON.stringify(allAccessRuntime)}`);
+  }
+  const allAccessAgentResponse = asRecord(allAccessRuntime.agentResponse);
+  if (typeof allAccessAgentResponse.probableCause !== "string" || !allAccessAgentResponse.probableCause.includes("Connector-level access checks passed")) {
+    throw new Error(`all-access Jira diagnosis did not recognize connector-level access passed: ${JSON.stringify(allAccessAgentResponse)}`);
+  }
+  const allAccessActions = Array.isArray(allAccessAgentResponse.recommendedActions) ? allAccessAgentResponse.recommendedActions.join(" ") : "";
+  if (/Grant write:jira-work|Grant Create Issues permission/.test(allAccessActions)) {
+    throw new Error(`all-access Jira diagnosis should not recommend granting already-present access: ${JSON.stringify(allAccessAgentResponse)}`);
+  }
+  if (!/project key|issue type|workflow validators|actor|audit logs/i.test(allAccessActions)) {
+    throw new Error(`all-access Jira diagnosis should recommend project-specific checks: ${JSON.stringify(allAccessAgentResponse)}`);
+  }
+  assertNoSecretMarkers(result);
+  logOk("all-access Jira diagnosis executes runtime and shifts to project-specific checks");
+
+  await resetExternalAgent();
+  await onboardJiraConnector();
 
   result = await resolveMessage("Create a Jira issue in FIN project for this outage");
   route = expectConnectorStatus(result, "connector_skill_blocked", "Jira create");

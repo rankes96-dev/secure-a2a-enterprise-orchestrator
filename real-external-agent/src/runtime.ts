@@ -1,6 +1,8 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { agentId, expectedAudience, mockIdpJwksUri } from "./config.js";
 import { getConnectorProfile } from "./connectorProfile.js";
+import { getAdminConfig } from "./adminConfig.js";
+import { buildJiraRuntimeDiagnosis, type JiraConnectorAccessEvaluation } from "./connectors/jiraRuntimeDiagnosis.js";
 
 const jwksByUri = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
@@ -9,6 +11,19 @@ export type RuntimeSkillRequirement = {
   label: string;
   requiredApplicationGrants: string[];
   requiredEffectivePermissions: string[];
+};
+
+export type ConnectorRuntimeTask = {
+  skillId?: unknown;
+  connectorId?: unknown;
+  resourceSystem?: unknown;
+  message?: unknown;
+  context?: {
+    actor?: {
+      email?: unknown;
+      roles?: unknown;
+    };
+  };
 };
 
 function jwks(): ReturnType<typeof createRemoteJWKSet> {
@@ -74,58 +89,45 @@ export async function validateRuntimeToken(token: string, requiredApplicationGra
   };
 }
 
-function diagnosisForSkill(skillId: string): {
-  summary: string;
-  probableCause: string;
-  recommendedActions: string[];
-} {
-  if (skillId === "jira.permission.inspect") {
-    return {
-      summary: "Jira permission inspection completed.",
-      probableCause: "The Jira connector validated a read-only permission inspection request with the required Jira user access grant.",
-      recommendedActions: [
-        "Review the FIN project role membership for the affected user or integration account.",
-        "Confirm the service account can read Jira project roles.",
-        "Keep write actions blocked unless the connected app and integration user both receive create access."
-      ]
-    };
-  }
-
-  if (skillId === "jira.issue.create") {
-    return {
-      summary: "Jira issue create runtime request received.",
-      probableCause: "The create action reached runtime with a valid scoped token. In the default demo this action should be blocked before runtime.",
-      recommendedActions: [
-        "Confirm this action was intentionally approved by both application access grants and effective permissions.",
-        "Validate the FIN project Create Issues permission before enabling production execution.",
-        "Keep runtime execution audited and scoped to the requested skill."
-      ]
-    };
-  }
+export function connectorAccessEvaluation(skill: RuntimeSkillRequirement): JiraConnectorAccessEvaluation {
+  const config = getAdminConfig();
+  const applicationAccessGrants = new Set(config.oauthApplication.applicationAccessGrants);
+  const effectivePermissions = new Set(config.servicePrincipal.effectivePermissions);
+  const deniedPermissions = new Set(config.servicePrincipal.deniedPermissions);
+  const enabledSkills = new Set(config.capabilityDeclaration.agentDeclaredCapabilities);
+  const createIssueAccessReady = applicationAccessGrants.has("write:jira-work") && effectivePermissions.has("create_issues") && !deniedPermissions.has("create_issues");
 
   return {
-    summary: "Jira issue creation failure diagnosis completed.",
-    probableCause: "The failure is consistent with missing Jira project permission or insufficient create issue access for the integration/user context.",
-    recommendedActions: [
-      "Check the FIN project permission scheme.",
-      "Verify the integration user has Browse Projects and View Issues.",
-      "For actual issue creation, grant write:jira-work and Create Issues permission; otherwise keep create action blocked."
-    ]
+    missingApplicationGrants: skill.requiredApplicationGrants.filter((grant) => !applicationAccessGrants.has(grant)),
+    missingEffectivePermissions: skill.requiredEffectivePermissions.filter((permission) => !effectivePermissions.has(permission)),
+    deniedEffectivePermissions: skill.requiredEffectivePermissions.filter((permission) => deniedPermissions.has(permission)),
+    skillApprovedByConfig: enabledSkills.has(skill.id),
+    createIssueAccessReady
   };
 }
 
 export function safeDiagnosis(params: {
+  task: ConnectorRuntimeTask;
   skill: RuntimeSkillRequirement;
   actor?: string;
   actorRoles: string[];
   scopes: string[];
 }) {
-  const diagnosis = diagnosisForSkill(params.skill.id);
+  const profile = getConnectorProfile();
+  const accessEvaluation = connectorAccessEvaluation(params.skill);
+  const diagnosis = buildJiraRuntimeDiagnosis({
+    skillId: params.skill.id,
+    message: typeof params.task.message === "string" ? params.task.message : "",
+    actor: params.actor,
+    requiredApplicationGrants: params.skill.requiredApplicationGrants,
+    requiredEffectivePermissions: params.skill.requiredEffectivePermissions,
+    connectorAccessEvaluation: accessEvaluation
+  });
 
   return {
     agentId,
-    connectorId: getConnectorProfile().connectorId,
-    resourceSystem: getConnectorProfile().resourceSystem,
+    connectorId: profile.connectorId,
+    resourceSystem: profile.resourceSystem,
     skillId: params.skill.id,
     status: "diagnosed",
     summary: diagnosis.summary,
@@ -140,6 +142,7 @@ export function safeDiagnosis(params: {
           requiredApplicationGrants: params.skill.requiredApplicationGrants,
           requiredEffectivePermissions: params.skill.requiredEffectivePermissions,
           tokenScopeValidated: params.skill.requiredApplicationGrants.every((grant) => params.scopes.includes(grant)),
+          connectorAccessEvaluation: accessEvaluation,
           actorAttached: Boolean(params.actor),
           actor: params.actor,
           actorRoles: params.actorRoles,

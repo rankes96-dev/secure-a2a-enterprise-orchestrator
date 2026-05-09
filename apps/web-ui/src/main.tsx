@@ -180,7 +180,7 @@ function policyStatus(decision: string): SecurityTimelineStatus {
 }
 
 function agentResponseStatus(status: string): SecurityTimelineStatus {
-  if (status === "diagnosed") {
+  if (status === "diagnosed" || status === "completed") {
     return "success";
   }
 

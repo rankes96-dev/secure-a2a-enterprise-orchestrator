@@ -235,11 +235,11 @@ Legacy built-in/local mock agents remain available for internal demo support, bu
 
 ## Connector Runtime Execution
 
-Onboarding approves or blocks skills before runtime. When an approved skill is selected, the Gateway issues a scoped A2A JWT for that skill, calls the allowlisted external connector runtime, and returns the external agent's diagnosis, evidence, and trace. The external agent validates the JWT audience and required application access grants before producing a safe response.
+Onboarding approves or blocks skills before runtime. When an approved skill is selected, the Gateway runtime executor generically issues a scoped A2A JWT for that skill, calls the trusted allowlisted connector runtime endpoint from onboarding, sanitizes the response, and returns the external connector's diagnosis, evidence, and trace. System-specific diagnosis stays inside the external connector runtime.
 
 Raw access tokens, Authorization headers, client assertions, private keys, and secrets are never returned to the UI. Blocked skills are never executed. Supported but not-onboarded connectors are never executed. Unsupported systems are never executed.
 
-Runtime execution currently supports only the local Jira Cloud Reference Connector at `http://localhost:4201/a2a/task`.
+Runtime execution currently supports the local Jira Cloud Reference Connector at `http://localhost:4201/a2a/task`. The Gateway executor is connector-generic; Jira-specific runtime behavior lives in `real-external-agent`, and future connectors can implement the same runtime response contract without Gateway core changes.
 
 ## Skills vs Actions
 

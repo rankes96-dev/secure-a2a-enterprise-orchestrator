@@ -288,7 +288,7 @@ export interface A2ATask {
 
 export interface A2AAgentResponse {
   agentId: string;
-  status: "diagnosed" | "needs_more_info" | "blocked" | "unsupported" | "error";
+  status: "diagnosed" | "completed" | "needs_more_info" | "blocked" | "unsupported" | "error";
   summary: string;
   probableCause?: string;
   recommendedActions?: string[];

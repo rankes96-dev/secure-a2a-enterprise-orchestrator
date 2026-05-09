@@ -25,7 +25,12 @@ export type ConnectorRuntimeResult = {
 
 const connectorRuntimeTimeoutMs = 5_000;
 const maxConnectorRuntimeJsonBytes = 64 * 1024;
-const forbiddenResponseKeys = new Set(["rawtoken", "authorization", "access_token", "refresh_token", "client_assertion", "private_key", "client_secret"]);
+const forbiddenResponseKeys = new Set(["rawtoken", "authorization", "access_token", "refresh_token", "client_assertion", "private_key", "client_secret", "bearer"]);
+
+function allowedConnectorRuntimeOrigins(): Set<string> {
+  const configured = process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS ?? "http://localhost:4201";
+  return new Set(configured.split(",").map((item) => item.trim()).filter(Boolean));
+}
 
 function validateTrustedConnectorRuntimeEndpoint(endpoint: string | undefined): { ok: true; url: URL } | { ok: false; error: string } {
   if (!endpoint) {
@@ -43,11 +48,21 @@ function validateTrustedConnectorRuntimeEndpoint(endpoint: string | undefined): 
     return { ok: false, error: "external connector runtime endpoint must not include credentials" };
   }
 
-  // Local demo allowlist: the endpoint still must come from successful onboarding.
-  // Future connector runtimes should extend this allowlist through deployment config,
-  // not connector-specific Gateway branches.
-  if (url.protocol !== "http:" || url.hostname !== "localhost" || url.port !== "4201" || url.pathname !== "/a2a/task" || url.search || url.hash) {
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { ok: false, error: "external connector runtime endpoint uses an unsafe scheme" };
+  }
+
+  const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
+  if (url.protocol === "http:" && !isLocalhost) {
+    return { ok: false, error: "external connector runtime endpoint must use https outside localhost" };
+  }
+
+  if (!allowedConnectorRuntimeOrigins().has(url.origin)) {
     return { ok: false, error: "external connector runtime endpoint is not allowlisted" };
+  }
+
+  if (url.search || url.hash) {
+    return { ok: false, error: "external connector runtime endpoint must not include query or fragment" };
   }
 
   return { ok: true, url };
@@ -66,7 +81,7 @@ function publicTokenMetadata(metadata: A2AIssuedTokenMetadata): ConnectorRuntime
 
 function sanitizeConnectorRuntimeValue(value: unknown): unknown {
   if (typeof value === "string") {
-    return /Bearer\s+|Authorization:|access_token|client_assertion|private_key|client_secret/i.test(value) ? "hidden" : value;
+    return /Bearer\s+|Authorization:|access_token|refresh_token|client_assertion|private_key|client_secret/i.test(value) ? "hidden" : value;
   }
 
   if (Array.isArray(value)) {
@@ -98,7 +113,7 @@ function normalizeRuntimeResponse(value: unknown): A2AAgentResponse {
     const record = value as Record<string, unknown>;
     return {
       agentId: typeof record.agentId === "string" ? record.agentId : "external-connector-agent",
-      status: record.status === "diagnosed" || record.status === "needs_more_info" || record.status === "blocked" || record.status === "unsupported" || record.status === "error"
+      status: record.status === "diagnosed" || record.status === "completed" || record.status === "needs_more_info" || record.status === "blocked" || record.status === "unsupported" || record.status === "error"
         ? record.status
         : "diagnosed",
       summary: typeof record.summary === "string" ? record.summary : "External connector runtime returned a response.",
