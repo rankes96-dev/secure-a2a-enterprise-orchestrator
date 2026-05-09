@@ -353,6 +353,11 @@ export interface ResolveResponse {
     reason: string;
     recommendedNextStep: string;
   };
+  connectorPolicy?: {
+    effect: "allow" | "block" | "needs_approval";
+    reason: string;
+    matchedRuleIds: string[];
+  };
   connectorRuntime?: {
     executed: boolean;
     runtimeMode: "external_runtime" | "external_runtime_failed" | "metadata_only";

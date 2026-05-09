@@ -163,9 +163,35 @@ for (const phrase of ["Connector Catalog", "Installed Connectors", "Custom Conne
     failed = true;
   }
 }
+for (const phrase of ["Runtime ready", "Needs re-verification", "Runtime blocked"]) {
+  if (!webUi.includes(phrase)) {
+    console.error(`fail - Installed Connectors UI should include lifecycle term: ${phrase}`);
+    failed = true;
+  }
+}
 if (/installed by default/i.test(webUi) || /automatically trusted/i.test(webUi)) {
   console.error("fail - UI should not imply reference connectors are installed or trusted by default");
   failed = true;
+}
+
+const localReferenceConnectors = readFileSync("services/orchestrator-api/src/connectors/localReferenceConnectors.ts", "utf8");
+for (const field of ["category", "publisher", "authModel", "runtimeSupport", "riskLevel", "tags", "setupRequirements"]) {
+  if (!localReferenceConnectors.includes(`${field}:`)) {
+    console.error(`fail - ConnectorTemplate should include metadata field: ${field}`);
+    failed = true;
+  }
+}
+
+for (const requiredFile of [
+  "services/orchestrator-api/src/audit/auditEvents.ts",
+  "services/orchestrator-api/src/audit/types.ts",
+  "services/orchestrator-api/src/policy/connectorPolicy.ts",
+  "services/orchestrator-api/src/connectors/installedConnectorLifecycle.ts"
+]) {
+  if (!existsSync(requiredFile)) {
+    console.error(`fail - expected product-model file is missing: ${requiredFile}`);
+    failed = true;
+  }
 }
 
 if (failed) {

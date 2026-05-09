@@ -1,4 +1,5 @@
 import type { ConnectorProfile } from "../connectors/types";
+import type { InstalledConnectorLifecycle } from "../connectors/installedConnectorLifecycle";
 import type { gatewayMetadata } from "../security/gatewayIdentity";
 
 export type AgentTrustLevel =
@@ -143,6 +144,7 @@ export type TrustedOnboardedAgent = {
   connectorProfile?: Pick<ConnectorProfile, "connectorId" | "resourceSystem" | "displayName" | "version" | "profileSource">;
   connectorProfileVerified: boolean;
   connectorDecisionSource: string;
+  lifecycle?: InstalledConnectorLifecycle;
   resourcePrincipal?: string;
   trustLevel: AgentTrustLevel;
   executable: false;

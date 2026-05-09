@@ -1,4 +1,5 @@
 import type { ConnectorActionDecision, ConnectorProfile } from "../connectors/types";
+import { deriveInstalledConnectorLifecycle } from "../connectors/installedConnectorLifecycle";
 import type { ExternalAgentDiscovery, ExternalAgentTrustResponse, DerivedCapability, TrustedOnboardedAgent } from "./types";
 
 export type ResourceRegistration = {
@@ -109,7 +110,7 @@ export function buildTrustedAgent(params: {
     grantedScopes
   } = params;
 
-  return {
+  const trustedAgent: TrustedOnboardedAgent = {
     agentId: trustResponse.agentId,
     issuer: trustResponse.issuer,
     clientId: trustResponse.clientId,
@@ -140,5 +141,10 @@ export function buildTrustedAgent(params: {
     executionState: "metadata_only",
     tokenEndpointAuthMethod: publicTokenEndpointAuthMethod(trustResponse.tokenEndpointAuthMethod),
     oauthApplicationBound: true
+  };
+
+  return {
+    ...trustedAgent,
+    lifecycle: deriveInstalledConnectorLifecycle(trustedAgent)
   };
 }

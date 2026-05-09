@@ -44,6 +44,8 @@ import { detectSensitiveAction } from "./sensitiveActionGuard";
 import { discoverAgentOnboarding, listSupportedConnectorTemplates, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
 import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting";
 import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime";
+import { AuditEvents } from "./audit/auditEvents";
+import { evaluateConnectorPolicy } from "./policy/connectorPolicy";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -1227,6 +1229,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
 
   if (connectorRouting.status !== "needs_more_info") {
     const connectorStatus = connectorRoutingStatusLabel(connectorRouting.status);
+    const connectorPolicy = evaluateConnectorPolicy({ connectorRouteStatus: connectorRouting.status });
     const connectorRuntime = connectorRouting.status === "connector_skill_approved"
       ? await executeApprovedConnectorSkill({
           message: effectiveMessage,
@@ -1248,7 +1251,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           skillId: connectorRouting.skillId,
           skillLabel: connectorRouting.skillLabel,
           reason: connectorRouting.reason,
-          recommendedNextStep: connectorRouting.recommendedNextStep
+          recommendedNextStep: connectorRouting.recommendedNextStep,
+          policy: connectorPolicy
         }
       }
     ];
@@ -1272,21 +1276,25 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       ? [
           executionStep(
             "orchestrator",
-            "request_connector_runtime_token",
+            connectorRuntime.tokenMetadata?.tokenIssued ? AuditEvents.CONNECTOR_RUNTIME_TOKEN_ISSUED : AuditEvents.CONNECTOR_RUNTIME_TOKEN_REQUESTED,
             connectorRuntime.tokenMetadata?.tokenIssued
               ? `Scoped A2A JWT issued for audience=${connectorRuntime.tokenMetadata.audience} scope=${connectorRuntime.tokenMetadata.scope}; raw token hidden.`
               : "Requested scoped A2A JWT for connector runtime; raw token hidden."
           ),
           executionStep(
             "orchestrator",
-            "call_external_connector_runtime",
+            AuditEvents.CONNECTOR_RUNTIME_CALL_STARTED,
             connectorRuntime.executed
               ? `Called allowlisted external connector runtime for ${connectorRouting.skillId}.`
               : `External connector runtime was not executed: ${connectorRuntime.error ?? "unknown failure"}.`
           ),
           executionStep(
             "orchestrator",
-            connectorRuntime.executed ? "external_connector_runtime_response_received" : "external_connector_runtime_failed",
+            connectorRuntime.executed
+              ? AuditEvents.CONNECTOR_RUNTIME_CALL_SUCCEEDED
+              : connectorRuntime.error === "connector_configuration_changed"
+                ? AuditEvents.CONNECTOR_RUNTIME_CONFIG_STALE
+                : AuditEvents.CONNECTOR_RUNTIME_CALL_FAILED,
             connectorRuntime.executed
               ? `${runtimeAgentResponse?.agentId ?? "external connector"} returned ${runtimeAgentResponse?.status ?? "unknown"}.`
               : "External connector runtime failed safely without falling back to a mock diagnosis."
@@ -1347,6 +1355,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       followUpInterpretation: followUp,
       incidentContext: mergedIncidentContext,
       connectorRouting,
+      connectorPolicy,
       connectorRuntime,
       a2aTasks: [],
       a2aResponses,

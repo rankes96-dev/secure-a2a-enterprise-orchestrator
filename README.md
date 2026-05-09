@@ -34,13 +34,46 @@ Installed Connectors:
 
 - Persistent connector registry / DB
 - Tenant/org ownership
+- Persistent installed connector registry
+- Audit log persistence
+- Connector policy management
 - Connector SDK
 - Custom connector publishing
-- Audit log
-- Revocation
-- Policy engine
+- Revocation / disablement
+- Admin RBAC
 
 These items are roadmap scope and are not implemented in this local demo.
+
+## Connector Template Metadata
+
+Connector templates carry product metadata for the catalog: description, category, publisher, template version, auth model, runtime support, risk level, setup requirements, and tags. This metadata helps admins understand what a template is for before installing an external connector agent.
+
+The local Jira, ServiceNow, and GitHub templates are reference templates only. They describe the expected connector contract, but they are not trusted and cannot execute until an external agent instance completes signed onboarding.
+
+## Installed Connector Lifecycle
+
+Installed connector agents get a derived lifecycle state from the trusted onboarding record:
+
+- `installed`: onboarding exists, but no stronger state can be derived.
+- `verified`: connector profile and signed attestation were verified.
+- `runtime_ready`: approved skills can execute through the trusted runtime endpoint with scoped A2A JWTs.
+- `needs_reverification`: external connector configuration changed after onboarding; re-run onboarding.
+- `runtime_blocked`: no approved runtime skills are currently available, or the runtime endpoint is not usable.
+- `disabled` / `revoked`: planned V2 states for admin lifecycle controls.
+
+The current demo derives these states in memory. Production requires persistence, tenant ownership, audit history, revocation, and config hash history.
+
+## Audit Event Naming
+
+Connector audit event names use dot notation in the shape `domain.object.result`, for example `connector.runtime.call.succeeded` and `skill.decision.derived`.
+
+Audit events never include raw secrets. Runtime token events expose metadata only, such as audience, scope, actor, and whether a token was issued. Raw tokens, Authorization headers, client assertions, and private keys are not logged or returned to the UI.
+
+## Policy Model
+
+V1 includes a placeholder connector policy model so the product surface is explicit without adding a full policy engine. Approved connector skills are allowed by default after connector trust verification. Unknown, blocked, or unapproved skills are blocked. High-risk approval rules are modeled as V2 placeholders.
+
+Future policy management can add risk-based approval, role-based execution controls, business-hours rules, revocation, and tenant-specific connector policies without changing the connector profile contract.
 
 ```text
 User

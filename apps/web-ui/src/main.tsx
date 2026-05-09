@@ -138,6 +138,15 @@ const allScenarios: Scenario[] = scenarios.flatMap((group) => group.items);
 const quickScenarios = allScenarios.filter((scenario) => quickScenarioLabels.has(scenario.label));
 const advancedScenarios = allScenarios.filter((scenario) => !quickScenarioLabels.has(scenario.label));
 const infrastructureAgentIds = new Set(["mock-identity-provider"]);
+const installedConnectorLifecycleLabels = {
+  runtime_ready: "Runtime ready",
+  verified: "Verified",
+  needs_reverification: "Needs re-verification",
+  runtime_blocked: "Runtime blocked",
+  installed: "Installed",
+  disabled: "Disabled",
+  revoked: "Revoked"
+} as const;
 
 function inferDemoFlowType(response: ResolveResponse): string {
   if (response.connectorRouting) {
@@ -795,6 +804,11 @@ type TrustedOnboardedAgent = {
   blockedCapabilities: DerivedCapability[];
   connectorProfile?: ConnectorProfileSummary;
   connectorProfileVerified?: boolean;
+  lifecycle?: {
+    state: "installed" | "verified" | "runtime_ready" | "needs_reverification" | "runtime_blocked" | "disabled" | "revoked";
+    label: string;
+    reason: string;
+  };
   connectorDecisionSource?: string;
   externalConfigHash?: string;
   connectorProfileHash?: string;
@@ -914,6 +928,16 @@ type SupportedConnectorGuardrail = {
   displayName: string;
   status: "available" | "coming_soon" | "planned";
   source?: "local_reference" | "custom_sdk";
+  description?: string;
+  category?: "ITSM" | "DevOps" | "Work Management" | "Custom";
+  publisher?: string;
+  templateVersion?: string;
+  authModel?: "oauth_application_with_service_account" | "custom_sdk_contract";
+  runtimeSupport?: "supported" | "planned" | "not_supported";
+  riskLevel?: "low" | "medium" | "high";
+  tags?: string[];
+  docsUrl?: string;
+  setupRequirements?: string[];
   installed?: boolean;
   installedCount?: number;
 };
@@ -985,6 +1009,11 @@ type RegisteredAgentRow = {
   connectorDisplayName?: string;
   externalConfigHash?: string;
   connectorProfileVerified?: boolean;
+  lifecycle?: {
+    state: "installed" | "verified" | "runtime_ready" | "needs_reverification" | "runtime_blocked" | "disabled" | "revoked";
+    label: string;
+    reason: string;
+  };
   oauthApplicationBound?: boolean;
   executable?: boolean;
   executionState?: "metadata_only";
@@ -1248,6 +1277,7 @@ function App() {
       connectorDisplayName: agent.connectorDisplayName ?? agent.connectorProfile?.displayName,
       externalConfigHash: agent.externalConfigHash,
       connectorProfileVerified: agent.connectorProfileVerified,
+      lifecycle: agent.lifecycle,
       oauthApplicationBound: agent.oauthApplicationBound,
       executable: agent.executable,
       executionState: agent.executionState
@@ -1929,6 +1959,13 @@ function App() {
               </div>
             </div>
             <p>{latestResponse.connectorRouting.reason}</p>
+            {latestResponse.connectorPolicy ? (
+              <p><strong>Policy:</strong> {latestResponse.connectorPolicy.reason}</p>
+            ) : latestResponse.connectorRouting.status === "connector_skill_approved" ? (
+              <p><strong>Policy:</strong> Default connector policy allowed this approved diagnostic skill.</p>
+            ) : latestResponse.connectorRouting.status === "connector_skill_blocked" ? (
+              <p><strong>Policy:</strong> Skill was not eligible for runtime execution because Gateway action decision blocked it.</p>
+            ) : null}
             <p><strong>Next step:</strong> {latestResponse.connectorRouting.recommendedNextStep}</p>
             {latestResponse.connectorRouting.status === "connector_not_onboarded" || latestResponse.connectorRouting.status === "connector_skill_not_declared" || latestResponse.connectorRouting.status === "connector_skill_not_enabled" ? (
               <button type="button" className="secondary-inline-button" onClick={goToAgentRegistry}>
@@ -1996,6 +2033,9 @@ function App() {
                 {latestResponse.connectorRuntime.tokenMetadata?.actor ? <small>{latestResponse.connectorRuntime.tokenMetadata.actor}</small> : null}
               </div>
             </div>
+            {latestResponse.connectorPolicy ? (
+              <p><strong>Policy:</strong> {latestResponse.connectorPolicy.reason}</p>
+            ) : null}
             {latestResponse.connectorRuntime.agentResponse ? (
               <div className="connector-runtime-diagnosis">
                 <p><strong>{latestResponse.connectorRuntime.agentResponse.summary}</strong></p>
@@ -2974,17 +3014,32 @@ function App() {
               const preset = localConnectorPresets.find((item) => item.expectedConnectorId === template.connectorId);
               const installedCount = template.installedCount ?? installedCountForTemplate(template);
               const sourceLabel = template.source === "custom_sdk" ? "SDK / Bring your own connector" : "Local reference template";
+              const runtimeSupportLabel = template.runtimeSupport === "planned" ? "Planned" : template.runtimeSupport === "not_supported" ? "Not supported" : "Supported";
               return (
                 <article className="connector-preset-card" key={template.connectorId}>
                   <strong>{template.displayName}</strong>
-                  <span>Resource system: {template.resourceSystem}</span>
-                  <small>Connector template ID: {template.connectorId}</small>
+                  <p className="muted-note">{template.description ?? "Supported connector template for external agent onboarding."}</p>
+                  <span>Category: {template.category ?? "Custom"}</span>
                   <small>Source: {sourceLabel}</small>
                   <small>Status: {template.status === "planned" ? "Planned / V2" : "Available"}</small>
+                  <small>Runtime support: {runtimeSupportLabel}</small>
+                  <small>Risk level: {template.riskLevel ?? "medium"}</small>
                   <small>Installed count: {installedCount}</small>
+                  <details className="wizard-technical-details">
+                    <summary>Template details</summary>
+                    <div className="registry-agent-metadata">
+                      <div><span>Template ID</span><strong>{template.connectorId}</strong></div>
+                      <div><span>Resource system</span><strong>{template.resourceSystem}</strong></div>
+                      <div><span>Publisher</span><strong>{template.publisher ?? "unknown"}</strong></div>
+                      <div><span>Template version</span><strong>{template.templateVersion ?? "unknown"}</strong></div>
+                      <div><span>Auth model</span><strong>{template.authModel ?? "unknown"}</strong></div>
+                      <div><span>Setup requirements</span><strong>{template.setupRequirements?.join(", ") ?? "connector profile, signed onboarding response"}</strong></div>
+                      <div><span>Tags</span><strong>{template.tags?.join(", ") ?? "none"}</strong></div>
+                    </div>
+                  </details>
                   {template.connectorId === "custom-sdk" ? (
                     <>
-                      <p className="muted-note">Organizations and vendors will be able to build their own connector templates using the Secure A2A connector contract.</p>
+                      <p className="muted-note">Build your own connector using the Secure A2A connector contract. Planned for V2.</p>
                       <button type="button" className="secondary-button compact-button" disabled>Planned</button>
                     </>
                   ) : preset ? (
@@ -2994,6 +3049,7 @@ function App() {
               );
             })}
           </div>
+          <p className="muted-note">Policies can govern which installed connector skills may execute. Advanced policy controls are planned for V2.</p>
           <details className="wizard-technical-details">
             <summary>Build your own connector</summary>
             <p>Organizations or vendors will be able to implement the Secure A2A connector contract.</p>
@@ -3015,6 +3071,11 @@ function App() {
     function renderInstalledConnectorCard(agent: (typeof zeroTrustAgents)[number]) {
       const approved = (agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0;
       const blocked = (agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0;
+      const lifecycle = agent.lifecycle ?? (
+        approved > 0 && agent.connectorProfileVerified && agent.runtimeEndpoint
+          ? { state: "runtime_ready" as const, label: "Runtime ready", reason: "Approved skills can execute through the trusted runtime endpoint with scoped A2A JWT." }
+          : { state: "runtime_blocked" as const, label: "Runtime blocked", reason: "No approved runtime skills are currently available." }
+      );
       return (
         <article className="registry-agent-card compact-agent-card" key={`installed-${agent.agentId}`}>
           <div className="registry-agent-card-header">
@@ -3022,10 +3083,11 @@ function App() {
               <strong>{agent.connectorDisplayName ?? agent.connectorId ?? agent.agentId}</strong>
               <div className="registry-agent-badges">
                 <span className="source-badge">installed connector</span>
-                <strong className="health-pill healthy">trusted</strong>
+                <strong className={`health-pill ${lifecycle.state === "runtime_ready" ? "healthy" : "warning"}`}>{lifecycle.label}</strong>
               </div>
             </div>
           </div>
+          <p className="muted-note">{lifecycle.reason}</p>
           <div className="registry-agent-compact-metadata">
             <span><b>Agent ID</b> {agent.agentId}</span>
             <span><b>Connector ID</b> {agent.connectorId ?? "unknown"}</span>
