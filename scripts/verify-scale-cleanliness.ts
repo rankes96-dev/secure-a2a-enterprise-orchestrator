@@ -163,6 +163,7 @@ for (const phrase of ["Connector Catalog", "Installed Connectors", "Custom Conne
 }
 
 const webUi = readFileSync("apps/web-ui/src/main.tsx", "utf8");
+const webUiStyles = readFileSync("apps/web-ui/src/styles.css", "utf8");
 for (const phrase of ["Connector Catalog", "Installed Connector Agents", "Custom Connector SDK"]) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - Agent Registry UI should include: ${phrase}`);
@@ -231,6 +232,23 @@ if (/reference connectors are installed by default/i.test(webUi) || /automatical
 if (/template\.category\s*\?\?\s*["']Custom["']/.test(webUi)) {
   console.error("fail - UI should not default missing connector template category to Custom");
   failed = true;
+}
+for (const token of ["--page-bg", "--surface", "--text", "--primary", "--success-bg", "--warning-bg", "--danger-bg", "--info-bg"]) {
+  if (!webUiStyles.includes(token)) {
+    console.error(`fail - light enterprise UI theme should define token: ${token}`);
+    failed = true;
+  }
+}
+for (const darkToken of [
+  "radial-gradient(circle at top left, #1d2842",
+  "#080c18",
+  "#bfd1f0",
+  "rgba(12, 20, 36, 0.72)"
+]) {
+  if (webUiStyles.includes(darkToken)) {
+    console.error(`fail - light enterprise UI theme should not include dark/glass leftover: ${darkToken}`);
+    failed = true;
+  }
 }
 
 const localReferenceConnectors = readFileSync("services/orchestrator-api/src/connectors/localReferenceConnectors.ts", "utf8");
