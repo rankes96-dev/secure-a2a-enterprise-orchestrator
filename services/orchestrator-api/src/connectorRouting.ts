@@ -17,8 +17,17 @@ export type ConnectorRoutingDecision = {
     | "needs_more_info";
   targetSystem?: string;
   connectorId?: string;
+  resourceSystem?: string;
   skillId?: string;
   skillLabel?: string;
+  runtimeEndpoint?: string;
+  audience?: string;
+  requiredApplicationGrants?: string[];
+  requiredEffectivePermissions?: string[];
+  missingApplicationGrants?: string[];
+  missingEffectivePermissions?: string[];
+  deniedEffectivePermissions?: string[];
+  runtimeMode?: "external_runtime_available" | "metadata_only" | "not_available";
   reason: string;
   recommendedNextStep: string;
 };
@@ -43,6 +52,28 @@ const supportedConnectors = [
 
 function normalize(value: string): string {
   return value.toLowerCase();
+}
+
+function isSafeConnectorRuntimeEndpoint(endpoint: string | undefined): boolean {
+  if (!endpoint) {
+    return false;
+  }
+
+  try {
+    const url = new URL(endpoint);
+    return (
+      url.protocol === "http:" &&
+      url.hostname === "localhost" &&
+      url.port === "4201" &&
+      url.pathname === "/a2a/task" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function inferConnectorRoutingIntent(message: string): ConnectorRoutingIntent {
@@ -127,6 +158,7 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     return {
       status: "unsupported",
       targetSystem: intent.targetSystem === "unknown" ? undefined : intent.targetSystem,
+      resourceSystem: intent.targetSystem === "unknown" ? undefined : intent.targetSystem,
       reason: intent.reason,
       recommendedNextStep: "Open a support ticket with the issue details."
     };
@@ -134,7 +166,9 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
 
   const onboarded = onboardedAgents.find((agent) =>
     agent.connectorProfile?.connectorId === supported.connectorId ||
+    agent.connectorId === supported.connectorId ||
     agent.connectorDecisionSource === supported.connectorId ||
+    agent.resourceSystem === supported.targetSystem ||
     agent.connectorProfile?.resourceSystem === supported.targetSystem
   );
 
@@ -142,6 +176,7 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     return {
       status: "connector_not_onboarded",
       targetSystem: supported.targetSystem,
+      resourceSystem: supported.targetSystem,
       connectorId: supported.connectorId,
       skillId: intent.requestedSkillId,
       reason: `${supported.displayName} connector is supported but has not been onboarded.`,
@@ -154,7 +189,8 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     return {
       status: "needs_more_info",
       targetSystem: supported.targetSystem,
-      connectorId: supported.connectorId,
+      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.targetSystem,
+      connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
       reason: "The connector is onboarded, but the requested skill/action is unclear.",
       recommendedNextStep: "Clarify the action you want the connector to perform."
     };
@@ -162,12 +198,19 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
 
   const approved = onboarded.approvedCapabilities.find((item) => item.capability === skillId);
   if (approved) {
+    const runtimeAvailable = isSafeConnectorRuntimeEndpoint(onboarded.runtimeEndpoint);
     return {
       status: "connector_skill_approved",
       targetSystem: supported.targetSystem,
-      connectorId: supported.connectorId,
+      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.targetSystem,
+      connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
       skillId,
       skillLabel: approved.label ?? skillId,
+      runtimeEndpoint: onboarded.runtimeEndpoint,
+      audience: onboarded.audience,
+      requiredApplicationGrants: approved.requiredApplicationGrants ?? [],
+      requiredEffectivePermissions: approved.requiredEffectivePermissions ?? [],
+      runtimeMode: runtimeAvailable ? "external_runtime_available" : "metadata_only",
       reason: "Connector is onboarded and the requested skill is approved by application access grants and effective permissions.",
       recommendedNextStep: "Use connector-backed diagnosis flow."
     };
@@ -178,9 +221,13 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     return {
       status: "connector_skill_blocked",
       targetSystem: supported.targetSystem,
-      connectorId: supported.connectorId,
+      resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.targetSystem,
+      connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
       skillId,
       skillLabel: blocked.label ?? skillId,
+      missingApplicationGrants: blocked.missingApplicationGrants ?? [],
+      missingEffectivePermissions: blocked.missingEffectivePermissions ?? [],
+      deniedEffectivePermissions: blocked.deniedEffectivePermissions ?? [],
       reason: blocked.reason,
       recommendedNextStep: "Update external connector configuration or open a ticket."
     };
@@ -189,6 +236,7 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
   return {
     status: "unsupported",
     targetSystem: supported.targetSystem,
+    resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.targetSystem,
     connectorId: supported.connectorId,
     skillId,
     reason: `Requested skill ${skillId} is not declared by the onboarded connector profile.`,

@@ -156,12 +156,42 @@ async function main(): Promise<void> {
   if (route.connectorId !== "jira-reference" || route.skillId !== "jira.issue.diagnose_creation_failure") {
     throw new Error(`Jira diagnosis route returned unexpected connector metadata: ${JSON.stringify(route)}`);
   }
-  logOk("Jira diagnosis routes to approved connector skill");
+  const runtime = asRecord(result.connectorRuntime);
+  if (runtime.executed !== true || runtime.runtimeMode !== "external_runtime") {
+    throw new Error(`Jira diagnosis did not execute connector runtime: ${JSON.stringify(runtime)}`);
+  }
+  const tokenMetadata = asRecord(runtime.tokenMetadata);
+  if (tokenMetadata.tokenIssued !== true || tokenMetadata.rawToken !== "hidden" || tokenMetadata.audience !== "external-jira-agent" || tokenMetadata.scope !== "read:jira-work") {
+    throw new Error(`Jira diagnosis runtime token metadata mismatch: ${JSON.stringify(tokenMetadata)}`);
+  }
+  const agentResponse = asRecord(runtime.agentResponse);
+  if (agentResponse.agentId !== "external-jira-agent" || agentResponse.status !== "diagnosed") {
+    throw new Error(`Jira diagnosis runtime response mismatch: ${JSON.stringify(agentResponse)}`);
+  }
+  if (typeof agentResponse.summary !== "string" || !agentResponse.summary.includes("Jira issue creation failure diagnosis completed")) {
+    throw new Error(`Jira diagnosis runtime summary missing actual external diagnosis: ${JSON.stringify(agentResponse)}`);
+  }
+  if (typeof result.finalAnswer !== "string" || !result.finalAnswer.includes("Jira issue creation failure diagnosis completed")) {
+    throw new Error(`Jira diagnosis final answer did not use runtime diagnosis: ${JSON.stringify(result.finalAnswer)}`);
+  }
+  const evidence = Array.isArray(agentResponse.evidence) ? agentResponse.evidence.map(asRecord) : [];
+  const runtimeValidation = evidence.find((item) => item.title === "Connector runtime validation");
+  if (!runtimeValidation) {
+    throw new Error(`Jira diagnosis runtime evidence missing validation record: ${JSON.stringify(agentResponse)}`);
+  }
+  const runtimeValidationData = asRecord(runtimeValidation.data);
+  if (runtimeValidationData.tokenScopeValidated !== true || runtimeValidationData.rawToken !== "hidden" || runtimeValidationData.actorAttached !== true) {
+    throw new Error(`Jira diagnosis runtime evidence did not confirm token validation safely: ${JSON.stringify(runtimeValidationData)}`);
+  }
+  logOk("Jira diagnosis routes to approved connector skill and executes external runtime");
 
   result = await resolveMessage("Create a Jira issue in FIN project for this outage");
   route = expectConnectorStatus(result, "connector_skill_blocked", "Jira create");
   if (route.skillId !== "jira.issue.create" || typeof route.reason !== "string" || !route.reason.includes("write:jira-work") || !route.reason.includes("create_issues")) {
     throw new Error(`Jira create route did not explain blocked grants/permissions: ${JSON.stringify(route)}`);
+  }
+  if (result.connectorRuntime !== undefined) {
+    throw new Error(`Jira create should not execute runtime: ${JSON.stringify(result.connectorRuntime)}`);
   }
   logOk("Jira create routes to blocked connector skill");
 
@@ -170,6 +200,9 @@ async function main(): Promise<void> {
   if (route.connectorId !== "servicenow-reference") {
     throw new Error(`ServiceNow route returned unexpected connector metadata: ${JSON.stringify(route)}`);
   }
+  if (result.connectorRuntime !== undefined) {
+    throw new Error(`ServiceNow not-onboarded route should not execute runtime: ${JSON.stringify(result.connectorRuntime)}`);
+  }
   logOk("ServiceNow returns connector_not_onboarded");
 
   result = await resolveMessage("GitHub repository sync is failing after API rate limit");
@@ -177,12 +210,18 @@ async function main(): Promise<void> {
   if (route.connectorId !== "github-reference") {
     throw new Error(`GitHub route returned unexpected connector metadata: ${JSON.stringify(route)}`);
   }
+  if (result.connectorRuntime !== undefined) {
+    throw new Error(`GitHub not-onboarded route should not execute runtime: ${JSON.stringify(result.connectorRuntime)}`);
+  }
   logOk("GitHub returns connector_not_onboarded");
 
   result = await resolveMessage("The warehouse robot arm calibration failed");
   route = expectConnectorStatus(result, "unsupported", "Unsupported request");
   if (typeof route.recommendedNextStep !== "string" || !route.recommendedNextStep.toLowerCase().includes("support ticket")) {
     throw new Error(`unsupported route did not recommend a support ticket: ${JSON.stringify(route)}`);
+  }
+  if (result.connectorRuntime !== undefined) {
+    throw new Error(`unsupported route should not execute runtime: ${JSON.stringify(result.connectorRuntime)}`);
   }
   logOk("unsupported request returns ticket recommendation");
 

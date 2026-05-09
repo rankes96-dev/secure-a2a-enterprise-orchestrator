@@ -113,6 +113,11 @@ export type TrustedOnboardedAgent = {
   issuer: string;
   clientId: string;
   audience: string;
+  runtimeEndpoint?: string;
+  connectorProfileUrl?: string;
+  connectorId?: string;
+  resourceSystem?: string;
+  connectorDisplayName?: string;
   requestedScopes: string[];
   requestedApplicationGrants: string[];
   agentDeclaredSkills: string[];
@@ -853,6 +858,11 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     issuer: trustResponse.issuer,
     clientId: trustResponse.clientId,
     audience: trustResponse.audience,
+    runtimeEndpoint: discovery.runtimeEndpoint,
+    connectorProfileUrl: discovery.connectorProfileUrl,
+    connectorId: trustResponse.connectorId ?? discovery.connectorId,
+    resourceSystem: trustResponse.resourceSystem ?? discovery.resourceSystem,
+    connectorDisplayName: connectorProfile?.displayName ?? discovery.connectorDisplayName,
     requestedScopes: [...trustResponse.requestedScopes],
     requestedApplicationGrants: [...trustResponse.requestedApplicationGrants],
     agentDeclaredSkills: [...trustResponse.agentDeclaredSkills],

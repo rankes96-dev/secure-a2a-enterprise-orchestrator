@@ -616,6 +616,7 @@ function safeRawExecutionData(response: ResolveResponse) {
     userIdentity: response.userIdentity,
     requestInterpretation: response.requestInterpretation,
     connectorRouting: response.connectorRouting,
+    connectorRuntime: response.connectorRuntime,
     selectedAgents: response.selectedAgents,
     securityDecisions: response.securityDecisions ?? (response.securityDecision ? [response.securityDecision] : []),
     executionTrace: response.executionTrace,
@@ -634,6 +635,7 @@ function safeRawExecutionData(response: ResolveResponse) {
       agentId: agentResponse.agentId,
       status: agentResponse.status,
       summary: agentResponse.summary,
+      evidence: agentResponse.evidence,
       trace: agentResponse.trace
     })) ?? []
   };
@@ -1824,6 +1826,70 @@ function App() {
             ) : null}
           </section>
         ) : null}
+        {latestResponse.connectorRuntime ? (
+          <section className="connector-runtime-section">
+            <div className="section-heading-row compact-heading">
+              <div>
+                <span>Connector Runtime Result</span>
+                <h3>{latestResponse.connectorRuntime.executed ? "Runtime executed with scoped A2A JWT" : "Connector approved, runtime failed safely"}</h3>
+              </div>
+              <strong className={`summary-chip status-${latestResponse.connectorRuntime.executed ? "success" : "warning"}`}>
+                {latestResponse.connectorRuntime.executed ? "EXECUTED" : statusDisplayLabel(latestResponse.connectorRuntime.runtimeMode)}
+              </strong>
+            </div>
+            <div className="connector-runtime-grid">
+              <div>
+                <span>Runtime status</span>
+                <strong>{latestResponse.connectorRuntime.executed ? "executed" : "not executed"}</strong>
+              </div>
+              <div>
+                <span>External agent</span>
+                <strong>{latestResponse.connectorRuntime.agentResponse?.agentId ?? "not available"}</strong>
+              </div>
+              <div>
+                <span>Connector</span>
+                <strong>{latestResponse.connectorRuntime.connectorId ?? latestResponse.connectorRouting?.connectorId ?? "not selected"}</strong>
+              </div>
+              <div>
+                <span>Resource system</span>
+                <strong>{latestResponse.connectorRuntime.resourceSystem ?? latestResponse.connectorRouting?.resourceSystem ?? latestResponse.connectorRouting?.targetSystem ?? "unknown"}</strong>
+              </div>
+              <div>
+                <span>Skill / Action</span>
+                <strong>{latestResponse.connectorRouting?.skillLabel ?? latestResponse.connectorRouting?.skillId ?? "not mapped"}</strong>
+              </div>
+              <div>
+                <span>Token</span>
+                <strong>{latestResponse.connectorRuntime.tokenMetadata?.tokenIssued ? "scoped A2A JWT issued" : "not issued"}</strong>
+                <small>raw token hidden</small>
+              </div>
+              <div>
+                <span>Actor</span>
+                <strong>{latestResponse.connectorRuntime.tokenMetadata?.actor ? "attached" : "not attached"}</strong>
+                {latestResponse.connectorRuntime.tokenMetadata?.actor ? <small>{latestResponse.connectorRuntime.tokenMetadata.actor}</small> : null}
+              </div>
+            </div>
+            {latestResponse.connectorRuntime.agentResponse ? (
+              <div className="connector-runtime-diagnosis">
+                <p><strong>{latestResponse.connectorRuntime.agentResponse.summary}</strong></p>
+                {latestResponse.connectorRuntime.agentResponse.probableCause ? <p>{latestResponse.connectorRuntime.agentResponse.probableCause}</p> : null}
+                {latestResponse.connectorRuntime.agentResponse.recommendedActions?.length ? (
+                  <ol>
+                    {latestResponse.connectorRuntime.agentResponse.recommendedActions.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
+                  </ol>
+                ) : null}
+                {latestResponse.connectorRuntime.agentResponse.evidence?.length ? (
+                  <details>
+                    <summary>Runtime evidence</summary>
+                    <JsonBlock value={latestResponse.connectorRuntime.agentResponse.evidence} />
+                  </details>
+                ) : null}
+              </div>
+            ) : latestResponse.connectorRuntime.error ? (
+              <p className="muted-note">{latestResponse.connectorRuntime.error}</p>
+            ) : null}
+          </section>
+        ) : null}
         <div className="response-security-strip" aria-label="Security outcome">
           {outcomeBadges.map((badge) => (
             <span className={badge.className} key={badge.label}>{badge.label}</span>
@@ -1860,10 +1926,16 @@ function App() {
                 </div>
                 <div>
                   <dt>Runtime mode</dt>
-                  <dd>metadata-only</dd>
+                  <dd>{latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "metadata-only"}</dd>
                 </div>
               </dl>
-              <p className="muted-note">No external runtime call was executed yet.</p>
+              <p className="muted-note">
+                {latestResponse.connectorRuntime?.executed
+                  ? "Runtime executed with scoped A2A JWT. Raw token hidden."
+                  : latestResponse.connectorRuntime
+                    ? "Connector was approved, but runtime failed safely. No legacy mock diagnosis was used."
+                  : "Runtime mode: metadata-only. No external runtime call was executed yet."}
+              </p>
             </div>
           ) : null}
           {supportingAgents.length ? (
@@ -2667,7 +2739,7 @@ function App() {
                   <strong>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</strong>
                   <span>{latestResponse.connectorRouting.targetSystem ?? "unknown"} / {latestResponse.connectorRouting.connectorId ?? "no connector"}</span>
                   <p>{latestResponse.connectorRouting.skillLabel ?? latestResponse.connectorRouting.skillId ?? "No skill/action mapped"}</p>
-                  <small>Runtime mode: metadata-only</small>
+                  <small>Runtime mode: {latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "metadata-only"}</small>
                 </div>
               ) : null}
               {latestResponse?.selectedAgents.length ? (

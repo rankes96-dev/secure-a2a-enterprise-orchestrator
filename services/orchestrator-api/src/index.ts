@@ -43,6 +43,7 @@ import { buildManualWorkflowAnswer } from "./requestInterpreter";
 import { detectSensitiveAction } from "./sensitiveActionGuard";
 import { discoverAgentOnboarding, listSupportedConnectorGuardrails, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
 import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting";
+import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -427,7 +428,7 @@ function connectorRoutingFinalAnswer(decision: ConnectorRoutingDecision): string
   const skill = decision.skillLabel ?? decision.skillId ?? "requested skill/action";
 
   if (decision.status === "connector_skill_approved") {
-    return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is approved by the onboarded connector profile. Runtime execution remains metadata-only in this demo phase; the Gateway can use the connector-backed diagnosis path and will not fall back to the legacy internal Jira mock agent.`;
+    return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is approved by the onboarded connector profile. Runtime execution is available only for allowlisted external connector runtimes.`;
   }
 
   if (decision.status === "connector_skill_blocked") {
@@ -443,6 +444,21 @@ function connectorRoutingFinalAnswer(decision: ConnectorRoutingDecision): string
   }
 
   return `${connectorRoutingStatusLabel(decision.status)}: ${decision.reason} ${decision.recommendedNextStep}`;
+}
+
+function connectorRuntimeFinalAnswer(decision: ConnectorRoutingDecision, runtime: ConnectorRuntimeResult): string {
+  if (runtime.executed && runtime.agentResponse) {
+    const actions = runtime.agentResponse.recommendedActions?.length
+      ? ` Recommended actions: ${runtime.agentResponse.recommendedActions.join("; ")}.`
+      : "";
+    return `${runtime.agentResponse.summary}${runtime.agentResponse.probableCause ? ` Probable cause: ${sentence(runtime.agentResponse.probableCause)}` : ""}${actions}`;
+  }
+
+  if (runtime.runtimeMode === "external_runtime_failed") {
+    return `Connector runtime execution failed safely for ${decision.skillLabel ?? decision.skillId ?? "the approved skill"}. ${runtime.error ?? "External connector runtime failed."}`;
+  }
+
+  return connectorRoutingFinalAnswer(decision);
 }
 
 function connectorRoutingDiagnosis(decision: ConnectorRoutingDecision): ResolveResponse["diagnosis"] {
@@ -478,6 +494,24 @@ function connectorRoutingDiagnosis(decision: ConnectorRoutingDecision): ResolveR
     probableCause: "More connector routing detail is needed",
     recommendedFix: decision.recommendedNextStep
   };
+}
+
+function connectorRuntimeDiagnosis(decision: ConnectorRoutingDecision, runtime: ConnectorRuntimeResult): ResolveResponse["diagnosis"] {
+  if (runtime.executed && runtime.agentResponse) {
+    return {
+      probableCause: runtime.agentResponse.probableCause ?? runtime.agentResponse.summary,
+      recommendedFix: runtime.agentResponse.recommendedActions?.join("; ") ?? "Review the external connector runtime response."
+    };
+  }
+
+  if (runtime.runtimeMode === "external_runtime_failed") {
+    return {
+      probableCause: "Approved connector runtime execution failed",
+      recommendedFix: "Retry after confirming the local external agent, Mock IdP, and scoped A2A JWT configuration are running."
+    };
+  }
+
+  return connectorRoutingDiagnosis(decision);
 }
 
 function connectorRoutingResolutionStatus(decision: ConnectorRoutingDecision): ResolveResponse["resolutionStatus"] {
@@ -1162,7 +1196,16 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
 
   if (connectorRouting.status !== "needs_more_info") {
     const connectorStatus = connectorRoutingStatusLabel(connectorRouting.status);
-    const diagnosis = connectorRoutingDiagnosis(connectorRouting);
+    const connectorRuntime = connectorRouting.status === "connector_skill_approved"
+      ? await executeApprovedConnectorSkill({
+          message: effectiveMessage,
+          conversationId,
+          connectorRoute: connectorRouting,
+          actor: verifiedUser
+        })
+      : undefined;
+    const runtimeAgentResponse = connectorRuntime?.agentResponse;
+    const diagnosis = connectorRuntime ? connectorRuntimeDiagnosis(connectorRouting, connectorRuntime) : connectorRoutingDiagnosis(connectorRouting);
     const connectorEvidence: AgentEvidence[] = [
       {
         agent: orchestratorAgentId,
@@ -1178,14 +1221,52 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         }
       }
     ];
+    const runtimeEvidence: AgentEvidence[] = runtimeAgentResponse?.evidence?.map((item) => ({
+      agent: runtimeAgentResponse.agentId as AgentName,
+      title: item.title,
+      data: item.data as Record<string, unknown>
+    })) ?? [];
     const skippedAgents = requestAgentCards.map((card) => ({
       agentId: card.agentId,
       reason: "Connector-first routing handled this request; legacy internal demo agents were not invoked."
     }));
+    const runtimeTrace = runtimeAgentResponse?.trace?.map((entry) => ({
+      ...trace(entry.action, entry.detail),
+      agent: entry.agent,
+      toAgent: connectorRouting.connectorId,
+      skillId: connectorRouting.skillId,
+      timestamp: entry.timestamp
+    })) ?? [];
+    const runtimeExecutionTrace = connectorRuntime
+      ? [
+          executionStep(
+            "orchestrator",
+            "request_connector_runtime_token",
+            connectorRuntime.tokenMetadata?.tokenIssued
+              ? `Scoped A2A JWT issued for audience=${connectorRuntime.tokenMetadata.audience} scope=${connectorRuntime.tokenMetadata.scope}; raw token hidden.`
+              : "Requested scoped A2A JWT for connector runtime; raw token hidden."
+          ),
+          executionStep(
+            "orchestrator",
+            "call_external_connector_runtime",
+            connectorRuntime.executed
+              ? `Called allowlisted external connector runtime for ${connectorRouting.skillId}.`
+              : `External connector runtime was not executed: ${connectorRuntime.error ?? "unknown failure"}.`
+          ),
+          executionStep(
+            "orchestrator",
+            connectorRuntime.executed ? "external_connector_runtime_response_received" : "external_connector_runtime_failed",
+            connectorRuntime.executed
+              ? `${runtimeAgentResponse?.agentId ?? "external connector"} returned ${runtimeAgentResponse?.status ?? "unknown"}.`
+              : "External connector runtime failed safely without falling back to a mock diagnosis."
+          )
+        ]
+      : [];
+    const a2aResponses = runtimeAgentResponse ? [runtimeAgentResponse] : [];
 
     return finalize({
       conversationId,
-      finalAnswer: connectorRoutingFinalAnswer(connectorRouting),
+      finalAnswer: connectorRuntime ? connectorRuntimeFinalAnswer(connectorRouting, connectorRuntime) : connectorRoutingFinalAnswer(connectorRouting),
       classification,
       selectedAgents: [],
       skippedAgents,
@@ -1193,7 +1274,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       routingConfidence: routingDecision.routingConfidence,
       routingReasoningSummary: connectorRouting.reason,
       resolutionStatus: connectorRoutingResolutionStatus(connectorRouting),
-      evidence: connectorEvidence,
+      evidence: [...connectorEvidence, ...runtimeEvidence],
       agentTrace: [
         trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
         {
@@ -1207,7 +1288,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           toAgent: connectorRouting.connectorId,
           skillId: connectorRouting.skillId,
           decision: connectorRouting.status === "connector_skill_approved" ? "Allowed" : connectorRouting.status === "connector_skill_blocked" ? "Blocked" : "NeedsMoreContext"
-        }
+        },
+        ...runtimeTrace
       ],
       executionTrace: [
         executionStep("user", "submit_issue", requestBody.message),
@@ -1222,9 +1304,10 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           : []),
         executionStep("orchestrator", "route_connector_intent", `${connectorRouting.targetSystem ?? "unknown"} / ${connectorRouting.connectorId ?? "no connector"} / ${connectorRouting.skillId ?? "no skill"}`),
         executionStep("orchestrator", "evaluate_onboarded_connector", `${connectorStatus}: ${connectorRouting.reason}`),
+        ...runtimeExecutionTrace,
         executionStep(
           "orchestrator",
-          connectorRouting.status === "connector_skill_approved" ? "return_connector_metadata_only_response" : "return_connector_guidance",
+          connectorRuntime?.executed ? "return_connector_runtime_response" : connectorRouting.status === "connector_skill_approved" ? "return_connector_runtime_failure" : "return_connector_guidance",
           connectorRouting.recommendedNextStep
         )
       ],
@@ -1233,8 +1316,9 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       followUpInterpretation: followUp,
       incidentContext: mergedIncidentContext,
       connectorRouting,
+      connectorRuntime,
       a2aTasks: [],
-      a2aResponses: [],
+      a2aResponses,
       diagnosis
     });
   }

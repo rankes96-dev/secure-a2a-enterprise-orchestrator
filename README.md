@@ -224,14 +224,22 @@ The only implemented connector in this demo is the Jira Cloud Reference Connecto
 
 The Run Task demo now treats external connector profiles as the primary product path. For Jira, ServiceNow, and GitHub-style requests, the orchestrator first detects the target system and requested skill/action with deterministic rules, then checks the trusted onboarded connector registry.
 
-Connector onboarding does not automatically enable full external runtime execution. The Gateway can still use trusted connector profile decisions to explain routing:
+The Gateway can use trusted connector profile decisions to explain routing:
 
-- approved connector skills return a connector-backed, metadata-only diagnosis path
+- approved connector skills can execute the allowlisted local external connector runtime
 - blocked connector skills explain missing application access grants, missing effective permissions, or denied permissions
 - supported systems that are not connected return `connector_not_onboarded`
 - unsupported systems or actions recommend opening a support ticket
 
 Legacy built-in/local mock agents remain available for internal demo support, but they are not the primary path for connector-shaped requests.
+
+## Connector Runtime Execution
+
+Onboarding approves or blocks skills before runtime. When an approved skill is selected, the Gateway issues a scoped A2A JWT for that skill, calls the allowlisted external connector runtime, and returns the external agent's diagnosis, evidence, and trace. The external agent validates the JWT audience and required application access grants before producing a safe response.
+
+Raw access tokens, Authorization headers, client assertions, private keys, and secrets are never returned to the UI. Blocked skills are never executed. Supported but not-onboarded connectors are never executed. Unsupported systems are never executed.
+
+Runtime execution currently supports only the local Jira Cloud Reference Connector at `http://localhost:4201/a2a/task`.
 
 ## Skills vs Actions
 

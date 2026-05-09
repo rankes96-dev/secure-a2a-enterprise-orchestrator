@@ -14,7 +14,7 @@ import { getConnectorProfile, listSupportedConnectors } from "./connectorProfile
 import { bearerToken, readJsonBody, sendJson } from "./http.js";
 import { createSignedTrustResponse, OnboardingError, type OnboardingRequest } from "./onboarding.js";
 import { publicJwks } from "./keys.js";
-import { safeDiagnosis, validateRuntimeToken } from "./runtime.js";
+import { runtimeSkillRequirement, safeDiagnosis, validateRuntimeToken } from "./runtime.js";
 
 function discoveryDocument() {
   const issuer = agentIssuer();
@@ -139,6 +139,13 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && request.url === "/a2a/task") {
+      const body = await readJsonBody<{ skillId?: unknown }>(request);
+      const skill = runtimeSkillRequirement(body.skillId);
+      if (!skill) {
+        sendJson(response, 400, { error: "unknown_skill" });
+        return;
+      }
+
       const token = bearerToken(request);
       if (!token) {
         sendJson(response, 401, { error: "missing_bearer_token" });
@@ -146,10 +153,14 @@ const server = createServer(async (request, response) => {
       }
 
       try {
-        const tokenContext = await validateRuntimeToken(token);
-        sendJson(response, 200, safeDiagnosis(tokenContext));
-      } catch {
-        sendJson(response, 401, { error: "invalid_a2a_token" });
+        const tokenContext = await validateRuntimeToken(token, skill.requiredApplicationGrants);
+        sendJson(response, 200, safeDiagnosis({ ...tokenContext, skill }));
+      } catch (error) {
+        sendJson(response, 401, {
+          error: error instanceof Error && error.message === "missing_required_application_grant"
+            ? "missing_required_application_grant"
+            : "invalid_a2a_token"
+        });
       }
       return;
     }

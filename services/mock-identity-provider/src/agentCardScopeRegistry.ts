@@ -9,6 +9,14 @@ export type DiscoveredA2AResourceRegistry = {
 
 const deniedScopes = new Set<string>(sensitiveScopesNeverIssuedByMockIdp);
 
+const localExternalConnectorResources = [
+  {
+    agentId: "external-jira-agent",
+    audience: "external-jira-agent",
+    scopes: ["read:jira-work", "read:jira-user", "write:jira-work", "manage:jira-project"]
+  }
+];
+
 function addScope(registry: DiscoveredA2AResourceRegistry, scope: string | undefined, agentId: string): void {
   const normalized = scope?.trim();
   if (!normalized || deniedScopes.has(normalized)) {
@@ -41,6 +49,13 @@ export async function buildDiscoveredA2AResourceRegistry(registrySource: AgentCa
       }
 
       addScope(registry, skill.requiredPermission, card.agentId);
+    }
+  }
+
+  for (const connector of localExternalConnectorResources) {
+    registry.audiences.add(connector.audience);
+    for (const scope of connector.scopes) {
+      addScope(registry, scope, connector.agentId);
     }
   }
 

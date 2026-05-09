@@ -385,6 +385,18 @@ async function verifyOnboarding(_jwksUri: string): Promise<void> {
 }
 
 async function verifyRuntimeIfTokenProvided(): Promise<void> {
+  const unknownSkill = await postJson<{ error?: string }>("/a2a/task", {
+    skillId: "jira.unknown.skill",
+    message: "Diagnose Jira access"
+  });
+  assertCondition(unknownSkill.response.status === 400 && unknownSkill.body.error === "unknown_skill", "runtime should reject unknown skill before execution");
+
+  const missingToken = await postJson<{ error?: string }>("/a2a/task", {
+    skillId: "jira.issue.diagnose_creation_failure",
+    message: "Diagnose Jira access"
+  });
+  assertCondition(missingToken.response.status === 401 && missingToken.body.error === "missing_bearer_token", "runtime should require bearer token for known skill");
+
   const token = process.env.RUNTIME_BEARER_TOKEN;
   if (!token) {
     console.log("skip - runtime JWT validation requires RUNTIME_BEARER_TOKEN");
@@ -392,6 +404,7 @@ async function verifyRuntimeIfTokenProvided(): Promise<void> {
   }
 
   const { response, body } = await postJson<{ status?: string }>("/a2a/task", {
+    skillId: "jira.issue.diagnose_creation_failure",
     message: "Diagnose Jira access"
   }, {
     authorization: `Bearer ${token}`

@@ -336,10 +336,37 @@ export interface ResolveResponse {
     status: string;
     targetSystem?: string;
     connectorId?: string;
+    resourceSystem?: string;
     skillId?: string;
     skillLabel?: string;
+    runtimeEndpoint?: string;
+    audience?: string;
+    requiredApplicationGrants?: string[];
+    requiredEffectivePermissions?: string[];
+    missingApplicationGrants?: string[];
+    missingEffectivePermissions?: string[];
+    deniedEffectivePermissions?: string[];
+    runtimeMode?: "external_runtime_available" | "metadata_only" | "not_available";
     reason: string;
     recommendedNextStep: string;
+  };
+  connectorRuntime?: {
+    executed: boolean;
+    runtimeMode: "external_runtime" | "external_runtime_failed" | "metadata_only";
+    connectorId?: string;
+    resourceSystem?: string;
+    skillId?: string;
+    runtimeEndpoint?: string;
+    tokenMetadata?: {
+      tokenIssued: boolean;
+      audience: string;
+      scope: string;
+      actor?: string;
+      actorRoles?: string[];
+      rawToken: "hidden";
+    };
+    agentResponse?: A2AAgentResponse;
+    error?: string;
   };
   followUpInterpretation?: FollowUpInterpretation;
   incidentContext?: {

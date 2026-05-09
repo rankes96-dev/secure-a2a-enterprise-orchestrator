@@ -1,7 +1,15 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { agentId, expectedAudience, mockIdpJwksUri, requestedScopes } from "./config.js";
+import { agentId, expectedAudience, mockIdpJwksUri } from "./config.js";
+import { getConnectorProfile } from "./connectorProfile.js";
 
 const jwksByUri = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+
+export type RuntimeSkillRequirement = {
+  id: string;
+  label: string;
+  requiredApplicationGrants: string[];
+  requiredEffectivePermissions: string[];
+};
 
 function jwks(): ReturnType<typeof createRemoteJWKSet> {
   const uri = mockIdpJwksUri();
@@ -24,7 +32,27 @@ function scopesFromClaim(value: unknown): string[] {
   return [];
 }
 
-export async function validateRuntimeToken(token: string): Promise<{
+export function runtimeSkillRequirement(skillId: unknown): RuntimeSkillRequirement | undefined {
+  if (typeof skillId !== "string" || !skillId.trim()) {
+    return undefined;
+  }
+
+  const profile = getConnectorProfile();
+  const catalog = profile.skillCatalog.length ? profile.skillCatalog : profile.actionCatalog;
+  const skill = catalog.find((item) => item.id === skillId);
+  if (!skill) {
+    return undefined;
+  }
+
+  return {
+    id: skill.id,
+    label: skill.label,
+    requiredApplicationGrants: [...skill.requiredApplicationGrants],
+    requiredEffectivePermissions: [...skill.requiredEffectivePermissions]
+  };
+}
+
+export async function validateRuntimeToken(token: string, requiredApplicationGrants: string[]): Promise<{
   actor?: string;
   actorRoles: string[];
   scopes: string[];
@@ -34,8 +62,9 @@ export async function validateRuntimeToken(token: string): Promise<{
   });
 
   const scopes = [...new Set([...scopesFromClaim(payload.scope), ...scopesFromClaim(payload.scopes)])];
-  if (!scopes.includes(requestedScopes[0])) {
-    throw new Error("missing_required_scope");
+  const missingGrant = requiredApplicationGrants.find((grant) => !scopes.includes(grant));
+  if (missingGrant) {
+    throw new Error("missing_required_application_grant");
   }
 
   return {
@@ -45,24 +74,72 @@ export async function validateRuntimeToken(token: string): Promise<{
   };
 }
 
-export function safeDiagnosis(params: { actor?: string; actorRoles: string[]; scopes: string[] }) {
+function diagnosisForSkill(skillId: string): {
+  summary: string;
+  probableCause: string;
+  recommendedActions: string[];
+} {
+  if (skillId === "jira.permission.inspect") {
+    return {
+      summary: "Jira permission inspection completed.",
+      probableCause: "The Jira connector validated a read-only permission inspection request with the required Jira user access grant.",
+      recommendedActions: [
+        "Review the FIN project role membership for the affected user or integration account.",
+        "Confirm the service account can read Jira project roles.",
+        "Keep write actions blocked unless the connected app and integration user both receive create access."
+      ]
+    };
+  }
+
+  if (skillId === "jira.issue.create") {
+    return {
+      summary: "Jira issue create runtime request received.",
+      probableCause: "The create action reached runtime with a valid scoped token. In the default demo this action should be blocked before runtime.",
+      recommendedActions: [
+        "Confirm this action was intentionally approved by both application access grants and effective permissions.",
+        "Validate the FIN project Create Issues permission before enabling production execution.",
+        "Keep runtime execution audited and scoped to the requested skill."
+      ]
+    };
+  }
+
+  return {
+    summary: "Jira issue creation failure diagnosis completed.",
+    probableCause: "The failure is consistent with missing Jira project permission or insufficient create issue access for the integration/user context.",
+    recommendedActions: [
+      "Check the FIN project permission scheme.",
+      "Verify the integration user has Browse Projects and View Issues.",
+      "For actual issue creation, grant write:jira-work and Create Issues permission; otherwise keep create action blocked."
+    ]
+  };
+}
+
+export function safeDiagnosis(params: {
+  skill: RuntimeSkillRequirement;
+  actor?: string;
+  actorRoles: string[];
+  scopes: string[];
+}) {
+  const diagnosis = diagnosisForSkill(params.skill.id);
+
   return {
     agentId,
+    connectorId: getConnectorProfile().connectorId,
+    resourceSystem: getConnectorProfile().resourceSystem,
+    skillId: params.skill.id,
     status: "diagnosed",
-    summary: "Jira access diagnosis completed by external agent.",
-    probableCause: "The request reached the external Jira agent with a valid scoped A2A JWT.",
-    recommendedActions: [
-      "Confirm the user has the required Jira project role or permission scheme.",
-      "Check Jira project permissions and OAuth connected app policy.",
-      "If access was recently changed, ask the user to reauthenticate."
-    ],
+    summary: diagnosis.summary,
+    probableCause: diagnosis.probableCause,
+    recommendedActions: diagnosis.recommendedActions,
     evidence: [
       {
-        title: "A2A JWT validation",
+        title: "Connector runtime validation",
         data: {
+          skillId: params.skill.id,
           audience: expectedAudience(),
-          requiredScope: requestedScopes[0],
-          scopeValidated: params.scopes.includes(requestedScopes[0]),
+          requiredApplicationGrants: params.skill.requiredApplicationGrants,
+          requiredEffectivePermissions: params.skill.requiredEffectivePermissions,
+          tokenScopeValidated: params.skill.requiredApplicationGrants.every((grant) => params.scopes.includes(grant)),
           actorAttached: Boolean(params.actor),
           actor: params.actor,
           actorRoles: params.actorRoles,
@@ -73,8 +150,8 @@ export function safeDiagnosis(params: { actor?: string; actorRoles: string[]; sc
     trace: [
       {
         agent: agentId,
-        action: "external_agent_runtime_validated",
-        detail: "Validated scoped A2A JWT before returning safe Jira access diagnosis.",
+        action: "external_connector_runtime_validated",
+        detail: "Validated scoped A2A JWT and executed approved connector skill.",
         timestamp: new Date().toISOString()
       }
     ]
