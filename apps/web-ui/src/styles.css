@@ -1449,6 +1449,41 @@ h2 {
   font-size: 13px;
 }
 
+.planned-template-card {
+  border-style: dashed;
+  border-color: #d4c59b;
+  background: #fffdf4;
+}
+
+.compact-connect-panel,
+.collapsed-success {
+  border-left-width: 4px;
+  padding: 14px;
+  box-shadow: none;
+}
+
+.installed-filter-banner,
+.installed-filter-empty {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #cbdbea;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f6fbff;
+}
+
+.installed-filter-banner span {
+  color: #172026;
+  font-weight: 900;
+}
+
+.installed-filter-empty p {
+  margin: 0;
+}
+
 .connector-preset-card {
   display: grid;
   gap: 5px;

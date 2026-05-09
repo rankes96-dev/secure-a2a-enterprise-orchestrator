@@ -1286,6 +1286,7 @@ function App() {
   const [connectionWizardCollapsedAfterSuccess, setConnectionWizardCollapsedAfterSuccess] = useState(false);
   const [customConnectorContractOpen, setCustomConnectorContractOpen] = useState(false);
   const [expandedInstalledAgentIds, setExpandedInstalledAgentIds] = useState<string[]>([]);
+  const [selectedInstalledConnectorTemplateId, setSelectedInstalledConnectorTemplateId] = useState<string | undefined>();
   const [isZeroTrustDiscovering, setIsZeroTrustDiscovering] = useState(false);
   const [isZeroTrustOnboarding, setIsZeroTrustOnboarding] = useState(false);
   const [identitySession, setIdentitySession] = useState<IdentitySessionResponse | null>(null);
@@ -2483,6 +2484,13 @@ function App() {
       ?? zeroTrustDiscovery?.discovery.connectorDisplayName
       ?? zeroTrustResult?.trustedAgent.connectorId
       ?? "External connector";
+    const shouldShowCompactConnectPrompt =
+      connectionWizardStep === "overview" &&
+      !zeroTrustDiscovery &&
+      !zeroTrustResult &&
+      !zeroTrustError &&
+      !isZeroTrustDiscovering &&
+      !isZeroTrustOnboarding;
     const failureTitle = zeroTrustError.toLowerCase().includes("oauth")
       ? "OAuth application binding failed"
       : zeroTrustError.toLowerCase().includes("permission")
@@ -2925,6 +2933,21 @@ function App() {
       );
     }
 
+    if (shouldShowCompactConnectPrompt) {
+      return (
+        <section className="zero-trust-onboarding-panel compact-connect-panel scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
+          <div className="panel-header">
+            <div>
+              <p className="active-panel-eyebrow">Connect Agent</p>
+              <h2>Connect External Agent</h2>
+              <p className="muted-note">Choose a connector template above to connect an external agent.</p>
+            </div>
+            <button type="button" className="secondary-button" onClick={() => setConnectionWizardStep("connection-input")}>Start manual connection</button>
+          </div>
+        </section>
+      );
+    }
+
     return (
       <section className="zero-trust-onboarding-panel scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
         <div className="panel-header">
@@ -3126,6 +3149,13 @@ function App() {
       ).length;
     }
 
+    function templateForAgent(agent: (typeof zeroTrustAgents)[number]): SupportedConnectorGuardrail | undefined {
+      return connectorTemplates.find((template) =>
+        template.connectorId === agent.connectorId ||
+          template.resourceSystem === agent.resourceSystem
+      );
+    }
+
     function lifecycleForInstalledAgent(agent: (typeof zeroTrustAgents)[number]) {
       const approved = (agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0;
       return agent.lifecycle ?? (
@@ -3170,8 +3200,12 @@ function App() {
         setZeroTrustExpectedResourceSystem(preset.expectedResourceSystem);
         setZeroTrustExpectedConnectorId(preset.expectedConnectorId);
       }
+      setZeroTrustDiscovery(null);
+      setZeroTrustResult(null);
+      setZeroTrustError("");
+      setZeroTrustCopyMessage("");
       setConnectionWizardCollapsedAfterSuccess(false);
-      setConnectionWizardStep(zeroTrustDiscovery ? "verify" : "connection-input");
+      setConnectionWizardStep("connection-input");
       guideToTarget("zero-trust-onboarding");
     }
 
@@ -3209,13 +3243,13 @@ function App() {
           <div className="connector-preset-grid" aria-label="Connector Catalog">
             {connectorTemplates.map((template) => {
               const preset = localConnectorPresets.find((item) => item.expectedConnectorId === template.connectorId);
-              const installedCount = template.installedCount ?? installedCountForTemplate(template);
+              const installedCount = installedCountForTemplate(template);
               const sourceLabel = template.source === "custom_sdk" ? "SDK / Bring your own connector" : "Local reference template";
               const runtimeSupportLabel = template.runtimeSupport === "planned" ? "Planned" : template.runtimeSupport === "not_supported" ? "Not supported" : "Supported";
               const metadataUnavailable = !template.category || !template.publisher || !template.templateVersion || !template.authModel || !template.runtimeSupport || !template.riskLevel;
               const installedBadge = installedCount > 0 ? `Installed agents: ${installedCount}` : "Not installed";
               return (
-                <article className="connector-preset-card" key={template.connectorId}>
+                <article className={`connector-preset-card ${template.connectorId === "custom-sdk" ? "planned-template-card" : ""}`} key={template.connectorId}>
                   <div className="connector-card-heading">
                     <strong>{template.displayName}</strong>
                     <span className={`connector-template-badge ${installedCount > 0 ? "installed" : template.status === "planned" ? "planned" : "not-installed"}`}>
@@ -3223,7 +3257,7 @@ function App() {
                     </span>
                   </div>
                   <p className="muted-note">{template.description ?? "Supported connector template for external agent onboarding."}</p>
-                  <p className="connector-template-note">Template, not installed by default.</p>
+                  <p className="connector-template-note">Templates are supported contracts. External agents become installed only after signed onboarding.</p>
                   <span>Category: {template.category ?? "Metadata unavailable"}</span>
                   <small>Source: {sourceLabel}</small>
                   <small>Status: {template.status === "planned" ? "Planned / V2" : "Available"}</small>
@@ -3255,7 +3289,10 @@ function App() {
                         {installedCount > 0 ? "Connect another external agent" : "Connect external agent"}
                       </button>
                       {installedCount > 0 ? (
-                        <button type="button" className="secondary-button compact-button" onClick={() => guideToTarget("registered-agents")}>View installed agents</button>
+                        <button type="button" className="secondary-button compact-button" onClick={() => {
+                          setSelectedInstalledConnectorTemplateId(template.connectorId);
+                          guideToTarget("registered-agents");
+                        }}>View installed agents</button>
                       ) : null}
                     </div>
                   ) : null}
@@ -3287,17 +3324,20 @@ function App() {
       const blocked = (agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0;
       const lifecycle = lifecycleForInstalledAgent(agent);
       const detailsOpen = expandedInstalledAgentIds.includes(agent.agentId);
+      const template = templateForAgent(agent);
       return (
         <article className="registry-agent-card compact-agent-card" key={`installed-${agent.agentId}`}>
           <div className="registry-agent-card-header">
             <div className="agent-title-block">
               <strong>{agent.connectorDisplayName ?? agent.connectorId ?? agent.agentId}</strong>
+              <small>Agent ID: {agent.agentId}</small>
               <div className="registry-agent-badges">
                 <span className="source-badge">installed connector</span>
                 <strong className={`health-pill ${lifecycle.state === "runtime_ready" ? "healthy" : "warning"}`}>{lifecycle.label}</strong>
               </div>
             </div>
           </div>
+          <p className="muted-note">Installed agent from {template?.displayName ?? agent.connectorDisplayName ?? agent.connectorId ?? "connector template"}.</p>
           <p className="muted-note">{lifecycle.reason}</p>
           <div className="registry-agent-compact-metadata">
             <span><b>Agent ID</b> {agent.agentId}</span>
@@ -3340,7 +3380,16 @@ function App() {
     }
 
     function renderInstalledConnectors() {
-      const groups = [...new Map(zeroTrustAgents.map((agent) => [agent.resourceSystem ?? agent.connectorId ?? "unknown", agent])).keys()];
+      const selectedTemplate = selectedInstalledConnectorTemplateId
+        ? connectorTemplates.find((template) => template.connectorId === selectedInstalledConnectorTemplateId)
+        : undefined;
+      const matchingAgents = selectedTemplate
+        ? zeroTrustAgents.filter((agent) =>
+            agent.connectorId === selectedTemplate.connectorId ||
+              agent.resourceSystem === selectedTemplate.resourceSystem
+          )
+        : zeroTrustAgents;
+      const groups = [...new Map(matchingAgents.map((agent) => [agent.resourceSystem ?? agent.connectorId ?? "unknown", agent])).keys()];
       return (
         <section className="registry-section scroll-target" ref={registeredAgentsRef} tabIndex={-1}>
           <div className="section-heading-row">
@@ -3348,24 +3397,38 @@ function App() {
               <p className="active-panel-eyebrow">Trusted agents</p>
               <h2>Installed Connectors</h2>
               <p className="muted-note">Installed connectors are external agents that passed signed onboarding and have trusted runtime metadata.</p>
+              <p className="muted-note">Multiple external agents can be installed from the same connector template.</p>
             </div>
           </div>
-          {zeroTrustAgents.length ? (
+          {selectedTemplate ? (
+            <div className="installed-filter-banner">
+              <span>Showing installed agents for {selectedTemplate.displayName}</span>
+              <button type="button" className="secondary-button compact-button" onClick={() => setSelectedInstalledConnectorTemplateId(undefined)}>Clear filter</button>
+            </div>
+          ) : null}
+          {matchingAgents.length ? (
             <div className="registry-agent-list">
               {groups.map((group) => (
                 <details className="registry-agent-group" key={group} open>
                   <summary>
                     <div>
                       <strong>{group}</strong>
-                      <span>{zeroTrustAgents.filter((agent) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).length} installed connector agent(s)</span>
+                      <span>{matchingAgents.filter((agent) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).length} installed connector agent(s)</span>
                     </div>
                     <b aria-hidden="true">v</b>
                   </summary>
                   <div className="registry-agent-group-body">
-                    {zeroTrustAgents.filter((agent) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).map(renderInstalledConnectorCard)}
+                    {matchingAgents.filter((agent) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).map(renderInstalledConnectorCard)}
                   </div>
                 </details>
               ))}
+            </div>
+          ) : selectedTemplate ? (
+            <div className="installed-filter-empty">
+              <p className="muted-note">No installed agents from this template yet.</p>
+              {localConnectorPresets.find((item) => item.expectedConnectorId === selectedTemplate.connectorId) ? (
+                <button type="button" className="secondary-button compact-button" onClick={() => applyLocalConnectorPreset(localConnectorPresets.find((item) => item.expectedConnectorId === selectedTemplate.connectorId)!)}>Connect external agent</button>
+              ) : null}
             </div>
           ) : (
             <p className="muted-note">No connectors installed yet. Choose a connector template from the Connector Catalog to connect an external agent.</p>
@@ -3456,9 +3519,9 @@ function App() {
 
     function renderAgentRegistryNav() {
       const navItems: Array<{ label: string; target: GuidedFocusTarget }> = [
-        { label: `Connector Catalog (${registrySummary.connectorTemplates})`, target: "connector-catalog" },
+        { label: `Catalog (${registrySummary.connectorTemplates})`, target: "connector-catalog" },
+        { label: `Installed (${registrySummary.installedConnectors})`, target: "registered-agents" },
         { label: "Connect Agent", target: "zero-trust-onboarding" },
-        { label: `Installed Connectors (${registrySummary.installedConnectors})`, target: "registered-agents" },
         { label: "Legacy Agents", target: "legacy-agents" }
       ];
 
@@ -3502,6 +3565,7 @@ function App() {
           <summary>
             <div>
               <strong>Legacy Internal Demo Agents</strong>
+              <small className="connector-template-badge planned">Advanced / legacy demo only</small>
               <span>Legacy internal mock agents are retained only for old demo flows. They are not part of the external connector product path.</span>
             </div>
             <b aria-hidden="true">v</b>
