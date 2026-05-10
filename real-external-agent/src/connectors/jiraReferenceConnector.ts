@@ -1,26 +1,31 @@
-import type { ConnectorProfile } from "./types.js";
+import type { ConnectorProfile, ConnectorSkillRequirement } from "./types.js";
 
-const jiraSkills = [
+const jiraSkills: ConnectorSkillRequirement[] = [
   {
     id: "jira.issue.diagnose_creation_failure",
     label: "Diagnose Jira issue creation failures",
     description: "Inspect project and issue metadata to explain why Jira issue creation is failing.",
     requiredApplicationGrants: ["read:jira-work"],
-    requiredEffectivePermissions: ["browse_projects", "view_issues"]
+    requiredEffectivePermissions: ["browse_projects", "view_issues"],
+    executionType: "diagnostic_read_only",
+    diagnosesActionId: "jira.issue.create",
+    diagnosesActionLabel: "Create Jira issue"
   },
   {
     id: "jira.permission.inspect",
     label: "Inspect Jira permissions",
     description: "Review project roles and user visibility that affect Jira access.",
     requiredApplicationGrants: ["read:jira-user"],
-    requiredEffectivePermissions: ["read_project_roles"]
+    requiredEffectivePermissions: ["read_project_roles"],
+    executionType: "inspection_read_only"
   },
   {
     id: "jira.issue.create",
     label: "Create Jira issues",
     description: "Create new Jira issues through the external agent runtime.",
     requiredApplicationGrants: ["write:jira-work"],
-    requiredEffectivePermissions: ["create_issues"]
+    requiredEffectivePermissions: ["create_issues"],
+    executionType: "write_action"
   }
 ];
 

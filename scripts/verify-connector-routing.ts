@@ -226,10 +226,23 @@ async function main(): Promise<void> {
   if (runtimeValidationData.tokenScopeValidated !== true || runtimeValidationData.rawToken !== "hidden" || runtimeValidationData.actorAttached !== true) {
     throw new Error(`Jira diagnosis runtime evidence did not confirm token validation safely: ${JSON.stringify(runtimeValidationData)}`);
   }
-  if (typeof agentResponse.probableCause !== "string" || !agentResponse.probableCause.includes("issue creation access is not fully enabled")) {
-    throw new Error(`default Jira diagnosis did not explain blocked create access: ${JSON.stringify(agentResponse)}`);
+  if (
+    typeof agentResponse.probableCause !== "string" ||
+    !agentResponse.probableCause.includes("diagnostic skill executed successfully") ||
+    !agentResponse.probableCause.includes("Gateway did not attempt to create an issue")
+  ) {
+    throw new Error(`default Jira diagnosis did not separate diagnostic execution from target create access: ${JSON.stringify(agentResponse)}`);
   }
-  logOk("default Jira diagnosis executes runtime and explains create access is not fully enabled");
+  const runtimeSemantics = asRecord(agentResponse.runtimeSemantics);
+  if (
+    runtimeSemantics.executionType !== "diagnostic_read_only" ||
+    runtimeSemantics.targetActionId !== "jira.issue.create" ||
+    runtimeSemantics.writeActionAttempted !== false ||
+    runtimeSemantics.targetActionStatus !== "explicitly_denied"
+  ) {
+    throw new Error(`default Jira diagnosis runtime semantics mismatch: ${JSON.stringify(runtimeSemantics)}`);
+  }
+  logOk("default Jira diagnosis executes runtime and explains target create action status");
 
   await configureExternalAgent({
     applicationAccessGrants: allApplicationAccessGrants,
@@ -244,8 +257,12 @@ async function main(): Promise<void> {
     throw new Error(`all-access Jira diagnosis did not execute runtime: ${JSON.stringify(allAccessRuntime)}`);
   }
   const allAccessAgentResponse = asRecord(allAccessRuntime.agentResponse);
-  if (typeof allAccessAgentResponse.probableCause !== "string" || !allAccessAgentResponse.probableCause.includes("Connector-level access checks passed")) {
+  if (typeof allAccessAgentResponse.probableCause !== "string" || !/connector-level access checks passing/i.test(allAccessAgentResponse.probableCause)) {
     throw new Error(`all-access Jira diagnosis did not recognize connector-level access passed: ${JSON.stringify(allAccessAgentResponse)}`);
+  }
+  const allAccessSemantics = asRecord(allAccessAgentResponse.runtimeSemantics);
+  if (allAccessSemantics.targetActionStatus !== "ready") {
+    throw new Error(`all-access Jira diagnosis should mark target action ready: ${JSON.stringify(allAccessSemantics)}`);
   }
   const allAccessActions = Array.isArray(allAccessAgentResponse.recommendedActions) ? allAccessAgentResponse.recommendedActions.join(" ") : "";
   if (/Grant write:jira-work|Grant Create Issues permission/.test(allAccessActions)) {

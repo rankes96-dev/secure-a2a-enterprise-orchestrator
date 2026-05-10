@@ -30,7 +30,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "Jira issue creation fails with 403 when creating issues in FIN project",
         subtitle: "Approved Jira connector skill when the reference connector agent is installed",
         purpose: "Routes to the installed Jira connector agent and approved diagnosis skill.",
-        proves: "Approved connector runtime execution with scoped A2A JWT.",
+        proves: "Diagnostic skills can execute safely without enabling the target create action.",
         badge: "Approved connector"
       },
       {
@@ -38,7 +38,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "Create a Jira issue in FIN project for this outage",
         subtitle: "Blocked because the create action lacks grant/permission approval by default",
         purpose: "Shows why an installed connector agent can be trusted while a specific action is blocked.",
-        proves: "Gateway blocks unapproved skills even if the agent declares them.",
+        proves: "Target write actions remain blocked unless separately granted and permitted.",
         badge: "Blocked action"
       },
       {
@@ -46,7 +46,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "ServiceNow incident assignment keeps failing for network tickets",
         subtitle: "Runs when the ServiceNow reference connector agent is installed",
         purpose: "Routes to the ServiceNow connector profile and incident assignment diagnosis skill.",
-        proves: "Connector-generic runtime routing beyond Jira.",
+        proves: "Diagnostic runtime is connector-generic while system-specific reasoning stays inside the external connector.",
         badge: "ServiceNow"
       },
       {
@@ -54,7 +54,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "ServiceNow catalog request RITM keeps failing during approval",
         subtitle: "Catalog request diagnosis through the ServiceNow connector",
         purpose: "Shows another ServiceNow skill selected from the same connector profile.",
-        proves: "Multiple skills can come from the same connector profile.",
+        proves: "Diagnostic runtime is connector-generic while system-specific reasoning stays inside the external connector.",
         badge: "ServiceNow"
       },
       {
@@ -62,7 +62,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "GitHub repository sync is failing after API rate limit",
         subtitle: "Runs when the GitHub reference connector agent is installed",
         purpose: "Routes to the GitHub connector profile and rate-limit diagnosis skill.",
-        proves: "System-specific diagnosis lives inside external connector runtime, not Gateway.",
+        proves: "Diagnostic runtime is connector-generic while system-specific reasoning stays inside the external connector.",
         badge: "GitHub"
       },
       {
@@ -70,7 +70,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         message: "GitHub pull request checks cannot read the repository",
         subtitle: "Pull request access diagnosis through the GitHub connector",
         purpose: "Shows connector-specific runtime diagnosis without Gateway-specific GitHub logic.",
-        proves: "The same runtime contract supports another DevOps skill.",
+        proves: "Diagnostic runtime is connector-generic while system-specific reasoning stays inside the external connector.",
         badge: "GitHub"
       },
       {
@@ -407,7 +407,7 @@ function delegationLabel(response: ResolveResponse | null): string {
 
 function cockpitStatusClass(value: string): string {
   const normalized = value.toLowerCase();
-  if (normalized.includes("allowed") || normalized.includes("verified") || normalized.includes("issued") || normalized.includes("resolved") || normalized === "yes") {
+  if (normalized.includes("allowed") || normalized.includes("verified") || normalized.includes("issued") || normalized.includes("resolved") || normalized.includes("diagnosed") || normalized.includes("inspected") || normalized.includes("completed") || normalized === "yes") {
     return "success";
   }
   if (normalized.includes("blocked") || normalized.includes("required") || normalized.includes("not issued")) {

@@ -1,3 +1,5 @@
+import type { ConnectorRuntimeSemantics, ConnectorTargetActionStatus } from "../runtime.js";
+
 export type ServiceNowRuntimeDiagnosisInput = {
   skillId: string;
   message: string;
@@ -10,6 +12,7 @@ export type ServiceNowRuntimeDiagnosisInput = {
     deniedEffectivePermissions: string[];
     skillApprovedByConfig: boolean;
   };
+  runtimeSemantics: ConnectorRuntimeSemantics;
 };
 
 export type ServiceNowRuntimeDiagnosis = {
@@ -18,17 +21,54 @@ export type ServiceNowRuntimeDiagnosis = {
   recommendedActions: string[];
 };
 
+function statusExplanation(status?: ConnectorTargetActionStatus): string {
+  if (status === "ready") {
+    return "target action connector-level access checks passing; investigate record-level ACLs, workflow state, or resource-specific restrictions";
+  }
+  if (status === "missing_application_grants") {
+    return "missing application access grants for the target action";
+  }
+  if (status === "missing_effective_permissions") {
+    return "missing ServiceNow roles, ACLs, or table permissions for the target action";
+  }
+  if (status === "explicitly_denied") {
+    return "explicitly denied ServiceNow table permission or ACL access for the target action";
+  }
+  if (status === "not_enabled") {
+    return "the target action not being enabled for this connector configuration";
+  }
+  return "unknown target action readiness";
+}
+
+function diagnosticCause(systemAction: string, status?: ConnectorTargetActionStatus): string {
+  return `The diagnostic skill executed successfully. The Gateway did not attempt the ${systemAction}. The reported failure is consistent with ${statusExplanation(status)}.`;
+}
+
+function diagnosticActions(targetActionLabel: string, status?: ConnectorTargetActionStatus): string[] {
+  if (status === "ready") {
+    return [
+      "Check record-level ACLs, workflow validators, assignment rules, and current record state.",
+      "Confirm whether the failing request runs as the service account or as the end-user actor.",
+      "Re-run Gateway onboarding after changing external connector grants or permissions."
+    ];
+  }
+
+  return [
+    "Keep this configuration if the connector should diagnose without performing the target action.",
+    `Grant the required application access grants and effective permissions for ${targetActionLabel} if the target action should be enabled.`,
+    "Re-run Gateway onboarding after changing external connector grants or permissions."
+  ];
+}
+
 export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnosisInput): ServiceNowRuntimeDiagnosis {
   if (params.skillId === "servicenow.catalog.request.diagnose") {
     return {
       summary: "ServiceNow catalog request diagnosis completed.",
-      probableCause: "The failure is consistent with catalog request item visibility, approval workflow state, or sc_req_item table ACL restrictions.",
-      recommendedActions: [
-        "Verify the integration user can read the sc_req_item table.",
-        "Check the RITM approval state and catalog item availability.",
-        "Confirm the request is visible to the configured service account / integration user.",
-        "Inspect ServiceNow workflow history for the failed approval or request transition."
-      ]
+      probableCause: diagnosticCause("catalog request update or fulfillment action", params.runtimeSemantics.targetActionStatus),
+      recommendedActions: diagnosticActions(
+        params.runtimeSemantics.targetActionLabel ?? "Process catalog request",
+        params.runtimeSemantics.targetActionStatus
+      )
     };
   }
 
@@ -47,12 +87,10 @@ export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnos
 
   return {
     summary: "ServiceNow incident assignment diagnosis completed.",
-    probableCause: "The failure is consistent with missing ITIL role, assignment group visibility, or table ACL restrictions.",
-    recommendedActions: [
-      "Verify the integration user has the itil role.",
-      "Check incident table ACLs.",
-      "Confirm assignment group visibility.",
-      "Inspect ServiceNow audit/history for the failed assignment."
-    ]
+    probableCause: diagnosticCause("incident assignment or update action", params.runtimeSemantics.targetActionStatus),
+    recommendedActions: diagnosticActions(
+      params.runtimeSemantics.targetActionLabel ?? "Assign ServiceNow incident",
+      params.runtimeSemantics.targetActionStatus
+    )
   };
 }

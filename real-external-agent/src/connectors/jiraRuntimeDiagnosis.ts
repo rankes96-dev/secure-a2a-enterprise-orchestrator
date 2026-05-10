@@ -1,9 +1,10 @@
+import type { ConnectorRuntimeSemantics, ConnectorTargetActionStatus } from "../runtime.js";
+
 export type JiraConnectorAccessEvaluation = {
   missingApplicationGrants: string[];
   missingEffectivePermissions: string[];
   deniedEffectivePermissions: string[];
   skillApprovedByConfig: boolean;
-  createIssueAccessReady?: boolean;
 };
 
 export type JiraRuntimeDiagnosisInput = {
@@ -13,6 +14,7 @@ export type JiraRuntimeDiagnosisInput = {
   requiredApplicationGrants: string[];
   requiredEffectivePermissions: string[];
   connectorAccessEvaluation: JiraConnectorAccessEvaluation;
+  runtimeSemantics: ConnectorRuntimeSemantics;
 };
 
 export type JiraRuntimeDiagnosis = {
@@ -20,6 +22,44 @@ export type JiraRuntimeDiagnosis = {
   probableCause: string;
   recommendedActions: string[];
 };
+
+function targetStatusExplanation(status?: ConnectorTargetActionStatus): string {
+  if (status === "ready") {
+    return "target create action connector-level access checks passing; investigate object-level rules, workflow validators, or resource-specific restrictions";
+  }
+  if (status === "missing_application_grants") {
+    return "the target create action missing required application access grants such as write:jira-work";
+  }
+  if (status === "missing_effective_permissions") {
+    return "the target create action missing effective Jira permissions such as Create Issues";
+  }
+  if (status === "explicitly_denied") {
+    return "the target create action being explicitly denied for Create Issues";
+  }
+  if (status === "not_enabled") {
+    return "the target create action not being enabled for this connector configuration";
+  }
+  return "the target create action readiness being unknown";
+}
+
+function diagnosticActions(targetActionLabel: string, status?: ConnectorTargetActionStatus): string[] {
+  const actions = [
+    "Keep this configuration if the connector should diagnose without performing the target action.",
+    `Grant the required application access grants and effective permissions for ${targetActionLabel} if the target action should be enabled.`,
+    "Re-run Gateway onboarding after changing external connector grants or permissions."
+  ];
+
+  if (status === "ready") {
+    return [
+      "Check required fields, workflow validators, issue security, or project-specific rules.",
+      "Confirm whether the failing request runs as the service account or as the end-user actor.",
+      "Inspect Jira audit logs for the exact permission check that failed.",
+      "Re-run Gateway onboarding after changing external connector grants or permissions."
+    ];
+  }
+
+  return actions;
+}
 
 export function buildJiraRuntimeDiagnosis(params: JiraRuntimeDiagnosisInput): JiraRuntimeDiagnosis {
   if (params.skillId === "jira.permission.inspect") {
@@ -46,27 +86,12 @@ export function buildJiraRuntimeDiagnosis(params: JiraRuntimeDiagnosisInput): Ji
     };
   }
 
-  if (params.connectorAccessEvaluation.createIssueAccessReady) {
-    return {
-      summary: "Jira issue creation failure diagnosis completed.",
-      probableCause: "Connector-level access checks passed. The 403 is less likely to be caused by missing application access grants or service-account permissions.",
-      recommendedActions: [
-        "Verify the FIN project key and target issue type.",
-        "Check required fields, workflow validators, issue security, or project-specific rules.",
-        "Confirm whether the failing request runs as the service account or as the end-user actor.",
-        "If user-delegated execution is enabled, verify the actor has Create Issues permission in FIN.",
-        "Inspect Jira audit logs for the exact permission check that failed."
-      ]
-    };
-  }
-
   return {
     summary: "Jira issue creation failure diagnosis completed.",
-    probableCause: "The connector is approved for diagnosis, but issue creation access is not fully enabled.",
-    recommendedActions: [
-      "Grant write:jira-work to the connected app only if this connector should create issues.",
-      "Grant Create Issues permission to the service account / integration user only if creation should be enabled.",
-      "Keep create action blocked if the connector should diagnose only."
-    ]
+    probableCause: `The diagnostic skill executed successfully. The Gateway did not attempt to create an issue. The reported Jira 403 is consistent with ${targetStatusExplanation(params.runtimeSemantics.targetActionStatus)}.`,
+    recommendedActions: diagnosticActions(
+      params.runtimeSemantics.targetActionLabel ?? "Create Jira issue",
+      params.runtimeSemantics.targetActionStatus
+    )
   };
 }

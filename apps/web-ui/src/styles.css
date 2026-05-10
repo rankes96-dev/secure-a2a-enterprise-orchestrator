@@ -4704,6 +4704,15 @@ pre {
   background: var(--surface-soft);
 }
 
+.connector-runtime-semantic-note {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--info-border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--info-bg);
+}
+
 .connector-runtime-diagnosis ol {
   display: grid;
   gap: 7px;

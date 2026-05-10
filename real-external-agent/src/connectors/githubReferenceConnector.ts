@@ -1,28 +1,55 @@
-import type { ConnectorProfile } from "./types.js";
+import type { ConnectorProfile, ConnectorSkillRequirement } from "./types.js";
 
-const githubSkills = [
+const githubSkills: ConnectorSkillRequirement[] = [
   {
     id: "github.repository.rate_limit.diagnose",
     label: "Diagnose GitHub repository API rate limit",
     description: "Inspect repository metadata and installation context that affect GitHub API rate limits.",
     requiredApplicationGrants: ["repo.metadata.read"],
-    requiredEffectivePermissions: ["installation:repo_access", "org:rate_limit:read"]
+    requiredEffectivePermissions: ["installation:repo_access", "org:rate_limit:read"],
+    executionType: "diagnostic_read_only",
+    diagnosesActionId: "github.repository.sync",
+    diagnosesActionLabel: "Sync GitHub repository"
   },
   {
     id: "github.repository.permission.inspect",
     label: "Inspect GitHub repository permissions",
     description: "Review GitHub App installation and repository metadata permissions.",
     requiredApplicationGrants: ["repo.metadata.read"],
-    requiredEffectivePermissions: ["installation:repo_access", "repo:metadata:read"]
+    requiredEffectivePermissions: ["installation:repo_access", "repo:metadata:read"],
+    executionType: "inspection_read_only"
   },
   {
     id: "github.pull_request.access.diagnose",
     label: "Diagnose GitHub pull request access",
     description: "Inspect pull request read access and repository permission requirements.",
     requiredApplicationGrants: ["repo.pull_requests.read"],
-    requiredEffectivePermissions: ["repo:pull_requests:read"]
+    requiredEffectivePermissions: ["repo:pull_requests:read"],
+    executionType: "diagnostic_read_only",
+    diagnosesActionId: "github.pull_request.read_checks",
+    diagnosesActionLabel: "Read pull request checks"
+  },
+  {
+    id: "github.repository.sync",
+    label: "Sync GitHub repository",
+    description: "Read repository metadata and contents for repository synchronization workflows.",
+    requiredApplicationGrants: ["repo.metadata.read", "repo.contents.read"],
+    requiredEffectivePermissions: ["installation:repo_access", "repo:metadata:read", "repo:contents:read"],
+    executionType: "inspection_read_only"
+  },
+  {
+    id: "github.pull_request.read_checks",
+    label: "Read pull request checks",
+    description: "Read pull request checks and related repository metadata.",
+    requiredApplicationGrants: ["repo.pull_requests.read"],
+    requiredEffectivePermissions: ["installation:repo_access", "repo:pull_requests:read"],
+    executionType: "inspection_read_only"
   }
 ];
+
+const githubRuntimeSkills = githubSkills.filter((skill) =>
+  skill.id !== "github.repository.sync" && skill.id !== "github.pull_request.read_checks"
+);
 
 export const githubReferenceConnector: ConnectorProfile = {
   resourceSystem: "github",
@@ -89,7 +116,7 @@ export const githubReferenceConnector: ConnectorProfile = {
       description: "Installation can inspect organization or installation API rate-limit usage."
     }
   ],
-  skillCatalog: githubSkills,
+  skillCatalog: githubRuntimeSkills,
   actionCatalog: githubSkills,
   demoDefaults: {
     oauthApplication: {

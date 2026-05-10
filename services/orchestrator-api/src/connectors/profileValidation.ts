@@ -64,13 +64,23 @@ function actionCatalog(value: unknown) {
           input.riskLevel === "low" || input.riskLevel === "medium" || input.riskLevel === "high" || input.riskLevel === "sensitive"
             ? input.riskLevel
             : undefined;
+        const executionType: ConnectorActionRequirement["executionType"] =
+          input.executionType === "diagnostic_read_only" ||
+          input.executionType === "write_action" ||
+          input.executionType === "inspection_read_only" ||
+          input.executionType === "unsupported"
+            ? input.executionType
+            : undefined;
         return {
           id: cleanString(input.id),
           label: cleanString(input.label),
           description: cleanString(input.description),
           requiredApplicationGrants: stringArray(input.requiredApplicationGrants),
           requiredEffectivePermissions: stringArray(input.requiredEffectivePermissions),
-          riskLevel
+          riskLevel,
+          executionType,
+          diagnosesActionId: cleanString(input.diagnosesActionId) || undefined,
+          diagnosesActionLabel: cleanString(input.diagnosesActionLabel) || undefined
         };
       })
     : [];

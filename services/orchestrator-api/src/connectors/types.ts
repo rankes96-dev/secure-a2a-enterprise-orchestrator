@@ -11,6 +11,9 @@ export type ConnectorActionRequirement = {
   requiredApplicationGrants: string[];
   requiredEffectivePermissions: string[];
   riskLevel?: "low" | "medium" | "high" | "sensitive";
+  executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
+  diagnosesActionId?: string;
+  diagnosesActionLabel?: string;
 };
 
 export type ConnectorProfile = {

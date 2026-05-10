@@ -1,7 +1,77 @@
 import React from "react";
+import type { ResolveResponse } from "@a2a/shared";
 import type { ExtractedScreenContext, Scenario } from "../types";
 
 type ScreenContext = ExtractedScreenContext;
+
+function skillId(response: ResolveResponse): string {
+  return response.connectorRuntime?.agentResponse?.runtimeSemantics?.executedSkillId ?? response.connectorRouting?.skillId ?? response.connectorRuntime?.skillId ?? "";
+}
+
+function isDiagnosticRuntime(response: ResolveResponse): boolean {
+  const semantics = response.connectorRuntime?.agentResponse?.runtimeSemantics;
+  const id = skillId(response);
+  return semantics?.executionType === "diagnostic_read_only" || id.includes(".diagnose");
+}
+
+function isInspectionRuntime(response: ResolveResponse): boolean {
+  const semantics = response.connectorRuntime?.agentResponse?.runtimeSemantics;
+  const id = skillId(response);
+  return semantics?.executionType === "inspection_read_only" || id.includes(".inspect");
+}
+
+function gatewayOutcomeLabel(response: ResolveResponse | null): string {
+  if (!response) {
+    return "NO TASK RUN YET";
+  }
+
+  const agentStatus = response.connectorRuntime?.agentResponse?.status;
+  const semantics = response.connectorRuntime?.agentResponse?.runtimeSemantics;
+  const id = skillId(response);
+  if (agentStatus === "diagnosed" || semantics?.outcome === "diagnosed" || id.includes(".diagnose")) {
+    return "DIAGNOSED";
+  }
+  if (id.includes(".inspect")) {
+    return "INSPECTED";
+  }
+  if (response.connectorRouting?.status === "connector_skill_blocked") {
+    return "BLOCKED";
+  }
+  if (response.resolutionStatus === "unsupported" || semantics?.outcome === "unsupported") {
+    return "UNSUPPORTED";
+  }
+  if (agentStatus === "completed" || semantics?.outcome === "executed") {
+    return "COMPLETED";
+  }
+
+  return response.resolutionStatus.replace(/_/g, " ").toUpperCase();
+}
+
+function connectorDecisionTitle(response: ResolveResponse): string {
+  if (response.connectorRouting?.status === "connector_skill_blocked") {
+    return "Target action blocked";
+  }
+  if (response.connectorRouting?.status === "connector_skill_approved" && isDiagnosticRuntime(response)) {
+    return "Diagnostic skill approved";
+  }
+  if (response.connectorRouting?.status === "connector_skill_approved" && !isInspectionRuntime(response)) {
+    return "Write action approved";
+  }
+  return "Connector skill approved";
+}
+
+function connectorDecisionCopy(response: ResolveResponse): string {
+  if (response.connectorRouting?.status === "connector_skill_blocked") {
+    return "The connector is installed, but the requested target action is blocked by missing application grants, missing effective permissions, explicit denial, or policy.";
+  }
+  if (response.connectorRouting?.status === "connector_skill_approved" && isDiagnosticRuntime(response)) {
+    return "The read-only diagnostic skill is approved. The target action remains separate and may still be blocked, denied, or not enabled.";
+  }
+  if (response.connectorRouting?.status === "connector_skill_approved" && !isInspectionRuntime(response)) {
+    return "The requested write action is approved for runtime execution under scoped A2A JWT.";
+  }
+  return response.connectorRouting?.reason ?? "Connector route selected.";
+}
 
 export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   const {
@@ -102,6 +172,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     const actionItems = recommendedActionItems(latestResponse.diagnosis.recommendedFix);
     const showFullResponse = latestResponse.finalAnswer.trim() !== executiveSummary.trim();
     const supportingAgents = latestResponse.selectedAgents;
+    const outcomeLabel = gatewayOutcomeLabel(latestResponse);
     const outcomeBadges = [
       { label: "Identity verified", className: "status-success" },
       ...(latestResponse.connectorRouting
@@ -126,7 +197,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
             <p className="active-panel-eyebrow">Gateway response</p>
             <h2>{executiveSummary}</h2>
           </div>
-          <span className={`summary-result status-${cockpitStatusClass(lastResult)}`}>{statusDisplayLabel(lastResult)}</span>
+          <span className={`summary-result status-${cockpitStatusClass(outcomeLabel)}`}>{outcomeLabel}</span>
         </div>
         <section className="gateway-response-section root-cause-section">
           <span>Root cause</span>
@@ -143,7 +214,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
             <div className="section-heading-row compact-heading">
               <div>
                 <span>Connector Decision</span>
-                <h3>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</h3>
+                <h3>{connectorDecisionTitle(latestResponse)}</h3>
               </div>
               <strong className={`summary-chip status-${connectorRoutingStatusClass(latestResponse.connectorRouting.status)}`}>
                 {statusDisplayLabel(latestResponse.connectorRouting.status)}
@@ -168,7 +239,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                 <strong>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</strong>
               </div>
             </div>
-            <p>{latestResponse.connectorRouting.reason}</p>
+            <p>{connectorDecisionCopy(latestResponse)}</p>
             {latestResponse.connectorPolicy ? (
               <p><strong>Policy:</strong> {latestResponse.connectorPolicy.reason}</p>
             ) : latestResponse.connectorRouting.status === "connector_skill_approved" ? (
@@ -200,15 +271,17 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           const runtimeFailure = !latestResponse.connectorRuntime.executed
             ? connectorRuntimeFailureCopy(latestResponse.connectorRuntime.error, latestResponse.connectorRuntime.errorMessage)
             : undefined;
+          const semantics = latestResponse.connectorRuntime.agentResponse?.runtimeSemantics;
+          const diagnosticRuntime = isDiagnosticRuntime(latestResponse);
           return (
           <section className="connector-runtime-section">
             <div className="section-heading-row compact-heading">
               <div>
                 <span>Connector Runtime Result</span>
-                <h3>{latestResponse.connectorRuntime.executed ? "Runtime executed with scoped A2A JWT" : runtimeFailure?.title}</h3>
+                <h3>{diagnosticRuntime ? "Read-only diagnostic runtime executed" : latestResponse.connectorRuntime.executed ? "Runtime executed with scoped A2A JWT" : runtimeFailure?.title}</h3>
               </div>
               <strong className={`summary-chip status-${latestResponse.connectorRuntime.executed ? "success" : "warning"}`}>
-                {latestResponse.connectorRuntime.executed ? "EXECUTED" : statusDisplayLabel(latestResponse.connectorRuntime.runtimeMode)}
+                {latestResponse.connectorRuntime.executed ? gatewayOutcomeLabel(latestResponse) : statusDisplayLabel(latestResponse.connectorRuntime.runtimeMode)}
               </strong>
             </div>
             <div className="connector-runtime-grid">
@@ -245,6 +318,16 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
             </div>
             {latestResponse.connectorPolicy ? (
               <p><strong>Policy:</strong> {latestResponse.connectorPolicy.reason}</p>
+            ) : null}
+            {diagnosticRuntime ? (
+              <div className="connector-runtime-semantic-note">
+                <p>Read-only diagnostic runtime executed. No target write/action operation was attempted.</p>
+                {semantics?.targetActionStatus === "ready" ? (
+                  <p>Connector-level access checks for the target action passed. Investigate object-level rules, workflow validators, or resource-specific restrictions.</p>
+                ) : (
+                  <p>Target action is not currently enabled/ready in this connector configuration.</p>
+                )}
+              </div>
             ) : null}
             {latestResponse.connectorRuntime.agentResponse ? (
               <div className="connector-runtime-diagnosis">

@@ -1,28 +1,55 @@
-import type { ConnectorProfile } from "./types.js";
+import type { ConnectorProfile, ConnectorSkillRequirement } from "./types.js";
 
-const serviceNowSkills = [
+const serviceNowSkills: ConnectorSkillRequirement[] = [
   {
     id: "servicenow.incident.assignment.diagnose",
     label: "Diagnose ServiceNow incident assignment failure",
     description: "Inspect incident assignment metadata, roles, and ACLs that affect assignment routing.",
     requiredApplicationGrants: ["incident.read"],
-    requiredEffectivePermissions: ["role:itil", "table:incident:read"]
+    requiredEffectivePermissions: ["role:itil", "table:incident:read"],
+    executionType: "diagnostic_read_only",
+    diagnosesActionId: "servicenow.incident.assign",
+    diagnosesActionLabel: "Assign ServiceNow incident"
   },
   {
     id: "servicenow.catalog.request.diagnose",
     label: "Diagnose ServiceNow catalog request failure",
     description: "Review request item visibility and catalog read access for failed RITM workflows.",
     requiredApplicationGrants: ["catalog.read"],
-    requiredEffectivePermissions: ["table:sc_req_item:read"]
+    requiredEffectivePermissions: ["table:sc_req_item:read"],
+    executionType: "diagnostic_read_only",
+    diagnosesActionId: "servicenow.catalog.request.approve_or_fulfill",
+    diagnosesActionLabel: "Process catalog request"
   },
   {
     id: "servicenow.user.role.inspect",
     label: "Inspect ServiceNow user role access",
     description: "Inspect user role and ACL visibility that affect ServiceNow access.",
     requiredApplicationGrants: ["user.read"],
-    requiredEffectivePermissions: ["acl:user:read"]
+    requiredEffectivePermissions: ["acl:user:read"],
+    executionType: "inspection_read_only"
+  },
+  {
+    id: "servicenow.incident.assign",
+    label: "Assign ServiceNow incident",
+    description: "Assign or update ServiceNow incident records through the external agent runtime.",
+    requiredApplicationGrants: ["incident.write"],
+    requiredEffectivePermissions: ["role:itil", "table:incident:write"],
+    executionType: "write_action"
+  },
+  {
+    id: "servicenow.catalog.request.approve_or_fulfill",
+    label: "Process catalog request",
+    description: "Approve, fulfill, or transition ServiceNow catalog request records.",
+    requiredApplicationGrants: ["catalog.read"],
+    requiredEffectivePermissions: ["role:catalog_admin"],
+    executionType: "write_action"
   }
 ];
+
+const serviceNowRuntimeSkills = serviceNowSkills.filter((skill) =>
+  skill.executionType !== "write_action"
+);
 
 export const serviceNowReferenceConnector: ConnectorProfile = {
   resourceSystem: "servicenow",
@@ -84,7 +111,7 @@ export const serviceNowReferenceConnector: ConnectorProfile = {
       description: "Integration user can inspect user role and ACL metadata."
     }
   ],
-  skillCatalog: serviceNowSkills,
+  skillCatalog: serviceNowRuntimeSkills,
   actionCatalog: serviceNowSkills,
   demoDefaults: {
     oauthApplication: {

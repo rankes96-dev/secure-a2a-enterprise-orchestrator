@@ -303,6 +303,7 @@ export interface A2AAgentResponse {
     title: string;
     data: unknown;
   }>;
+  runtimeSemantics?: ConnectorRuntimeSemantics;
   trace?: Array<{
     agent: string;
     action: string;
@@ -310,6 +311,39 @@ export interface A2AAgentResponse {
     timestamp: string;
   }>;
 }
+
+export type ConnectorRuntimeExecutionType =
+  | "diagnostic_read_only"
+  | "write_action"
+  | "inspection_read_only"
+  | "unsupported";
+
+export type ConnectorRuntimeOutcome =
+  | "diagnosed"
+  | "executed"
+  | "blocked"
+  | "needs_more_info"
+  | "unsupported"
+  | "error";
+
+export type ConnectorTargetActionStatus =
+  | "ready"
+  | "not_enabled"
+  | "missing_application_grants"
+  | "missing_effective_permissions"
+  | "explicitly_denied"
+  | "unknown";
+
+export type ConnectorRuntimeSemantics = {
+  executionType: ConnectorRuntimeExecutionType;
+  outcome: ConnectorRuntimeOutcome;
+  executedSkillId: string;
+  targetActionId?: string;
+  targetActionLabel?: string;
+  targetActionStatus?: ConnectorTargetActionStatus;
+  writeActionAttempted: boolean;
+  diagnosticOnly: boolean;
+};
 
 export interface ResolveRequest {
   message: string;

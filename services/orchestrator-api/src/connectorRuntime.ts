@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { A2AAgentResponse } from "@a2a/shared";
+import type { A2AAgentResponse, ConnectorRuntimeExecutionType, ConnectorRuntimeOutcome, ConnectorRuntimeSemantics, ConnectorTargetActionStatus } from "@a2a/shared";
 import { getA2AAccessToken, type A2AIssuedTokenMetadata } from "./security/tokenClient";
 import type { VerifiedUserIdentity } from "./security/userIdentity";
 import type { ConnectorRoutingDecision } from "./connectorRouting";
@@ -61,6 +61,53 @@ function sanitizeConnectorRuntimeValue(value: unknown): unknown {
   return value;
 }
 
+function runtimeExecutionType(value: unknown): ConnectorRuntimeExecutionType | undefined {
+  return value === "diagnostic_read_only" || value === "write_action" || value === "inspection_read_only" || value === "unsupported"
+    ? value
+    : undefined;
+}
+
+function runtimeOutcome(value: unknown): ConnectorRuntimeOutcome | undefined {
+  return value === "diagnosed" || value === "executed" || value === "blocked" || value === "needs_more_info" || value === "unsupported" || value === "error"
+    ? value
+    : undefined;
+}
+
+function targetActionStatus(value: unknown): ConnectorTargetActionStatus | undefined {
+  return value === "ready" ||
+    value === "not_enabled" ||
+    value === "missing_application_grants" ||
+    value === "missing_effective_permissions" ||
+    value === "explicitly_denied" ||
+    value === "unknown"
+    ? value
+    : undefined;
+}
+
+function normalizeRuntimeSemantics(value: unknown): ConnectorRuntimeSemantics | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const executionType = runtimeExecutionType(record.executionType);
+  const outcome = runtimeOutcome(record.outcome);
+  if (!executionType || !outcome || typeof record.executedSkillId !== "string") {
+    return undefined;
+  }
+
+  return {
+    executionType,
+    outcome,
+    executedSkillId: record.executedSkillId,
+    targetActionId: typeof record.targetActionId === "string" ? record.targetActionId : undefined,
+    targetActionLabel: typeof record.targetActionLabel === "string" ? record.targetActionLabel : undefined,
+    targetActionStatus: targetActionStatus(record.targetActionStatus),
+    writeActionAttempted: record.writeActionAttempted === true,
+    diagnosticOnly: record.diagnosticOnly === true
+  };
+}
+
 async function readJsonWithLimit(response: Response): Promise<unknown> {
   const text = await response.text();
   if (text.length > maxConnectorRuntimeJsonBytes) {
@@ -81,6 +128,7 @@ function normalizeRuntimeResponse(value: unknown): A2AAgentResponse {
       probableCause: typeof record.probableCause === "string" ? record.probableCause : undefined,
       recommendedActions: Array.isArray(record.recommendedActions) ? record.recommendedActions.filter((item): item is string => typeof item === "string") : undefined,
       clarifyingQuestions: Array.isArray(record.clarifyingQuestions) ? record.clarifyingQuestions.filter((item): item is string => typeof item === "string") : undefined,
+      runtimeSemantics: normalizeRuntimeSemantics(record.runtimeSemantics),
       evidence: Array.isArray(record.evidence)
         ? record.evidence
             .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && !Array.isArray(item))

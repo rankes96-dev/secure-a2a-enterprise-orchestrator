@@ -22,6 +22,7 @@
     "verify:ui-copy": "tsx scripts/verify-ui-copy.ts",
     "verify:ui-components": "tsx scripts/verify-ui-components.ts",
     "verify:ui-style": "tsx scripts/verify-ui-style.ts",
+    "verify:diagnostic-runtime-semantics": "tsx scripts/verify-diagnostic-runtime-semantics.ts",
     "verify:runtime-safety": "tsx scripts/verify-runtime-safety.ts",
     "verify:decision-engine": "tsx scripts/verify-decision-engine.ts",
     "verify:policy-model": "tsx scripts/verify-policy-model.ts",
