@@ -70,7 +70,8 @@ export function connectorProfileSummary(connectorProfile: ConnectorProfile | und
         resourceSystem: connectorProfile.resourceSystem,
         displayName: connectorProfile.displayName,
         version: connectorProfile.version,
-        profileSource: connectorProfile.profileSource
+        profileSource: connectorProfile.profileSource,
+        planning: connectorProfile.planning
       }
     : undefined;
 }
@@ -128,6 +129,8 @@ export function buildTrustedAgent(params: {
     agentDeclaredCapabilities: [...trustResponse.agentDeclaredCapabilities],
     applicationAccessGrants: [...applicationAccessGrants],
     grantedScopes: [...grantedScopes],
+    effectivePermissions: [...resourceRegistration.effectivePermissions],
+    deniedPermissions: [...resourceRegistration.deniedPermissions],
     approvedActions: [...derivedCapabilities.approvedActions],
     blockedActions: [...derivedCapabilities.blockedActions],
     approvedCapabilities: [...derivedCapabilities.approvedCapabilities],

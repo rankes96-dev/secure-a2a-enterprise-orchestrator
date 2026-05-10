@@ -22,6 +22,11 @@ export type ConnectorProfile = {
   displayName: string;
   version: string;
   profileSource: "external_agent" | "built_in_reference" | "custom_connector";
+  planning?: {
+    supported: boolean;
+    description: string;
+    supportedIntentClasses: string[];
+  };
   applicationAccessGrantCatalog: ConnectorCatalogItem[];
   effectivePermissionCatalog: ConnectorCatalogItem[];
   skillCatalog: ConnectorActionRequirement[];

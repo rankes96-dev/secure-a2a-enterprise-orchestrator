@@ -15,7 +15,7 @@ import { bearerToken, readJsonBody, sendJson } from "./http.js";
 import { createSignedTrustResponse, OnboardingError, type OnboardingRequest } from "./onboarding.js";
 import { publicJwks } from "./keys.js";
 import { runtimeSkillRequirement, safeDiagnosis, validateRuntimeToken, validateRuntimeTrustedConfig, type ConnectorRuntimeTask } from "./runtime.js";
-import { buildJiraActionPlan, isJiraAccessPlanningRequest } from "./connectors/jiraActionPlan.js";
+import { buildConnectorActionPlan } from "./connectors/actionPlanning.js";
 
 function discoveryDocument() {
   const issuer = agentIssuer();
@@ -151,12 +151,17 @@ const server = createServer(async (request, response) => {
       const planOnly = body.mode === "plan_only" || body.runtimeMode === "connector_plan_only";
       if (planOnly) {
         const profile = getConnectorProfile(publicAdminConfig().selectedConnectorId);
-        if (profile.connectorId === "jira-reference" && isJiraAccessPlanningRequest(message)) {
+        const actionPlan = buildConnectorActionPlan({
+          connectorId: profile.connectorId,
+          resourceSystem: profile.resourceSystem,
+          message
+        });
+        if (actionPlan) {
           sendJson(response, 200, {
             agentId,
             status: "diagnosed",
             summary: "Connector returned a safe action plan.",
-            actionPlan: buildJiraActionPlan(message),
+            actionPlan,
             trace: [
               {
                 agent: agentId,

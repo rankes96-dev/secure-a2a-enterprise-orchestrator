@@ -108,6 +108,20 @@ function normalizeConnectorActionPlan(value: unknown): ConnectorActionPlan | und
   };
 }
 
+function validatePlanIdentity(plan: ConnectorActionPlan, onboardedAgent: TrustedOnboardedAgent): void {
+  const expectedConnectorId = onboardedAgent.connectorId ?? onboardedAgent.connectorProfile?.connectorId;
+  const expectedResourceSystem = onboardedAgent.resourceSystem ?? onboardedAgent.connectorProfile?.resourceSystem;
+  if (expectedConnectorId && plan.connectorId !== expectedConnectorId) {
+    throw new Error("connector action plan connectorId did not match trusted onboarded agent");
+  }
+  if (expectedResourceSystem && plan.resourceSystem !== expectedResourceSystem) {
+    throw new Error("connector action plan resourceSystem did not match trusted onboarded agent");
+  }
+  if (plan.mode !== "plan_only" || plan.safeToDisplay !== true || plan.sideEffectsAllowed !== "none" || plan.options.length === 0) {
+    throw new Error("connector action plan did not satisfy safe plan-only contract");
+  }
+}
+
 export async function requestConnectorActionPlan(params: {
   message: string;
   conversationId: string;
@@ -146,6 +160,9 @@ export async function requestConnectorActionPlan(params: {
   }
   const record = typeof body === "object" && body !== null && !Array.isArray(body) ? body as Record<string, unknown> : {};
   const actionPlan = normalizeConnectorActionPlan(record.actionPlan);
+  if (actionPlan) {
+    validatePlanIdentity(actionPlan, params.onboardedAgent);
+  }
   return {
     actionPlan,
     agentResponse: {

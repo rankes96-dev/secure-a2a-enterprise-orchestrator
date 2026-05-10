@@ -39,6 +39,7 @@ export function publicConnectorProfile(profile: ConnectorProfile): PublicConnect
     displayName: profile.displayName,
     version: profile.version,
     profileSource: profile.profileSource,
+    planning: profile.planning,
     applicationAccessGrantCatalog: profile.applicationAccessGrantCatalog,
     effectivePermissionCatalog: profile.effectivePermissionCatalog,
     skillCatalog: profile.skillCatalog,

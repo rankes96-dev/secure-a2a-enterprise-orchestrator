@@ -136,12 +136,14 @@ export type TrustedOnboardedAgent = {
   agentDeclaredCapabilities: string[];
   applicationAccessGrants: string[];
   grantedScopes: string[];
+  effectivePermissions: string[];
+  deniedPermissions: string[];
   approvedActions: DerivedCapability[];
   blockedActions: DerivedCapability[];
   /** Compatibility aliases for approvedActions / blockedActions. */
   approvedCapabilities: DerivedCapability[];
   blockedCapabilities: DerivedCapability[];
-  connectorProfile?: Pick<ConnectorProfile, "connectorId" | "resourceSystem" | "displayName" | "version" | "profileSource">;
+  connectorProfile?: Pick<ConnectorProfile, "connectorId" | "resourceSystem" | "displayName" | "version" | "profileSource" | "planning">;
   connectorProfileVerified: boolean;
   connectorDecisionSource: string;
   lifecycle?: InstalledConnectorLifecycle;

@@ -567,12 +567,29 @@ function isConnectorAccessPlanningRequest(message: string): boolean {
   return /\b(i need access to|need access|can't access project|cannot access project|permission to project|add me to project|grant access|project access)\b/i.test(message);
 }
 
-function planningConnectorTarget(message: string): { connectorId: string; resourceSystem: string } | undefined {
+function planningConnectorTarget(message: string, installedAgents: ReturnType<typeof listTrustedOnboardedAgents>): { connectorId: string; resourceSystem: string } | undefined {
   const normalized = message.toLowerCase();
-  if (normalized.includes("jira") || normalized.includes("project") || /\bfin\b/.test(normalized)) {
-    return { connectorId: "jira-reference", resourceSystem: "jira" };
+  const match = installedAgents.find((agent) => {
+    const connectorId = agent.connectorId ?? agent.connectorProfile?.connectorId ?? "";
+    const resourceSystem = agent.resourceSystem ?? agent.connectorProfile?.resourceSystem ?? "";
+    return (connectorId && normalized.includes(connectorId.replace("-reference", ""))) ||
+      (resourceSystem && normalized.includes(resourceSystem)) ||
+      (resourceSystem === "jira" && (normalized.includes("project") || /\bfin\b/.test(normalized)));
+  });
+  const connectorId = match?.connectorId ?? match?.connectorProfile?.connectorId;
+  const resourceSystem = match?.resourceSystem ?? match?.connectorProfile?.resourceSystem;
+  return connectorId && resourceSystem ? { connectorId, resourceSystem } : undefined;
+}
+
+function isConnectorPlanningCandidate(params: {
+  message: string;
+  connectorRoute?: ConnectorRoutingDecision;
+  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+}): boolean {
+  if (!isConnectorAccessPlanningRequest(params.message)) {
+    return false;
   }
-  return undefined;
+  return params.installedAgents.some((agent) => agent.connectorProfile?.planning?.supported === true);
 }
 
 function primarySecurityDecision(decisions: SecurityDecision[]): SecurityDecision | undefined {
@@ -1247,10 +1264,11 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     });
   }
 
-  if (isConnectorAccessPlanningRequest(effectiveMessage)) {
-    const planTarget = planningConnectorTarget(effectiveMessage);
+  const installedAgents = sessionToken ? listTrustedOnboardedAgents(sessionToken) : [];
+  if (isConnectorPlanningCandidate({ message: effectiveMessage, connectorRoute: connectorRouting, installedAgents })) {
+    const planTarget = planningConnectorTarget(effectiveMessage, installedAgents);
     const onboardedAgent = planTarget
-      ? (sessionToken ? listTrustedOnboardedAgents(sessionToken) : []).find((agent) =>
+      ? installedAgents.find((agent) =>
           agent.connectorId === planTarget.connectorId ||
           agent.connectorProfile?.connectorId === planTarget.connectorId ||
           agent.resourceSystem === planTarget.resourceSystem ||
@@ -1341,6 +1359,33 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       } catch (error) {
         console.warn(`[connector-plan] ${error instanceof Error ? error.message : "failed"}`);
       }
+    } else if (installedAgents.length > 1) {
+      const diagnosis = {
+        probableCause: "Connector planning target is unclear",
+        recommendedFix: "Specify which system, project, application, or connector the access request is for."
+      };
+      return finalize({
+        conversationId,
+        finalAnswer: "I can request a safe connector action plan, but I need to know which system or application this access request targets.",
+        classification,
+        selectedAgents: [],
+        skippedAgents: routingDecision.skippedAgents,
+        routingSource: routingDecision.routingSource,
+        routingConfidence: routingDecision.routingConfidence,
+        routingReasoningSummary: "Access-planning request detected, but target connector was unclear.",
+        resolutionStatus: "needs_more_info",
+        evidence: [],
+        agentTrace: [trace("connector_planning_needs_target", "Asked user to clarify target system before requesting connector action plan.")],
+        executionTrace: [
+          executionStep("user", "submit_issue", requestBody.message),
+          executionStep("orchestrator", "ask_for_connector_planning_target", "Did not guess connector target for planning request.")
+        ],
+        securityDecisions: [],
+        requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+        a2aTasks: [],
+        a2aResponses: [],
+        diagnosis
+      });
     }
   }
 

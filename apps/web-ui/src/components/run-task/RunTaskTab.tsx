@@ -332,11 +332,11 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   ];
   const planningPrompts: Scenario[] = [
     {
-      label: "Plan Jira project access",
+      label: "Plan an access request",
       message: "I need access to FIN project",
       subtitle: "Safe connector planning",
       purpose: "Shows safe connector planning before execution.",
-      proves: "Gateway does not need to know every Jira permission. The connector proposes an action plan, and the Gateway evaluates it before runtime.",
+      proves: "The connector proposes a request-specific action plan, and the Gateway evaluates it before runtime.",
       badge: "Planning"
     }
   ];
@@ -485,7 +485,8 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
       <section className="connector-action-plan-section gateway-response-section">
         <span>Connector Action Plan</span>
         <p>The Gateway asked the connector for a side-effect-free action plan. No write action was attempted.</p>
-        <p className="muted-note">Example Jira options: Inspect Jira project access and Grant Jira project access.</p>
+        <p className="muted-note">The connector returned safe options for this request. The Gateway evaluated each option before execution.</p>
+        <p className="muted-note">Reference connector: {plan.resourceSystem}</p>
         <div className="action-plan-option-list">
           {plan.options.map((option) => {
             const decision = evaluated?.options.find((item) => item.option.actionId === option.actionId);

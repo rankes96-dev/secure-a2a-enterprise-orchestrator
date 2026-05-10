@@ -57,6 +57,11 @@ export const githubReferenceConnector: ConnectorProfile = {
   displayName: "GitHub Reference Connector",
   version: "1.0.0",
   profileSource: "external_agent",
+  planning: {
+    supported: false,
+    description: "Planning handler not implemented in the V1 GitHub reference connector.",
+    supportedIntentClasses: []
+  },
   applicationAccessGrantCatalog: [
     {
       id: "repo.metadata.read",

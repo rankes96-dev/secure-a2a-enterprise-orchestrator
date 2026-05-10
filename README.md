@@ -30,6 +30,10 @@ Installed Connectors:
 - have approved and blocked skills derived by the Gateway
 - execute only approved skills with scoped A2A JWTs
 
+## Safe Connector Planning
+
+The Gateway does not encode every enterprise permission or every possible connector action. External connectors can return side-effect-free action plans for a specific user request. The Gateway evaluates those returned plans against Gateway policy, OAuth grants, and service-account permissions before any runtime execution. Jira planning is the first reference handler in this local demo.
+
 ## V2 Roadmap
 
 - Persistent connector registry / DB

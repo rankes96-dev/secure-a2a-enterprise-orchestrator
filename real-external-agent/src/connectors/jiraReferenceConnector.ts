@@ -35,6 +35,11 @@ export const jiraReferenceConnector: ConnectorProfile = {
   displayName: "Jira Cloud Reference Connector",
   version: "1.0.0",
   profileSource: "external_agent",
+  planning: {
+    supported: true,
+    description: "Supports side-effect-free planning for Jira access and permission requests.",
+    supportedIntentClasses: ["access_request", "permission_request", "project_access"]
+  },
   applicationAccessGrantCatalog: [
     {
       id: "read:jira-work",

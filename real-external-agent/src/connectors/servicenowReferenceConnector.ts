@@ -57,6 +57,11 @@ export const serviceNowReferenceConnector: ConnectorProfile = {
   displayName: "ServiceNow Reference Connector",
   version: "1.0.0",
   profileSource: "external_agent",
+  planning: {
+    supported: false,
+    description: "Planning handler not implemented in the V1 ServiceNow reference connector.",
+    supportedIntentClasses: []
+  },
   applicationAccessGrantCatalog: [
     {
       id: "incident.read",

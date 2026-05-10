@@ -104,6 +104,13 @@ export function validateConnectorProfile(value: unknown): { profile?: ConnectorP
       input.profileSource === "external_agent" || input.profileSource === "built_in_reference" || input.profileSource === "custom_connector"
         ? input.profileSource
         : "external_agent",
+    planning: record(input.planning).supported === true || record(input.planning).supported === false
+      ? {
+          supported: record(input.planning).supported === true,
+          description: cleanString(record(input.planning).description),
+          supportedIntentClasses: stringArray(record(input.planning).supportedIntentClasses)
+        }
+      : undefined,
     applicationAccessGrantCatalog: catalog(input.applicationAccessGrantCatalog),
     effectivePermissionCatalog: catalog(input.effectivePermissionCatalog),
     skillCatalog: actionCatalog(input.skillCatalog).length ? actionCatalog(input.skillCatalog) : actionCatalog(input.actionCatalog),

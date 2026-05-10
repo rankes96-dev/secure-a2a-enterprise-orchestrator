@@ -111,6 +111,7 @@ function verifyStatic(): void {
   const shared = read("packages/shared/src/index.ts");
   const external = [
     "real-external-agent/src/index.ts",
+    "real-external-agent/src/connectors/actionPlanning.ts",
     "real-external-agent/src/connectors/jiraActionPlan.ts"
   ].filter(existsSync).map(read).join("\n");
   const orchestrator = [
@@ -126,21 +127,36 @@ function verifyStatic(): void {
   for (const term of ["ConnectorActionPlan", "ConnectorActionPlanOption", "connectorActionPlan?: ConnectorActionPlan", "evaluatedActionPlan"]) {
     if (!shared.includes(term)) fail(`shared action planning type missing: ${term}`);
   }
-  for (const term of ["plan_only", "connector_plan_only", "jiraActionPlan"]) {
+  for (const term of ["ConnectorPlanningHandler", "buildConnectorActionPlan", "jiraPlanningHandler", "serviceNowPlanningHandler", "githubPlanningHandler", "plan_only", "connector_plan_only", "jiraActionPlan"]) {
     if (!external.includes(term)) fail(`external agent planning support missing: ${term}`);
+  }
+  const externalIndex = read("real-external-agent/src/index.ts");
+  if (!externalIndex.includes("buildConnectorActionPlan") || externalIndex.includes('profile.connectorId === "jira-reference" && isJiraAccessPlanningRequest')) {
+    fail("/a2a/task should use buildConnectorActionPlan instead of direct Jira-specific planning branch");
   }
   for (const term of ["requestConnectorActionPlan", "evaluateConnectorActionPlan", "sideEffectsAllowed", "validateTrustedConnectorRuntimeEndpoint"]) {
     if (!orchestrator.includes(term)) fail(`orchestrator planning support missing: ${term}`);
+  }
+  if (!orchestrator.includes("connector action plan connectorId did not match") || !orchestrator.includes("connector action plan resourceSystem did not match")) {
+    fail("requestConnectorActionPlan should validate returned connectorId/resourceSystem");
+  }
+  const evaluator = read("services/orchestrator-api/src/connectorActionPlanEvaluation.ts");
+  if (!evaluator.includes("onboardedAgent.effectivePermissions") || !evaluator.includes("onboardedAgent.deniedPermissions")) {
+    fail("connectorActionPlanEvaluation should use explicit attested effectivePermissions / deniedPermissions fields");
+  }
+  if (evaluator.includes("approvedActions.flatMap") || evaluator.includes("blockedActions.flatMap")) {
+    fail("connectorActionPlanEvaluation should not infer permissions from approvedActions/blockedActions");
   }
   for (const phrase of [
     "Connector Action Plan",
     "PLANNED",
     "side-effect-free action plan",
-    "Inspect Jira project access",
-    "Grant Jira project access",
-    "Gateway does not need to know every Jira permission"
+    "The connector proposes a request-specific action plan"
   ]) {
     if (!ui.includes(phrase)) fail(`UI planning copy missing: ${phrase}`);
+  }
+  if (ui.includes("Example Jira options")) {
+    fail("UI should not contain Jira-specific generic action plan copy: Example Jira options");
   }
   logOk("static connector action planning semantics present");
 }
@@ -170,6 +186,10 @@ async function verifyApi(): Promise<void> {
     fail(`connectorActionPlan is not safe plan_only: ${JSON.stringify(plan)}`);
   }
   const options = asArray(evaluated.options, "evaluatedActionPlan.options").map((item) => asRecord(item, "evaluated option"));
+  const planOptions = asArray(plan.options, "connectorActionPlan.options").map((item) => asRecord(item, "plan option"));
+  if (!planOptions.some((item) => item.label === "Inspect Jira project access") || !planOptions.some((item) => item.label === "Grant Jira project access")) {
+    fail(`Jira reference plan should include inspect and grant options: ${JSON.stringify(planOptions)}`);
+  }
   const inspect = options.find((item) => asRecord(item.option, "inspect option").actionId === "jira.project.access.inspect");
   const grant = options.find((item) => asRecord(item.option, "grant option").actionId === "jira.project.access.grant");
   if (!inspect || inspect.decision !== "allowed") {

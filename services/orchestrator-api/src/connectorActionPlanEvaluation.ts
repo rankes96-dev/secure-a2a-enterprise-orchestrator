@@ -13,12 +13,8 @@ function deniedFrom(required: string[], denied: string[]): string[] {
 
 function evaluateOption(option: ConnectorActionPlanOption, onboardedAgent: TrustedOnboardedAgent): EvaluatedConnectorActionPlan["options"][number] {
   const missingApplicationGrants = missingFrom(option.requiredApplicationGrants, onboardedAgent.applicationAccessGrants.length ? onboardedAgent.applicationAccessGrants : onboardedAgent.grantedScopes);
-  const resourcePermissions = [...onboardedAgent.approvedActions, ...onboardedAgent.blockedActions].flatMap((action) => action.requiredEffectivePermissions ?? []);
-  const effectivePermissions = [...new Set([
-    ...resourcePermissions.filter((permission) => !onboardedAgent.blockedActions.some((action) => action.deniedEffectivePermissions?.includes(permission) || action.missingEffectivePermissions?.includes(permission))),
-    ...onboardedAgent.approvedActions.flatMap((action) => action.requiredEffectivePermissions ?? [])
-  ])];
-  const deniedPermissions = [...new Set(onboardedAgent.blockedActions.flatMap((action) => action.deniedEffectivePermissions ?? []))];
+  const effectivePermissions = onboardedAgent.effectivePermissions ?? [];
+  const deniedPermissions = onboardedAgent.deniedPermissions ?? [];
   const missingEffectivePermissions = missingFrom(option.requiredEffectivePermissions, effectivePermissions).filter((permission) => !deniedPermissions.includes(permission));
   const deniedEffectivePermissions = deniedFrom(option.requiredEffectivePermissions, deniedPermissions);
 
