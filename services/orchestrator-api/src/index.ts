@@ -15,6 +15,8 @@ import type {
   ExecutionTraceStep,
   FollowUpInterpretation,
   PendingFollowUpContext,
+  PendingInteraction,
+  PendingInteractionResolution,
   PlanningFollowUpResolution,
   ResolveRequest,
   ResolveResponse,
@@ -54,6 +56,7 @@ import { AuditEvents } from "./audit/auditEvents";
 import { evaluateConnectorPolicy } from "./policy/connectorPolicy";
 import { detectAdversarialIntent } from "./adversarialIntent";
 import { buildExecutionGateStack } from "./executionGateStack";
+import { resolvePendingInteraction } from "./pendingInteractionResolver";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -105,6 +108,7 @@ type ConversationState = {
   lastSelectedAgents?: SelectedAgent[];
   lastResolutionStatus?: "resolved" | "needs_more_info" | "unsupported";
   pendingFollowUp?: PendingFollowUpContext;
+  pendingInteraction?: PendingInteraction;
 };
 
 const conversations = new Map<string, ConversationState>();
@@ -255,6 +259,17 @@ function updateConversationState(state: ConversationState, response: ResolveResp
   }
   state.lastSelectedAgents = response.selectedAgents;
   state.lastResolutionStatus = response.resolutionStatus;
+  if (response.pendingInteraction) {
+    state.pendingInteraction = response.pendingInteraction;
+  } else if (
+    response.pendingInteractionResolution?.relation === "confirm" ||
+    response.pendingInteractionResolution?.relation === "cancel" ||
+    response.pendingInteractionResolution?.relation === "provide_missing_target" ||
+    response.pendingInteractionResolution?.relation === "unrelated_new_request" ||
+    response.pendingInteractionResolution?.relation === "adversarial_attempt"
+  ) {
+    state.pendingInteraction = undefined;
+  }
   if (response.connectorPlanningTargetResolution?.strategy === "needs_clarification") {
     state.pendingFollowUp = {
       type: "connector_planning_target",
@@ -262,6 +277,16 @@ function updateConversationState(state: ConversationState, response: ResolveResp
       detectedIntentClasses: response.connectorPlanningTargetResolution.detectedIntentClasses,
       missingFields: ["targetSystem"],
       createdAt: response.pendingFollowUp?.createdAt ?? new Date().toISOString()
+    };
+    state.pendingInteraction = response.pendingInteraction ?? {
+      id: createTaskId(),
+      type: "target_selection",
+      originalUserRequest: response.pendingFollowUp?.originalMessage ?? lastUserMessageBeforeLatest(state) ?? "",
+      createdAt: response.pendingFollowUp?.createdAt ?? new Date().toISOString(),
+      context: {
+        detectedIntentClasses: response.connectorPlanningTargetResolution.detectedIntentClasses,
+        missingFields: ["targetSystem"]
+      }
     };
   } else if (state.pendingFollowUp?.type === "connector_planning_target") {
     state.pendingFollowUp = undefined;
@@ -466,6 +491,60 @@ function buildSafeTargetSelection(intentClasses: string[], installedAgents: Retu
       }
     ]
   };
+}
+
+function safePlannedOption(evaluatedActionPlan?: ResolveResponse["evaluatedActionPlan"]): NonNullable<ResolveResponse["evaluatedActionPlan"]>["options"][number] | undefined {
+  if (!evaluatedActionPlan?.options.length) {
+    return undefined;
+  }
+
+  const recommendedOptionId = evaluatedActionPlan.recommendedOptionDecision?.optionId ?? evaluatedActionPlan.plan.recommendedOptionId;
+  const candidates = [
+    ...(recommendedOptionId ? evaluatedActionPlan.options.filter((item) => item.option.actionId === recommendedOptionId) : []),
+    ...evaluatedActionPlan.options
+  ];
+
+  return candidates.find((item) =>
+    item.decision === "allowed" &&
+    item.option.sideEffects === "none" &&
+    (item.option.executionType === "inspection_read_only" || item.option.executionType === "diagnostic_read_only")
+  );
+}
+
+function buildPlannedSafeActionPendingInteraction(params: {
+  originalUserRequest: string;
+  evaluatedActionPlan: NonNullable<ResolveResponse["evaluatedActionPlan"]>;
+}): PendingInteraction | undefined {
+  const option = safePlannedOption(params.evaluatedActionPlan);
+  if (!option) {
+    return undefined;
+  }
+
+  return {
+    id: createTaskId(),
+    type: "planned_safe_action",
+    originalUserRequest: params.originalUserRequest,
+    createdAt: new Date().toISOString(),
+    context: {
+      planId: params.evaluatedActionPlan.plan.planId,
+      connectorId: params.evaluatedActionPlan.plan.connectorId,
+      resourceSystem: params.evaluatedActionPlan.plan.resourceSystem,
+      recommendedActionId: option.option.actionId,
+      recommendedActionLabel: option.option.label,
+      decision: "allowed",
+      executionType: option.option.executionType,
+      sideEffects: option.option.sideEffects
+    }
+  };
+}
+
+function pendingString(context: Record<string, unknown>, key: string): string | undefined {
+  const value = context[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function contextlessContinuationRequest(message: string): boolean {
+  return /(?:👍|✅|👌)|\b(ok(?:ay)?|yes|confirm|continue|proceed|do it|go ahead)\b/i.test(message);
 }
 
 function buildDiagnosis(agentResponses: A2AAgentResponse[]): ResolveResponse["diagnosis"] {
@@ -1377,6 +1456,14 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
   const requestAgentCards = getExecutableAgentCards();
   const installedAgents = sessionToken ? listTrustedOnboardedAgents(sessionToken) : [];
   appendConversationMessage(conversationState, "user", requestBody.message);
+  const earlySecurityIntent = detectAdversarialIntent(requestBody.message);
+  const pendingInteractionResolution = conversationState.pendingInteraction
+    ? await resolvePendingInteraction({
+        pendingInteraction: conversationState.pendingInteraction,
+        userMessage: requestBody.message,
+        securityIntent: earlySecurityIntent
+      })
+    : undefined;
   const followUp = await interpretFollowUp({
     currentMessage: requestBody.message,
     previousUserMessage: lastUserMessageBeforeLatest(conversationState),
@@ -1425,6 +1512,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
   const securityIntent = detectAdversarialIntent(
     `${requestBody.message}\n${effectiveMessage}\n${incidentInterpretation?.requestedActionText ?? routingDecision.requestInterpretation?.requestedActionText ?? ""}`
   );
+  const effectiveSecurityIntent = earlySecurityIntent.detected ? earlySecurityIntent : securityIntent;
   const connectorRouting = routeConnectorRequest(
     effectiveMessage,
     installedAgents
@@ -1466,7 +1554,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     return finalResponse;
   };
 
-  if (securityIntent.detected) {
+  if (effectiveSecurityIntent.detected || pendingInteractionResolution?.relation === "adversarial_attempt" || pendingInteractionResolution?.securityConcern) {
     const diagnosis = {
       probableCause: "Adversarial governance bypass request blocked",
       recommendedFix: "Use normal approved requests. Prompt text cannot grant scopes, permissions, Gateway approval, or raw token access."
@@ -1479,13 +1567,13 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       skippedAgents: routingDecision.skippedAgents,
       routingSource: routingDecision.routingSource,
       routingConfidence: routingDecision.routingConfidence,
-      routingReasoningSummary: securityIntent.reason,
+      routingReasoningSummary: effectiveSecurityIntent.reason,
       resolutionStatus: "resolved",
       evidence: [],
       agentTrace: [
         trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
         {
-          ...trace("ADVERSARIAL_INTENT_DETECTED", securityIntent.reason),
+          ...trace("ADVERSARIAL_INTENT_DETECTED", effectiveSecurityIntent.reason),
           decision: "Blocked"
         },
         {
@@ -1504,13 +1592,14 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
               )
             ]
           : []),
-        executionStep("orchestrator", "detect_adversarial_intent", securityIntent.reason),
+        executionStep("orchestrator", "detect_adversarial_intent", effectiveSecurityIntent.reason),
         executionStep("orchestrator", "block_at_gateway_governance", "Did not issue OAuth token or invoke runtime for adversarial prompt."),
         executionStep("orchestrator", "skip_runtime_execution", "Runtime was not executed because Gateway governance blocked the request.")
       ],
       securityDecisions: [],
       requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
-      securityIntent,
+      securityIntent: effectiveSecurityIntent,
+      pendingInteractionResolution,
       planningFollowUpResolution,
       followUpInterpretation: followUp,
       incidentContext: mergedIncidentContext,
@@ -1518,6 +1607,350 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       a2aResponses: [],
       diagnosis,
       conversationId
+    });
+  }
+
+  if (conversationState.pendingInteraction?.type === "planned_safe_action" && pendingInteractionResolution?.relation === "confirm") {
+    const pending = conversationState.pendingInteraction;
+    const connectorId = pendingString(pending.context, "connectorId");
+    const resourceSystem = pendingString(pending.context, "resourceSystem");
+    const actionId = pendingString(pending.context, "recommendedActionId");
+    const actionLabel = pendingString(pending.context, "recommendedActionLabel") ?? actionId ?? "safe check";
+    const executionType = pendingString(pending.context, "executionType");
+    const sideEffects = pendingString(pending.context, "sideEffects");
+    const decision = pendingString(pending.context, "decision");
+    const trustedAgentStillInstalled = installedAgents.some((agent) =>
+      Boolean(connectorId && (agent.connectorId === connectorId || agent.connectorProfile?.connectorId === connectorId)) ||
+      Boolean(resourceSystem && (agent.resourceSystem === resourceSystem || agent.connectorProfile?.resourceSystem === resourceSystem))
+    );
+    const stillSafe = decision === "allowed" &&
+      sideEffects === "none" &&
+      (executionType === "inspection_read_only" || executionType === "diagnostic_read_only") &&
+      trustedAgentStillInstalled;
+    const diagnosis = {
+      probableCause: stillSafe ? "Pending safe action confirmed" : "Pending safe action is no longer valid",
+      recommendedFix: stillSafe
+        ? "This V1 demo stops at the approved plan for this request."
+        : "Start a new request so the Gateway can re-evaluate the connector plan."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: stillSafe
+        ? "CHECK READY\nI can continue with the safe check, but this V1 demo currently stops at the approved plan for this request.\nNo changes were made."
+        : "NEEDS MORE INFO\nThe previous safe check is no longer available. Please describe the request again.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "Resolved user response against pending planned safe action.",
+      resolutionStatus: "needs_more_info",
+      evidence: [
+        {
+          agent: orchestratorAgentId,
+          title: "Pending safe action",
+          data: {
+            pendingInteractionId: pending.id,
+            connectorId,
+            resourceSystem,
+            actionId,
+            actionLabel,
+            decision,
+            executionType,
+            sideEffects,
+            trustedAgentStillInstalled,
+            runtimeExecuted: false,
+            reason: stillSafe
+              ? "No runtime implementation for planned action in V1."
+              : "Pending action failed Gateway re-validation."
+          }
+        }
+      ],
+      agentTrace: [
+        trace("pending_interaction_resolved", pendingInteractionResolution.reason),
+        trace("planned_safe_action_revalidated", stillSafe ? "Pending safe check remains allowed and read-only/diagnostic." : "Pending safe check failed validation.")
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "resolve_pending_interaction", pendingInteractionResolution.reason),
+        executionStep("orchestrator", "revalidate_pending_safe_action", stillSafe ? "Decision allowed, execution type read-only/diagnostic, side effects none." : "Pending action did not satisfy safe execution constraints."),
+        executionStep("orchestrator", "skip_runtime_execution", "No runtime implementation for planned action in V1; no write/admin action was executed.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: {
+        ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+        scope: "enterprise_support",
+        intentType: "access_request",
+        requestedActionText: actionLabel,
+        confidence: "medium",
+        reason: "User confirmed the pending safe check."
+      },
+      pendingInteractionResolution,
+      executionGateStack: {
+        stoppedAt: "runtime_execution",
+        finalOutcome: "planned",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "User response confirmed the pending safe check.",
+            evidence: {
+              pendingInteractionId: pending.id,
+              relation: pendingInteractionResolution.relation
+            }
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: stillSafe ? "passed" : "blocked",
+            reason: stillSafe
+              ? "Gateway re-validated the pending action as allowed and read-only/diagnostic."
+              : "Gateway rejected the pending action because it no longer met safe constraints.",
+            evidence: {
+              actionId,
+              decision,
+              executionType,
+              sideEffects
+            }
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "No runtime token was issued for the V1 planned action confirmation."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "No runtime execution occurred; the planned action remains an approved plan."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "No runtime implementation for planned action in V1. No write/action operation was executed."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  if (conversationState.pendingInteraction && pendingInteractionResolution?.relation === "cancel") {
+    const diagnosis = {
+      probableCause: "Pending interaction cancelled by user",
+      recommendedFix: "No action was taken."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: "CANCELLED\nNo problem. I will not run the check.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "User cancelled the pending interaction.",
+      resolutionStatus: "resolved",
+      evidence: [],
+      agentTrace: [
+        trace("pending_interaction_cancelled", pendingInteractionResolution.reason)
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "cancel_pending_interaction", "Cleared pending interaction without runtime execution.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      pendingInteractionResolution,
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "needs_more_info",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "User cancelled the pending interaction."
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "not_evaluated",
+            reason: "Gateway took no action after cancellation."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "No token was issued."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "No connector permissions were evaluated."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "Runtime was not executed."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  if (conversationState.pendingInteraction?.type === "planned_safe_action" && pendingInteractionResolution?.relation === "unclear") {
+    const diagnosis = {
+      probableCause: "Pending safe check needs confirmation",
+      recommendedFix: "Confirm whether the Gateway should continue with the safe check."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: "NEEDS MORE INFO\nDo you want me to continue with the safe check?",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "Pending interaction answer was unclear.",
+      resolutionStatus: "needs_more_info",
+      evidence: [],
+      agentTrace: [
+        trace("pending_interaction_unclear", pendingInteractionResolution.reason)
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "ask_pending_interaction_confirmation", "Asked for confirmation before continuing with the safe check.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      pendingInteraction: conversationState.pendingInteraction,
+      pendingInteractionResolution,
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "needs_more_info",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "Pending safe-check response was unclear."
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "not_evaluated",
+            reason: "Gateway asked for confirmation before taking any action."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "No token was issued."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "No connector permissions were evaluated."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "Runtime was not executed."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  if (!conversationState.pendingInteraction && contextlessContinuationRequest(requestBody.message)) {
+    const diagnosis = {
+      probableCause: "No pending safe check is active",
+      recommendedFix: "Describe the request you want the Gateway to check."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: "NEEDS MORE INFO\nI do not have a pending check to continue. Tell me what you want access to or what you want me to check.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "Continuation phrase received without pending interaction context.",
+      resolutionStatus: "needs_more_info",
+      evidence: [],
+      agentTrace: [
+        trace("pending_interaction_missing", "Did not continue because no pending interaction is active.")
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "ask_for_request_context", "Continuation phrase requires a pending interaction.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: {
+        ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+        scope: "enterprise_support",
+        intentType: "unknown",
+        confidence: "low",
+        reason: "The message appears to confirm a prior action, but no pending interaction is active."
+      },
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "needs_more_info",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "Continuation response detected without pending interaction context."
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "blocked",
+            reason: "Gateway did not execute anything without an active pending interaction."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "No connector was selected."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "No connector was selected."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "Runtime was not executed."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
     });
   }
 
@@ -1559,6 +1992,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         detectedIntentClasses: conversationState.pendingFollowUp?.detectedIntentClasses ?? detectedPlanningIntentClasses(effectiveMessage),
         reason: "User selected Other / not listed."
       },
+      pendingInteractionResolution,
       planningFollowUpResolution,
       executionGateStack: {
         stoppedAt: "gateway_governance",
@@ -1657,6 +2091,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           detectedIntentClasses: conversationState.pendingFollowUp?.detectedIntentClasses ?? detectedPlanningIntentClasses(effectiveMessage),
           reason: `${systemName} is not available for safe access planning.`
         },
+        pendingInteractionResolution,
         planningFollowUpResolution,
         executionGateStack: {
           stoppedAt: "gateway_governance",
@@ -1814,6 +2249,10 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         });
         if (actionPlan) {
           const evaluatedActionPlan = evaluateConnectorActionPlan(actionPlan, onboardedAgent);
+          const pendingInteraction = buildPlannedSafeActionPendingInteraction({
+            originalUserRequest: planningFollowUpResolution?.originalMessage ?? requestBody.message,
+            evaluatedActionPlan
+          });
           const finalAnswer = "PLANNED: The Gateway asked the connector for a side-effect-free action plan. No write action was attempted. The connector recommends starting with read-only inspection.";
           const diagnosis = {
             probableCause: "Connector action planning completed without side effects",
@@ -1879,6 +2318,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
             securityDecisions: [],
             requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
             connectorPlanningTargetResolution: planningTargetResolution,
+            pendingInteraction,
+            pendingInteractionResolution,
             planningFollowUpResolution,
             connectorActionPlan: actionPlan,
             evaluatedActionPlan,
@@ -1936,6 +2377,17 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           missingFields: ["targetSystem"],
           createdAt: new Date().toISOString()
         },
+        pendingInteraction: {
+          id: createTaskId(),
+          type: "target_selection",
+          originalUserRequest: planningFollowUpResolution?.originalMessage ?? effectiveMessage,
+          createdAt: new Date().toISOString(),
+          context: {
+            detectedIntentClasses: planningTargetResolution.detectedIntentClasses,
+            missingFields: ["targetSystem"]
+          }
+        },
+        pendingInteractionResolution,
         planningFollowUpResolution,
         executionGateStack: {
           stoppedAt: "gateway_governance",

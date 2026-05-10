@@ -459,6 +459,43 @@ export type PlanningFollowUpResolution = {
   resolvedMessage: string;
 };
 
+export type PendingInteractionType =
+  | "target_selection"
+  | "missing_input"
+  | "planned_safe_action"
+  | "approval_required_action"
+  | "support_ticket_handoff";
+
+export type PendingInteraction = {
+  id: string;
+  type: PendingInteractionType;
+  originalUserRequest: string;
+  createdAt: string;
+  expiresAt?: string;
+  context: Record<string, unknown>;
+};
+
+export type PendingInteractionRelation =
+  | "confirm"
+  | "cancel"
+  | "provide_missing_target"
+  | "provide_missing_input"
+  | "modify_request"
+  | "ask_question"
+  | "unrelated_new_request"
+  | "adversarial_attempt"
+  | "unclear";
+
+export type PendingInteractionResolution = {
+  relation: PendingInteractionRelation;
+  confidence: "high" | "medium" | "low";
+  normalizedUserIntent: string;
+  extractedValues?: Record<string, string>;
+  requiresNewRouting: boolean;
+  securityConcern: boolean;
+  reason: string;
+};
+
 export type SafeTargetSelectionSystemOption = {
   id: string;
   label: string;
@@ -545,6 +582,8 @@ export interface ResolveResponse {
   evaluatedActionPlan?: EvaluatedConnectorActionPlan;
   connectorPlanningTargetResolution?: ConnectorPlanningTargetResolution;
   pendingFollowUp?: PendingFollowUpContext;
+  pendingInteraction?: PendingInteraction;
+  pendingInteractionResolution?: PendingInteractionResolution;
   planningFollowUpResolution?: PlanningFollowUpResolution;
   safeTargetSelection?: SafeTargetSelection;
   connectorRouting?: {

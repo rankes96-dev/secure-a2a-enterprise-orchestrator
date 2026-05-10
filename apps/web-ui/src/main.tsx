@@ -672,6 +672,14 @@ function governedChatAnswer(response: ResolveResponse): string {
     ].join("\n");
   }
 
+  if (response.finalAnswer.startsWith("CHECK READY")) {
+    return response.finalAnswer;
+  }
+
+  if (response.finalAnswer.startsWith("CANCELLED")) {
+    return response.finalAnswer;
+  }
+
   if (outcome === "PLANNED" || response.connectorActionPlan) {
     return buildEndUserPlannedAnswer(response);
   }
