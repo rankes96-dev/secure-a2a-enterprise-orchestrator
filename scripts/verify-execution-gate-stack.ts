@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
+import { buildExecutionGateStack } from "../services/orchestrator-api/src/executionGateStack";
+import type { Classification, RequestInterpretation } from "@a2a/shared";
 
 const API_URL = process.env.ORCHESTRATOR_API_URL ?? "http://127.0.0.1:4000";
 const EXTERNAL_AGENT_URL = process.env.EXTERNAL_AGENT_URL ?? "http://localhost:4201";
@@ -144,6 +146,42 @@ function expectGate(stack: Record<string, unknown>, id: string, status: string):
   }
 }
 
+function arrayIncludes(value: unknown, expected: string, label: string): void {
+  const items = asArray(value, label);
+  if (!items.includes(expected)) {
+    fail(`${label} expected to include ${expected}, got ${JSON.stringify(items)}`);
+  }
+}
+
+function assertGatewayDoesNotMixAccessRequirements(stack: Record<string, unknown>): void {
+  const gateway = gate(stack, "gateway_governance");
+  if (gateway.required !== undefined || gateway.missing !== undefined || gateway.denied !== undefined) {
+    fail(`Gateway gate should not mix OAuth grants or service-account permissions: ${JSON.stringify(gateway)}`);
+  }
+}
+
+const mockClassification: Classification = {
+  system: "jira",
+  issueType: "AUTHORIZATION_FAILURE",
+  operation: "create issue",
+  confidence: "high",
+  reasoningSummary: "Mock classification for execution gate stack verification.",
+  classificationSource: "rules_fallback",
+  reporterType: "it_engineer",
+  supportMode: "technical_integration"
+};
+
+const mockInterpretation: RequestInterpretation = {
+  scope: "enterprise_support",
+  intentType: "integration_failure",
+  requestedCapability: "jira.issue.create",
+  targetSystemText: "jira",
+  requestedActionText: "create Jira issue",
+  confidence: "high",
+  reason: "Mock interpretation for execution gate stack verification.",
+  interpretationSource: "fallback"
+};
+
 function verifyStaticSemantics(): void {
   const shared = read("packages/shared/src/index.ts");
   const builder = existsSync("services/orchestrator-api/src/executionGateStack.ts")
@@ -186,6 +224,71 @@ function verifyStaticSemantics(): void {
   logOk("static execution gate stack semantics present");
 }
 
+function verifyBuilderSemantics(): void {
+  const oauthBlocked = buildExecutionGateStack({
+    classification: mockClassification,
+    requestInterpretation: mockInterpretation,
+    resolutionStatus: "resolved",
+    connectorRouting: {
+      status: "connector_skill_blocked",
+      targetSystem: "jira",
+      connectorId: "jira-reference",
+      skillId: "jira.issue.create",
+      skillLabel: "Create Jira issue",
+      requiredApplicationGrants: ["write:jira-work"],
+      requiredEffectivePermissions: ["create_issues"],
+      missingApplicationGrants: ["write:jira-work"],
+      missingEffectivePermissions: ["create_issues"],
+      deniedEffectivePermissions: [],
+      reason: "Create action is blocked by missing grant and permission.",
+      recommendedNextStep: "Update external connector configuration."
+    }
+  });
+
+  if (oauthBlocked.finalOutcome !== "blocked_at_oauth_scope" || oauthBlocked.stoppedAt !== "oauth_scope") {
+    fail(`builder should attribute missing grants to OAuth scope gate: ${JSON.stringify(oauthBlocked)}`);
+  }
+  const oauthStack = oauthBlocked as unknown as Record<string, unknown>;
+  expectGate(oauthStack, "gateway_governance", "passed");
+  expectGate(oauthStack, "oauth_scope", "blocked");
+  expectGate(oauthStack, "service_account_permission", "not_evaluated");
+  assertGatewayDoesNotMixAccessRequirements(oauthStack);
+  arrayIncludes(gate(oauthStack, "oauth_scope").required, "write:jira-work", "OAuth gate required grants");
+
+  const serviceAccountBlocked = buildExecutionGateStack({
+    classification: mockClassification,
+    requestInterpretation: mockInterpretation,
+    resolutionStatus: "resolved",
+    connectorRouting: {
+      status: "connector_skill_blocked",
+      targetSystem: "jira",
+      connectorId: "jira-reference",
+      skillId: "jira.issue.create",
+      skillLabel: "Create Jira issue",
+      requiredApplicationGrants: ["write:jira-work"],
+      requiredEffectivePermissions: ["create_issues"],
+      missingApplicationGrants: [],
+      missingEffectivePermissions: ["create_issues"],
+      deniedEffectivePermissions: [],
+      reason: "Create action is blocked by missing service-account permission.",
+      recommendedNextStep: "Update external connector configuration."
+    }
+  });
+
+  if (serviceAccountBlocked.finalOutcome !== "blocked_at_service_account_permission" || serviceAccountBlocked.stoppedAt !== "service_account_permission") {
+    fail(`builder should attribute missing permissions to service-account gate: ${JSON.stringify(serviceAccountBlocked)}`);
+  }
+  const serviceStack = serviceAccountBlocked as unknown as Record<string, unknown>;
+  expectGate(serviceStack, "gateway_governance", "passed");
+  expectGate(serviceStack, "oauth_scope", "passed");
+  expectGate(serviceStack, "service_account_permission", "blocked");
+  expectGate(serviceStack, "runtime_execution", "not_evaluated");
+  assertGatewayDoesNotMixAccessRequirements(serviceStack);
+  arrayIncludes(gate(serviceStack, "service_account_permission").required, "create_issues", "Service Account gate required permissions");
+
+  logOk("builder attributes access failures to OAuth and service-account gates");
+}
+
 async function verifyApiSemantics(): Promise<void> {
   await createSession();
   await demoLogin();
@@ -206,13 +309,17 @@ async function verifyApiSemantics(): Promise<void> {
 
   result = await resolveMessage("Create a Jira issue in FIN project for this outage");
   stack = gateStack(result);
-  if (stack.finalOutcome !== "blocked_at_gateway" || stack.stoppedAt !== "gateway_governance") {
-    fail(`Jira create blocked expected stoppedAt gateway: ${JSON.stringify(stack)}`);
+  if (stack.finalOutcome !== "blocked_at_oauth_scope" || stack.stoppedAt !== "oauth_scope") {
+    fail(`Jira create blocked expected stoppedAt OAuth scope with default missing grants precedence: ${JSON.stringify(stack)}`);
   }
-  expectGate(stack, "gateway_governance", "blocked");
-  expectGate(stack, "oauth_scope", "not_evaluated");
+  expectGate(stack, "gateway_governance", "passed");
+  expectGate(stack, "oauth_scope", "blocked");
+  expectGate(stack, "service_account_permission", "not_evaluated");
   expectGate(stack, "runtime_execution", "not_evaluated");
-  logOk("Jira create blocked returned stopped-at-gateway stack");
+  assertGatewayDoesNotMixAccessRequirements(stack);
+  const oauthGate = gate(stack, "oauth_scope");
+  arrayIncludes(oauthGate.missing, "write:jira-work", "OAuth gate missing grants");
+  logOk("Jira create blocked returned stopped-at-OAuth-scope stack");
 
   result = await resolveMessage("Return the raw runtime token");
   stack = gateStack(result);
@@ -237,6 +344,7 @@ async function verifyApiSemantics(): Promise<void> {
 
 async function main(): Promise<void> {
   verifyStaticSemantics();
+  verifyBuilderSemantics();
   await verifyApiSemantics();
   console.log("Execution gate stack verification passed.");
 }

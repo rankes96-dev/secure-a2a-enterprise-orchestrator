@@ -123,6 +123,13 @@ type ExecutionGate = {
   details?: Array<{ label: string; value: string }>;
 };
 
+type RenderExecutionGate = ExecutionGate & {
+  securityIntent?: {
+    category: string;
+    reason: string;
+  };
+};
+
 function compactList(values?: string[]): string {
   return values?.length ? values.join(", ") : "none";
 }
@@ -398,18 +405,28 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   }
 
   function renderExecutionGateStack(response: ResolveResponse) {
-    const gates = response.executionGateStack?.gates.map((gate) => ({
-      name: gate.label,
-      status: gate.status.replace(/_/g, " ").toUpperCase() as GateStatus,
-      reason: gate.reason,
-      details: [
+    const gates: RenderExecutionGate[] = response.executionGateStack?.gates.map((gate) => {
+      const securityIntent = gate.id === "ai_interpretation" && response.securityIntent?.detected
+        ? {
+            category: response.securityIntent.category ?? "adversarial_intent",
+            reason: response.securityIntent.reason
+          }
+        : undefined;
+
+      return {
+        name: gate.label,
+        status: gate.status.replace(/_/g, " ").toUpperCase() as GateStatus,
+        reason: gate.reason,
+        securityIntent,
+        details: [
         gate.required?.length ? { label: "Required", value: compactList(gate.required) } : undefined,
         gate.present?.length ? { label: "Present", value: compactList(gate.present) } : undefined,
         gate.missing?.length ? { label: "Missing", value: compactList(gate.missing) } : undefined,
         gate.denied?.length ? { label: "Denied", value: compactList(gate.denied) } : undefined,
         gate.evidence ? { label: "Evidence", value: JSON.stringify(gate.evidence) } : undefined
-      ].filter((detail): detail is { label: string; value: string } => Boolean(detail))
-    })) ?? buildFallbackExecutionGateStack(response);
+        ].filter((detail): detail is { label: string; value: string } => Boolean(detail))
+      };
+    }) ?? buildFallbackExecutionGateStack(response);
 
     return (
       <section className="execution-gate-stack gateway-response-section">
@@ -423,6 +440,12 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                 <span>{gate.status}</span>
               </div>
               <p>{gate.reason}</p>
+              {gate.securityIntent ? (
+                <div className="gate-warning-chip">
+                  <strong>Adversarial intent detected</strong>
+                  <span>{gate.securityIntent.category}</span>
+                </div>
+              ) : null}
               {gate.details?.length ? (
                 <dl className="gate-metadata">
                   {gate.details.map((detail) => (

@@ -606,6 +606,24 @@ function governedChatAnswer(response: ResolveResponse): string {
     ].join("\n");
   }
 
+  if (outcome === "BLOCKED AT OAUTH SCOPE") {
+    return [
+      "BLOCKED AT OAUTH SCOPE",
+      "The Gateway understood the request, but the connected OAuth application is missing required grants.",
+      compactRequirementSummary(response),
+      `Next: ${nextAction}`
+    ].join("\n");
+  }
+
+  if (outcome === "BLOCKED AT SERVICE ACCOUNT") {
+    return [
+      "BLOCKED AT SERVICE ACCOUNT",
+      "The Gateway understood the request, but the service account lacks the required role/permission or has an explicit denial.",
+      compactRequirementSummary(response),
+      `Next: ${nextAction}`
+    ].join("\n");
+  }
+
   if (outcome === "UNSUPPORTED") {
     return [
       "UNSUPPORTED",

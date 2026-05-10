@@ -23,24 +23,37 @@ function gate(params: ExecutionGate): ExecutionGate {
   return params;
 }
 
-function gatewayBlockStatus(status?: string): boolean {
-  return Boolean(status && status !== "connector_skill_approved");
-}
-
 function finalOutcome(params: BuildExecutionGateStackParams): ExecutionGateStack["finalOutcome"] {
   if (params.securityIntent?.detected) {
     return "blocked_at_gateway";
   }
 
-  if (params.connectorRouting?.status === "unsupported" || params.resolutionStatus === "unsupported") {
+  const routing = params.connectorRouting;
+  const missingApplicationGrants = compact(routing?.missingApplicationGrants);
+  const missingEffectivePermissions = compact(routing?.missingEffectivePermissions);
+  const deniedEffectivePermissions = compact(routing?.deniedEffectivePermissions);
+
+  if (routing?.status === "unsupported" || params.resolutionStatus === "unsupported") {
     return "unsupported";
   }
 
-  if (params.connectorRouting?.status === "needs_more_info" || params.resolutionStatus === "needs_more_info") {
+  if (routing?.status === "needs_more_info" || params.resolutionStatus === "needs_more_info") {
     return "needs_more_info";
   }
 
-  if (gatewayBlockStatus(params.connectorRouting?.status)) {
+  if (routing?.status === "connector_not_onboarded" || routing?.status === "connector_skill_not_declared" || routing?.status === "connector_skill_not_enabled") {
+    return "blocked_at_gateway";
+  }
+
+  if (routing?.status === "connector_skill_blocked") {
+    if (missingApplicationGrants.length > 0) {
+      return "blocked_at_oauth_scope";
+    }
+
+    if (missingEffectivePermissions.length > 0 || deniedEffectivePermissions.length > 0) {
+      return "blocked_at_service_account_permission";
+    }
+
     return "blocked_at_gateway";
   }
 
@@ -91,6 +104,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
   const stopped = stoppedAt(params, outcome);
   const gatewayBlocked = stopped === "gateway_governance";
   const oauthBlocked = stopped === "oauth_scope";
+  const serviceAccountBlocked = stopped === "service_account_permission";
+  const accessBoundaryBlocked = oauthBlocked || serviceAccountBlocked;
 
   const aiGate = gate({
     id: "ai_interpretation",
@@ -110,18 +125,18 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
   const gatewayGate = gate({
     id: "gateway_governance",
     label: "Gateway Governance",
-    status: routing?.status === "connector_skill_approved" && !params.securityIntent?.detected ? "passed" : "blocked",
+    status: (routing?.status === "connector_skill_approved" || accessBoundaryBlocked) && !params.securityIntent?.detected ? "passed" : "blocked",
     reason: params.securityIntent?.detected
       ? "Gateway blocked the request because prompt text cannot grant scopes, permissions, Gateway approval, or raw token access."
-      : routing?.reason ?? (params.resolutionStatus === "unsupported" ? "No supported connector route was available." : "No connector-specific route was approved."),
-    required: [...requiredGrants, ...requiredPermissions],
-    missing: [...missingGrants, ...missingPermissions],
-    denied: deniedPermissions,
+      : accessBoundaryBlocked
+        ? "Gateway evaluated the request and stopped it at the access boundary shown below."
+        : routing?.reason ?? (params.resolutionStatus === "unsupported" ? "No supported connector route was available." : "No connector-specific route was approved."),
     evidence: {
       routeStatus: routing?.status ?? params.resolutionStatus,
       connectorId: routing?.connectorId,
       skillId: routing?.skillId,
-      policyEffect: params.connectorPolicy?.effect
+      policyEffect: params.connectorPolicy?.effect,
+      executionType: semantics?.executionType
     }
   });
 
@@ -130,17 +145,19 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
     label: "OAuth Scope Gate",
     status: gatewayBlocked
       ? "not_evaluated"
-      : missingGrants.length
+      : oauthBlocked
         ? "blocked"
-        : runtime?.tokenMetadata?.tokenIssued
+        : routing?.status === "connector_skill_approved" || serviceAccountBlocked || runtime?.tokenMetadata?.tokenIssued
           ? "passed"
           : "not_evaluated",
     reason: gatewayBlocked
       ? "Gateway stopped the request before token issuance."
-      : missingGrants.length
+      : oauthBlocked
         ? "Required OAuth application grants are missing."
-        : runtime?.tokenMetadata?.tokenIssued
-          ? "Scoped A2A JWT was issued for the approved skill."
+      : routing?.status === "connector_skill_approved" || serviceAccountBlocked || runtime?.tokenMetadata?.tokenIssued
+          ? runtime?.tokenMetadata?.tokenIssued
+            ? "Scoped A2A JWT was issued for the approved skill."
+            : "Required OAuth application grants are present for this connector action."
           : "No runtime token was issued for this result.",
     required: requiredGrants,
     present: runtime?.tokenMetadata?.scope ? runtime.tokenMetadata.scope.split(/\s+/).filter(Boolean) : [],
@@ -156,14 +173,14 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
     label: "Service Account Permission Gate",
     status: gatewayBlocked || oauthBlocked
       ? "not_evaluated"
-      : missingPermissions.length || deniedPermissions.length
+      : serviceAccountBlocked
         ? "blocked"
         : routing?.status === "connector_skill_approved"
           ? "passed"
           : "not_evaluated",
     reason: gatewayBlocked || oauthBlocked
       ? "Stopped before this layer."
-      : missingPermissions.length || deniedPermissions.length
+      : serviceAccountBlocked
         ? "Required service-account permissions are missing or explicitly denied."
         : routing?.status === "connector_skill_approved"
           ? "Effective permissions satisfy the approved skill/action."
@@ -177,14 +194,14 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
   const runtimeGate = gate({
     id: "runtime_execution",
     label: "Runtime Execution",
-    status: gatewayBlocked || oauthBlocked || serviceAccountGate.status === "blocked"
+    status: gatewayBlocked || oauthBlocked || serviceAccountBlocked
       ? "not_evaluated"
       : runtime?.executed
         ? semantics?.outcome === "diagnosed" || runtime.agentResponse?.status === "diagnosed" ? "diagnosed" : "executed"
         : runtime
           ? "failed"
           : "not_evaluated",
-    reason: gatewayBlocked || oauthBlocked || serviceAccountGate.status === "blocked"
+    reason: gatewayBlocked || oauthBlocked || serviceAccountBlocked
       ? "Runtime not executed. Stopped before this layer."
       : runtime?.executed
         ? semantics?.outcome === "diagnosed" || runtime.agentResponse?.status === "diagnosed"
