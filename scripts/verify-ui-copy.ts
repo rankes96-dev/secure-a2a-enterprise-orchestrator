@@ -30,8 +30,7 @@ for (const forbidden of [
   "based on capability metadata",
   "Runtime remains metadata-only",
   ">metadata-only<",
-  ">Capability<",
-  "Raw tokens hidden"
+  ">Capability<"
 ]) {
   if (webUi.includes(forbidden)) {
     console.error(`fail - avoid stale or technical visible UI copy: ${forbidden}`);
@@ -43,7 +42,8 @@ const visibleCopyHints = [
   "Templates are not trusted until an external agent completes onboarding",
   "Next Action",
   "Choose a connector template",
-  "Installed Connector Agents"
+  "Installed Connector Agents",
+  "Raw tokens hidden"
 ];
 
 for (const phrase of visibleCopyHints) {

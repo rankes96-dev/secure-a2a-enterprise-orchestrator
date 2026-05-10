@@ -1251,25 +1251,25 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
   }, [messages]);
 
   return (
-    <section className="task-transcript" aria-label="Task result">
+    <section className="task-transcript" aria-label="Conversation">
       <div className="section-heading-row">
         <div>
-          <p className="active-panel-eyebrow">Gateway response</p>
-          <h2>Task Result</h2>
+          <p className="active-panel-eyebrow">Conversation</p>
+          <h2>Gateway Runtime Chat</h2>
         </div>
       </div>
       {messages.map((chatMessage) => (
         <article
-          className={`task-message-card ${chatMessage.role === "user" ? "request-card" : "gateway-response-card"} ${chatMessage.status === "loading" ? "loading" : ""
+          className={`task-message-card chat-bubble ${chatMessage.role === "user" ? "request-card user-message" : "gateway-response-card assistant-message"} ${chatMessage.status === "loading" ? "loading" : ""
             }`}
           key={chatMessage.id}
         >
-          <span>{chatMessage.role === "user" ? "Request" : "Gateway response"}</span>
+          <span>{chatMessage.role === "user" ? "You" : "Secure A2A Gateway"}</span>
           <p>{chatMessage.content}</p>
         </article>
       ))}
       {messages.length === 0 ? (
-        <div className="empty-state compact">Choose a security scenario or enter a task to see the gateway response.</div>
+        <div className="empty-state compact">Ask about Jira, ServiceNow, GitHub, or try to request a blocked action.</div>
       ) : null}
       <div ref={endRef} />
     </section>
@@ -2070,18 +2070,95 @@ function App() {
     endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage
   };
 
+  function navigateToTab(tabId: ActiveTab) {
+    setActiveTab(tabId);
+    if (tabId === "demo-guide") {
+      guideToTarget("demo-guide");
+    }
+    if (tabId === "run-task") {
+      guideToTarget("composer");
+    }
+    if (tabId === "agent-registry") {
+      guideToTarget("agent-registry");
+    }
+    if (tabId === "trust-identity") {
+      guideToTarget("trust-login");
+    }
+    if (tabId === "security-timeline") {
+      guideToTarget("security-timeline");
+    }
+  }
+
   return (
-    <main className="shell single-panel-shell">
+    <main className="shell control-plane-shell">
+      <aside className="control-sidebar" aria-label="Product navigation">
+        <div className="sidebar-brand">
+          <p className="eyebrow">Secure A2A Gateway</p>
+          <h1>Runtime Control Plane</h1>
+          <p>AI interprets. Gateway decides. Scoped runtime executes only approved skills.</p>
+        </div>
+
+        <nav className="sidebar-nav" aria-label="Main product sections">
+          <span>Main</span>
+          {tabs.map((tab) => (
+            <button
+              type="button"
+              key={tab.id}
+              className={activeTab === tab.id ? "active" : ""}
+              onClick={() => navigateToTab(tab.id)}
+            >
+              <strong>{tab.label}</strong>
+              <small>{tab.hint}</small>
+            </button>
+          ))}
+        </nav>
+
+        <div className="sidebar-nav sidebar-planned" aria-label="Future V1 planned sections">
+          <span>Future / V1 planned</span>
+          <button type="button" disabled>
+            <strong>Connector Test Center</strong>
+            <small>Coming soon</small>
+          </button>
+          <button type="button" disabled>
+            <strong>External Agent Admin</strong>
+            <small>Coming soon</small>
+          </button>
+        </div>
+
+        <div className="sidebar-status" aria-label="System status">
+          <span>System</span>
+          <div>
+            <small>Identity:</small>
+            <strong className={isUserAuthenticated ? "status-success" : "status-warning"}>{isUserAuthenticated ? "Logged in" : "Not logged in"}</strong>
+          </div>
+          <div>
+            <small>Installed agents:</small>
+            <strong>{installedConnectorAgentCount}</strong>
+          </div>
+          <div>
+            <small>Runtime ready:</small>
+            <strong>{runtimeReadyConnectorAgentCount}</strong>
+          </div>
+          <div>
+            <small>Security:</small>
+            <strong>Raw tokens hidden</strong>
+          </div>
+          <div>
+            <small>Auth:</small>
+            <strong>Scoped JWT enabled</strong>
+          </div>
+        </div>
+      </aside>
+
       <section className="workspace">
         <header className="topbar">
           <div className="topbar-copy">
             <p className="eyebrow">Secure A2A Control Plane</p>
             <h1>Secure Agent Orchestration Gateway</h1>
-            <p className="subtitle">Import external agents through Agent Cards and govern execution with scoped JWTs, policy, and audit.</p>
             <div className="menu-hint">
               <span>Open Demo Guide for the recommended presentation flow.</span>
               <button type="button" onClick={() => {
-                setActiveTab("demo-guide");
+                navigateToTab("demo-guide");
                 guideToTarget("demo-guide");
               }}>Demo Guide</button>
             </div>
@@ -2109,36 +2186,6 @@ function App() {
           </div>
         </header>
 
-        <nav className="product-tabs" aria-label="Control plane sections">
-          {tabs.map((tab) => (
-            <button
-              type="button"
-              key={tab.id}
-              className={activeTab === tab.id ? "active" : ""}
-              onClick={() => {
-                setActiveTab(tab.id);
-                if (tab.id === "demo-guide") {
-                  guideToTarget("demo-guide");
-                }
-                if (tab.id === "run-task") {
-                  guideToTarget("composer");
-                }
-                if (tab.id === "agent-registry") {
-                  guideToTarget("agent-registry");
-                }
-                if (tab.id === "trust-identity") {
-                  guideToTarget("trust-login");
-                }
-                if (tab.id === "security-timeline") {
-                  guideToTarget("security-timeline");
-                }
-              }}
-            >
-              <span>{tab.label}</span>
-              {activeTab === tab.id ? <small>{tab.hint}</small> : null}
-            </button>
-          ))}
-        </nav>
         {guidedStatus ? <div className="guided-status" role="status">{guidedStatus}</div> : null}
 
         {activeTab === "demo-guide" ? <DemoGuideTab ctx={screenContext} /> : null}

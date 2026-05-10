@@ -151,11 +151,34 @@ for (const className of [".status-success", ".status-warning", ".status-danger",
   }
 }
 
-for (const phrase of ["Next Action", "Demo path", "Connector template", "Installed connector agent", "Technical details"]) {
+for (const phrase of [
+  "Next Action",
+  "Demo path",
+  "Connector template",
+  "Installed connector agent",
+  "Technical details",
+  "Connector Test Center",
+  "External Agent Admin",
+  "AI can interpret the request, but only the Gateway can approve execution",
+  "Suggested prompts",
+  "Ask about Jira, ServiceNow, GitHub",
+  "Installed agents:",
+  "Runtime ready:"
+]) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - UI missing required phrase: ${phrase}`);
     failed = true;
   }
+}
+
+if (!webUi.includes("control-sidebar")) {
+  console.error("fail - product shell should include persistent sidebar navigation");
+  failed = true;
+}
+
+if (/<nav\s+className=["']product-tabs["']/.test(webUi)) {
+  console.error("fail - old product tabs should not be the primary visible navigation when sidebar exists");
+  failed = true;
 }
 
 if (failed) {

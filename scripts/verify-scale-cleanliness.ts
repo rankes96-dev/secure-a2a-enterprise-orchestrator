@@ -279,12 +279,27 @@ for (const phrase of [
   "Trust & Identity",
   "Identity control",
   "Security Timeline",
-  "Audit proof"
+  "Audit proof",
+  "Connector Test Center",
+  "External Agent Admin",
+  "AI can interpret the request, but only the Gateway can approve execution",
+  "Suggested prompts",
+  "Ask about Jira, ServiceNow, GitHub",
+  "Installed agents:",
+  "Runtime ready:"
 ]) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - simplified product UI should include phrase: ${phrase}`);
     failed = true;
   }
+}
+if (!webUi.includes("control-sidebar")) {
+  console.error("fail - product shell should include persistent left sidebar navigation");
+  failed = true;
+}
+if (/<nav\s+className=["']product-tabs["']/.test(webUi)) {
+  console.error("fail - old product tabs should not remain as primary visible navigation when sidebar exists");
+  failed = true;
 }
 const startHereMatches = webUi.match(/Start here/g) ?? [];
 if (startHereMatches.length > 1) {
@@ -294,8 +309,7 @@ if (startHereMatches.length > 1) {
 for (const forbiddenUiCopy of [
   'label: "Capability"',
   "based on capability metadata",
-  ">Capability<",
-  "Raw tokens hidden"
+  ">Capability<"
 ]) {
   if (webUi.includes(forbiddenUiCopy)) {
     console.error(`fail - user-facing UI copy should avoid: ${forbiddenUiCopy}`);

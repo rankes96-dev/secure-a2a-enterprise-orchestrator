@@ -73,6 +73,33 @@ function connectorDecisionCopy(response: ResolveResponse): string {
   return response.connectorRouting?.reason ?? "Connector route selected.";
 }
 
+function interpretationRows(response: ResolveResponse): Array<{ label: string; value: string }> {
+  const rows = [
+    {
+      label: "Target system",
+      value: response.connectorRouting?.targetSystem ?? response.requestInterpretation?.targetSystemText ?? response.classification.system
+    },
+    {
+      label: "Requested skill / action",
+      value:
+        response.connectorRouting?.skillLabel ??
+        response.connectorRouting?.skillId ??
+        response.requestInterpretation?.requestedActionText ??
+        response.requestInterpretation?.requestedCapability
+    },
+    {
+      label: "Confidence",
+      value: response.requestInterpretation?.confidence ?? response.routingConfidence
+    },
+    {
+      label: "Interpretation source",
+      value: response.requestInterpretation?.interpretationSource ?? response.routingSource
+    }
+  ];
+
+  return rows.filter((row): row is { label: string; value: string } => Boolean(row.value));
+}
+
 export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   const {
     activeTab, setActiveTab, message, setMessage, messages, error, isLoading, health, healthError, isHealthLoading,
@@ -108,9 +135,9 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
 
   function renderScenarioOptions(items: Scenario[]) {
     return (
-      <div className="scenario-buttons">
+      <div className="scenario-buttons suggested-prompt-grid">
         {items.map((scenario) => (
-          <article className="scenario-card" key={scenario.label}>
+          <article className="scenario-card suggested-prompt-card" key={scenario.label}>
             <div className="scenario-card-body">
               <span className={`scenario-outcome-badge status-${cockpitStatusClass(scenario.badge ?? scenario.subtitle)}`}>{scenario.badge ?? "Advanced"}</span>
               <h3>{scenario.label}</h3>
@@ -127,11 +154,11 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                 title={scenario.subtitle}
                 onClick={() => {
                   setMessage(scenario.message);
-                  showGuidedStatus("Scenario loaded in composer");
+                  showGuidedStatus("Suggested prompt loaded in composer");
                   guideToTarget("composer");
                 }}
               >
-                Use scenario
+                Use prompt
               </button>
               <button
                 type="button"
@@ -143,11 +170,11 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                     goToTrustIdentity();
                     return;
                   }
-                  showGuidedStatus("Scenario running");
+                  showGuidedStatus("Suggested prompt running");
                   void resolveIssue(scenario.message);
                 }}
               >
-                {isUserAuthenticated ? "Run" : "Login required"}
+                {isUserAuthenticated ? "Run prompt" : "Login required"}
               </button>
             </div>
           </article>
@@ -173,6 +200,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     const showFullResponse = latestResponse.finalAnswer.trim() !== executiveSummary.trim();
     const supportingAgents = latestResponse.selectedAgents;
     const outcomeLabel = gatewayOutcomeLabel(latestResponse);
+    const aiInterpretationRows = interpretationRows(latestResponse);
     const outcomeBadges = [
       { label: "Identity verified", className: "status-success" },
       ...(latestResponse.connectorRouting
@@ -199,6 +227,21 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           </div>
           <span className={`summary-result status-${cockpitStatusClass(outcomeLabel)}`}>{outcomeLabel}</span>
         </div>
+        <section className="ai-interpretation-section gateway-response-section">
+          <span>AI Interpretation</span>
+          {aiInterpretationRows.length ? (
+            <div className="ai-interpretation-grid">
+              {aiInterpretationRows.map((row) => (
+                <div key={row.label}>
+                  <small>{row.label}</small>
+                  <strong>{row.value}</strong>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p>Gateway interpreted the request using deterministic and AI-assisted routing signals.</p>
+          )}
+        </section>
         <section className="gateway-response-section root-cause-section">
           <span>Root cause</span>
           <p>{latestResponse.diagnosis.probableCause}</p>
@@ -604,16 +647,19 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   }
   function renderRunTaskTab() {
     return (
-      <section className="control-panel demo-cockpit scroll-target" aria-label="Execution Cockpit" ref={runTaskRootRef} tabIndex={-1}>
+      <section className="control-panel demo-cockpit chat-first-cockpit scroll-target" aria-label="Execution Cockpit" ref={runTaskRootRef} tabIndex={-1}>
         {renderPageHeader({
           eyebrow: "Execution cockpit",
           title: "Run Task",
           subtitle: "Submit an enterprise request and watch the Gateway route, authorize, and execute approved connector skills."
         })}
 
-        {renderCockpitStatusStrip()}
-        <div className="cockpit-grid">
-          <section className="cockpit-main">
+        <section className="gateway-principle-strip">
+          AI can interpret the request, but only the Gateway can approve execution.
+        </section>
+
+        <div className="chat-runtime-layout">
+          <section className="chat-conversation-panel">
             {!isUserAuthenticated ? (
               <section className="identity-gate-panel" role="status">
                 <div>
@@ -625,27 +671,15 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
               </section>
             ) : null}
 
-            <div className="scenario-launcher cockpit-card" aria-label="Security story scenarios">
-            <div className="section-heading-row">
-              <div>
-                <p className="active-panel-eyebrow">Scenario picker</p>
-                <h2>Connector-first scenarios</h2>
-              </div>
-            </div>
-            {renderScenarioOptions(quickScenarios)}
-            {advancedScenarios.length ? (
-              <details className="advanced-scenarios">
-                <summary>Advanced Scenarios</summary>
-                {renderScenarioOptions(advancedScenarios)}
-              </details>
-            ) : null}
-            </div>
+            {renderCockpitStatusStrip()}
 
-            <form className="composer cockpit-card scroll-target" onSubmit={submitIssue} ref={composerRef}>
+            <MessageList messages={messages} />
+
+            <form className="composer chat-composer cockpit-card scroll-target" onSubmit={submitIssue} ref={composerRef}>
               <div className="section-heading-row">
                 <div>
-                  <p className="active-panel-eyebrow">Task input</p>
-                  <h2>AI command composer</h2>
+                  <p className="active-panel-eyebrow">Free-form request</p>
+                  <h2>Ask the Gateway</h2>
                 </div>
               </div>
               <div className={`composer-recommendation ${runtimeReadyConnectorAgentCount > 0 ? "ready" : "setup"}`}>
@@ -670,7 +704,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                   value={message}
                   onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setMessage(event.target.value)}
                   aria-label="Integration issue"
-                  placeholder="Describe the enterprise issue or access request to run through the Secure A2A Gateway"
+                  placeholder="Ask about Jira, ServiceNow, GitHub, or try to request a blocked action..."
                 />
                 <div className="composer-action-row">
                   <div className="composer-helper">
@@ -682,18 +716,28 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                     ) : null}
                   </div>
                   <button type="submit" className="composer-run-button" disabled={isLoading || !isUserAuthenticated}>
-                    {isLoading ? "Running..." : isUserAuthenticated ? "Run secure task" : "Login required"}
+                    {isLoading ? "Running..." : isUserAuthenticated ? "Send / Run" : "Login required"}
                   </button>
                 </div>
               </div>
             </form>
 
-            {error ? <p className="error cockpit-error">{error}</p> : null}
+            <details className="scenario-launcher suggested-prompts cockpit-card" aria-label="Suggested prompts">
+              <summary>Suggested prompts</summary>
+              {renderScenarioOptions(quickScenarios)}
+              {advancedScenarios.length ? (
+                <details className="advanced-scenarios">
+                  <summary>Advanced prompts</summary>
+                  {renderScenarioOptions(advancedScenarios)}
+                </details>
+              ) : null}
+            </details>
 
-            {renderGatewayResponseCard()}
+            {error ? <p className="error cockpit-error">{error}</p> : null}
           </section>
 
-          <aside className="cockpit-side">
+          <aside className="cockpit-side governance-proof-panel">
+            {renderGatewayResponseCard()}
             {renderSecuritySummaryCard()}
             {renderLatestSecurityDetails()}
             <section className="cockpit-card selected-agents-card">
