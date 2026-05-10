@@ -314,9 +314,26 @@ for (const token of ["--page-bg", "--surface", "--text", "--primary", "--success
     failed = true;
   }
 }
-for (const section of ["Design tokens", "Buttons", "Cards / panels", "Badges / status chips", "Demo Guide", "Run Task", "Agent Registry"]) {
-  if (!webUiStyles.includes(section)) {
-    console.error(`fail - styles.css should include design-system section: ${section}`);
+const expectedStyleSections = [
+  "Design tokens",
+  "Base layout",
+  "Typography",
+  "Primitives",
+  "Buttons",
+  "Badges / status chips",
+  "Forms / inputs",
+  "Tabs / navigation",
+  "Demo Guide",
+  "Run Task",
+  "Agent Registry",
+  "Trust & Identity",
+  "Security Timeline",
+  "Responsive rules"
+];
+for (const section of expectedStyleSections) {
+  const matches = webUiStyles.match(new RegExp(`^\\s*${section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "gm")) ?? [];
+  if (matches.length !== 1) {
+    console.error(`fail - styles.css should include design-system section exactly once: ${section} (found ${matches.length})`);
     failed = true;
   }
 }

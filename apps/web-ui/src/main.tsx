@@ -2851,7 +2851,7 @@ function App() {
       ["OAuth application binding checked", "Match client, issuer, audience, and token auth method.", "oauth_application_bound"],
       ["Resource permissions loaded", "Load effective and denied permissions for the app principal.", "resource_permissions_loaded"],
       ["Actions decided", "Approve or block actions from application access grants and effective permissions.", "capabilities_derived"],
-      ["Runtime remains metadata-only", "External runtime execution stays disabled for this phase.", "runtime_execution_metadata_only"]
+      ["Runtime not executed", "External runtime execution stays disabled for this phase.", "runtime_execution_metadata_only"]
     ] as const;
     const moveStep = (direction: 1 | -1) => {
       const nextIndex = Math.min(Math.max(currentStepIndex + direction, 0), wizardSteps.length - 1);

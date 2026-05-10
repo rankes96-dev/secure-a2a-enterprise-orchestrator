@@ -14,6 +14,8 @@ for (const forbidden of [
   '<span className="source-badge">installed connector</span>',
   'label: "Capability"',
   "based on capability metadata",
+  "Runtime remains metadata-only",
+  ">metadata-only<",
   ">Capability<",
   "Raw tokens hidden"
 ]) {

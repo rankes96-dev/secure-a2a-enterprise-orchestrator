@@ -9,9 +9,9 @@ const requiredSections = [
   "Design tokens",
   "Base layout",
   "Typography",
+  "Primitives",
   "Buttons",
   "Badges / status chips",
-  "Cards / panels",
   "Forms / inputs",
   "Tabs / navigation",
   "Demo Guide",
@@ -22,9 +22,67 @@ const requiredSections = [
   "Responsive rules"
 ];
 
-for (const section of requiredSections) {
-  if (!styles.includes(section)) {
-    console.error(`fail - styles.css missing design-system section: ${section}`);
+function escapedRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+for (const [index, section] of requiredSections.entries()) {
+  const matches = [...styles.matchAll(new RegExp(`^\\s*${escapedRegExp(section)}\\s*$`, "gm"))];
+  if (matches.length !== 1) {
+    console.error(`fail - styles.css should include design-system section exactly once: ${section} (found ${matches.length})`);
+    failed = true;
+    continue;
+  }
+
+  const nextSection = requiredSections[index + 1];
+  if (nextSection) {
+    const nextMatches = [...styles.matchAll(new RegExp(`^\\s*${escapedRegExp(nextSection)}\\s*$`, "gm"))];
+    if (nextMatches.length === 1 && (matches[0].index ?? 0) > (nextMatches[0].index ?? 0)) {
+      console.error(`fail - styles.css section order is wrong: ${section} should appear before ${nextSection}`);
+      failed = true;
+    }
+  }
+}
+
+const requiredPrimitives = [
+  ".app-shell",
+  ".page",
+  ".page-header",
+  ".section",
+  ".stack",
+  ".cluster",
+  ".grid-auto",
+  ".grid-two",
+  ".grid-three",
+  ".card",
+  ".card-muted",
+  ".card-elevated",
+  ".card-warning",
+  ".card-danger",
+  ".card-info",
+  ".btn",
+  ".btn-primary",
+  ".btn-secondary",
+  ".btn-tertiary",
+  ".btn-danger",
+  ".btn-compact",
+  ".badge",
+  ".badge-success",
+  ".badge-warning",
+  ".badge-danger",
+  ".badge-info",
+  ".badge-neutral",
+  ".metric-card",
+  ".metric-grid",
+  ".truncate",
+  ".monospace",
+  ".hash-value",
+  ".endpoint-value"
+];
+
+for (const primitive of requiredPrimitives) {
+  if (!styles.includes(primitive)) {
+    console.error(`fail - styles.css missing reusable primitive: ${primitive}`);
     failed = true;
   }
 }
@@ -43,6 +101,30 @@ const forbiddenStyleTokens = [
 for (const token of forbiddenStyleTokens) {
   if (styles.includes(token)) {
     console.error(`fail - styles.css still contains dark/glass leftover: ${token}`);
+    failed = true;
+  }
+}
+
+const rootBlock = styles.match(/:root\s*\{[\s\S]*?\}/)?.[0] ?? "";
+const stylesOutsideRoot = styles.replace(rootBlock, "");
+const legacyColors = [
+  "#172026",
+  "#253d47",
+  "#384b53",
+  "#526b76",
+  "#235789",
+  "#14213d",
+  "#d7e0e4",
+  "#dbe3e8",
+  "#c7d2d8",
+  "#fbfcfd",
+  "#f8fafb"
+];
+
+for (const color of legacyColors) {
+  const count = (stylesOutsideRoot.match(new RegExp(escapedRegExp(color), "g")) ?? []).length;
+  if (count > 0) {
+    console.error(`fail - legacy hardcoded color should use tokens outside :root: ${color} (${count})`);
     failed = true;
   }
 }
