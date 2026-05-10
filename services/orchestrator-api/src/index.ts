@@ -331,13 +331,35 @@ function explicitPlanningTargetMention(message: string, installedAgents: ReturnT
 function normalizePlanningTargetAnswer(message: string): string {
   return message
     .trim()
+    .replace(/^use\s+/i, "")
     .replace(/^it'?s\s+/i, "")
     .replace(/^it\s+is\s+/i, "")
     .replace(/^for\s+/i, "")
     .replace(/^the\s+system\s+is\s+/i, "")
+    .replace(/\s+for\s+(?:the\s+)?previous\s+access\s+request$/i, "")
     .replace(/[,:]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function isPreviousAccessRequestTargetSelection(message: string): boolean {
+  return /\bprevious access request\b/i.test(message);
+}
+
+function resolvedPlanningMessage(originalMessage: string, normalizedAnswer: string): string {
+  if (/\bproject\b/i.test(normalizedAnswer)) {
+    return `I need access to ${normalizedAnswer}`;
+  }
+
+  if (/\bproject\b/i.test(originalMessage)) {
+    return originalMessage.replace(/\b(?:a|the)\s+project\b/i, `${normalizedAnswer} project`);
+  }
+
+  if (/\bsystem\b/i.test(originalMessage)) {
+    return originalMessage.replace(/\b(?:a|the)\s+system\b/i, normalizedAnswer);
+  }
+
+  return `${originalMessage} in ${normalizedAnswer}`;
 }
 
 function buildPlanningFollowUpResolution(params: {
@@ -354,14 +376,11 @@ function buildPlanningFollowUpResolution(params: {
   const followUpAnswer = params.currentMessage.trim();
   const normalizedAnswer = normalizePlanningTargetAnswer(followUpAnswer);
   const hasExplicitTarget = explicitPlanningTargetMention(followUpAnswer, params.installedAgents);
+  const isUiTargetSelection = isPreviousAccessRequestTargetSelection(followUpAnswer);
   const resolvedMessage = hasExplicitTarget
-    ? isConnectorAccessPlanningRequest(followUpAnswer)
+    ? !isUiTargetSelection && isConnectorAccessPlanningRequest(followUpAnswer)
       ? followUpAnswer
-      : /\bproject\b/i.test(normalizedAnswer)
-        ? `I need access to ${normalizedAnswer}`
-        : /\bproject\b/i.test(originalMessage)
-          ? originalMessage.replace(/\b(?:a|the)\s+project\b/i, `${normalizedAnswer} project`)
-          : `${originalMessage} in ${normalizedAnswer}`
+      : resolvedPlanningMessage(originalMessage, normalizedAnswer)
     : [
         originalMessage,
         `Follow-up answer: ${followUpAnswer}`
@@ -1532,6 +1551,85 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
             label: "Gateway Governance",
             status: "blocked",
             reason: "Gateway did not select a connector for an unsupported or unlisted system."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "Gateway did not select a connector."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "Gateway did not select a connector."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "No connector plan or runtime execution was requested."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  if (!planningFollowUpResolution && isPreviousAccessRequestTargetSelection(requestBody.message)) {
+    const diagnosis = {
+      probableCause: "No previous access request is active",
+      recommendedFix: "Describe the access request, including the system or application and the object you need access to."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: "I can help plan an access request, but I need the original access request first. Tell me which system or application you need access to and what object you need.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "Received a target-selection follow-up phrase without pending planning context.",
+      resolutionStatus: "needs_more_info",
+      evidence: [],
+      agentTrace: [
+        trace("connector_planning_follow_up_without_context", "Did not execute planning because no pending access request context was active.")
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "ask_for_original_access_request", "Target selection phrase requires pending planning context.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: {
+        ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+        scope: "enterprise_support",
+        intentType: "access_request",
+        requestedActionText: "access request",
+        confidence: "low",
+        reason: "The message refers to a previous access request, but no pending planning context exists."
+      },
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "needs_more_info",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "Target-selection follow-up detected without active planning context.",
+            evidence: {
+              targetSystem: "not selected",
+              requestedAction: "access request follow-up"
+            }
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "blocked",
+            reason: "Gateway did not select a connector without the original access request context."
           },
           {
             id: "oauth_scope",

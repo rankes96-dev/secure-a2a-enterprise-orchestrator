@@ -140,6 +140,19 @@ async function main(): Promise<void> {
   }
   logOk("planning follow-up resolved target and returned safe plan");
 
+  const uiStart = await resolve("I need access to a project");
+  const uiConversationId = typeof uiStart.conversationId === "string" ? uiStart.conversationId : undefined;
+  if (!uiConversationId) fail("UI follow-up setup did not return conversationId");
+  const uiFollowUp = await resolve("Use Jira for the previous access request", uiConversationId);
+  const uiGateStack = asRecord(uiFollowUp.executionGateStack, "UI follow-up executionGateStack");
+  if (!uiFollowUp.connectorActionPlan || !uiFollowUp.evaluatedActionPlan || uiGateStack.finalOutcome !== "planned") {
+    fail(`explicit UI planning follow-up should return evaluated action plan: ${JSON.stringify(uiFollowUp)}`);
+  }
+  if (uiFollowUp.connectorRuntime !== undefined) {
+    fail(`explicit UI planning follow-up should not execute write runtime: ${JSON.stringify(uiFollowUp.connectorRuntime)}`);
+  }
+  logOk("explicit UI planning follow-up resolved target and returned safe plan");
+
   const adversarialStart = await resolve("I need access to a project");
   const adversarialConversationId = typeof adversarialStart.conversationId === "string" ? adversarialStart.conversationId : undefined;
   if (!adversarialConversationId) fail("adversarial setup did not return conversationId");

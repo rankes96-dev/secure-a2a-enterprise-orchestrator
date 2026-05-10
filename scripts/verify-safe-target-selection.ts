@@ -124,6 +124,9 @@ function verifyStatic(): void {
     "Which system do you need access to?",
     "Search supported systems...",
     "Other / not listed",
+    "Use ${option.label} for the previous access request",
+    "Other / not listed for the previous access request",
+    "chat-safe-target-selection",
     "Search for a supported system or choose Other / not listed."
   ]) {
     if (!ui.includes(phrase) && !main.includes(phrase)) {
@@ -135,6 +138,12 @@ function verifyStatic(): void {
   }
   if (ui.includes("option.connectorId") || ui.includes("connectorId}</strong>")) {
     fail("main chat safe target picker should not render connectorId as the primary label");
+  }
+  if (!ui.includes('useEffect(() =>') || !ui.includes('setTargetSearch("")')) {
+    fail("safe target search should reset when a new safe target selection response arrives");
+  }
+  if (!ui.includes('<MessageList messages={messages} />') || !ui.includes('renderSafeTargetSelection("chat")')) {
+    fail("safe target picker should be rendered in the chat panel, not only in the Gateway response side panel");
   }
   logOk("static safe target selection UI checks passed");
 }
@@ -171,20 +180,30 @@ async function main(): Promise<void> {
   if (!conversationId) fail("ambiguous response did not return conversationId");
   logOk("ambiguous request returned simple safe target selection");
 
-  const jiraFollowUp = await resolve("Jira project FIN", conversationId);
+  const jiraFollowUp = await resolve("Use Jira for the previous access request", conversationId);
   const jiraGateStack = asRecord(jiraFollowUp.executionGateStack, "Jira follow-up executionGateStack");
   if (!jiraFollowUp.connectorActionPlan || !jiraFollowUp.evaluatedActionPlan || jiraGateStack.finalOutcome !== "planned") {
-    fail(`Jira follow-up should return PLANNED action plan: ${JSON.stringify(jiraFollowUp)}`);
+    fail(`explicit UI Jira follow-up should return PLANNED action plan: ${JSON.stringify(jiraFollowUp)}`);
   }
   if (jiraFollowUp.connectorRuntime !== undefined) {
     fail(`Jira planning follow-up should not execute write runtime: ${JSON.stringify(jiraFollowUp.connectorRuntime)}`);
   }
-  logOk("supported system follow-up returned safe plan");
+  logOk("explicit supported system follow-up returned safe plan");
+
+  const noContext = await resolve("Use Jira for the previous access request");
+  const noContextGateStack = asRecord(noContext.executionGateStack, "no-context executionGateStack");
+  if (noContext.resolutionStatus !== "needs_more_info" || noContextGateStack.finalOutcome !== "needs_more_info") {
+    fail(`explicit target selection without pending context should ask for original access request: ${JSON.stringify(noContext)}`);
+  }
+  if (noContext.connectorActionPlan !== undefined || noContext.connectorRuntime !== undefined) {
+    fail(`explicit target selection without pending context should not plan or execute runtime: ${JSON.stringify(noContext)}`);
+  }
+  logOk("explicit target selection without context did not execute planning");
 
   const otherStart = await resolve("I need access to the system");
   const otherConversationId = typeof otherStart.conversationId === "string" ? otherStart.conversationId : undefined;
   if (!otherConversationId) fail("Other setup response did not return conversationId");
-  const other = await resolve("Other / not listed", otherConversationId);
+  const other = await resolve("Other / not listed for the previous access request", otherConversationId);
   const otherGateStack = asRecord(other.executionGateStack, "Other executionGateStack");
   if (other.resolutionStatus !== "unsupported" || otherGateStack.finalOutcome !== "unsupported") {
     fail(`Other / not listed should return unsupported handoff: ${JSON.stringify(other)}`);

@@ -4621,6 +4621,11 @@ pre {
   border-left: 4px solid var(--primary);
 }
 
+.chat-safe-target-selection {
+  margin: 0 2px 4px;
+  box-shadow: var(--shadow-sm);
+}
+
 .safe-target-search {
   width: 100%;
   border: 1px solid var(--border);

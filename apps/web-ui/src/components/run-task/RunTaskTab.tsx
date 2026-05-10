@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { ResolveResponse } from "@a2a/shared";
 import type { ExtractedScreenContext, Scenario } from "../types";
 
@@ -315,6 +315,10 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     ) ?? [];
   }, [safeTargetSelection, targetSearch]);
 
+  useEffect(() => {
+    setTargetSearch("");
+  }, [safeTargetSelection]);
+
   const allPromptScenarios = [...quickScenarios, ...advancedScenarios];
   const adversarialPrompts: Scenario[] = [
     {
@@ -560,14 +564,14 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     );
   }
 
-  function renderSafeTargetSelection() {
+  function renderSafeTargetSelection(placement: "chat" | "panel" = "panel") {
     const selection = safeTargetSelection;
     if (!selection) {
       return null;
     }
 
     return (
-      <section className="safe-target-selection-card gateway-response-section">
+      <section className={`safe-target-selection-card gateway-response-section ${placement === "chat" ? "chat-safe-target-selection" : "panel-safe-target-selection"}`}>
         <span>{selection.question || "Which system do you need access to?"}</span>
         <input
           type="search"
@@ -584,7 +588,9 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
               className="safe-target-option"
               key={option.id}
               onClick={() => {
-                const followUp = option.kind === "other" ? "Other / not listed" : option.label;
+                const followUp = option.kind === "other"
+                  ? "Other / not listed for the previous access request"
+                  : `Use ${option.label} for the previous access request`;
                 setMessage(followUp);
                 showGuidedStatus("Target system selected");
                 void resolveIssue(followUp);
@@ -595,10 +601,10 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
             </button>
           ))}
         </div>
-        <details className="technical-details">
+        {placement === "panel" ? <details className="technical-details">
           <summary>Technical details</summary>
           <p>{selection.reason}</p>
-        </details>
+        </details> : null}
       </section>
     );
   }
@@ -664,7 +670,6 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           )}
         </section>
         {renderExecutionGateStack(latestResponse)}
-        {renderSafeTargetSelection()}
         {renderConnectorActionPlan()}
         {latestResponse.connectorRouting ? (
           <section className="connector-decision-section">
@@ -1099,6 +1104,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
             {renderCockpitStatusStrip()}
 
             <MessageList messages={messages} />
+            {renderSafeTargetSelection("chat")}
 
             <form className="composer chat-composer cockpit-card scroll-target" onSubmit={submitIssue} ref={composerRef}>
               <div className="section-heading-row">
