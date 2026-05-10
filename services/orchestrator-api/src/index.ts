@@ -14,6 +14,8 @@ import type {
   ConnectorPlanningTargetResolution,
   ExecutionTraceStep,
   FollowUpInterpretation,
+  PendingFollowUpContext,
+  PlanningFollowUpResolution,
   ResolveRequest,
   ResolveResponse,
   RequestInterpretation,
@@ -101,6 +103,7 @@ type ConversationState = {
   lastIncidentContext?: IncidentContext;
   lastSelectedAgents?: SelectedAgent[];
   lastResolutionStatus?: "resolved" | "needs_more_info" | "unsupported";
+  pendingFollowUp?: PendingFollowUpContext;
 };
 
 const conversations = new Map<string, ConversationState>();
@@ -251,6 +254,17 @@ function updateConversationState(state: ConversationState, response: ResolveResp
   }
   state.lastSelectedAgents = response.selectedAgents;
   state.lastResolutionStatus = response.resolutionStatus;
+  if (response.connectorPlanningTargetResolution?.strategy === "needs_clarification") {
+    state.pendingFollowUp = {
+      type: "connector_planning_target",
+      originalMessage: response.pendingFollowUp?.originalMessage ?? lastUserMessageBeforeLatest(state) ?? "",
+      detectedIntentClasses: response.connectorPlanningTargetResolution.detectedIntentClasses,
+      missingFields: ["targetSystem"],
+      createdAt: response.pendingFollowUp?.createdAt ?? new Date().toISOString()
+    };
+  } else if (state.pendingFollowUp?.type === "connector_planning_target") {
+    state.pendingFollowUp = undefined;
+  }
 
   if (response.resolutionStatus === "needs_more_info" || response.a2aResponses?.some((item) => item.status === "needs_more_info")) {
     state.needsMoreInfoCount += 1;
@@ -293,6 +307,71 @@ function buildEffectiveMessageForRouting(state: ConversationState, currentMessag
     "",
     "Interpret the follow-up as additional context for the previous issue. Do not treat it as a new standalone request."
   ].join("\n");
+}
+
+function explicitPlanningTargetMention(message: string, installedAgents: ReturnType<typeof listTrustedOnboardedAgents>): boolean {
+  const normalized = message.toLowerCase();
+  return installedAgents
+    .filter((agent) => agent.connectorProfile?.planning?.supported === true)
+    .some((agent) => {
+      const connectorId = agent.connectorId ?? agent.connectorProfile?.connectorId ?? "";
+      const resourceSystem = agent.resourceSystem ?? agent.connectorProfile?.resourceSystem ?? "";
+      const displayName = agent.connectorProfile?.displayName ?? "";
+      const explicitTerms = [
+        connectorId,
+        connectorId.replace("-reference", ""),
+        resourceSystem,
+        displayName
+      ].map((term) => term.toLowerCase()).filter(Boolean);
+      return explicitTerms.some((term) => normalized.includes(term));
+    });
+}
+
+function normalizePlanningTargetAnswer(message: string): string {
+  return message
+    .trim()
+    .replace(/^it'?s\s+/i, "")
+    .replace(/^it\s+is\s+/i, "")
+    .replace(/^for\s+/i, "")
+    .replace(/^the\s+system\s+is\s+/i, "")
+    .replace(/[,:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildPlanningFollowUpResolution(params: {
+  state: ConversationState;
+  currentMessage: string;
+  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+}): PlanningFollowUpResolution | undefined {
+  const pending = params.state.pendingFollowUp;
+  if (pending?.type !== "connector_planning_target") {
+    return undefined;
+  }
+
+  const originalMessage = pending.originalMessage;
+  const followUpAnswer = params.currentMessage.trim();
+  const normalizedAnswer = normalizePlanningTargetAnswer(followUpAnswer);
+  const hasExplicitTarget = explicitPlanningTargetMention(followUpAnswer, params.installedAgents);
+  const resolvedMessage = hasExplicitTarget
+    ? isConnectorAccessPlanningRequest(followUpAnswer)
+      ? followUpAnswer
+      : /\bproject\b/i.test(normalizedAnswer)
+        ? `I need access to ${normalizedAnswer}`
+        : /\bproject\b/i.test(originalMessage)
+          ? originalMessage.replace(/\b(?:a|the)\s+project\b/i, `${normalizedAnswer} project`)
+          : `${originalMessage} in ${normalizedAnswer}`
+    : [
+        originalMessage,
+        `Follow-up answer: ${followUpAnswer}`
+      ].join("\n");
+
+  return {
+    type: "connector_planning_target",
+    originalMessage,
+    followUpAnswer,
+    resolvedMessage
+  };
 }
 
 function buildDiagnosis(agentResponses: A2AAgentResponse[]): ResolveResponse["diagnosis"] {
@@ -1205,6 +1284,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
   const verifiedUser = currentUserIdentity(sessionToken);
   const responseUserIdentity = safeUserIdentity(sessionToken);
   const requestAgentCards = getExecutableAgentCards();
+  const installedAgents = sessionToken ? listTrustedOnboardedAgents(sessionToken) : [];
   appendConversationMessage(conversationState, "user", requestBody.message);
   const followUp = await interpretFollowUp({
     currentMessage: requestBody.message,
@@ -1213,7 +1293,12 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     previousInterpretation: conversationState.lastRequestInterpretation,
     previousIncidentContext: conversationState.lastIncidentContext
   });
-  const effectiveMessage = buildEffectiveMessageForRouting(conversationState, requestBody.message, followUp);
+  const planningFollowUpResolution = buildPlanningFollowUpResolution({
+    state: conversationState,
+    currentMessage: requestBody.message,
+    installedAgents
+  });
+  const effectiveMessage = planningFollowUpResolution?.resolvedMessage ?? buildEffectiveMessageForRouting(conversationState, requestBody.message, followUp);
   const routingDecision = await routeWithAI(effectiveMessage, { agentCards: requestAgentCards });
   const classification = routingDecision.classification;
   const conversationId = conversationState.conversationId;
@@ -1251,7 +1336,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
   );
   const connectorRouting = routeConnectorRequest(
     effectiveMessage,
-    sessionToken ? listTrustedOnboardedAgents(sessionToken) : []
+    installedAgents
   );
   const finalize = (response: Omit<ResolveResponse, "userIdentity">): ResolveResponse => {
     const userIdentityTrace = verifiedUser
@@ -1335,6 +1420,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       securityDecisions: [],
       requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
       securityIntent,
+      planningFollowUpResolution,
       followUpInterpretation: followUp,
       incidentContext: mergedIncidentContext,
       a2aTasks: [],
@@ -1344,7 +1430,6 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     });
   }
 
-  const installedAgents = sessionToken ? listTrustedOnboardedAgents(sessionToken) : [];
   if (isConnectorPlanningCandidate({ message: effectiveMessage, connectorRoute: connectorRouting, installedAgents })) {
     const planningTargetResolution = planningConnectorTarget({
       message: effectiveMessage,
@@ -1440,6 +1525,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
             securityDecisions: [],
             requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
             connectorPlanningTargetResolution: planningTargetResolution,
+            planningFollowUpResolution,
             connectorActionPlan: actionPlan,
             evaluatedActionPlan,
             a2aTasks: [],
@@ -1484,6 +1570,14 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         securityDecisions: [],
         requestInterpretation: planningInterpretation,
         connectorPlanningTargetResolution: planningTargetResolution,
+        pendingFollowUp: {
+          type: "connector_planning_target",
+          originalMessage: planningFollowUpResolution?.originalMessage ?? effectiveMessage,
+          detectedIntentClasses: planningTargetResolution.detectedIntentClasses,
+          missingFields: ["targetSystem"],
+          createdAt: new Date().toISOString()
+        },
+        planningFollowUpResolution,
         executionGateStack: {
           stoppedAt: "gateway_governance",
           finalOutcome: "needs_more_info",

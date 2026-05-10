@@ -589,6 +589,7 @@ function governedChatAnswer(response: ResolveResponse): string {
   if (outcome === "PLANNED" || response.connectorActionPlan) {
     return [
       "PLANNED",
+      ...(response.planningFollowUpResolution ? ["Using previous request context: access request."] : []),
       "The connector returned a side-effect-free action plan.",
       "No write action was attempted.",
       "Gateway evaluated the proposed options before execution.",
@@ -600,6 +601,7 @@ function governedChatAnswer(response: ResolveResponse): string {
     return [
       "NEEDS MORE INFO",
       "I can help plan an access request, but I need to know which system or application you mean.",
+      "Waiting for: target system/application.",
       "Is this for Jira, ServiceNow, GitHub, or another system?",
       `Next: ${nextAction}`
     ].join("\n");

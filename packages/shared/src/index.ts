@@ -444,6 +444,21 @@ export type ConnectorPlanningTargetResolution = {
   reason: string;
 };
 
+export type PendingFollowUpContext = {
+  type: "connector_planning_target";
+  originalMessage: string;
+  detectedIntentClasses: string[];
+  missingFields: Array<"targetSystem">;
+  createdAt: string;
+};
+
+export type PlanningFollowUpResolution = {
+  type: "connector_planning_target";
+  originalMessage: string;
+  followUpAnswer: string;
+  resolvedMessage: string;
+};
+
 export type ExecutionGateId =
   | "ai_interpretation"
   | "gateway_governance"
@@ -512,6 +527,8 @@ export interface ResolveResponse {
   connectorActionPlan?: ConnectorActionPlan;
   evaluatedActionPlan?: EvaluatedConnectorActionPlan;
   connectorPlanningTargetResolution?: ConnectorPlanningTargetResolution;
+  pendingFollowUp?: PendingFollowUpContext;
+  planningFollowUpResolution?: PlanningFollowUpResolution;
   connectorRouting?: {
     status: string;
     targetSystem?: string;

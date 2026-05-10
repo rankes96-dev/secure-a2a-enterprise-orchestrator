@@ -92,6 +92,18 @@ function interpretationRows(response: ResolveResponse): Array<{ label: string; v
   const planningNeedsClarification = response.connectorPlanningTargetResolution?.strategy === "needs_clarification";
   const rows = [
     {
+      label: "Original request",
+      value: response.planningFollowUpResolution?.originalMessage
+    },
+    {
+      label: "Follow-up answer",
+      value: response.planningFollowUpResolution?.followUpAnswer
+    },
+    {
+      label: "Resolved request",
+      value: response.planningFollowUpResolution?.resolvedMessage
+    },
+    {
       label: "Target system",
       value: planningNeedsClarification
         ? "not specified"
@@ -100,6 +112,7 @@ function interpretationRows(response: ResolveResponse): Array<{ label: string; v
     {
       label: "Requested skill / action",
       value:
+        planningNeedsClarification ? "access request" :
         response.connectorRouting?.skillLabel ??
         response.connectorRouting?.skillId ??
         response.requestInterpretation?.requestedActionText ??
@@ -348,6 +361,14 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
       subtitle: "Planning clarification",
       purpose: "Shows that the Gateway asks a follow-up instead of guessing the connector.",
       proves: "AI routing detects access intent, but Gateway does not assume a target system without confirmation.",
+      badge: "Planning"
+    },
+    {
+      label: "Planning follow-up answer",
+      message: "Jira project FIN",
+      subtitle: "Follow-up target",
+      purpose: "Use after the ambiguous prompt to continue the pending access request.",
+      proves: "Gateway resumes the previous planning request only after the user names the target system/application.",
       badge: "Planning"
     }
   ];
