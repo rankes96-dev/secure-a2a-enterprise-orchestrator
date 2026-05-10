@@ -1,7 +1,6 @@
-// @ts-nocheck
 import React from "react";
 
-type ScreenContext = Record<string, any>;
+type ScreenContext = { [key: string]: any };
 
 export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
   const {
@@ -38,11 +37,11 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
 
   function renderSecurityTimelineTab() {
     const securityDecisionsCount = latestResponse?.securityDecisions?.length ?? (latestResponse?.securityDecision ? 1 : 0);
-    const tokenIssuedCount = latestResponse?.a2aTasks?.filter((task) => task.context.auth?.tokenIssued).length ?? 0;
+    const tokenIssuedCount = latestResponse?.a2aTasks?.filter((task: any) => task.context.auth?.tokenIssued).length ?? 0;
     const traceDelegationCount = latestResponse
       ? [...latestResponse.executionTrace, ...latestResponse.agentTrace].filter((entry) => entry.action.toLowerCase().includes("delegation")).length
       : 0;
-    const delegatedTaskCount = latestResponse?.a2aTasks?.filter((task) => (task.delegationDepth ?? 0) > 0 || Boolean(task.mediatedBy)).length ?? 0;
+    const delegatedTaskCount = latestResponse?.a2aTasks?.filter((task: any) => (task.delegationDepth ?? 0) > 0 || Boolean(task.mediatedBy)).length ?? 0;
     const delegationCount = Math.max(traceDelegationCount, delegatedTaskCount);
 
     return (
@@ -92,7 +91,7 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
             </div>
 
             <div className="timeline-filter-bar" aria-label="Timeline filters">
-              {securityTimelineFilters.map((filter) => (
+              {securityTimelineFilters.map((filter: any) => (
                 <button
                   type="button"
                   key={filter.id}
@@ -107,7 +106,7 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
             <div className="visual-security-timeline scroll-target" ref={(element) => {
               timelineListRef.current = element;
             }} tabIndex={-1}>
-              {visibleSecurityTimelineEvents.length ? visibleSecurityTimelineEvents.map((event, index) => (
+              {visibleSecurityTimelineEvents.length ? visibleSecurityTimelineEvents.map((event: any, index: number) => (
                 <article className={`security-timeline-event status-${event.status} category-${event.category}`} key={event.id}>
                   <div className="timeline-event-marker">{String(index + 1).padStart(2, "0")}</div>
                   <div className="timeline-event-body">
@@ -126,7 +125,7 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
                     ) : null}
                     {event.metadata?.length ? (
                       <dl className="timeline-metadata-grid">
-                        {event.metadata.map((item) => (
+                        {event.metadata.map((item: any) => (
                           <div key={`${event.id}-${item.label}`}>
                             <dt>{item.label}</dt>
                             <dd>{item.value}</dd>

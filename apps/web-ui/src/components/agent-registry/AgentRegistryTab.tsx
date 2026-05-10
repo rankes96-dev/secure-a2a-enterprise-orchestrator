@@ -1,9 +1,7 @@
-// @ts-nocheck
 import React from "react";
+import type { AgentRegistryContext } from "./types";
 
-type ScreenContext = Record<string, any>;
-
-export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
+export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
   const {
     activeTab, setActiveTab, message, setMessage, messages, error, isLoading, health, healthError, isHealthLoading,
     zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl, zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId,
@@ -61,13 +59,13 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
       jwksUri: gatewayMetadata.jwksUri,
       onboardingMethod: gatewayMetadata.supportedOnboardingMethods[0] ?? "signed_gateway_challenge"
     };
-    const discoveryCheckStatus = (name: string) => zeroTrustDiscovery?.checks.find((check) => check.name === name)?.status;
-    const resultCheckStatus = (name: string) => zeroTrustResult?.checks.find((check) => check.name === name)?.status;
+    const discoveryCheckStatus = (name: string) => zeroTrustDiscovery?.checks.find((check: any) => check.name === name)?.status;
+    const resultCheckStatus = (name: string) => zeroTrustResult?.checks.find((check: any) => check.name === name)?.status;
     const checkStatus = (name: string) => resultCheckStatus(name) ?? discoveryCheckStatus(name);
     const activeStepIndex = wizardSteps.findIndex((step) => step.id === connectionWizardStep);
     const adminConsoleUrl = zeroTrustDiscovery?.discovery.adminConsoleUrl ?? "http://localhost:4201/admin";
-    const availableConnectorTemplates = anys.filter((connector) => connector.status === "available");
-    const resourceSystemOptions = [...new Map(availableConnectorTemplates.map((connector) => [connector.resourceSystem, connector])).values()];
+    const availableConnectorTemplates = supportedConnectorGuardrails.filter((connector: any) => connector.status === "available");
+    const resourceSystemOptions = [...new Map<string, any>(availableConnectorTemplates.map((connector: any) => [connector.resourceSystem, connector])).values()];
     const currentStepIndex = activeStepIndex >= 0 ? activeStepIndex : 0;
     const wizardStatus = (step: any, index: number): "waiting" | "active" | "completed" | "failed" => {
       if (zeroTrustError && step === connectionWizardStep && (step === "discovery" || step === "verify")) {
@@ -109,7 +107,7 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
       setZeroTrustError("");
       await Promise.all([
         loadZeroTrustOnboardedAgents(),
-        loadanys()
+        loadSupportedConnectorGuardrails()
       ]);
       const installedConnectorId = zeroTrustResult?.trustedAgent.connectorId ?? zeroTrustResult?.connectorProfile?.connectorId;
       if (installedConnectorId) {
@@ -151,7 +149,7 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
     ) : null;
     const renderCapabilityList = (items: any[], emptyLabel: string) => (
       <div className="capability-list">
-        {items.length ? items.map((item) => (
+        {items.length ? items.map((item: any) => (
           <article key={item.capability}>
             <strong>{item.label ?? item.capability}</strong>
             <small>{item.capability}</small>
@@ -232,7 +230,7 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
                 <details className="wizard-technical-details">
                   <summary>Expected signed trust response fields</summary>
                   <div className="concept-pill-row">
-                    {["agentId", "issuer", "clientId", "audience", "requestedScopes", "agentDeclaredSkills", "agentDeclaredCapabilities", "nonce", "signedTrustResponse"].map((item) => <span key={item}>{item}</span>)}
+                    {["agentId", "issuer", "clientId", "audience", "requestedScopes", "agentDeclaredSkills", "agentDeclaredCapabilities", "nonce", "signedTrustResponse"].map((item: any) => <span key={item}>{item}</span>)}
                   </div>
                 </details>
                 <div className="wizard-action-row">
@@ -286,7 +284,7 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
             <h3>Enter Agent URL</h3>
             <p>The connector template defines the expected profile contract, skills, grants, permissions, and runtime response shape. The external agent instance must still prove identity and return a signed attestation before it becomes installed and trusted.</p>
             <div className="connector-preset-grid" aria-label="Local reference connectors">
-              {localConnectorPresets.map((preset) => (
+              {localConnectorPresets.map((preset: any) => (
                 <button
                   type="button"
                   className="connector-preset-card"
@@ -302,7 +300,7 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
             <div className="zero-trust-form wizard-form">
               <label>
                 <span>Agent Base URL</span>
-                <input value={zeroTrustAgentBaseUrl} onChange={(event) => {
+                <input value={zeroTrustAgentBaseUrl} onChange={(event: any) => {
                   setZeroTrustAgentBaseUrl(event.target.value);
                   resetZeroTrustConnectionState();
                 }} />
@@ -310,7 +308,7 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
               </label>
               <label>
                 <span>Expected Agent ID</span>
-                <input value={zeroTrustExpectedAgentId} onChange={(event) => {
+                <input value={zeroTrustExpectedAgentId} onChange={(event: any) => {
                   setZeroTrustExpectedAgentId(event.target.value);
                   resetZeroTrustConnectionState();
                 }} />
@@ -318,12 +316,12 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
               </label>
               <label>
                 <span>Expected external system</span>
-                <select value={zeroTrustExpectedResourceSystem} onChange={(event) => {
+                <select value={zeroTrustExpectedResourceSystem} onChange={(event: any) => {
                   setZeroTrustExpectedResourceSystem(event.target.value);
                   resetZeroTrustConnectionState();
                 }}>
                   <option value="">Auto-detect</option>
-                  {resourceSystemOptions.map((connector) => (
+                  {resourceSystemOptions.map((connector: any) => (
                     <option value={connector.resourceSystem} key={connector.resourceSystem}>{connector.displayName.replace(" Reference Connector", "")}</option>
                   ))}
                 </select>
@@ -331,12 +329,12 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
               </label>
               <label>
                 <span>Expected connector</span>
-                <select value={zeroTrustExpectedConnectorId} onChange={(event) => {
+                <select value={zeroTrustExpectedConnectorId} onChange={(event: any) => {
                   setZeroTrustExpectedConnectorId(event.target.value);
                   resetZeroTrustConnectionState();
                 }}>
                   <option value="">Auto-detect</option>
-                  {availableConnectorTemplates.map((connector) => (
+                  {availableConnectorTemplates.map((connector: any) => (
                     <option value={connector.connectorId} key={connector.connectorId}>{connector.connectorId}</option>
                   ))}
                 </select>
@@ -638,13 +636,13 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
 
 
   function renderAgentRegistryTab() {
-    const builtInAgents = registeredAgentRows.filter((agent) => agent.source === "built-in");
-    const infrastructureAgents = registeredAgentRows.filter((agent) => agent.source === "infrastructure");
-    const zeroTrustAgents = registeredAgentRows.filter((agent) => agent.source === "zero-trust-onboarded");
-    const connectorTemplates = anys.some((connector) => connector.connectorId === "custom-sdk")
-      ? anys
+    const builtInAgents = registeredAgentRows.filter((agent: any) => agent.source === "built-in");
+    const infrastructureAgents = registeredAgentRows.filter((agent: any) => agent.source === "infrastructure");
+    const zeroTrustAgents = registeredAgentRows.filter((agent: any) => agent.source === "zero-trust-onboarded");
+    const connectorTemplates = supportedConnectorGuardrails.some((connector: any) => connector.connectorId === "custom-sdk")
+      ? supportedConnectorGuardrails
       : [
-          ...anys,
+          ...supportedConnectorGuardrails,
           { resourceSystem: "custom", connectorId: "custom-sdk", displayName: "Custom Connector SDK", status: "planned" as const, source: "custom_sdk" as const, installed: false, installedCount: 0 }
         ];
     const agentGroups = [
@@ -673,11 +671,11 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
     }
 
     function installedCountForTemplate(template: any): number {
-      return zeroTrustOnboardedAgents.filter((agent) => installedAgentMatchesTemplate(agent, template)).length;
+      return zeroTrustOnboardedAgents.filter((agent: any) => installedAgentMatchesTemplate(agent, template)).length;
     }
 
     function templateForAgent(agent: (typeof zeroTrustAgents)[number]): any | undefined {
-      return connectorTemplates.find((template) => installedAgentMatchesTemplate(agent, template));
+      return connectorTemplates.find((template: any) => installedAgentMatchesTemplate(agent, template));
     }
 
     function lifecycleForInstalledAgent(agent: (typeof zeroTrustAgents)[number]) {
@@ -692,9 +690,9 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
     const registrySummary = {
       connectorTemplates: connectorTemplates.length,
       installedConnectors: zeroTrustAgents.length,
-      runtimeReady: zeroTrustAgents.filter((agent) => lifecycleForInstalledAgent(agent).state === "runtime_ready").length,
-      needsReverification: zeroTrustAgents.filter((agent) => lifecycleForInstalledAgent(agent).state === "needs_reverification").length,
-      blockedSkills: zeroTrustAgents.reduce((total, agent) => total + ((agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0), 0)
+      runtimeReady: zeroTrustAgents.filter((agent: any) => lifecycleForInstalledAgent(agent).state === "runtime_ready").length,
+      needsReverification: zeroTrustAgents.filter((agent: any) => lifecycleForInstalledAgent(agent).state === "needs_reverification").length,
+      blockedSkills: zeroTrustAgents.reduce((total: any, agent: any) => total + ((agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0), 0)
     };
 
     const approvedSkillScenarioMap: Record<string, string> = {
@@ -732,7 +730,7 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
     }
 
     function prefillReverification(agent: (typeof zeroTrustAgents)[number]) {
-      const preset = localConnectorPresets.find((item) =>
+      const preset = localConnectorPresets.find((item: any) =>
         item.expectedConnectorId === agent.connectorId ||
           item.expectedResourceSystem === agent.resourceSystem
       );
@@ -763,7 +761,7 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
 
       return (
         <section className="agent-registry-summary-bar" aria-label="Agent Registry summary">
-          {summaryItems.map((item) => (
+          {summaryItems.map((item: any) => (
             <div key={item.label}>
               <span>{item.label}</span>
               <strong>{item.value}</strong>
@@ -785,8 +783,8 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
             </div>
           </div>
           <div className="connector-preset-grid" aria-label="Connector Catalog">
-            {connectorTemplates.map((template) => {
-              const preset = localConnectorPresets.find((item) => item.expectedConnectorId === template.connectorId);
+            {connectorTemplates.map((template: any) => {
+              const preset = localConnectorPresets.find((item: any) => item.expectedConnectorId === template.connectorId);
               const installedCount = installedCountForTemplate(template);
               const sourceLabel = template.source === "custom_sdk" ? "SDK / Bring your own connector" : "Local reference template";
               const runtimeSupportLabel = template.runtimeSupport === "planned" ? "Planned" : template.runtimeSupport === "not_supported" ? "Not supported" : "Supported";
@@ -846,7 +844,7 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
             })}
           </div>
           <p className="muted-note">Policies can govern which installed connector agent skills may execute. Advanced policy controls are planned for V2.</p>
-          <details className="wizard-technical-details" open={customConnectorContractOpen} onToggle={(event) => setCustomConnectorContractOpen(event.currentTarget.open)}>
+          <details className="wizard-technical-details" open={customConnectorContractOpen} onToggle={(event: any) => setCustomConnectorContractOpen(event.currentTarget.open)}>
             <summary>Build your own connector</summary>
             <p>Organizations or vendors will be able to implement the Secure A2A connector contract.</p>
             <ul>
@@ -894,9 +892,9 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
           <p className="muted-note compact-lifecycle-reason">{lifecycle.reason}</p>
           <div className="installed-connector-actions">
             <button type="button" className="secondary-button compact-button" onClick={() => {
-              setExpandedInstalledAgentIds((current) =>
+              setExpandedInstalledAgentIds((current: any) =>
                 current.includes(agent.agentId)
-                  ? current.filter((id) => id !== agent.agentId)
+                  ? current.filter((id: any) => id !== agent.agentId)
                   : [...current, agent.agentId]
               );
             }}>View details</button>
@@ -914,8 +912,8 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
                 <div><span>Trust level</span><strong>{agent.trustLevel}</strong></div>
                 <div><span>Profile verified</span><strong>{agent.connectorProfileVerified ? "yes" : "no"}</strong></div>
                 <div><span>External config</span><strong>{shortHash(agent.externalConfigHash)}</strong></div>
-                <div><span>Approved actions</span><strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item) => item.label ?? item.capability).join(", ") || "none"}</strong></div>
-                <div><span>Blocked actions</span><strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong></div>
+                <div><span>Approved actions</span><strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item: any) => item.label ?? item.capability).join(", ") || "none"}</strong></div>
+                <div><span>Blocked actions</span><strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item: any) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong></div>
                 <div><span>Resource principal</span><strong>{agent.resourcePrincipal ?? "unknown"}</strong></div>
                 <div><span>Execution state</span><strong>{agent.executionState}</strong></div>
               </div>
@@ -927,12 +925,12 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
 
     function renderInstalledConnectors() {
       const selectedTemplate = selectedInstalledConnectorTemplateId
-        ? connectorTemplates.find((template) => template.connectorId === selectedInstalledConnectorTemplateId)
+        ? connectorTemplates.find((template: any) => template.connectorId === selectedInstalledConnectorTemplateId)
         : undefined;
       const matchingAgents = selectedTemplate
-        ? zeroTrustAgents.filter((agent) => installedAgentMatchesTemplate(agent, selectedTemplate))
+        ? zeroTrustAgents.filter((agent: any) => installedAgentMatchesTemplate(agent, selectedTemplate))
         : zeroTrustAgents;
-      const groups = [...new Map(matchingAgents.map((agent) => [agent.resourceSystem ?? agent.connectorId ?? "unknown", agent])).keys()];
+      const groups = [...new Map<string, any>(matchingAgents.map((agent: any) => [agent.resourceSystem ?? agent.connectorId ?? "unknown", agent])).keys()];
       return (
         <section className="registry-section scroll-target" ref={registeredAgentsRef} tabIndex={-1}>
           <div className="section-heading-row">
@@ -955,12 +953,12 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
                   <summary>
                     <div>
                       <strong>{group}</strong>
-                      <span>{matchingAgents.filter((agent) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).length} installed agent(s)</span>
+                      <span>{matchingAgents.filter((agent: any) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).length} installed agent(s)</span>
                     </div>
                     <b aria-hidden="true">v</b>
                   </summary>
                   <div className="registry-agent-group-body">
-                    {matchingAgents.filter((agent) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).map(renderInstalledConnectorCard)}
+                    {matchingAgents.filter((agent: any) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).map(renderInstalledConnectorCard)}
                   </div>
                 </details>
               ))}
@@ -968,8 +966,8 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
           ) : selectedTemplate ? (
             <div className="installed-filter-empty">
               <p className="muted-note">No installed agents from this template yet.</p>
-              {localConnectorPresets.find((item) => item.expectedConnectorId === selectedTemplate.connectorId) ? (
-                <button type="button" className="secondary-button compact-button" onClick={() => applyLocalConnectorPreset(localConnectorPresets.find((item) => item.expectedConnectorId === selectedTemplate.connectorId)!)}>Connect external agent</button>
+              {localConnectorPresets.find((item: any) => item.expectedConnectorId === selectedTemplate.connectorId) ? (
+                <button type="button" className="secondary-button compact-button" onClick={() => applyLocalConnectorPreset(localConnectorPresets.find((item: any) => item.expectedConnectorId === selectedTemplate.connectorId)!)}>Connect external agent</button>
               ) : null}
             </div>
           ) : (
@@ -1045,11 +1043,11 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
                   </div>
                   <div>
                     <span>Approved actions</span>
-                    <strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item) => item.label ?? item.capability).join(", ") || "none"}</strong>
+                    <strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item: any) => item.label ?? item.capability).join(", ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Blocked actions</span>
-                    <strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
+                    <strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item: any) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Resource principal</span>
@@ -1078,7 +1076,7 @@ export function AgentRegistryTab({ ctx }: { ctx: ScreenContext }) {
 
       return (
         <nav className="agent-registry-anchor-nav" aria-label="Agent Registry sections">
-          {navItems.map((item) => (
+          {navItems.map((item: any) => (
             <button type="button" key={item.target} onClick={() => guideToTarget(item.target)}>
               {item.label}
             </button>

@@ -1,7 +1,6 @@
-// @ts-nocheck
 import React from "react";
 
-type ScreenContext = Record<string, any>;
+type ScreenContext = { [key: string]: any };
 
 export function TrustIdentityTab({ ctx }: { ctx: ScreenContext }) {
   const {
@@ -77,8 +76,8 @@ export function TrustIdentityTab({ ctx }: { ctx: ScreenContext }) {
             <div className="trust-login-form">
               <label>
                 <span>Demo user</span>
-                <select ref={demoUserSelectRef} value={selectedDemoUserEmail} onChange={(event) => setSelectedDemoUserEmail(event.target.value)} disabled={isIdentityLoading}>
-                  {demoUserOptions.map((user) => (
+                <select ref={demoUserSelectRef} value={selectedDemoUserEmail} onChange={(event: any) => setSelectedDemoUserEmail(event.target.value)} disabled={isIdentityLoading}>
+                  {demoUserOptions.map((user: any) => (
                     <option value={user.email} key={user.email}>{user.label} / {user.roleLabel}</option>
                   ))}
                 </select>
