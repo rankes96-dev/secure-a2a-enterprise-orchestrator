@@ -184,7 +184,6 @@ for (const phrase of [
   "selectedInstalledConnectorTemplateId",
   "Showing installed agents for",
   "Clear filter",
-  "Multiple external agents can be installed from the same connector template",
   "Start manual connection",
   "Advanced / legacy demo only",
   "Choose a connector template from the catalog, or start a manual connection",
@@ -202,7 +201,7 @@ for (const phrase of [
 }
 for (const phrase of [
   "Installed Connector Agents",
-  "installed agent",
+  "installed connector agent",
   "installedAgentMatchesTemplate",
   "No approved runtime scenario available",
   "View Connector Catalog",
@@ -228,10 +227,10 @@ if (!/function\s+scenarioForApprovedSkill[\s\S]*agent\.approvedActions\s*\?\?\s*
 for (const phrase of [
   "Demo Guide",
   "Presenter control center",
-  "Next step",
+  "Next Action",
   "Demo path",
   "Proof checklist",
-  "Demo script",
+  "Full demo script",
   "Login to start governed execution",
   "Install your first connector agent",
   "Run approved runtime diagnosis",
@@ -240,9 +239,9 @@ for (const phrase of [
   "Start here",
   "Connector templates are not installed by default",
   "Recommended: Run",
-  "Use local Jira reference agent",
+  "Install Jira reference agent",
   "What this proves",
-  "Raw tokens hidden",
+  "Raw token hidden",
   "Scoped A2A JWT",
   "External config hash",
   "Open Demo Guide for the recommended presentation flow",
@@ -251,6 +250,41 @@ for (const phrase of [
 ]) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - Demo Guide UI should include phrase: ${phrase}`);
+    failed = true;
+  }
+}
+for (const phrase of [
+  "Run Task",
+  "Execution cockpit",
+  "Submit an enterprise request and watch the Gateway route, authorize, and execute approved connector skills.",
+  "Agent Registry",
+  "Connector governance",
+  "Choose template",
+  "Connect external agent",
+  "Templates are not trusted until an external agent completes onboarding",
+  "Trust & Identity",
+  "Identity control",
+  "Security Timeline",
+  "Audit proof"
+]) {
+  if (!webUi.includes(phrase)) {
+    console.error(`fail - simplified product UI should include phrase: ${phrase}`);
+    failed = true;
+  }
+}
+const startHereMatches = webUi.match(/Start here/g) ?? [];
+if (startHereMatches.length > 1) {
+  console.error(`fail - UI should include "Start here" at most once, found ${startHereMatches.length}`);
+  failed = true;
+}
+for (const forbiddenUiCopy of [
+  'label: "Capability"',
+  "based on capability metadata",
+  ">Capability<",
+  "Raw tokens hidden"
+]) {
+  if (webUi.includes(forbiddenUiCopy)) {
+    console.error(`fail - user-facing UI copy should avoid: ${forbiddenUiCopy}`);
     failed = true;
   }
 }

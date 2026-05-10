@@ -5419,3 +5419,351 @@ summary:focus-visible,
   outline-offset: 2px;
   box-shadow: 0 0 0 5px rgba(29, 78, 216, 0.1);
 }
+
+/* Product simplification pass */
+.page-header {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--primary);
+  border-radius: 14px;
+  padding: 18px;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  box-shadow: var(--shadow-sm);
+}
+
+.page-header h2 {
+  margin: 0 0 6px;
+  font-size: 28px;
+  line-height: 1.12;
+}
+
+.page-header .muted-note {
+  max-width: 820px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.page-header-action {
+  display: flex;
+  justify-content: flex-end;
+  min-width: fit-content;
+}
+
+.product-tabs button {
+  display: grid;
+  gap: 2px;
+  min-width: 132px;
+  text-align: left;
+}
+
+.product-tabs button span {
+  font-weight: 900;
+}
+
+.product-tabs button small {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  opacity: 0.86;
+}
+
+.product-tabs button.active {
+  box-shadow: inset 0 -3px 0 rgba(255, 255, 255, 0.28), var(--shadow-sm);
+}
+
+.guided-status {
+  width: fit-content;
+  border: 1px solid var(--info-border);
+  border-radius: 999px;
+  padding: 7px 11px;
+  color: var(--info-text);
+  background: var(--info-bg);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.demo-guide-panel {
+  align-content: start;
+}
+
+.demo-guide-topline {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(360px, 1.08fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.demo-guide-topline > .page-header {
+  min-height: 100%;
+}
+
+.demo-readiness-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.demo-readiness-panel .next-step-card {
+  min-height: 230px;
+}
+
+.next-step-card {
+  align-items: stretch;
+  border-left-width: 7px;
+  padding: 22px;
+}
+
+.next-step-card h3 {
+  font-size: 28px;
+  line-height: 1.12;
+}
+
+.next-step-card p {
+  max-width: 620px;
+  font-size: 15px;
+}
+
+.next-step-actions {
+  align-content: end;
+  align-items: end;
+}
+
+.next-step-actions .scenario-run,
+.next-step-actions .secondary-inline-button {
+  min-height: 44px;
+  padding-inline: 16px;
+}
+
+.demo-progress-list {
+  grid-template-columns: 1fr;
+}
+
+.demo-path-heading .active-panel-eyebrow {
+  margin-bottom: 0;
+}
+
+.demo-progress-step {
+  border-radius: 10px;
+  padding: 9px 10px;
+}
+
+.demo-guide-collapsed-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.readiness-checklist,
+.demo-script-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.readiness-checklist > summary,
+.demo-script-panel > summary {
+  display: grid;
+  gap: 3px;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.readiness-checklist > summary::-webkit-details-marker,
+.demo-script-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.readiness-checklist > summary span,
+.demo-script-panel > summary span {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.readiness-checklist > summary small,
+.demo-script-panel > summary small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.readiness-checklist[open] > ul,
+.readiness-checklist[open] > .scenario-readiness-panel,
+.demo-script-panel[open] > ol,
+.demo-script-panel[open] > .advanced-demo-script {
+  margin: 0 14px 14px;
+}
+
+.scenario-proves {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 8px;
+}
+
+.scenario-proves summary {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.scenario-proves p {
+  margin-top: 6px;
+}
+
+.scenario-card {
+  min-height: 150px;
+  gap: 10px;
+}
+
+.scenario-card p {
+  font-size: 12px;
+}
+
+.composer.cockpit-card {
+  border-color: #b7c5d3;
+  box-shadow: 0 18px 44px rgba(30, 41, 59, 0.1);
+}
+
+.demo-cockpit .composer .composer-surface textarea {
+  min-height: 170px;
+  font-size: 16px;
+}
+
+.composer-recommendation {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin: 12px 16px 0;
+}
+
+.composer-recommendation .secondary-inline-button {
+  flex: 0 0 auto;
+  background: #ffffff;
+}
+
+.agent-registry-summary-bar {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.agent-registry-summary-bar div {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface-soft);
+}
+
+.agent-registry-summary-bar span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.agent-registry-summary-bar strong {
+  color: var(--text);
+  font-size: 20px;
+}
+
+.agent-registry-anchor-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.agent-registry-anchor-nav button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 11px;
+  color: var(--text-secondary);
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.connector-template-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.connector-template-facts span {
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  padding: 8px;
+  background: var(--surface-soft);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.runtime-endpoint-chip code,
+.registry-agent-compact-metadata code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+.runtime-endpoint-chip {
+  max-width: 100%;
+}
+
+.compact-lifecycle-reason {
+  margin: 0;
+  font-size: 12px;
+}
+
+.installed-connector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.registry-overview-section:not([open]) {
+  background: var(--surface-soft);
+}
+
+@media (max-width: 1040px) {
+  .demo-guide-topline,
+  .agent-registry-summary-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .demo-readiness-panel .next-step-card {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-header,
+  .next-step-card,
+  .composer-recommendation {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .page-header-action,
+  .next-step-actions,
+  .composer-recommendation .secondary-inline-button,
+  .next-step-actions button {
+    width: 100%;
+  }
+
+  .demo-guide-collapsed-grid,
+  .connector-template-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .product-tabs button {
+    min-width: 0;
+    text-align: center;
+  }
+
+  .agent-registry-anchor-nav button {
+    flex: 1 1 180px;
+  }
+}

@@ -22,8 +22,8 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
       {
         label: "Jira connector approved diagnosis",
         message: "Jira issue creation fails with 403 when creating issues in FIN project",
-        subtitle: "Approved Jira connector skill when the reference connector is onboarded",
-        purpose: "Routes to the onboarded Jira connector profile and approved diagnosis skill.",
+        subtitle: "Approved Jira connector skill when the reference connector agent is installed",
+        purpose: "Routes to the installed Jira connector agent and approved diagnosis skill.",
         proves: "Approved connector runtime execution with scoped A2A JWT.",
         badge: "Approved connector"
       },
@@ -31,14 +31,14 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
         label: "Jira create blocked by grants/permissions",
         message: "Create a Jira issue in FIN project for this outage",
         subtitle: "Blocked because the create action lacks grant/permission approval by default",
-        purpose: "Shows why an onboarded connector can be valid while a specific action is blocked.",
+        purpose: "Shows why an installed connector agent can be trusted while a specific action is blocked.",
         proves: "Gateway blocks unapproved skills even if the agent declares them.",
         badge: "Blocked action"
       },
       {
         label: "ServiceNow incident assignment",
         message: "ServiceNow incident assignment keeps failing for network tickets",
-        subtitle: "Runs when the ServiceNow reference connector is onboarded",
+        subtitle: "Runs when the ServiceNow reference connector agent is installed",
         purpose: "Routes to the ServiceNow connector profile and incident assignment diagnosis skill.",
         proves: "Connector-generic runtime routing beyond Jira.",
         badge: "ServiceNow"
@@ -54,7 +54,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
       {
         label: "GitHub repository rate limit",
         message: "GitHub repository sync is failing after API rate limit",
-        subtitle: "Runs when the GitHub reference connector is onboarded",
+        subtitle: "Runs when the GitHub reference connector agent is installed",
         purpose: "Routes to the GitHub connector profile and rate-limit diagnosis skill.",
         proves: "System-specific diagnosis lives inside external connector runtime, not Gateway.",
         badge: "GitHub"
@@ -104,12 +104,12 @@ type ConnectionWizardStep =
   | "verify"
   | "result";
 
-const tabs: Array<{ id: ActiveTab; label: string }> = [
-  { id: "demo-guide", label: "Demo Guide" },
-  { id: "run-task", label: "Run Task" },
-  { id: "agent-registry", label: "Agent Registry" },
-  { id: "trust-identity", label: "Trust & Identity" },
-  { id: "security-timeline", label: "Security Timeline" }
+const tabs: Array<{ id: ActiveTab; label: string; hint: string }> = [
+  { id: "demo-guide", label: "Demo Guide", hint: "Start here" },
+  { id: "run-task", label: "Run Task", hint: "Execute scenario" },
+  { id: "agent-registry", label: "Agent Registry", hint: "Install agents" },
+  { id: "trust-identity", label: "Trust & Identity", hint: "Login / identity" },
+  { id: "security-timeline", label: "Security Timeline", hint: "Audit proof" }
 ];
 
 const localConnectorPresets = [
@@ -293,7 +293,7 @@ function routingDescription(response: ResolveResponse): string {
     return "Deterministic request interpretation fallback was used.";
   }
 
-  return "Deterministic capability routing/fallback handled agent selection.";
+  return "Deterministic skill routing/fallback handled agent selection.";
 }
 
 function metadataItem(label: string, value: unknown): { label: string; value: string } | undefined {
@@ -574,7 +574,7 @@ function buildSecurityTimelineEvents(response: ResolveResponse): SecurityTimelin
         { label: "Scope", value: response.requestInterpretation.scope },
         { label: "Intent", value: response.requestInterpretation.intentType },
         { label: "Target system", value: response.requestInterpretation.targetSystemText },
-        { label: "Capability", value: response.requestInterpretation.requestedCapability },
+        { label: "Skill", value: response.requestInterpretation.requestedCapability },
         { label: "Action", value: response.requestInterpretation.requestedActionText }
       ])
     });
@@ -585,14 +585,14 @@ function buildSecurityTimelineEvents(response: ResolveResponse): SecurityTimelin
       id: `selected-agent-${agent.agentId}-${agent.skillId ?? index}`,
       category: "routing",
       title: "Agent Card selected",
-      description: `Gateway selected ${agent.agentId} based on capability metadata.`,
+      description: `Gateway selected ${agent.agentId} based on skill metadata.`,
       status: "success",
       timestamp: response.agentTrace.find((entry) => entry.action === "select_agent" && entry.detail.includes(agent.agentId))?.timestamp,
       agentId: agent.agentId,
       metadata: metadataList([
         { label: "Agent ID", value: agent.agentId },
         { label: "Skill", value: agent.skillId },
-        { label: "Capability", value: agent.matchedCapability },
+        { label: "Skill", value: agent.matchedCapability },
         { label: "Reason", value: agent.reason }
       ])
     });
@@ -1307,6 +1307,7 @@ function App() {
   const [isIdentityLoading, setIsIdentityLoading] = useState(false);
   const [securityTimelineFilter, setSecurityTimelineFilter] = useState<SecurityTimelineFilter>("all");
   const [pendingFocusTarget, setPendingFocusTarget] = useState<GuidedFocusTarget | null>(null);
+  const [guidedStatus, setGuidedStatus] = useState("");
   const demoGuideRootRef = useRef<HTMLElement | null>(null);
   const runTaskRootRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLFormElement | null>(null);
@@ -1449,33 +1450,43 @@ function App() {
     setPendingFocusTarget(target);
   }
 
+  function showGuidedStatus(messageText: string) {
+    setGuidedStatus(messageText);
+  }
+
   function goToTrustIdentity() {
     setActiveTab("trust-identity");
+    showGuidedStatus("Moved to Trust & Identity");
     guideToTarget("trust-login");
   }
 
   function goToRunTask() {
     setActiveTab("run-task");
+    showGuidedStatus("Moved to Run Task");
     guideToTarget("composer");
   }
 
   function goToAgentRegistry() {
     setActiveTab("agent-registry");
+    showGuidedStatus("Moved to Agent Registry");
     guideToTarget("agent-registry");
   }
 
   function goToConnectorCatalog() {
     setActiveTab("agent-registry");
+    showGuidedStatus("Moved to Connector Catalog");
     guideToTarget("connector-catalog");
   }
 
   function goToInstalledConnectorAgents() {
     setActiveTab("agent-registry");
+    showGuidedStatus("Installed Connector Agents highlighted");
     guideToTarget("registered-agents");
   }
 
   function goToSecurityTimeline() {
     setActiveTab("security-timeline");
+    showGuidedStatus("Moved to Security Timeline");
     guideToTarget("security-timeline");
   }
 
@@ -1619,6 +1630,15 @@ function App() {
 
     return () => window.cancelAnimationFrame(frameId);
   }, [activeTab, pendingFocusTarget, latestResponse, registeredAgentRows.length, zeroTrustResult]);
+
+  useEffect(() => {
+    if (!guidedStatus) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setGuidedStatus(""), 2600);
+    return () => window.clearTimeout(timeoutId);
+  }, [guidedStatus]);
 
   async function ensureSession() {
     const response = await fetch(`${API_URL}/session`, {
@@ -1795,6 +1815,8 @@ function App() {
     setZeroTrustExpectedConnectorId(preset.expectedConnectorId);
     resetZeroTrustConnectionState();
     setConnectionWizardStep("connection-input");
+    setActiveTab("agent-registry");
+    showGuidedStatus(`${preset.label.replace("Use local ", "").replace("reference agent", "reference agent")} selected`);
     guideToTarget("zero-trust-onboarding");
   }
 
@@ -1994,6 +2016,32 @@ function App() {
     setMessage(sampleMessage);
   }
 
+  function renderPageHeader({
+    eyebrow,
+    title,
+    subtitle,
+    action,
+    children
+  }: {
+    eyebrow: string;
+    title: string;
+    subtitle: string;
+    action?: React.ReactNode;
+    children?: React.ReactNode;
+  }) {
+    return (
+      <div className="panel-header page-header">
+        <div>
+          <p className="active-panel-eyebrow">{eyebrow}</p>
+          <h2>{title}</h2>
+          <p className="muted-note">{subtitle}</p>
+          {children}
+        </div>
+        {action ? <div className="page-header-action">{action}</div> : null}
+      </div>
+    );
+  }
+
   function renderScenarioOptions(items: Scenario[]) {
     return (
       <div className="scenario-buttons">
@@ -2003,7 +2051,10 @@ function App() {
               <span className={`scenario-outcome-badge status-${cockpitStatusClass(scenario.badge ?? scenario.subtitle)}`}>{scenario.badge ?? "Advanced"}</span>
               <h3>{scenario.label}</h3>
               <p>{scenario.purpose ?? scenario.subtitle}</p>
-              <p className="scenario-proves"><strong>What this proves:</strong> {scenario.proves}</p>
+              <details className="scenario-proves">
+                <summary>Proves</summary>
+                <p>{scenario.proves}</p>
+              </details>
             </div>
             <div className="scenario-card-actions">
               <button
@@ -2012,6 +2063,7 @@ function App() {
                 title={scenario.subtitle}
                 onClick={() => {
                   setMessage(scenario.message);
+                  showGuidedStatus("Scenario loaded in composer");
                   guideToTarget("composer");
                 }}
               >
@@ -2027,6 +2079,7 @@ function App() {
                     goToTrustIdentity();
                     return;
                   }
+                  showGuidedStatus("Scenario running");
                   void resolveIssue(scenario.message);
                 }}
               >
@@ -2085,14 +2138,15 @@ function App() {
         return;
       }
       setActiveTab("run-task");
+      showGuidedStatus("Scenario loaded in Run Task");
       guideToTarget("composer");
       void resolveIssue(scenario);
     };
     const nextStep = !isUserAuthenticated
       ? {
         title: "Login to start governed execution",
-        text: "Verified user identity is required before the Gateway can attach actor context and issue scoped runtime tokens.",
-        primaryLabel: "Go to Trust & Identity",
+        text: "Attach a verified demo user before the Gateway can run a connector-backed task.",
+        primaryLabel: "Login",
         primaryAction: goToTrustIdentity,
         secondaryLabel: undefined,
         secondaryAction: undefined
@@ -2100,16 +2154,16 @@ function App() {
       : installedConnectorAgentCount === 0
         ? {
           title: "Install your first connector agent",
-          text: "Choose a connector template from the catalog and onboard an external agent through signed challenge and attestation.",
+          text: "Choose a connector template and start signed external-agent onboarding.",
           primaryLabel: "Open Connector Catalog",
           primaryAction: goToConnectorCatalog,
-          secondaryLabel: "Use local Jira reference agent",
+          secondaryLabel: "Install Jira reference agent",
           secondaryAction: () => applyLocalConnectorPreset(jiraPreset)
         }
         : !hasRuntimeReadyConnector
           ? {
             title: "Connector installed, runtime not ready",
-            text: "The connector was onboarded, but no approved runtime skill is ready. Review grants, permissions, denied permissions, and re-run onboarding.",
+            text: "Review the installed connector agent and re-verify grants, permissions, and approved skills.",
             primaryLabel: "View Installed Connector Agents",
             primaryAction: goToInstalledConnectorAgents,
             secondaryLabel: undefined,
@@ -2118,15 +2172,15 @@ function App() {
           : runtimeProofCaptured
             ? {
               title: "Runtime proof captured",
-              text: "The Gateway executed an approved connector skill with scoped A2A JWT. Next, show blocked skill or audit timeline.",
+              text: "Now prove that an unapproved create action is blocked before runtime execution.",
               primaryLabel: "Run blocked create scenario",
               primaryAction: () => runScenario(blockedJiraScenario),
-              secondaryLabel: "View Security Timeline",
+              secondaryLabel: "Open Security Timeline",
               secondaryAction: goToSecurityTimeline
             }
             : {
               title: "Run approved runtime diagnosis",
-              text: "Run the Jira diagnosis scenario to show approved runtime execution with scoped A2A JWT.",
+              text: "Show approved Jira diagnosis executing through a scoped A2A JWT.",
               primaryLabel: "Run Jira approved diagnosis",
               primaryAction: () => runScenario(approvedJiraScenario),
               secondaryLabel: "View Installed Connector Agents",
@@ -2143,7 +2197,7 @@ function App() {
             : "approved";
     const progressSteps = [
       { id: "login", label: "Login", completed: isUserAuthenticated, explanation: "Attach verified user identity." },
-      { id: "install", label: "Install Connector", completed: installedConnectorAgentCount > 0, explanation: "Onboard an external agent." },
+      { id: "install", label: "Install Connector Agent", completed: installedConnectorAgentCount > 0, explanation: "Trust an external agent." },
       { id: "approved", label: "Run Approved Skill", completed: runtimeProofCaptured, explanation: "Execute with scoped A2A JWT." },
       { id: "blocked", label: "Show Blocked Skill", completed: blockedScenarioCaptured, explanation: "Prove blocked skills do not execute." },
       { id: "audit", label: "Show Audit", completed: activeTab === "security-timeline", explanation: "Review timeline and policy proof." }
@@ -2174,7 +2228,7 @@ function App() {
         action: goToInstalledConnectorAgents
       },
       { label: "Scoped JWT enabled", status: "ready", cta: undefined, action: undefined },
-      { label: "Raw tokens hidden", status: "ready", cta: undefined, action: undefined },
+      { label: "Raw token hidden", status: "ready", cta: undefined, action: undefined },
       { label: "External config hash enforced", status: "ready", cta: undefined, action: undefined },
       { label: "Policy model available", status: "ready", cta: undefined, action: undefined }
     ] as const;
@@ -2187,25 +2241,29 @@ function App() {
     ] as const;
     const demoScriptSteps = [
       { title: "Start with zero installed connector agents", proves: "Connector templates are not installed by default.", actionLabel: "Open Catalog", action: goToConnectorCatalog },
-      { title: "Install Jira reference agent", proves: "External agents become trusted only after signed onboarding.", actionLabel: "Use local Jira reference agent", action: () => applyLocalConnectorPreset(jiraPreset) },
+      { title: "Install Jira reference agent", proves: "External agents become trusted only after signed onboarding.", actionLabel: "Install Jira reference agent", action: () => applyLocalConnectorPreset(jiraPreset) },
       { title: "Run approved Jira diagnosis", proves: "Approved connector runtime execution with scoped A2A JWT.", actionLabel: "Run scenario", action: () => runScenario(approvedJiraScenario) },
       { title: "Run blocked Jira create action", proves: "Blocked or denied skills do not execute.", actionLabel: "Run scenario", action: () => runScenario(blockedJiraScenario) },
       { title: "Run ServiceNow or GitHub routing", proves: "Gateway is connector-generic, not Jira-specific.", actionLabel: "Run ServiceNow", action: () => runScenario(serviceNowScenario) }
     ];
 
     return (
-      <section className="demo-readiness-panel cockpit-card" aria-label="Demo Guide progress">
-        <div className="section-heading-row">
+      <section className="demo-readiness-panel" aria-label="Demo Guide progress">
+        <article className="next-step-card" aria-label="Next Action">
           <div>
-            <p className="active-panel-eyebrow">Presenter control center</p>
-            <h2>Demo path</h2>
-            <p className="muted-note">Follow one guided path through connector onboarding, approved runtime execution, blocked skills, and audit proof.</p>
+            <p className="active-panel-eyebrow">Next Action</p>
+            <h3>{nextStep.title}</h3>
+            <p>{nextStep.text}</p>
           </div>
-          <div className="demo-readiness-actions">
-            <button type="button" className="secondary-button compact-button" onClick={goToConnectorCatalog}>Catalog</button>
-            <button type="button" className="secondary-button compact-button" onClick={goToInstalledConnectorAgents}>Installed Agents</button>
-            <button type="button" className="secondary-button compact-button" onClick={goToSecurityTimeline}>Security Timeline</button>
+          <div className="next-step-actions">
+            <button type="button" className="scenario-run" disabled={isLoading} onClick={nextStep.primaryAction}>{nextStep.primaryLabel}</button>
+            {nextStep.secondaryLabel && nextStep.secondaryAction ? (
+              <button type="button" className="secondary-inline-button" onClick={nextStep.secondaryAction}>{nextStep.secondaryLabel}</button>
+            ) : null}
           </div>
+        </article>
+        <div className="demo-path-heading">
+          <p className="active-panel-eyebrow">Demo path</p>
         </div>
         <ol className="demo-progress-list" aria-label="Demo Progress">
           {progressSteps.map((step, index) => {
@@ -2221,25 +2279,12 @@ function App() {
             );
           })}
         </ol>
-        <article className="next-step-card">
-          <div>
-            <p className="active-panel-eyebrow">Next step</p>
-            <h3>{nextStep.title}</h3>
-            <p>{nextStep.text}</p>
-          </div>
-          <div className="next-step-actions">
-            <button type="button" className="scenario-run" disabled={isLoading} onClick={nextStep.primaryAction}>{nextStep.primaryLabel}</button>
-            {nextStep.secondaryLabel && nextStep.secondaryAction ? (
-              <button type="button" className="secondary-inline-button" onClick={nextStep.secondaryAction}>{nextStep.secondaryLabel}</button>
-            ) : null}
-          </div>
-        </article>
-        <div className="guided-readiness-grid">
-          <section className="readiness-checklist">
-            <div>
-              <h3>Proof checklist</h3>
-              <p className="muted-note">Compact proof that the demo path can run without guessing.</p>
-            </div>
+        <div className="demo-guide-collapsed-grid">
+          <details className="readiness-checklist">
+            <summary>
+              <span>Proof checklist</span>
+              <small>Identity, connector, runtime, and token proof.</small>
+            </summary>
             <ul>
               {checklist.map((item) => (
                 <li key={item.label}>
@@ -2250,12 +2295,9 @@ function App() {
                 </li>
               ))}
             </ul>
-          </section>
-          <section className="scenario-readiness-panel">
-            <div>
+            <div className="scenario-readiness-panel">
               <h3>Scenario readiness</h3>
               <p className="muted-note">Ready means the scenario can prove the intended control path with the currently installed connector agents.</p>
-            </div>
             <div className="scenario-readiness-grid">
               {scenarioReadiness.map((item) => (
                 <article key={item.label}>
@@ -2267,13 +2309,13 @@ function App() {
                 </article>
               ))}
             </div>
-          </section>
-        </div>
-        <section className="demo-script-panel">
-          <div>
-            <h3>Demo script</h3>
-            <p className="muted-note">Run these steps in order. Each step has one action and one proof point.</p>
-          </div>
+            </div>
+          </details>
+          <details className="demo-script-panel">
+            <summary>
+              <span>Full demo script</span>
+              <small>Advanced presenter steps and proof points.</small>
+            </summary>
           <ol>
             {demoScriptSteps.map((step) => (
               <li key={step.title}>
@@ -2285,7 +2327,7 @@ function App() {
               </li>
             ))}
           </ol>
-          <details className="advanced-demo-script">
+            <details className="advanced-demo-script">
             <summary>Advanced proof steps</summary>
             <div className="advanced-demo-script-grid">
               <button type="button" className="secondary-inline-button" onClick={() => runScenario(gitHubScenario)}>Run GitHub rate limit</button>
@@ -2293,7 +2335,8 @@ function App() {
               <p>Change external connector config after onboarding and re-run to show stale connector configuration protection.</p>
             </div>
           </details>
-        </section>
+          </details>
+        </div>
       </section>
     );
   }
@@ -2301,15 +2344,14 @@ function App() {
   function renderDemoGuideTab() {
     return (
       <section className="control-panel demo-guide-panel scroll-target" aria-label="Demo Guide" ref={demoGuideRootRef} tabIndex={-1}>
-        <div className="panel-header demo-guide-hero">
-          <div>
-            <p className="active-panel-eyebrow">Presenter control center</p>
-            <h2>Demo Guide</h2>
-            <p className="muted-note">Present the zero-trust external connector flow in 5 minutes.</p>
-            <p>Start with zero installed connectors, install an external agent, run an approved skill, show a blocked skill, and verify the audit trail.</p>
-          </div>
+        <div className="demo-guide-topline">
+          {renderPageHeader({
+            eyebrow: "Presenter control center",
+            title: "Demo Guide",
+            subtitle: "Follow the guided path to present zero-trust external connector execution."
+          })}
+          {renderDemoReadinessPanel()}
         </div>
-        {renderDemoReadinessPanel()}
       </section>
     );
   }
@@ -2345,7 +2387,7 @@ function App() {
       { label: tokenOutcome, className: `status-${cockpitStatusClass(tokenOutcome)}` },
       { label: latestActorAttached ? "Actor attached" : "Actor not attached", className: latestActorAttached ? "status-success" : "status-neutral" },
       { label: delegationSummary === "yes" ? "Delegation mediated" : "No delegation", className: delegationSummary === "yes" ? "status-success" : "status-neutral" },
-      { label: "Raw tokens hidden", className: "status-success" }
+      { label: "Raw token hidden", className: "status-success" }
     ];
 
     return (
@@ -2498,7 +2540,7 @@ function App() {
                 {runtimeFailure.nextStep ? <p><strong>Next step:</strong> {runtimeFailure.nextStep}</p> : null}
                 {latestResponse.connectorRuntime.error === "connector_configuration_changed" ? (
                   <button type="button" className="secondary-inline-button" onClick={goToAgentRegistry}>
-                    Go to Agent Registry
+                    Open Agent Registry
                   </button>
                 ) : null}
               </div>
@@ -3269,7 +3311,7 @@ function App() {
           <div className="panel-header">
             <div>
               <p className="active-panel-eyebrow">Connection verified</p>
-              <h2>Connect External Agent</h2>
+              <h2>2. Connect External Agent</h2>
               <p className="muted-note">{verifiedConnectorName} was installed as a trusted external connector agent.</p>
             </div>
           </div>
@@ -3290,7 +3332,7 @@ function App() {
         <section className="zero-trust-onboarding-panel compact-connect-panel scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
           <div className="panel-header">
             <div>
-              <p className="active-panel-eyebrow">Connect Agent</p>
+              <p className="active-panel-eyebrow">2. Connect external agent</p>
               <h2>Connect External Agent</h2>
               <p className="muted-note">Choose a connector template from the catalog, or start a manual connection.</p>
             </div>
@@ -3310,9 +3352,9 @@ function App() {
       <section className="zero-trust-onboarding-panel scroll-target" ref={zeroTrustOnboardingRef} tabIndex={-1} aria-label="Zero-Trust Agent Onboarding">
         <div className="panel-header">
           <div>
-            <p className="active-panel-eyebrow">External agent connection</p>
+            <p className="active-panel-eyebrow">2. Connect external agent</p>
             <h2>Connect External Agent</h2>
-            <p className="muted-note">Connect an external agent using a connector template through discovery, signed Gateway challenge, signed agent response, OAuth application binding, permission verification, and action approval.</p>
+            <p className="muted-note">Verify the external agent identity, grants, permissions, and approved skills.</p>
           </div>
         </div>
         <div className="audience-toggle" aria-label="Audience">
@@ -3352,13 +3394,11 @@ function App() {
   function renderRunTaskTab() {
     return (
       <section className="control-panel demo-cockpit scroll-target" aria-label="Execution Cockpit" ref={runTaskRootRef} tabIndex={-1}>
-        <div className="panel-header cockpit-header">
-          <div>
-            <p className="active-panel-eyebrow">Secure A2A execution</p>
-            <h2>Run governed agent task</h2>
-            <p className="muted-note">Secure task execution requires verified user identity. The gateway routes through Agent Cards, policy, scoped A2A JWT metadata, and audit timeline.</p>
-          </div>
-        </div>
+        {renderPageHeader({
+          eyebrow: "Execution cockpit",
+          title: "Run Task",
+          subtitle: "Submit an enterprise request and watch the Gateway route, authorize, and execute approved connector skills."
+        })}
 
         {renderCockpitStatusStrip()}
         <div className="cockpit-grid">
@@ -3370,7 +3410,7 @@ function App() {
                   <h2>Login required before execution</h2>
                   <p>This gateway blocks task execution until a verified user identity is attached to the session.</p>
                 </div>
-                <button type="button" onClick={goToTrustIdentity}>Go to Trust & Identity</button>
+                <button type="button" onClick={goToTrustIdentity}>Login</button>
               </section>
             ) : null}
 
@@ -3398,9 +3438,20 @@ function App() {
                 </div>
               </div>
               <div className={`composer-recommendation ${runtimeReadyConnectorAgentCount > 0 ? "ready" : "setup"}`}>
-                {runtimeReadyConnectorAgentCount > 0
-                  ? "Recommended: Run Jira connector approved diagnosis first."
-                  : "Install a connector agent before running connector-backed scenarios."}
+                <span>
+                  {runtimeReadyConnectorAgentCount > 0
+                    ? "Recommended: Run Jira approved diagnosis first."
+                    : "Install a connector agent before running connector-backed scenarios."}
+                </span>
+                {runtimeReadyConnectorAgentCount > 0 ? (
+                  <button type="button" className="secondary-inline-button compact-button" onClick={() => {
+                    setMessage(sampleMessage);
+                    showGuidedStatus("Recommended prompt loaded");
+                    guideToTarget("composer");
+                  }}>Use recommended prompt</button>
+                ) : (
+                  <button type="button" className="secondary-inline-button compact-button" onClick={goToConnectorCatalog}>Open Connector Catalog</button>
+                )}
               </div>
               <div className="composer-surface">
                 <textarea
@@ -3565,6 +3616,7 @@ function App() {
       }
       setMessage(scenario);
       setActiveTab("run-task");
+      showGuidedStatus("Scenario loaded in Run Task");
       guideToTarget("composer");
     }
 
@@ -3585,6 +3637,7 @@ function App() {
       setZeroTrustCopyMessage("");
       setConnectionWizardCollapsedAfterSuccess(false);
       setConnectionWizardStep("connection-input");
+      showGuidedStatus("Re-verification form loaded");
       guideToTarget("zero-trust-onboarding");
     }
 
@@ -3614,11 +3667,10 @@ function App() {
         <section className="registry-section scroll-target" ref={connectorCatalogRef} tabIndex={-1}>
           <div className="section-heading-row">
             <div>
-              <p className="active-panel-eyebrow">Supported templates</p>
+              <p className="active-panel-eyebrow">1. Choose template</p>
               <h2>Connector Catalog</h2>
-              <p className="strong-note">Start here</p>
-              <p className="muted-note">Choose a template, then connect an external agent instance.</p>
-              <p className="muted-note">Connector templates are supported contracts, not installed or trusted agents. A customer organization starts with zero installed connector agents.</p>
+              <p className="strong-note">Choose a connector template</p>
+              <p className="muted-note">Templates are not trusted until an external agent completes onboarding.</p>
             </div>
           </div>
           <div className="connector-preset-grid" aria-label="Connector Catalog">
@@ -3628,7 +3680,7 @@ function App() {
               const sourceLabel = template.source === "custom_sdk" ? "SDK / Bring your own connector" : "Local reference template";
               const runtimeSupportLabel = template.runtimeSupport === "planned" ? "Planned" : template.runtimeSupport === "not_supported" ? "Not supported" : "Supported";
               const metadataUnavailable = !template.category || !template.publisher || !template.templateVersion || !template.authModel || !template.runtimeSupport || !template.riskLevel;
-              const installedBadge = installedCount > 0 ? `Installed agents: ${installedCount}` : "Not installed";
+              const installedBadge = installedCount > 0 ? `${installedCount} installed agent${installedCount === 1 ? "" : "s"}` : "Not installed";
               return (
                 <article className={`connector-preset-card ${template.connectorId === "custom-sdk" ? "planned-template-card" : ""}`} key={template.connectorId}>
                   <div className="connector-card-heading">
@@ -3637,14 +3689,12 @@ function App() {
                       {template.connectorId === "custom-sdk" ? "Planned / V2" : installedBadge}
                     </span>
                   </div>
-                  <p className="muted-note">{template.description ?? "Supported connector template for external agent onboarding."}</p>
-                  <p className="connector-template-note">Templates are supported contracts. External agents become installed only after signed onboarding.</p>
-                  <span>Category: {template.category ?? "Metadata unavailable"}</span>
-                  <small>Source: {sourceLabel}</small>
-                  <small>Status: {template.status === "planned" ? "Planned / V2" : "Available"}</small>
-                  <small>Runtime support: {template.runtimeSupport ? runtimeSupportLabel : "Metadata unavailable"}</small>
-                  <small>Risk level: {template.riskLevel ?? "Metadata unavailable"}</small>
-                  <small>Installed count: {installedCount}</small>
+                  <div className="connector-template-facts">
+                    <span>{template.category ?? "Metadata unavailable"}</span>
+                    <span>Installed agents: {installedCount}</span>
+                    <span>Runtime support: {template.runtimeSupport ? runtimeSupportLabel : "Metadata unavailable"}</span>
+                    <span>Risk level: {template.riskLevel ?? "Metadata unavailable"}</span>
+                  </div>
                   <details className="wizard-technical-details">
                     <summary>Template details</summary>
                     <div className="registry-agent-metadata">
@@ -3652,10 +3702,13 @@ function App() {
                       <div><span>Template ID</span><strong>{template.connectorId}</strong></div>
                       <div><span>Resource system</span><strong>{template.resourceSystem}</strong></div>
                       <div><span>Publisher</span><strong>{template.publisher ?? "Metadata unavailable"}</strong></div>
+                      <div><span>Source</span><strong>{sourceLabel}</strong></div>
+                      <div><span>Status</span><strong>{template.status === "planned" ? "Planned / V2" : "Available"}</strong></div>
                       <div><span>Template version</span><strong>{template.templateVersion ?? "Metadata unavailable"}</strong></div>
                       <div><span>Auth model</span><strong>{template.authModel ?? "Metadata unavailable"}</strong></div>
                       <div><span>Setup requirements</span><strong>{template.setupRequirements?.join(", ") ?? "Metadata unavailable"}</strong></div>
                       <div><span>Tags</span><strong>{template.tags?.join(", ") ?? "Metadata unavailable"}</strong></div>
+                      <div><span>Description</span><strong>{template.description ?? "Supported connector template for external agent onboarding."}</strong></div>
                     </div>
                   </details>
                   {template.connectorId === "custom-sdk" ? (
@@ -3666,8 +3719,8 @@ function App() {
                     </>
                   ) : preset ? (
                     <div className="connector-card-actions">
-                      <button type="button" className="secondary-button compact-button" onClick={() => applyLocalConnectorPreset(preset)}>
-                        {installedCount > 0 ? "Connect another external agent" : "Connect external agent"}
+                      <button type="button" className="scenario-run compact-button" onClick={() => applyLocalConnectorPreset(preset)}>
+                        {installedCount > 0 ? "Connect another external agent" : "Install connector agent"}
                       </button>
                       {installedCount > 0 ? (
                         <button type="button" className="secondary-button compact-button" onClick={() => {
@@ -3714,25 +3767,20 @@ function App() {
               <strong>{agent.connectorDisplayName ?? agent.connectorId ?? agent.agentId}</strong>
               <small>Agent ID: {agent.agentId}</small>
               <div className="registry-agent-badges">
-                <span className="source-badge">installed agent</span>
+                <span className="source-badge">installed connector agent</span>
                 <strong className={`health-pill ${lifecycle.state === "runtime_ready" ? "healthy" : "warning"}`}>{lifecycle.label}</strong>
               </div>
             </div>
           </div>
-          <p className="muted-note">Installed agent from {template?.displayName ?? agent.connectorDisplayName ?? agent.connectorId ?? "connector template"}.</p>
-          <p className="muted-note">{lifecycle.reason}</p>
           <div className="registry-agent-compact-metadata">
-            <span><b>Agent ID</b> {agent.agentId}</span>
-            <span><b>Connector ID</b> {agent.connectorId ?? "unknown"}</span>
-            <span><b>Resource system</b> {agent.resourceSystem ?? "unknown"}</span>
-            <span><b>Trust level</b> {agent.trustLevel}</span>
-            <span><b>Profile verified</b> {agent.connectorProfileVerified ? "yes" : "no"}</span>
+            <span><b>Connector</b> {template?.displayName ?? agent.connectorDisplayName ?? agent.connectorId ?? "unknown"}</span>
+            <span><b>Agent ID</b> <code>{agent.agentId}</code></span>
+            <span><b>Lifecycle</b> {lifecycle.label}</span>
             <span><b>Approved actions</b> {approved}</span>
             <span><b>Blocked actions</b> {blocked}</span>
-            <span><b>Runtime endpoint</b> {agent.runtimeEndpoint ?? "not declared"}</span>
-            <span><b>External config</b> {shortHash(agent.externalConfigHash)}</span>
-            <span><b>Last onboarding</b> local session</span>
+            <span className="runtime-endpoint-chip"><b>Runtime endpoint</b> <code>{agent.runtimeEndpoint ?? "not declared"}</code></span>
           </div>
+          <p className="muted-note compact-lifecycle-reason">{lifecycle.reason}</p>
           <div className="installed-connector-actions">
             <button type="button" className="secondary-button compact-button" onClick={() => {
               setExpandedInstalledAgentIds((current) =>
@@ -3741,7 +3789,7 @@ function App() {
                   : [...current, agent.agentId]
               );
             }}>View details</button>
-            <button type="button" className="secondary-button compact-button" disabled={!matchingScenario} title={matchingScenario ? "Run a scenario for the first approved skill." : "No approved runtime scenario available."} onClick={() => runMatchingScenario(agent)}>Run matching scenario</button>
+            <button type="button" className="scenario-run compact-button" disabled={!matchingScenario} title={matchingScenario ? "Run a scenario for the first approved skill." : "No approved runtime scenario available."} onClick={() => runMatchingScenario(agent)}>Run scenario</button>
             <button type="button" className="secondary-button compact-button" onClick={() => prefillReverification(agent)}>Re-verify</button>
           </div>
           {!matchingScenario ? <p className="muted-note">No approved runtime scenario available.</p> : null}
@@ -3751,6 +3799,10 @@ function App() {
               <div className="registry-agent-metadata">
                 <div><span>Requested grants</span><strong>{agent.requestedScopes?.join(", ") || "none"}</strong></div>
                 <div><span>Agent-declared skills</span><strong>{(agent.agentDeclaredSkills ?? agent.agentDeclaredCapabilities)?.join(", ") || "none"}</strong></div>
+                <div><span>Resource system</span><strong>{agent.resourceSystem ?? "unknown"}</strong></div>
+                <div><span>Trust level</span><strong>{agent.trustLevel}</strong></div>
+                <div><span>Profile verified</span><strong>{agent.connectorProfileVerified ? "yes" : "no"}</strong></div>
+                <div><span>External config</span><strong>{shortHash(agent.externalConfigHash)}</strong></div>
                 <div><span>Approved actions</span><strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item) => item.label ?? item.capability).join(", ") || "none"}</strong></div>
                 <div><span>Blocked actions</span><strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong></div>
                 <div><span>Resource principal</span><strong>{agent.resourcePrincipal ?? "unknown"}</strong></div>
@@ -3774,10 +3826,9 @@ function App() {
         <section className="registry-section scroll-target" ref={registeredAgentsRef} tabIndex={-1}>
           <div className="section-heading-row">
             <div>
-              <p className="active-panel-eyebrow">Trusted agents</p>
+              <p className="active-panel-eyebrow">3. Review installed agents</p>
               <h2>Installed Connector Agents</h2>
-              <p className="muted-note">Installed connector agents are external agent instances that passed signed onboarding from a connector template.</p>
-              <p className="muted-note">Multiple external agents can be installed from the same connector template.</p>
+              <p className="muted-note">External agent instances that passed signed onboarding from a connector template.</p>
             </div>
           </div>
           {selectedTemplate ? (
@@ -3814,7 +3865,7 @@ function App() {
             <div className="installed-empty-state">
               <div>
                 <p className="strong-note">No connector agent installed yet.</p>
-                <p className="muted-note">Start from Connector Catalog to install a trusted external agent. Connector templates are not installed by default.</p>
+                <p className="muted-note">Choose a connector template to install a trusted external agent. Connector templates are not installed by default.</p>
               </div>
               <div className="wizard-action-row">
                 <button type="button" className="secondary-button compact-button" onClick={goToConnectorCatalog}>Open Connector Catalog</button>
@@ -3908,10 +3959,10 @@ function App() {
 
     function renderAgentRegistryNav() {
       const navItems: Array<{ label: string; target: GuidedFocusTarget }> = [
-        { label: `Catalog (${registrySummary.connectorTemplates})`, target: "connector-catalog" },
-        { label: `Installed Agents (${registrySummary.installedConnectors})`, target: "registered-agents" },
-        { label: "Connect Agent", target: "zero-trust-onboarding" },
-        { label: "Legacy Agents", target: "legacy-agents" }
+        { label: `1. Choose template (${registrySummary.connectorTemplates})`, target: "connector-catalog" },
+        { label: "2. Connect external agent", target: "zero-trust-onboarding" },
+        { label: `3. Installed Connector Agents (${registrySummary.installedConnectors})`, target: "registered-agents" },
+        { label: "Legacy agents", target: "legacy-agents" }
       ];
 
       return (
@@ -3927,18 +3978,17 @@ function App() {
 
     return (
       <section className="control-panel agent-registry-panel scroll-target" aria-label="Agent Registry" ref={agentRegistryRootRef} tabIndex={-1}>
-        <div className="panel-header">
-          <div>
-            <h2>Agent Registry</h2>
-            <p className="muted-note">Choose connector templates from the Connector Catalog, then install trusted external connector agents through Zero-Trust onboarding.</p>
-          </div>
-          <button type="button" className="secondary-button" onClick={() => {
+        {renderPageHeader({
+          eyebrow: "Connector governance",
+          title: "Agent Registry",
+          subtitle: "Choose connector templates and install trusted external connector agents.",
+          action: <button type="button" className="secondary-button" onClick={() => {
             void loadZeroTrustOnboardedAgents();
             void checkAgentHealth();
           }} disabled={isHealthLoading}>
             {isHealthLoading ? "Refreshing..." : "Refresh registry"}
           </button>
-        </div>
+        })}
 
         {renderAgentRegistrySummaryBar()}
 
@@ -3962,7 +4012,7 @@ function App() {
           <section className="registry-section">
             <div className="registry-summary-grid">
               <article>
-                <span>Installed connectors</span>
+                <span>Installed connector agents</span>
                 <strong>{zeroTrustAgents.length}</strong>
               </article>
               <article>
@@ -4028,24 +4078,21 @@ function App() {
 
     return (
       <section className="control-panel trust-identity-panel scroll-target" aria-label="Trust and Identity" ref={trustIdentityRootRef} tabIndex={-1}>
-        <div className="panel-header">
-          <div>
-            <h2>Trust & Identity</h2>
-            <p className="muted-note">Security console for user-to-gateway identity, gateway-to-agent token posture, Mock IdP metadata, and control boundaries. Raw JWTs and A2A tokens stay hidden.</p>
-          </div>
-          <div className="identity-actions">
-            <button type="button" className="secondary-button" onClick={() => {
+        {renderPageHeader({
+          eyebrow: "Identity control",
+          title: "Trust & Identity",
+          subtitle: "Authenticate a demo user and verify Gateway identity context.",
+          action: <button type="button" className="secondary-button" onClick={() => {
               void checkAgentHealth();
               void loadTrustStatus();
             }} disabled={isHealthLoading || isIdentityLoading}>
               {isHealthLoading || isIdentityLoading ? "Refreshing..." : "Refresh"}
             </button>
-          </div>
-        </div>
+        })}
 
         <section className={`trust-login-hero ${isTrustAuthenticated ? "authenticated" : "locked"} scroll-target`} ref={loginPanelRef} tabIndex={-1}>
           <div className="trust-login-copy">
-            <p className="active-panel-eyebrow">Start here</p>
+            <p className="active-panel-eyebrow">Identity status</p>
             <h2>{isTrustAuthenticated ? "Execution unlocked" : "Login required to unlock execution"}</h2>
             <p>{isTrustAuthenticated ? "Verified user identity is attached to this gateway session." : "Secure task execution is blocked until a verified user identity is attached to this gateway session."}</p>
           </div>
@@ -4097,7 +4144,7 @@ function App() {
                   Logout
                 </button>
                 <button type="button" className="trust-login-primary" onClick={goToRunTask}>
-                  Go to Run Task
+                  Open Run Task
                 </button>
               </div>
             </div>
@@ -4249,13 +4296,11 @@ function App() {
 
     return (
       <section className="control-panel security-timeline-panel scroll-target" aria-label="Security Timeline" ref={securityTimelineRootRef} tabIndex={-1}>
-        <div className="panel-header">
-          <div>
-            <h2>Security Timeline</h2>
-            <p className="muted-note">Step-by-step view of identity, routing, policy, token issuance, agent execution, delegation, and audit for the latest task.</p>
-            <p className="muted-note">Raw JWTs, bearer headers, client assertions, and secrets are intentionally redacted.</p>
-          </div>
-        </div>
+        {renderPageHeader({
+          eyebrow: "Audit proof",
+          title: "Security Timeline",
+          subtitle: "Inspect the end-to-end trust, policy, token, and runtime events."
+        })}
         {latestResponse ? (
           <>
             <section className="timeline-executive-summary scroll-target" tabIndex={-1}>
@@ -4265,7 +4310,7 @@ function App() {
                 <span className={`status-${cockpitStatusClass(policySummary)}`}>Policy checked</span>
                 <span className={`status-${cockpitStatusClass(tokenSummary)}`}>Scoped token {tokenSummary}</span>
                 <span className={latestResponse.a2aResponses?.length ? "status-success" : "status-neutral"}>Agent {latestResponse.a2aResponses?.length ? "executed" : "not executed"}</span>
-                <span className="status-success">Raw tokens hidden</span>
+                <span className="status-success">Raw token hidden</span>
               </div>
             </section>
             <div className="security-timeline-summary">
@@ -4423,10 +4468,12 @@ function App() {
                 }
               }}
             >
-              {tab.label}
+              <span>{tab.label}</span>
+              {activeTab === tab.id ? <small>{tab.hint}</small> : null}
             </button>
           ))}
         </nav>
+        {guidedStatus ? <div className="guided-status" role="status">{guidedStatus}</div> : null}
 
         {activeTab === "demo-guide" ? renderDemoGuideTab() : null}
         {activeTab === "run-task" ? renderRunTaskTab() : null}
