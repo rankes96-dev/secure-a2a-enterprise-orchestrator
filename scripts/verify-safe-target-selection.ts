@@ -120,18 +120,25 @@ async function resolve(message: string, conversationId?: string): Promise<Record
 function verifyStatic(): void {
   const ui = read("apps/web-ui/src/components/run-task/RunTaskTab.tsx");
   const main = read("apps/web-ui/src/main.tsx");
+  const orchestrator = read("services/orchestrator-api/src/index.ts");
   for (const phrase of [
     "Which system do you need access to?",
-    "Search supported systems...",
+    "Search installed systems...",
     "Other / not listed",
     "Use ${option.label} for the previous access request",
     "Other / not listed for the previous access request",
     "chat-safe-target-selection",
-    "Search for a supported system or choose Other / not listed."
+    "Search installed systems or choose Other / not listed."
   ]) {
     if (!ui.includes(phrase) && !main.includes(phrase)) {
       fail(`safe target selection UI copy missing: ${phrase}`);
     }
+  }
+  if (ui.includes("Search supported systems...") || main.includes("Search for a supported system")) {
+    fail("Run Task safe target picker should say installed systems, not supported systems");
+  }
+  if (ui.includes("Go to Agent Registry") || main.includes("Go to Agent Registry") || ui.includes("install connector agent") || main.includes("install connector agent")) {
+    fail("Run Task end-user flow should not tell users to install connectors or go to Agent Registry");
   }
   if (ui.includes("installed_planning_ready") || ui.includes("planningSupported") || ui.includes("templateAvailable")) {
     fail("main chat safe target picker should not render connector planning/template status");
@@ -144,6 +151,9 @@ function verifyStatic(): void {
   }
   if (!ui.includes('<MessageList messages={messages} />') || !ui.includes('renderSafeTargetSelection("chat")')) {
     fail("safe target picker should be rendered in the chat panel, not only in the Gateway response side panel");
+  }
+  if (!orchestrator.includes("function buildSafeTargetSelection(intentClasses: string[], installedAgents") || !orchestrator.includes("installedAgents\n    .map")) {
+    fail("safe target selection options should be built from installed agents, not connector templates");
   }
   logOk("static safe target selection UI checks passed");
 }
@@ -158,10 +168,16 @@ async function main(): Promise<void> {
   const selection = asRecord(ambiguous.safeTargetSelection, "safeTargetSelection");
   const options = asArray(selection.options, "safeTargetSelection.options").map((item) => asRecord(item, "safe target option"));
   const labels = options.map((option) => option.label);
-  for (const label of ["Jira", "ServiceNow", "GitHub", "Other / not listed"]) {
+  for (const label of ["Jira", "Other / not listed"]) {
     if (!labels.includes(label)) {
       fail(`safe target selection missing ${label}: ${JSON.stringify(options)}`);
     }
+  }
+  if (labels.includes("ServiceNow") || labels.includes("GitHub")) {
+    fail(`safe target selection should only show installed systems plus Other; got ${JSON.stringify(labels)}`);
+  }
+  if (selection.searchPlaceholder !== "Search installed systems...") {
+    fail(`safe target selection should use installed-systems placeholder: ${JSON.stringify(selection)}`);
   }
   for (const option of options) {
     for (const forbidden of ["connectorId", "installed", "planningSupported", "status", "templateAvailable"]) {
@@ -173,8 +189,11 @@ async function main(): Promise<void> {
   if (ambiguous.connectorActionPlan !== undefined || ambiguous.connectorRuntime !== undefined) {
     fail(`ambiguous safe target selection should not plan or execute runtime: ${JSON.stringify(ambiguous)}`);
   }
-  if (typeof ambiguous.finalAnswer !== "string" || !ambiguous.finalAnswer.includes("Search for a supported system")) {
-    fail(`ambiguous response should ask user to search/select supported system: ${JSON.stringify(ambiguous.finalAnswer)}`);
+  if (typeof ambiguous.finalAnswer !== "string" || !ambiguous.finalAnswer.includes("Search installed systems")) {
+    fail(`ambiguous response should ask user to search/select installed system: ${JSON.stringify(ambiguous.finalAnswer)}`);
+  }
+  if (ambiguous.finalAnswer.includes("Agent Registry") || ambiguous.finalAnswer.includes("install connector")) {
+    fail(`ambiguous end-user response should not include connector installation guidance: ${JSON.stringify(ambiguous.finalAnswer)}`);
   }
   const conversationId = typeof ambiguous.conversationId === "string" ? ambiguous.conversationId : undefined;
   if (!conversationId) fail("ambiguous response did not return conversationId");
@@ -189,6 +208,21 @@ async function main(): Promise<void> {
     fail(`Jira planning follow-up should not execute write runtime: ${JSON.stringify(jiraFollowUp.connectorRuntime)}`);
   }
   logOk("explicit supported system follow-up returned safe plan");
+
+  const serviceNowStart = await resolve("I need access to the system");
+  const serviceNowConversationId = typeof serviceNowStart.conversationId === "string" ? serviceNowStart.conversationId : undefined;
+  if (!serviceNowConversationId) fail("ServiceNow setup response did not return conversationId");
+  const serviceNow = await resolve("Use ServiceNow for the previous access request", serviceNowConversationId);
+  if (serviceNow.connectorActionPlan !== undefined || serviceNow.evaluatedActionPlan !== undefined || serviceNow.connectorRuntime !== undefined) {
+    fail(`uninstalled ServiceNow follow-up should not plan or execute runtime: ${JSON.stringify(serviceNow)}`);
+  }
+  if (typeof serviceNow.finalAnswer !== "string" || !serviceNow.finalAnswer.includes("ServiceNow is not available here yet")) {
+    fail(`uninstalled ServiceNow follow-up should use end-user availability copy: ${JSON.stringify(serviceNow.finalAnswer)}`);
+  }
+  if (serviceNow.finalAnswer.includes("Agent Registry") || serviceNow.finalAnswer.includes("install connector") || serviceNow.finalAnswer.includes("connector")) {
+    fail(`uninstalled ServiceNow end-user response should not include install guidance: ${JSON.stringify(serviceNow.finalAnswer)}`);
+  }
+  logOk("uninstalled system follow-up returned support handoff");
 
   const noContext = await resolve("Use Jira for the previous access request");
   const noContextGateStack = asRecord(noContext.executionGateStack, "no-context executionGateStack");

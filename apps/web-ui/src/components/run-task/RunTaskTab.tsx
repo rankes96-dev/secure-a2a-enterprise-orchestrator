@@ -291,7 +291,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     isUserAuthenticated, connectorTemplateCount, installedConnectorAgentCount, runtimeReadyConnectorAgentCount, latestRequest,
     executionState, authModeSummary, lastResult, policySummary, tokenSummary, delegationSummary, primarySelectedAgent, actorEmail,
     policyOutcome, tokenOutcome,
-    guideToTarget, showGuidedStatus, goToTrustIdentity, goToRunTask, goToAgentRegistry, goToConnectorCatalog,
+    guideToTarget, showGuidedStatus, goToTrustIdentity, goToRunTask, goToAgentRegistry,
     goToInstalledConnectorAgents, goToSecurityTimeline, hasInstalledConnector, hasApprovedSkill, hasBlockedSkill, readinessStatusForSkill,
     checkAgentHealth, loadTrustStatus, loginDemoUser, logoutIdentity, applyLocalConnectorPreset, discoverZeroTrustAgent,
     copyGatewayRegistrationJson, startZeroTrustOnboarding, resolveIssue, submitIssue, startNewConversation, resetZeroTrustConnectionState,
@@ -578,8 +578,8 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           className="safe-target-search"
           value={targetSearch}
           onChange={(event: React.ChangeEvent<HTMLInputElement>) => setTargetSearch(event.target.value)}
-          placeholder={selection.searchPlaceholder || "Search supported systems..."}
-          aria-label={selection.searchPlaceholder || "Search supported systems..."}
+          placeholder={selection.searchPlaceholder || "Search installed systems..."}
+          aria-label={selection.searchPlaceholder || "Search installed systems..."}
         />
         <div className="safe-target-option-list">
           {filteredSafeTargetOptions.map((option) => (
@@ -710,11 +710,6 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
               <p><strong>Policy:</strong> Skill was not eligible for runtime execution because Gateway action decision blocked it.</p>
             ) : null}
             <p><strong>Next step:</strong> {latestResponse.connectorRouting.recommendedNextStep}</p>
-            {latestResponse.connectorRouting.status === "connector_not_onboarded" || latestResponse.connectorRouting.status === "connector_skill_not_declared" || latestResponse.connectorRouting.status === "connector_skill_not_enabled" ? (
-              <button type="button" className="secondary-inline-button" onClick={goToAgentRegistry}>
-                Open Connector Catalog
-              </button>
-            ) : null}
             {latestResponse.connectorRouting.status === "unsupported" || latestResponse.connectorRouting.status === "connector_skill_not_declared" || latestResponse.connectorRouting.status === "connector_skill_not_enabled" ? (
               <button
                 type="button"
@@ -1117,7 +1112,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                 <span>
                   {runtimeReadyConnectorAgentCount > 0
                     ? "Recommended: Run Jira approved diagnosis first."
-                    : "Install a connector agent before running connector-backed scenarios."}
+                    : "No governed connector systems are available right now."}
                 </span>
                 {runtimeReadyConnectorAgentCount > 0 ? (
                   <button type="button" className="secondary-inline-button compact-button" onClick={() => {
@@ -1126,7 +1121,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                     guideToTarget("composer");
                   }}>Use recommended prompt</button>
                 ) : (
-                  <button type="button" className="secondary-inline-button compact-button" onClick={goToConnectorCatalog}>Open Connector Catalog</button>
+                  <button type="button" className="secondary-inline-button compact-button" onClick={() => setMessage("I need access to the system")}>Ask for access</button>
                 )}
               </div>
               <div className="composer-surface">

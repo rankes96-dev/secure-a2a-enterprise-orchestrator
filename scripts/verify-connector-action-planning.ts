@@ -213,8 +213,8 @@ async function verifyApi(): Promise<void> {
   if (planningTargetResolution.strategy !== "needs_clarification") {
     fail(`ambiguous access planning should require target clarification: ${JSON.stringify(planningTargetResolution)}`);
   }
-  if (typeof ambiguousResult.finalAnswer !== "string" || !ambiguousResult.finalAnswer.includes("which system or application")) {
-    fail(`ambiguous access planning should ask which system/application: ${JSON.stringify(ambiguousResult.finalAnswer)}`);
+  if (typeof ambiguousResult.finalAnswer !== "string" || !ambiguousResult.finalAnswer.includes("Which system do you need access to?")) {
+    fail(`ambiguous access planning should ask which system the user needs: ${JSON.stringify(ambiguousResult.finalAnswer)}`);
   }
 
   const { response, body } = await request("/resolve", {

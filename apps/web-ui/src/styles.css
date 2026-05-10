@@ -3189,9 +3189,9 @@ pre {
 }
 
 .topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
+  position: static;
+  top: auto;
+  z-index: auto;
   align-items: center;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -6387,8 +6387,8 @@ summary:focus-visible,
   display: grid;
   gap: 10px;
   min-height: 340px;
-  max-height: 56vh;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
   border: 1px solid var(--border);
   border-radius: 18px;
   padding: 14px;
@@ -6436,9 +6436,9 @@ summary:focus-visible,
 }
 
 .chat-composer {
-  position: sticky;
-  bottom: 12px;
-  z-index: 2;
+  position: static;
+  bottom: auto;
+  z-index: auto;
 }
 
 .chat-composer .composer-surface textarea {
@@ -6760,5 +6760,17 @@ summary:focus-visible,
   .chat-composer {
     position: static;
   }
+}
+
+.control-plane-shell .topbar {
+  position: static;
+  top: auto;
+  z-index: auto;
+}
+
+.chat-first-cockpit .chat-composer {
+  position: static;
+  bottom: auto;
+  z-index: auto;
 }
 

@@ -570,6 +570,92 @@ function firstRecommendedAction(response: ResolveResponse): string {
   return firstSentence(response.diagnosis.recommendedFix);
 }
 
+type EvaluatedPlanOption = NonNullable<ResolveResponse["evaluatedActionPlan"]>["options"][number];
+
+function plainActionPhrase(option: EvaluatedPlanOption["option"]): string {
+  const copy = option.description || option.label;
+  if (option.executionType === "inspection_read_only") {
+    return `check: ${copy}`;
+  }
+  if (option.executionType === "diagnostic_read_only") {
+    return `diagnose: ${copy}`;
+  }
+  if (option.executionType === "write_action" || option.executionType === "admin_action") {
+    return `request a change: ${copy}`;
+  }
+  return copy;
+}
+
+function preferredPlannedOption(response: ResolveResponse): EvaluatedPlanOption | undefined {
+  const evaluatedPlan = response.evaluatedActionPlan;
+  if (!evaluatedPlan?.options.length) {
+    return undefined;
+  }
+
+  const recommendedOptionId = evaluatedPlan.recommendedOptionDecision?.optionId ?? evaluatedPlan.plan.recommendedOptionId;
+  const recommended = recommendedOptionId
+    ? evaluatedPlan.options.find((item) => item.option.actionId === recommendedOptionId)
+    : undefined;
+
+  return recommended ??
+    evaluatedPlan.options.find((item) =>
+      item.decision === "allowed" &&
+      (item.option.executionType === "inspection_read_only" || item.option.executionType === "diagnostic_read_only")
+    ) ??
+    evaluatedPlan.options.find((item) => item.decision === "needs_approval") ??
+    evaluatedPlan.options.find((item) => item.decision === "blocked");
+}
+
+function buildEndUserPlannedAnswer(response: ResolveResponse): string {
+  const evaluatedOptions = response.evaluatedActionPlan?.options ?? [];
+  const selectedOption = preferredPlannedOption(response);
+  const hasAllowedSafeOption = selectedOption?.decision === "allowed" &&
+    (selectedOption.option.executionType === "inspection_read_only" || selectedOption.option.executionType === "diagnostic_read_only");
+  const onlyApprovalOrChangeOptions = (selectedOption?.decision === "needs_approval") ||
+    (evaluatedOptions.length > 0 &&
+      evaluatedOptions.every((item) => item.option.executionType === "write_action" || item.option.executionType === "admin_action" || item.decision === "needs_approval"));
+  const allBlocked = evaluatedOptions.length > 0 &&
+    evaluatedOptions.every((item) => item.decision === "blocked");
+
+  if (hasAllowedSafeOption && selectedOption) {
+    return [
+      "PLANNED",
+      "I checked this request safely.",
+      `Recommended next step: I can start with a safe ${plainActionPhrase(selectedOption.option)}.`,
+      "No changes were made.",
+      "If a permission or data change is required, it must go through an approved access request."
+    ].join("\n");
+  }
+
+  if (onlyApprovalOrChangeOptions) {
+    return [
+      "PLANNED",
+      "I checked this request safely.",
+      "This request may require a permission or data change.",
+      "That must go through an approved access request.",
+      "No changes were made."
+    ].join("\n");
+  }
+
+  if (allBlocked) {
+    return [
+      "PLANNED",
+      "I checked this request safely.",
+      "I found possible next steps, but none are currently available here.",
+      "Open a support ticket with the system name and access details.",
+      "No changes were made."
+    ].join("\n");
+  }
+
+  return [
+    "PLANNED",
+    "I checked this request safely.",
+    "Recommended next step: start with the safest available check.",
+    "No changes were made.",
+    "If a permission or data change is required, it must go through an approved access request."
+  ].join("\n");
+}
+
 function governedChatAnswer(response: ResolveResponse): string {
   const outcome = chatOutcomeLabel(response);
   const summary = firstSentence(response.finalAnswer);
@@ -587,23 +673,14 @@ function governedChatAnswer(response: ResolveResponse): string {
   }
 
   if (outcome === "PLANNED" || response.connectorActionPlan) {
-    return [
-      "PLANNED",
-      ...(response.planningFollowUpResolution ? ["Using previous request context: access request."] : []),
-      "The connector returned a side-effect-free action plan.",
-      "No write action was attempted.",
-      "Gateway evaluated the proposed options before execution.",
-      `Next: ${response.connectorActionPlan?.recommendedNextStep ?? response.evaluatedActionPlan?.plan.recommendedNextStep ?? "Review the allowed, blocked, and approval-required options."}`
-    ].join("\n");
+    return buildEndUserPlannedAnswer(response);
   }
 
   if (outcome === "NEEDS MORE INFO" && response.connectorPlanningTargetResolution?.strategy === "needs_clarification") {
     return [
       "NEEDS MORE INFO",
-      "I can help plan an access request, but I need to know which system or application you mean.",
-      "Waiting for: target system/application.",
-      "Search for a supported system or choose Other / not listed.",
-      `Next: ${nextAction}`
+      "Which system do you need access to?",
+      "Search installed systems or choose Other / not listed."
     ].join("\n");
   }
 
@@ -647,6 +724,16 @@ function governedChatAnswer(response: ResolveResponse): string {
   }
 
   if (outcome === "UNSUPPORTED") {
+    if (response.connectorPlanningTargetResolution?.strategy === "not_supported") {
+      return [
+        "UNSUPPORTED",
+        "This system is not available here yet.",
+        "Open a support ticket with:",
+        "- the system name",
+        "- what you need access to",
+        "- why you need it"
+      ].join("\n");
+    }
     return [
       "UNSUPPORTED",
       summary,

@@ -15,6 +15,7 @@ const webUi = [
   readFileSync("apps/web-ui/src/main.tsx", "utf8"),
   readTsxTree("apps/web-ui/src/components")
 ].join("\n");
+const mainTsx = readFileSync("apps/web-ui/src/main.tsx", "utf8");
 
 let failed = false;
 
@@ -61,6 +62,37 @@ const visibleCopyHints = [
 for (const phrase of visibleCopyHints) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - expected simplified UI copy is missing: ${phrase}`);
+    failed = true;
+  }
+}
+
+const plannedAnswerBuilder = mainTsx.match(/function buildEndUserPlannedAnswer[\s\S]*?function governedChatAnswer/)?.[0] ?? "";
+for (const phrase of [
+  "I checked this request safely",
+  "No changes were made",
+  "approved access request"
+]) {
+  if (!plannedAnswerBuilder.includes(phrase)) {
+    console.error(`fail - planned main chat copy missing end-user phrase: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const forbidden of [
+  "side-effect-free action plan",
+  "Gateway evaluated the proposed options",
+  "Connector Action Plan",
+  "required grants",
+  "required permissions",
+  "OAuth",
+  "service account",
+  "execution type",
+  "risk level",
+  "Do you want to inspect",
+  "request/grant access"
+]) {
+  if (plannedAnswerBuilder.includes(forbidden)) {
+    console.error(`fail - planned main chat copy should not expose technical term: ${forbidden}`);
     failed = true;
   }
 }

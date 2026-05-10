@@ -313,7 +313,6 @@ function buildEffectiveMessageForRouting(state: ConversationState, currentMessag
 function explicitPlanningTargetMention(message: string, installedAgents: ReturnType<typeof listTrustedOnboardedAgents>): boolean {
   const normalized = message.toLowerCase();
   return installedAgents
-    .filter((agent) => agent.connectorProfile?.planning?.supported === true)
     .some((agent) => {
       const connectorId = agent.connectorId ?? agent.connectorProfile?.connectorId ?? "";
       const resourceSystem = agent.resourceSystem ?? agent.connectorProfile?.resourceSystem ?? "";
@@ -326,6 +325,34 @@ function explicitPlanningTargetMention(message: string, installedAgents: ReturnT
       ].map((term) => term.toLowerCase()).filter(Boolean);
       return explicitTerms.some((term) => normalized.includes(term));
     });
+}
+
+function planningSupported(agent: ReturnType<typeof listTrustedOnboardedAgents>[number]): boolean {
+  return agent.connectorProfile?.planning?.supported === true;
+}
+
+function targetSystemLabel(resourceSystem: string): string {
+  const normalized = resourceSystem.toLowerCase();
+  if (normalized === "jira") return "Jira";
+  if (normalized === "servicenow") return "ServiceNow";
+  if (normalized === "github") return "GitHub";
+  return resourceSystem;
+}
+
+function targetSystemDescription(resourceSystem: string): string {
+  const normalized = resourceSystem.toLowerCase();
+  if (normalized === "jira") return "Projects, issues, and Jira permissions";
+  if (normalized === "servicenow") return "Incidents, catalog requests, and ITSM access";
+  if (normalized === "github") return "Repositories, pull requests, and DevOps access";
+  return "Governed access requests for this system";
+}
+
+function knownTargetSystemFromMessage(message: string): { value: string; label: string } | undefined {
+  const normalized = message.toLowerCase();
+  if (/\bjira\b/.test(normalized)) return { value: "jira", label: "Jira" };
+  if (/\bservice\s*now\b|\bservicenow\b/.test(normalized)) return { value: "servicenow", label: "ServiceNow" };
+  if (/\bgithub\b|\bgit\s*hub\b/.test(normalized)) return { value: "github", label: "GitHub" };
+  return undefined;
 }
 
 function normalizePlanningTargetAnswer(message: string): string {
@@ -398,39 +425,43 @@ function isOtherTargetSelection(message: string): boolean {
   return /\b(other|not listed|another system|unsupported system)\b/i.test(message);
 }
 
-function buildSafeTargetSelection(intentClasses: string[]): SafeTargetSelection {
+function buildSafeTargetSelection(intentClasses: string[], installedAgents: ReturnType<typeof listTrustedOnboardedAgents>): SafeTargetSelection {
+  const seenSystems = new Set<string>();
+  const installedOptions = installedAgents
+    .map((agent) => agent.resourceSystem ?? agent.connectorProfile?.resourceSystem)
+    .filter((resourceSystem): resourceSystem is string => Boolean(resourceSystem))
+    .filter((resourceSystem) => {
+      const normalized = resourceSystem.toLowerCase();
+      if (seenSystems.has(normalized)) {
+        return false;
+      }
+      seenSystems.add(normalized);
+      return true;
+    })
+    .map((resourceSystem) => ({
+      id: resourceSystem.toLowerCase(),
+      label: targetSystemLabel(resourceSystem),
+      value: resourceSystem.toLowerCase(),
+      description: targetSystemDescription(resourceSystem),
+      kind: "supported_system" as const
+    }));
+
   return {
     intent: intentClasses.includes("permission_request") ? "permission_request" : "access_request",
-    reason: "Access-planning intent detected, but target system was not specified.",
+    reason: installedOptions.length
+      ? "Access-planning intent detected, but target system was not specified."
+      : "No installed systems are available for governed access planning yet.",
     question: "Which system do you need access to?",
-    searchPlaceholder: "Search supported systems...",
+    searchPlaceholder: "Search installed systems...",
     options: [
-      {
-        id: "jira",
-        label: "Jira",
-        value: "jira",
-        description: "Projects, issues, and Jira permissions",
-        kind: "supported_system"
-      },
-      {
-        id: "servicenow",
-        label: "ServiceNow",
-        value: "servicenow",
-        description: "Incidents, catalog requests, and ITSM access",
-        kind: "supported_system"
-      },
-      {
-        id: "github",
-        label: "GitHub",
-        value: "github",
-        description: "Repositories, pull requests, and DevOps access",
-        kind: "supported_system"
-      },
+      ...installedOptions,
       {
         id: "other",
         label: "Other / not listed",
         value: "other",
-        description: "Open a support ticket for an unsupported system",
+        description: installedOptions.length
+          ? "Open a support ticket for another system"
+          : "Open a support ticket with the system name and access details",
         kind: "other"
       }
     ]
@@ -808,10 +839,7 @@ function isConnectorPlanningCandidate(params: {
   connectorRoute?: ConnectorRoutingDecision;
   installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
 }): boolean {
-  if (!isConnectorAccessPlanningRequest(params.message)) {
-    return false;
-  }
-  return params.installedAgents.some((agent) => agent.connectorProfile?.planning?.supported === true);
+  return isConnectorAccessPlanningRequest(params.message);
 }
 
 function primarySecurityDecision(decisions: SecurityDecision[]): SecurityDecision | undefined {
@@ -1495,13 +1523,13 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
 
   if (planningFollowUpResolution && isOtherTargetSelection(requestBody.message)) {
     const diagnosis = {
-      probableCause: "Target system is not supported by an installed connector",
+      probableCause: "Target system is not currently available in the Gateway",
       recommendedFix: "Open support ticket with details."
     };
 
     return finalize({
       conversationId,
-      finalAnswer: "This system is not currently supported by an installed connector. Open a support ticket with the system name and access details.",
+      finalAnswer: "This system is not available here yet. Open a support ticket with the system name, what you need access to, and why you need it.",
       classification,
       selectedAgents: [],
       skippedAgents: routingDecision.skippedAgents,
@@ -1576,6 +1604,105 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       a2aResponses: [],
       diagnosis
     });
+  }
+
+  const selectedKnownTarget = planningFollowUpResolution ? knownTargetSystemFromMessage(requestBody.message) : undefined;
+  if (planningFollowUpResolution && selectedKnownTarget) {
+    const selectedInstalledAgent = installedAgents.find((agent) => {
+      const resourceSystem = (agent.resourceSystem ?? agent.connectorProfile?.resourceSystem ?? "").toLowerCase();
+      return resourceSystem === selectedKnownTarget.value;
+    });
+    if (!selectedInstalledAgent || !planningSupported(selectedInstalledAgent)) {
+      const systemName = selectedKnownTarget.label;
+      const availableButNoPlanning = Boolean(selectedInstalledAgent);
+      const diagnosis = {
+        probableCause: availableButNoPlanning
+          ? `${systemName} safe access planning is not available in V1`
+          : `${systemName} is not currently available in the Gateway`,
+        recommendedFix: "Open support ticket with details."
+      };
+
+      return finalize({
+        conversationId,
+        finalAnswer: availableButNoPlanning
+          ? `${systemName} is available here, but safe access planning is not available for this system yet. Open a support ticket or use an available diagnostic flow.`
+          : `${systemName} is not available here yet. Open a support ticket with the system name, what you need access to, and why you need it.`,
+        classification,
+        selectedAgents: [],
+        skippedAgents: routingDecision.skippedAgents,
+        routingSource: routingDecision.routingSource,
+        routingConfidence: routingDecision.routingConfidence,
+        routingReasoningSummary: `${systemName} was selected for a pending access-planning request, but it is not available for safe planning.`,
+        resolutionStatus: "unsupported",
+        evidence: [],
+        agentTrace: [
+          trace("connector_planning_target_unavailable", `${systemName} was not sent to plan-only runtime.`)
+        ],
+        executionTrace: [
+          executionStep("user", "submit_issue", requestBody.message),
+          executionStep("orchestrator", "support_ticket_handoff", "Selected system was not available for safe planning. No connector plan or runtime execution requested.")
+        ],
+        securityDecisions: [],
+        requestInterpretation: {
+          ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+          scope: "manual_enterprise_workflow",
+          intentType: "manual_service_request",
+          targetSystemText: systemName,
+          requestedActionText: "support ticket handoff",
+          confidence: "medium",
+          reason: `${systemName} was selected, but safe access planning cannot proceed for this system.`
+        },
+        connectorPlanningTargetResolution: {
+          strategy: "not_supported",
+          detectedIntentClasses: conversationState.pendingFollowUp?.detectedIntentClasses ?? detectedPlanningIntentClasses(effectiveMessage),
+          reason: `${systemName} is not available for safe access planning.`
+        },
+        planningFollowUpResolution,
+        executionGateStack: {
+          stoppedAt: "gateway_governance",
+          finalOutcome: "unsupported",
+          gates: [
+            {
+              id: "ai_interpretation",
+              label: "AI Interpretation",
+              status: "passed",
+              reason: `${systemName} selected for the pending access-planning target.`,
+              evidence: {
+                intent: "access request",
+                targetSystem: selectedKnownTarget.value
+              }
+            },
+            {
+              id: "gateway_governance",
+              label: "Gateway Governance",
+              status: "blocked",
+              reason: "Gateway did not request a plan for a system that is not available for safe access planning."
+            },
+            {
+              id: "oauth_scope",
+              label: "OAuth Scope Gate",
+              status: "not_evaluated",
+              reason: "Gateway did not select a planning-capable connector."
+            },
+            {
+              id: "service_account_permission",
+              label: "Service Account Permission Gate",
+              status: "not_evaluated",
+              reason: "Gateway did not select a planning-capable connector."
+            },
+            {
+              id: "runtime_execution",
+              label: "Runtime Execution",
+              status: "not_evaluated",
+              reason: "No connector plan or runtime execution was requested."
+            }
+          ]
+        },
+        a2aTasks: [],
+        a2aResponses: [],
+        diagnosis
+      });
+    }
   }
 
   if (!planningFollowUpResolution && isPreviousAccessRequestTargetSelection(requestBody.message)) {
@@ -1763,7 +1890,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       } catch (error) {
         console.warn(`[connector-plan] ${error instanceof Error ? error.message : "failed"}`);
       }
-    } else if (planningTargetResolution.strategy === "needs_clarification") {
+    } else if (planningTargetResolution.strategy === "needs_clarification" || planningTargetResolution.strategy === "not_supported") {
       const planningInterpretation: RequestInterpretation = {
         ...(incidentInterpretation ?? routingDecision.requestInterpretation),
         scope: "enterprise_support",
@@ -1774,11 +1901,15 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       };
       const diagnosis = {
         probableCause: "Connector planning target is unclear",
-        recommendedFix: "Is this for Jira, ServiceNow, GitHub, or another system?"
+        recommendedFix: installedAgents.length
+          ? "Search installed systems or choose Other / not listed."
+          : "No installed systems are available for governed access planning yet. Open a support ticket with details."
       };
       return finalize({
         conversationId,
-        finalAnswer: "I can help plan an access request, but I need to know which system or application you mean. Search for a supported system or choose Other / not listed.",
+        finalAnswer: installedAgents.length
+          ? "Which system do you need access to? Search installed systems or choose Other / not listed."
+          : "I can help plan an access request, but no installed systems are available for governed access planning yet. Open a support ticket with the system name and access details.",
         classification,
         selectedAgents: [],
         skippedAgents: routingDecision.skippedAgents,
@@ -1797,7 +1928,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         securityDecisions: [],
         requestInterpretation: planningInterpretation,
         connectorPlanningTargetResolution: planningTargetResolution,
-        safeTargetSelection: buildSafeTargetSelection(planningTargetResolution.detectedIntentClasses),
+        safeTargetSelection: buildSafeTargetSelection(planningTargetResolution.detectedIntentClasses, installedAgents),
         pendingFollowUp: {
           type: "connector_planning_target",
           originalMessage: planningFollowUpResolution?.originalMessage ?? effectiveMessage,

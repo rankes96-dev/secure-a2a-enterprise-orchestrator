@@ -193,6 +193,34 @@ if (/<nav\s+className=["']product-tabs["']/.test(webUi)) {
   failed = true;
 }
 
+const chatComposerBlock = styles.match(/\.chat-composer\s*\{[\s\S]*?\}/)?.[0] ?? "";
+if (/position:\s*(sticky|fixed)/.test(chatComposerBlock)) {
+  console.error("fail - .chat-composer must not be sticky or fixed");
+  failed = true;
+}
+
+const topbarBlocks = [...styles.matchAll(/\.topbar\s*\{[\s\S]*?\}/g)].map((match) => match[0]);
+if (topbarBlocks.some((block) => /position:\s*(sticky|fixed)/.test(block))) {
+  console.error("fail - .topbar must not be sticky or fixed");
+  failed = true;
+}
+
+const finalComposerOverride = styles.match(/\.chat-first-cockpit\s+\.chat-composer\s*\{[\s\S]*?\}/)?.[0] ?? "";
+for (const phrase of ["position: static", "bottom: auto", "z-index: auto"]) {
+  if (!finalComposerOverride.includes(phrase)) {
+    console.error(`fail - missing final chat composer override: ${phrase}`);
+    failed = true;
+  }
+}
+
+const finalTopbarOverride = styles.match(/\.control-plane-shell\s+\.topbar\s*\{[\s\S]*?\}/g)?.at(-1) ?? "";
+for (const phrase of ["position: static", "top: auto", "z-index: auto"]) {
+  if (!finalTopbarOverride.includes(phrase)) {
+    console.error(`fail - missing final topbar override: ${phrase}`);
+    failed = true;
+  }
+}
+
 if (failed) {
   process.exitCode = 1;
 } else {
