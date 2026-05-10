@@ -1,3 +1,7 @@
+/* =========================
+   Design tokens
+   ========================= */
+
 :root {
   color: #0f172a;
   background: #f6f8fb;
@@ -39,10 +43,18 @@
   --info-text: #1d4ed8;
   --info-border: #bfdbfe;
 
+  --neutral-bg: #f1f5f9;
+  --neutral-text: #475569;
+  --neutral-border: #cbd5e1;
+
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08);
   --shadow-lg: 0 18px 45px rgba(15, 23, 42, 0.1);
 }
+
+/* =========================
+   Base layout
+   ========================= */
 
 * {
   box-sizing: border-box;
@@ -61,6 +73,10 @@ select,
 textarea {
   font: inherit;
 }
+
+/* =========================
+   Cards / panels
+   ========================= */
 
 .shell {
   display: grid;
@@ -90,6 +106,10 @@ textarea {
   justify-content: space-between;
   gap: 24px;
 }
+
+/* =========================
+   Typography
+   ========================= */
 
 .eyebrow {
   margin: 0 0 5px;
@@ -126,15 +146,19 @@ h2 {
 }
 
 .status {
-  border: 1px solid rgba(132, 245, 169, 0.4);
+  border: 1px solid var(--neutral-border);
   border-radius: 999px;
   padding: 7px 12px;
-  color: #befdd4;
-  background: rgba(28, 88, 60, 0.45);
+  color: var(--neutral-text);
+  background: var(--neutral-bg);
   font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
 }
+
+/* =========================
+   Badges / status chips
+   ========================= */
 
 .user-status.authenticated {
   color: #0f4d68;
@@ -155,12 +179,16 @@ h2 {
   gap: 8px;
 }
 
+/* =========================
+   Buttons
+   ========================= */
+
 .secondary-button {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 7px 12px;
-  color: #d8e4fb;
-  background: rgba(31, 49, 82, 0.72);
+  color: var(--text-secondary);
+  background: var(--surface);
   font-size: 13px;
   font-weight: 800;
   white-space: nowrap;
@@ -231,6 +259,10 @@ h2 {
   padding-bottom: 10px;
 }
 
+/* =========================
+   Tabs / navigation
+   ========================= */
+
 .product-tabs button {
   border: 1px solid var(--border);
   border-radius: 8px 8px 0 0;
@@ -259,7 +291,7 @@ h2 {
   border-radius: 14px;
   padding: 18px;
   background: var(--surface);
-  box-shadow: inset 0 1px 0 rgba(197, 221, 255, 0.08), 0 12px 40px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-sm);
 }
 
 .panel-header {
@@ -2930,7 +2962,7 @@ pre {
   border-radius: 14px;
   padding: 20px;
   background: #ffffff;
-  box-shadow: 0 18px 60px rgba(30, 41, 59, 0.06);
+  box-shadow: var(--shadow-md);
 }
 
 .panel-header {
@@ -5420,7 +5452,42 @@ summary:focus-visible,
   box-shadow: 0 0 0 5px rgba(29, 78, 216, 0.1);
 }
 
-/* Product simplification pass */
+/* =========================
+   Forms / inputs
+   ========================= */
+
+.truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monospace {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+.card-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.metric-grid {
+  display: grid;
+  gap: 8px;
+}
+
+/* =========================
+   Cards / panels
+   ========================= */
+
 .page-header {
   align-items: center;
   border: 1px solid var(--border);
@@ -5481,6 +5548,10 @@ summary:focus-visible,
   font-size: 12px;
   font-weight: 850;
 }
+
+/* =========================
+   Demo Guide
+   ========================= */
 
 .demo-guide-panel {
   align-content: start;
@@ -5553,12 +5624,14 @@ summary:focus-visible,
 }
 
 .readiness-checklist,
+.scenario-readiness-panel,
 .demo-script-panel {
   padding: 0;
   overflow: hidden;
 }
 
 .readiness-checklist > summary,
+.scenario-readiness-panel > summary,
 .demo-script-panel > summary {
   display: grid;
   gap: 3px;
@@ -5568,11 +5641,13 @@ summary:focus-visible,
 }
 
 .readiness-checklist > summary::-webkit-details-marker,
+.scenario-readiness-panel > summary::-webkit-details-marker,
 .demo-script-panel > summary::-webkit-details-marker {
   display: none;
 }
 
 .readiness-checklist > summary span,
+.scenario-readiness-panel > summary span,
 .demo-script-panel > summary span {
   color: var(--text);
   font-size: 15px;
@@ -5580,16 +5655,29 @@ summary:focus-visible,
 }
 
 .readiness-checklist > summary small,
+.scenario-readiness-panel > summary small,
 .demo-script-panel > summary small {
   color: var(--text-muted);
   font-size: 12px;
 }
 
 .readiness-checklist[open] > ul,
-.readiness-checklist[open] > .scenario-readiness-panel,
-.demo-script-panel[open] > ol,
-.demo-script-panel[open] > .advanced-demo-script {
+.scenario-readiness-panel[open] > .scenario-readiness-grid,
+.demo-script-panel > ol,
+.demo-script-panel > .advanced-demo-script,
+.demo-script-panel > .compact-section-heading {
   margin: 0 14px 14px;
+}
+
+.compact-section-heading {
+  display: grid;
+  gap: 3px;
+  padding-top: 14px;
+}
+
+.compact-section-heading h3 {
+  margin: 0;
+  font-size: 15px;
 }
 
 .scenario-proves {
@@ -5617,6 +5705,10 @@ summary:focus-visible,
   font-size: 12px;
 }
 
+/* =========================
+   Run Task
+   ========================= */
+
 .composer.cockpit-card {
   border-color: #b7c5d3;
   box-shadow: 0 18px 44px rgba(30, 41, 59, 0.1);
@@ -5639,6 +5731,10 @@ summary:focus-visible,
   flex: 0 0 auto;
   background: #ffffff;
 }
+
+/* =========================
+   Agent Registry
+   ========================= */
 
 .agent-registry-summary-bar {
   display: grid;
@@ -5726,6 +5822,67 @@ summary:focus-visible,
 .registry-overview-section:not([open]) {
   background: var(--surface-soft);
 }
+
+/* =========================
+   Trust & Identity
+   ========================= */
+
+.trust-console-section,
+.trust-login-hero,
+.trust-card-grid article {
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+/* =========================
+   Security Timeline
+   ========================= */
+
+.security-timeline-event,
+.timeline-executive-summary,
+.raw-execution-data {
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+/* =========================
+   Badges / status chips
+   ========================= */
+
+.status-success {
+  color: var(--success-text);
+  background: var(--success-bg);
+  border-color: var(--success-border);
+}
+
+.status-warning {
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+}
+
+.status-danger,
+.status-blocked {
+  color: var(--danger-text);
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+
+.status-info {
+  color: var(--info-text);
+  background: var(--info-bg);
+  border-color: var(--info-border);
+}
+
+.status-neutral {
+  color: var(--neutral-text);
+  background: var(--neutral-bg);
+  border-color: var(--neutral-border);
+}
+
+/* =========================
+   Responsive rules
+   ========================= */
 
 @media (max-width: 1040px) {
   .demo-guide-topline,

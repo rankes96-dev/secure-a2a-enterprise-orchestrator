@@ -314,11 +314,23 @@ for (const token of ["--page-bg", "--surface", "--text", "--primary", "--success
     failed = true;
   }
 }
+for (const section of ["Design tokens", "Buttons", "Cards / panels", "Badges / status chips", "Demo Guide", "Run Task", "Agent Registry"]) {
+  if (!webUiStyles.includes(section)) {
+    console.error(`fail - styles.css should include design-system section: ${section}`);
+    failed = true;
+  }
+}
 for (const darkToken of [
   "radial-gradient(circle at top left, #1d2842",
   "#080c18",
   "#bfd1f0",
-  "rgba(12, 20, 36, 0.72)"
+  "#b1c2de",
+  "#9fb5d9",
+  "color: #befdd4",
+  "background: rgba(28, 88, 60",
+  "rgba(31, 49, 82",
+  "rgba(12, 20, 36",
+  "rgba(16, 27, 48"
 ]) {
   if (webUiStyles.includes(darkToken)) {
     console.error(`fail - light enterprise UI theme should not include dark/glass leftover: ${darkToken}`);

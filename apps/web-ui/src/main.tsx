@@ -2295,9 +2295,12 @@ function App() {
                 </li>
               ))}
             </ul>
-            <div className="scenario-readiness-panel">
-              <h3>Scenario readiness</h3>
-              <p className="muted-note">Ready means the scenario can prove the intended control path with the currently installed connector agents.</p>
+          </details>
+          <details className="scenario-readiness-panel">
+            <summary>
+              <span>Scenario readiness</span>
+              <small>Ready scenarios for the installed connector agents.</small>
+            </summary>
             <div className="scenario-readiness-grid">
               {scenarioReadiness.map((item) => (
                 <article key={item.label}>
@@ -2309,13 +2312,12 @@ function App() {
                 </article>
               ))}
             </div>
-            </div>
           </details>
-          <details className="demo-script-panel">
-            <summary>
-              <span>Full demo script</span>
-              <small>Advanced presenter steps and proof points.</small>
-            </summary>
+          <section className="demo-script-panel">
+            <div className="compact-section-heading">
+              <h3>Full demo script</h3>
+              <p className="muted-note">Five steps, one proof point each.</p>
+            </div>
           <ol>
             {demoScriptSteps.map((step) => (
               <li key={step.title}>
@@ -2335,7 +2337,7 @@ function App() {
               <p>Change external connector config after onboarding and re-run to show stale connector configuration protection.</p>
             </div>
           </details>
-          </details>
+          </section>
         </div>
       </section>
     );
@@ -2584,7 +2586,7 @@ function App() {
                 </div>
                 <div>
                   <dt>Runtime mode</dt>
-                  <dd>{latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "metadata-only"}</dd>
+                  <dd>{latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "runtime not executed"}</dd>
                 </div>
               </dl>
               <p className="muted-note">
@@ -2592,7 +2594,7 @@ function App() {
                   ? "Runtime executed with scoped A2A JWT. Raw token hidden."
                   : latestResponse.connectorRuntime
                     ? "Connector was approved, but runtime failed safely. No legacy mock diagnosis was used."
-                  : "Runtime mode: metadata-only. No external runtime call was executed yet."}
+                    : "Runtime mode: runtime not executed yet."}
               </p>
             </div>
           ) : null}
@@ -3218,7 +3220,7 @@ function App() {
                   <h3>Connection verified</h3>
                   <p>{zeroTrustResult.message}</p>
                 </div>
-                <strong className="metadata-only-badge">Trusted metadata only</strong>
+              <strong className="metadata-only-badge">Trusted summary</strong>
               </div>
               <div className="wizard-card-grid two-up">
                 <article>
@@ -3497,7 +3499,7 @@ function App() {
                   <strong>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</strong>
                   <span>{latestResponse.connectorRouting.targetSystem ?? "unknown"} / {latestResponse.connectorRouting.connectorId ?? "no connector"}</span>
                   <p>{latestResponse.connectorRouting.skillLabel ?? latestResponse.connectorRouting.skillId ?? "No skill/action mapped"}</p>
-                  <small>Runtime mode: {latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "metadata-only"}</small>
+                  <small>Runtime mode: {latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "runtime not executed"}</small>
                 </div>
               ) : null}
               {latestResponse?.selectedAgents.length ? (
@@ -3886,7 +3888,7 @@ function App() {
               <div className="registry-agent-badges">
                 <span className="source-badge">{agent.source}</span>
                 <strong className={`health-pill ${healthClass(agent.status)}`}>{agent.status}</strong>
-                {agent.source === "zero-trust-onboarded" ? <small className="metadata-only-badge">metadata only</small> : null}
+                {agent.source === "zero-trust-onboarded" ? <small className="metadata-only-badge">trusted summary</small> : null}
               </div>
             </div>
           </div>
