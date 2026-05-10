@@ -11,6 +11,7 @@ import type {
   AgentTraceEntry,
   AgentsHealthResponse,
   Classification,
+  ConnectorPlanningTargetResolution,
   ExecutionTraceStep,
   FollowUpInterpretation,
   ResolveRequest,
@@ -567,9 +568,24 @@ function isConnectorAccessPlanningRequest(message: string): boolean {
   return /\b(i need access to|need access|cannot access|can't access|permission|grant access|add me|role request|access request)\b/i.test(message);
 }
 
-function planningConnectorTarget(message: string, installedAgents: ReturnType<typeof listTrustedOnboardedAgents>): { connectorId: string; resourceSystem: string } | undefined {
+function planningConnectorTarget(params: {
+  message: string;
+  connectorRoute?: ConnectorRoutingDecision;
+  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+}): ConnectorPlanningTargetResolution {
+  const { message, connectorRoute, installedAgents } = params;
   const normalized = message.toLowerCase();
   const planningAgents = installedAgents.filter((agent) => agent.connectorProfile?.planning?.supported === true);
+  const intentClasses = detectedPlanningIntentClasses(message);
+
+  if (!planningAgents.length) {
+    return {
+      strategy: "not_supported",
+      detectedIntentClasses: intentClasses,
+      reason: "No installed connector advertises safe action planning support."
+    };
+  }
+
   const explicitMatch = planningAgents.find((agent) => {
     const connectorId = agent.connectorId ?? agent.connectorProfile?.connectorId ?? "";
     const resourceSystem = agent.resourceSystem ?? agent.connectorProfile?.resourceSystem ?? "";
@@ -583,16 +599,56 @@ function planningConnectorTarget(message: string, installedAgents: ReturnType<ty
     return explicitTerms.some((term) => normalized.includes(term));
   });
 
-  const match = explicitMatch ?? (planningAgents.length === 1 ? planningAgents[0] : undefined);
-  const intentClasses = detectedPlanningIntentClasses(message);
-  const intentMatch = match ? undefined : planningAgents.filter((agent) => {
-    const supportedIntentClasses = agent.connectorProfile?.planning?.supportedIntentClasses ?? [];
-    return supportedIntentClasses.some((intentClass) => intentClasses.includes(intentClass));
-  });
-  const selected = match ?? (intentMatch?.length === 1 ? intentMatch[0] : undefined);
-  const connectorId = selected?.connectorId ?? selected?.connectorProfile?.connectorId;
-  const resourceSystem = selected?.resourceSystem ?? selected?.connectorProfile?.resourceSystem;
-  return connectorId && resourceSystem ? { connectorId, resourceSystem } : undefined;
+  if (explicitMatch) {
+    const connectorId = explicitMatch.connectorId ?? explicitMatch.connectorProfile?.connectorId;
+    const resourceSystem = explicitMatch.resourceSystem ?? explicitMatch.connectorProfile?.resourceSystem;
+    return {
+      strategy: "explicit_connector_mention",
+      detectedIntentClasses: intentClasses,
+      selectedConnectorId: connectorId,
+      selectedResourceSystem: resourceSystem,
+      reason: "The user explicitly mentioned the target connector or resource system."
+    };
+  }
+
+  const routedTarget = [
+    connectorRoute?.connectorId,
+    connectorRoute?.resourceSystem,
+    connectorRoute?.targetSystem
+  ].map((term) => term?.toLowerCase()).filter((term): term is string => Boolean(term));
+  const routedMatch = routedTarget.length
+    ? planningAgents.find((agent) => {
+        const connectorId = agent.connectorId ?? agent.connectorProfile?.connectorId ?? "";
+        const resourceSystem = agent.resourceSystem ?? agent.connectorProfile?.resourceSystem ?? "";
+        const displayName = agent.connectorProfile?.displayName ?? "";
+        const terms = [connectorId, connectorId.replace("-reference", ""), resourceSystem, displayName]
+          .map((term) => term.toLowerCase())
+          .filter(Boolean);
+        return routedTarget.some((target) => terms.includes(target));
+      })
+    : undefined;
+
+  if (routedMatch) {
+    const supportedIntentClasses = routedMatch.connectorProfile?.planning?.supportedIntentClasses ?? [];
+    const hasSupportedIntent = intentClasses.some((intentClass) => supportedIntentClasses.includes(intentClass));
+    const connectorId = routedMatch.connectorId ?? routedMatch.connectorProfile?.connectorId;
+    const resourceSystem = routedMatch.resourceSystem ?? routedMatch.connectorProfile?.resourceSystem;
+    return {
+      strategy: hasSupportedIntent ? "supported_intent_class_match" : "ai_routing_target_match",
+      detectedIntentClasses: intentClasses,
+      selectedConnectorId: connectorId,
+      selectedResourceSystem: resourceSystem,
+      reason: hasSupportedIntent
+        ? "The target system was clear and the connector supports the detected planning intent class."
+        : "Routing detected a clear target system that matched an installed planning connector."
+    };
+  }
+
+  return {
+    strategy: "needs_clarification",
+    detectedIntentClasses: intentClasses,
+    reason: "The user did not specify the target system/application."
+  };
 }
 
 function detectedPlanningIntentClasses(message: string): string[] {
@@ -1290,7 +1346,17 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
 
   const installedAgents = sessionToken ? listTrustedOnboardedAgents(sessionToken) : [];
   if (isConnectorPlanningCandidate({ message: effectiveMessage, connectorRoute: connectorRouting, installedAgents })) {
-    const planTarget = planningConnectorTarget(effectiveMessage, installedAgents);
+    const planningTargetResolution = planningConnectorTarget({
+      message: effectiveMessage,
+      connectorRoute: connectorRouting,
+      installedAgents
+    });
+    const planTarget = planningTargetResolution.selectedConnectorId && planningTargetResolution.selectedResourceSystem
+      ? {
+          connectorId: planningTargetResolution.selectedConnectorId,
+          resourceSystem: planningTargetResolution.selectedResourceSystem
+        }
+      : undefined;
     const onboardedAgent = planTarget
       ? installedAgents.find((agent) =>
           agent.connectorId === planTarget.connectorId ||
@@ -1373,6 +1439,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
             ],
             securityDecisions: [],
             requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+            connectorPlanningTargetResolution: planningTargetResolution,
             connectorActionPlan: actionPlan,
             evaluatedActionPlan,
             a2aTasks: [],
@@ -1383,14 +1450,22 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       } catch (error) {
         console.warn(`[connector-plan] ${error instanceof Error ? error.message : "failed"}`);
       }
-    } else if (installedAgents.length > 1) {
+    } else if (planningTargetResolution.strategy === "needs_clarification") {
+      const planningInterpretation: RequestInterpretation = {
+        ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+        scope: "enterprise_support",
+        intentType: planningTargetResolution.detectedIntentClasses.includes("permission_request") ? "permission_change" : "access_request",
+        requestedActionText: planningTargetResolution.detectedIntentClasses.includes("permission_request") ? "permission request" : "access request",
+        confidence: "medium",
+        reason: "Access request detected, but target system was not specified."
+      };
       const diagnosis = {
         probableCause: "Connector planning target is unclear",
-        recommendedFix: "Specify which system, project, application, or connector the access request is for."
+        recommendedFix: "Is this for Jira, ServiceNow, GitHub, or another system?"
       };
       return finalize({
         conversationId,
-        finalAnswer: "I can request a safe connector action plan, but I need to know which system or application this access request targets.",
+        finalAnswer: "I can help plan an access request, but I need to know which system or application you mean. Is this for Jira, ServiceNow, GitHub, or another system?",
         classification,
         selectedAgents: [],
         skippedAgents: routingDecision.skippedAgents,
@@ -1399,13 +1474,57 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         routingReasoningSummary: "Access-planning request detected, but target connector was unclear.",
         resolutionStatus: "needs_more_info",
         evidence: [],
-        agentTrace: [trace("connector_planning_needs_target", "Asked user to clarify target system before requesting connector action plan.")],
+        agentTrace: [
+          trace("connector_planning_needs_target", "Asked user to clarify target system before requesting connector action plan.")
+        ],
         executionTrace: [
           executionStep("user", "submit_issue", requestBody.message),
           executionStep("orchestrator", "ask_for_connector_planning_target", "Did not guess connector target for planning request.")
         ],
         securityDecisions: [],
-        requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+        requestInterpretation: planningInterpretation,
+        connectorPlanningTargetResolution: planningTargetResolution,
+        executionGateStack: {
+          stoppedAt: "gateway_governance",
+          finalOutcome: "needs_more_info",
+          gates: [
+            {
+              id: "ai_interpretation",
+              label: "AI Interpretation",
+              status: "passed",
+              reason: "Access-planning intent detected, but target system is unclear.",
+              evidence: {
+                intent: planningInterpretation.requestedActionText,
+                targetSystem: "not specified",
+                detectedIntentClasses: planningTargetResolution.detectedIntentClasses
+              }
+            },
+            {
+              id: "gateway_governance",
+              label: "Gateway Governance",
+              status: "blocked",
+              reason: "Gateway did not select a connector without target system confirmation."
+            },
+            {
+              id: "oauth_scope",
+              label: "OAuth Scope Gate",
+              status: "not_evaluated",
+              reason: "Gateway did not select a connector."
+            },
+            {
+              id: "service_account_permission",
+              label: "Service Account Permission Gate",
+              status: "not_evaluated",
+              reason: "Gateway did not select a connector."
+            },
+            {
+              id: "runtime_execution",
+              label: "Runtime Execution",
+              status: "not_evaluated",
+              reason: "No connector plan or runtime execution was requested."
+            }
+          ]
+        },
         a2aTasks: [],
         a2aResponses: [],
         diagnosis

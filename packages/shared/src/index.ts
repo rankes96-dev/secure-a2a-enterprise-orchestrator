@@ -429,6 +429,21 @@ export type EvaluatedConnectorActionPlan = {
   };
 };
 
+export type ConnectorPlanningTargetStrategy =
+  | "explicit_connector_mention"
+  | "ai_routing_target_match"
+  | "supported_intent_class_match"
+  | "needs_clarification"
+  | "not_supported";
+
+export type ConnectorPlanningTargetResolution = {
+  strategy: ConnectorPlanningTargetStrategy;
+  detectedIntentClasses: string[];
+  selectedConnectorId?: string;
+  selectedResourceSystem?: string;
+  reason: string;
+};
+
 export type ExecutionGateId =
   | "ai_interpretation"
   | "gateway_governance"
@@ -496,6 +511,7 @@ export interface ResolveResponse {
   executionGateStack?: ExecutionGateStack;
   connectorActionPlan?: ConnectorActionPlan;
   evaluatedActionPlan?: EvaluatedConnectorActionPlan;
+  connectorPlanningTargetResolution?: ConnectorPlanningTargetResolution;
   connectorRouting?: {
     status: string;
     targetSystem?: string;

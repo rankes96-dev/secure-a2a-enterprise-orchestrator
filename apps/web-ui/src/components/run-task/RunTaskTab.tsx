@@ -89,10 +89,13 @@ function connectorDecisionCopy(response: ResolveResponse): string {
 }
 
 function interpretationRows(response: ResolveResponse): Array<{ label: string; value: string }> {
+  const planningNeedsClarification = response.connectorPlanningTargetResolution?.strategy === "needs_clarification";
   const rows = [
     {
       label: "Target system",
-      value: response.connectorRouting?.targetSystem ?? response.requestInterpretation?.targetSystemText ?? response.classification.system
+      value: planningNeedsClarification
+        ? "not specified"
+        : response.connectorRouting?.targetSystem ?? response.requestInterpretation?.targetSystemText ?? response.classification.system
     },
     {
       label: "Requested skill / action",
@@ -333,18 +336,18 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   const planningPrompts: Scenario[] = [
     {
       label: "Plan an access request",
-      message: "I need access to FIN project",
+      message: "I need access to Jira project FIN",
       subtitle: "Safe connector planning",
       purpose: "Shows safe connector planning before execution.",
       proves: "The connector proposes a request-specific action plan, and the Gateway evaluates it before runtime.",
       badge: "Planning"
     },
     {
-      label: "Plan ambiguous access",
+      label: "Ambiguous access request",
       message: "I need access to a project",
       subtitle: "Planning clarification",
-      purpose: "Shows safe planning behavior when the target connector is not explicit.",
-      proves: "Gateway uses the installed planning connector when unambiguous, or asks which system/application the user means.",
+      purpose: "Shows that the Gateway asks a follow-up instead of guessing the connector.",
+      proves: "AI routing detects access intent, but Gateway does not assume a target system without confirmation.",
       badge: "Planning"
     }
   ];

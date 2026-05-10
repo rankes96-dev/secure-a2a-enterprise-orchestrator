@@ -148,6 +148,9 @@ function verifyStatic(): void {
   if (targetDetection.includes('resourceSystem === "jira"') || targetDetection.includes("\\bfin\\b")) {
     fail("planningConnectorTarget should not contain hardcoded FIN/Jira target bias");
   }
+  if (targetDetection.includes("planningAgents.length === 1") || targetDetection.includes("planningAgents[0]")) {
+    fail("planningConnectorTarget must not select the only installed planning connector without a clear target system");
+  }
   if (!orchestrator.includes("connector action plan connectorId did not match") || !orchestrator.includes("connector action plan resourceSystem did not match")) {
     fail("requestConnectorActionPlan should validate returned connectorId/resourceSystem");
   }
@@ -164,7 +167,9 @@ function verifyStatic(): void {
     "side-effect-free action plan",
     "The connector proposes a request-specific action plan",
     "Planning connector:",
-    "Plan-only mode returned options"
+    "Plan-only mode returned options",
+    "Gateway asks a follow-up instead of guessing the connector",
+    "I need access to Jira project FIN"
   ]) {
     if (!ui.includes(phrase)) fail(`UI planning copy missing: ${phrase}`);
   }
@@ -184,9 +189,37 @@ async function verifyApi(): Promise<void> {
   await createSession();
   await demoLogin();
   await resetAndOnboardJira();
+  const ambiguous = await request("/resolve", {
+    method: "POST",
+    body: JSON.stringify({ message: "I need access to a project" })
+  });
+  requireStatus(ambiguous.response, ambiguous.body, 200, "resolve ambiguous access planning request");
+  assertNoSecretMarkers(ambiguous.body, "ambiguous action planning response");
+  const ambiguousResult = asRecord(ambiguous.body, "ambiguous resolve response");
+  const ambiguousGateStack = asRecord(ambiguousResult.executionGateStack, "ambiguous executionGateStack");
+  const planningTargetResolution = asRecord(ambiguousResult.connectorPlanningTargetResolution, "connectorPlanningTargetResolution");
+  if (ambiguousResult.resolutionStatus !== "needs_more_info") {
+    fail(`ambiguous access planning should return needs_more_info: ${JSON.stringify(ambiguousResult)}`);
+  }
+  if (ambiguousResult.connectorActionPlan !== undefined || ambiguousResult.evaluatedActionPlan !== undefined) {
+    fail(`ambiguous access planning should not return an action plan: ${JSON.stringify(ambiguousResult)}`);
+  }
+  if (ambiguousResult.connectorRuntime !== undefined) {
+    fail(`ambiguous access planning should not execute connector runtime: ${JSON.stringify(ambiguousResult.connectorRuntime)}`);
+  }
+  if (ambiguousGateStack.finalOutcome !== "needs_more_info") {
+    fail(`ambiguous access planning should stop with needs_more_info: ${JSON.stringify(ambiguousGateStack)}`);
+  }
+  if (planningTargetResolution.strategy !== "needs_clarification") {
+    fail(`ambiguous access planning should require target clarification: ${JSON.stringify(planningTargetResolution)}`);
+  }
+  if (typeof ambiguousResult.finalAnswer !== "string" || !ambiguousResult.finalAnswer.includes("which system or application")) {
+    fail(`ambiguous access planning should ask which system/application: ${JSON.stringify(ambiguousResult.finalAnswer)}`);
+  }
+
   const { response, body } = await request("/resolve", {
     method: "POST",
-    body: JSON.stringify({ message: "I need access to FIN project" })
+    body: JSON.stringify({ message: "I need access to Jira project FIN" })
   });
   requireStatus(response, body, 200, "resolve action planning request");
   assertNoSecretMarkers(body, "action planning response");
@@ -220,21 +253,6 @@ async function verifyApi(): Promise<void> {
   const runtimeGate = asArray(gateStack.gates, "executionGateStack.gates").map((item) => asRecord(item, "gate")).find((item) => item.id === "runtime_execution");
   if (!runtimeGate || typeof runtimeGate.reason !== "string" || !runtimeGate.reason.includes("No runtime write/action operation was executed")) {
     fail(`plan-only runtime gate should clearly say no write/action operation executed: ${JSON.stringify(gateStack)}`);
-  }
-
-  const ambiguous = await request("/resolve", {
-    method: "POST",
-    body: JSON.stringify({ message: "I need access to a project" })
-  });
-  requireStatus(ambiguous.response, ambiguous.body, 200, "resolve ambiguous access planning request");
-  assertNoSecretMarkers(ambiguous.body, "ambiguous action planning response");
-  const ambiguousResult = asRecord(ambiguous.body, "ambiguous resolve response");
-  const ambiguousGateStack = asRecord(ambiguousResult.executionGateStack, "ambiguous executionGateStack");
-  if (ambiguousGateStack.finalOutcome !== "planned") {
-    fail(`single installed planning connector should safely handle ambiguous project access request without hardcoded FIN/Jira bias: ${JSON.stringify(ambiguousResult)}`);
-  }
-  if (ambiguousResult.connectorRuntime !== undefined) {
-    fail(`ambiguous plan-only flow should not execute connector runtime: ${JSON.stringify(ambiguousResult.connectorRuntime)}`);
   }
   logOk("API returned safe evaluated Jira connector action plan");
 }

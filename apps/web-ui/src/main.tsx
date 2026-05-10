@@ -596,6 +596,15 @@ function governedChatAnswer(response: ResolveResponse): string {
     ].join("\n");
   }
 
+  if (outcome === "NEEDS MORE INFO" && response.connectorPlanningTargetResolution?.strategy === "needs_clarification") {
+    return [
+      "NEEDS MORE INFO",
+      "I can help plan an access request, but I need to know which system or application you mean.",
+      "Is this for Jira, ServiceNow, GitHub, or another system?",
+      `Next: ${nextAction}`
+    ].join("\n");
+  }
+
   if (outcome === "DIAGNOSED" || responseIsDiagnostic(response)) {
     const targetReadiness = targetStatus === "ready"
       ? `Connector-level access checks for ${targetAction} passed. Investigate object-level rules, workflow validators, or resource-specific restrictions.`
