@@ -34,10 +34,12 @@ export const githubPlanningHandler: ConnectorPlanningHandler = {
 };
 
 const planningHandlers = [
-  jiraPlanningHandler,
-  serviceNowPlanningHandler,
-  githubPlanningHandler
+  jiraPlanningHandler
 ];
+
+// ServiceNow and GitHub planning handlers are V1 placeholders only. They are
+// intentionally not registered until their connector profiles advertise
+// planning.supported=true with implemented request-specific planning logic.
 
 export function buildConnectorActionPlan(params: {
   connectorId: string;

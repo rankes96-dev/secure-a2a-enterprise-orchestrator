@@ -224,7 +224,7 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
     reason: gatewayBlocked || oauthBlocked || serviceAccountBlocked
       ? "Runtime not executed. Stopped before this layer."
       : params.connectorActionPlan
-        ? "Connector returned a safe action plan only. Runtime write execution was not attempted."
+        ? "Connector returned a side-effect-free action plan only. No runtime write/action operation was executed."
       : runtime?.executed
         ? semantics?.outcome === "diagnosed" || runtime.agentResponse?.status === "diagnosed"
           ? "Read-only diagnostic runtime executed. No target write/action operation was attempted."

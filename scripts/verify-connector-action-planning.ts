@@ -117,6 +117,7 @@ function verifyStatic(): void {
   const orchestrator = [
     "services/orchestrator-api/src/connectorActionPlanner.ts",
     "services/orchestrator-api/src/connectorActionPlanEvaluation.ts",
+    "services/orchestrator-api/src/executionGateStack.ts",
     "services/orchestrator-api/src/index.ts"
   ].filter(existsSync).map(read).join("\n");
   const ui = [
@@ -134,8 +135,18 @@ function verifyStatic(): void {
   if (!externalIndex.includes("buildConnectorActionPlan") || externalIndex.includes('profile.connectorId === "jira-reference" && isJiraAccessPlanningRequest')) {
     fail("/a2a/task should use buildConnectorActionPlan instead of direct Jira-specific planning branch");
   }
+  const actionPlanning = read("real-external-agent/src/connectors/actionPlanning.ts");
+  const registeredHandlers = actionPlanning.match(/const planningHandlers = \[[\s\S]*?\];/)?.[0] ?? "";
+  if (registeredHandlers.includes("serviceNowPlanningHandler") || registeredHandlers.includes("githubPlanningHandler")) {
+    fail("ServiceNow/GitHub planning handlers should not be actively registered while their profiles advertise planning.supported=false");
+  }
   for (const term of ["requestConnectorActionPlan", "evaluateConnectorActionPlan", "sideEffectsAllowed", "validateTrustedConnectorRuntimeEndpoint"]) {
     if (!orchestrator.includes(term)) fail(`orchestrator planning support missing: ${term}`);
+  }
+  const orchestratorIndex = read("services/orchestrator-api/src/index.ts");
+  const targetDetection = orchestratorIndex.match(/function planningConnectorTarget[\s\S]*?function isConnectorPlanningCandidate/)?.[0] ?? "";
+  if (targetDetection.includes('resourceSystem === "jira"') || targetDetection.includes("\\bfin\\b")) {
+    fail("planningConnectorTarget should not contain hardcoded FIN/Jira target bias");
   }
   if (!orchestrator.includes("connector action plan connectorId did not match") || !orchestrator.includes("connector action plan resourceSystem did not match")) {
     fail("requestConnectorActionPlan should validate returned connectorId/resourceSystem");
@@ -151,12 +162,20 @@ function verifyStatic(): void {
     "Connector Action Plan",
     "PLANNED",
     "side-effect-free action plan",
-    "The connector proposes a request-specific action plan"
+    "The connector proposes a request-specific action plan",
+    "Planning connector:",
+    "Plan-only mode returned options"
   ]) {
     if (!ui.includes(phrase)) fail(`UI planning copy missing: ${phrase}`);
   }
+  if (!orchestrator.includes("No runtime write/action operation was executed")) {
+    fail("Execution Gate Stack should explicitly state plan-only did not execute runtime write/action operations");
+  }
   if (ui.includes("Example Jira options")) {
     fail("UI should not contain Jira-specific generic action plan copy: Example Jira options");
+  }
+  if (ui.includes("Reference connector:")) {
+    fail("UI should use generic Planning connector copy, not Reference connector");
   }
   logOk("static connector action planning semantics present");
 }
@@ -197,6 +216,25 @@ async function verifyApi(): Promise<void> {
   }
   if (!grant || (grant.decision !== "blocked" && grant.decision !== "needs_approval")) {
     fail(`grant option should be blocked or needs approval: ${JSON.stringify(options)}`);
+  }
+  const runtimeGate = asArray(gateStack.gates, "executionGateStack.gates").map((item) => asRecord(item, "gate")).find((item) => item.id === "runtime_execution");
+  if (!runtimeGate || typeof runtimeGate.reason !== "string" || !runtimeGate.reason.includes("No runtime write/action operation was executed")) {
+    fail(`plan-only runtime gate should clearly say no write/action operation executed: ${JSON.stringify(gateStack)}`);
+  }
+
+  const ambiguous = await request("/resolve", {
+    method: "POST",
+    body: JSON.stringify({ message: "I need access to a project" })
+  });
+  requireStatus(ambiguous.response, ambiguous.body, 200, "resolve ambiguous access planning request");
+  assertNoSecretMarkers(ambiguous.body, "ambiguous action planning response");
+  const ambiguousResult = asRecord(ambiguous.body, "ambiguous resolve response");
+  const ambiguousGateStack = asRecord(ambiguousResult.executionGateStack, "ambiguous executionGateStack");
+  if (ambiguousGateStack.finalOutcome !== "planned") {
+    fail(`single installed planning connector should safely handle ambiguous project access request without hardcoded FIN/Jira bias: ${JSON.stringify(ambiguousResult)}`);
+  }
+  if (ambiguousResult.connectorRuntime !== undefined) {
+    fail(`ambiguous plan-only flow should not execute connector runtime: ${JSON.stringify(ambiguousResult.connectorRuntime)}`);
   }
   logOk("API returned safe evaluated Jira connector action plan");
 }

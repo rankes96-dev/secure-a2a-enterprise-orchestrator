@@ -564,21 +564,45 @@ function connectorRoutingResolutionStatus(decision: ConnectorRoutingDecision): R
 }
 
 function isConnectorAccessPlanningRequest(message: string): boolean {
-  return /\b(i need access to|need access|can't access project|cannot access project|permission to project|add me to project|grant access|project access)\b/i.test(message);
+  return /\b(i need access to|need access|cannot access|can't access|permission|grant access|add me|role request|access request)\b/i.test(message);
 }
 
 function planningConnectorTarget(message: string, installedAgents: ReturnType<typeof listTrustedOnboardedAgents>): { connectorId: string; resourceSystem: string } | undefined {
   const normalized = message.toLowerCase();
-  const match = installedAgents.find((agent) => {
+  const planningAgents = installedAgents.filter((agent) => agent.connectorProfile?.planning?.supported === true);
+  const explicitMatch = planningAgents.find((agent) => {
     const connectorId = agent.connectorId ?? agent.connectorProfile?.connectorId ?? "";
     const resourceSystem = agent.resourceSystem ?? agent.connectorProfile?.resourceSystem ?? "";
-    return (connectorId && normalized.includes(connectorId.replace("-reference", ""))) ||
-      (resourceSystem && normalized.includes(resourceSystem)) ||
-      (resourceSystem === "jira" && (normalized.includes("project") || /\bfin\b/.test(normalized)));
+    const displayName = agent.connectorProfile?.displayName ?? "";
+    const explicitTerms = [
+      connectorId,
+      connectorId.replace("-reference", ""),
+      resourceSystem,
+      displayName
+    ].map((term) => term.toLowerCase()).filter(Boolean);
+    return explicitTerms.some((term) => normalized.includes(term));
   });
-  const connectorId = match?.connectorId ?? match?.connectorProfile?.connectorId;
-  const resourceSystem = match?.resourceSystem ?? match?.connectorProfile?.resourceSystem;
+
+  const match = explicitMatch ?? (planningAgents.length === 1 ? planningAgents[0] : undefined);
+  const intentClasses = detectedPlanningIntentClasses(message);
+  const intentMatch = match ? undefined : planningAgents.filter((agent) => {
+    const supportedIntentClasses = agent.connectorProfile?.planning?.supportedIntentClasses ?? [];
+    return supportedIntentClasses.some((intentClass) => intentClasses.includes(intentClass));
+  });
+  const selected = match ?? (intentMatch?.length === 1 ? intentMatch[0] : undefined);
+  const connectorId = selected?.connectorId ?? selected?.connectorProfile?.connectorId;
+  const resourceSystem = selected?.resourceSystem ?? selected?.connectorProfile?.resourceSystem;
   return connectorId && resourceSystem ? { connectorId, resourceSystem } : undefined;
+}
+
+function detectedPlanningIntentClasses(message: string): string[] {
+  const normalized = message.toLowerCase();
+  return [
+    /\b(access|cannot access|can't access|grant access|access request)\b/.test(normalized) ? "access_request" : undefined,
+    /\b(permission|permissions)\b/.test(normalized) ? "permission_request" : undefined,
+    /\b(role|roles)\b/.test(normalized) ? "role_request" : undefined,
+    /\b(project|projects)\b/.test(normalized) ? "project_access" : undefined
+  ].filter((item): item is string => Boolean(item));
 }
 
 function isConnectorPlanningCandidate(params: {

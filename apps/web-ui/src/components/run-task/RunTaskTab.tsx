@@ -338,6 +338,14 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
       purpose: "Shows safe connector planning before execution.",
       proves: "The connector proposes a request-specific action plan, and the Gateway evaluates it before runtime.",
       badge: "Planning"
+    },
+    {
+      label: "Plan ambiguous access",
+      message: "I need access to a project",
+      subtitle: "Planning clarification",
+      purpose: "Shows safe planning behavior when the target connector is not explicit.",
+      proves: "Gateway uses the installed planning connector when unambiguous, or asks which system/application the user means.",
+      badge: "Planning"
     }
   ];
 
@@ -486,7 +494,8 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
         <span>Connector Action Plan</span>
         <p>The Gateway asked the connector for a side-effect-free action plan. No write action was attempted.</p>
         <p className="muted-note">The connector returned safe options for this request. The Gateway evaluated each option before execution.</p>
-        <p className="muted-note">Reference connector: {plan.resourceSystem}</p>
+        <p className="muted-note">Plan-only mode returned options; Gateway evaluation decides what may proceed.</p>
+        <p className="muted-note">Planning connector: {plan.connectorId} / {plan.resourceSystem}</p>
         <div className="action-plan-option-list">
           {plan.options.map((option) => {
             const decision = evaluated?.options.find((item) => item.option.actionId === option.actionId);

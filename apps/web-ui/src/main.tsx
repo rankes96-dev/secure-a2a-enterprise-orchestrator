@@ -589,9 +589,10 @@ function governedChatAnswer(response: ResolveResponse): string {
   if (outcome === "PLANNED" || response.connectorActionPlan) {
     return [
       "PLANNED",
-      "The Gateway asked the connector for a side-effect-free action plan.",
+      "The connector returned a side-effect-free action plan.",
       "No write action was attempted.",
-      "Next: The connector recommends starting with read-only inspection."
+      "Gateway evaluated the proposed options before execution.",
+      `Next: ${response.connectorActionPlan?.recommendedNextStep ?? response.evaluatedActionPlan?.plan.recommendedNextStep ?? "Review the allowed, blocked, and approval-required options."}`
     ].join("\n");
   }
 
