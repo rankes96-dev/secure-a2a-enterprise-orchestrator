@@ -602,7 +602,7 @@ function governedChatAnswer(response: ResolveResponse): string {
       "NEEDS MORE INFO",
       "I can help plan an access request, but I need to know which system or application you mean.",
       "Waiting for: target system/application.",
-      "Is this for Jira, ServiceNow, GitHub, or another system?",
+      "Search for a supported system or choose Other / not listed.",
       `Next: ${nextAction}`
     ].join("\n");
   }

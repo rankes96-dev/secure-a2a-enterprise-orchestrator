@@ -19,6 +19,7 @@ import type {
   ResolveRequest,
   ResolveResponse,
   RequestInterpretation,
+  SafeTargetSelection,
   SecurityDecision,
   SelectedAgent,
   UserIdentitySummary
@@ -371,6 +372,49 @@ function buildPlanningFollowUpResolution(params: {
     originalMessage,
     followUpAnswer,
     resolvedMessage
+  };
+}
+
+function isOtherTargetSelection(message: string): boolean {
+  return /\b(other|not listed|another system|unsupported system)\b/i.test(message);
+}
+
+function buildSafeTargetSelection(intentClasses: string[]): SafeTargetSelection {
+  return {
+    intent: intentClasses.includes("permission_request") ? "permission_request" : "access_request",
+    reason: "Access-planning intent detected, but target system was not specified.",
+    question: "Which system do you need access to?",
+    searchPlaceholder: "Search supported systems...",
+    options: [
+      {
+        id: "jira",
+        label: "Jira",
+        value: "jira",
+        description: "Projects, issues, and Jira permissions",
+        kind: "supported_system"
+      },
+      {
+        id: "servicenow",
+        label: "ServiceNow",
+        value: "servicenow",
+        description: "Incidents, catalog requests, and ITSM access",
+        kind: "supported_system"
+      },
+      {
+        id: "github",
+        label: "GitHub",
+        value: "github",
+        description: "Repositories, pull requests, and DevOps access",
+        kind: "supported_system"
+      },
+      {
+        id: "other",
+        label: "Other / not listed",
+        value: "other",
+        description: "Open a support ticket for an unsupported system",
+        kind: "other"
+      }
+    ]
   };
 }
 
@@ -1430,6 +1474,91 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     });
   }
 
+  if (planningFollowUpResolution && isOtherTargetSelection(requestBody.message)) {
+    const diagnosis = {
+      probableCause: "Target system is not supported by an installed connector",
+      recommendedFix: "Open support ticket with details."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: "This system is not currently supported by an installed connector. Open a support ticket with the system name and access details.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "User selected Other / not listed for a pending access-planning target.",
+      resolutionStatus: "unsupported",
+      evidence: [],
+      agentTrace: [
+        trace("connector_planning_other_target", "User selected Other / not listed. Did not request connector action plan.")
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "support_ticket_handoff", "Unsupported target selected. No connector plan or runtime execution requested.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: {
+        ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+        scope: "manual_enterprise_workflow",
+        intentType: "manual_service_request",
+        requestedActionText: "support ticket handoff",
+        confidence: "medium",
+        reason: "User selected Other / not listed for the access request target."
+      },
+      connectorPlanningTargetResolution: {
+        strategy: "not_supported",
+        detectedIntentClasses: conversationState.pendingFollowUp?.detectedIntentClasses ?? detectedPlanningIntentClasses(effectiveMessage),
+        reason: "User selected Other / not listed."
+      },
+      planningFollowUpResolution,
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "unsupported",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "User selected Other / not listed for the pending access-planning target.",
+            evidence: {
+              intent: "access request",
+              targetSystem: "other"
+            }
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "blocked",
+            reason: "Gateway did not select a connector for an unsupported or unlisted system."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "Gateway did not select a connector."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "Gateway did not select a connector."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "No connector plan or runtime execution was requested."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
   if (isConnectorPlanningCandidate({ message: effectiveMessage, connectorRoute: connectorRouting, installedAgents })) {
     const planningTargetResolution = planningConnectorTarget({
       message: effectiveMessage,
@@ -1551,7 +1680,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       };
       return finalize({
         conversationId,
-        finalAnswer: "I can help plan an access request, but I need to know which system or application you mean. Is this for Jira, ServiceNow, GitHub, or another system?",
+        finalAnswer: "I can help plan an access request, but I need to know which system or application you mean. Search for a supported system or choose Other / not listed.",
         classification,
         selectedAgents: [],
         skippedAgents: routingDecision.skippedAgents,
@@ -1570,6 +1699,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         securityDecisions: [],
         requestInterpretation: planningInterpretation,
         connectorPlanningTargetResolution: planningTargetResolution,
+        safeTargetSelection: buildSafeTargetSelection(planningTargetResolution.detectedIntentClasses),
         pendingFollowUp: {
           type: "connector_planning_target",
           originalMessage: planningFollowUpResolution?.originalMessage ?? effectiveMessage,

@@ -459,6 +459,23 @@ export type PlanningFollowUpResolution = {
   resolvedMessage: string;
 };
 
+export type SafeTargetSelectionSystemOption = {
+  id: string;
+  label: string;
+  value: string;
+  description?: string;
+  kind: "supported_system" | "other";
+};
+
+export type SafeTargetSelection = {
+  intent: string;
+  reason: string;
+  question: string;
+  searchPlaceholder: string;
+  options: SafeTargetSelectionSystemOption[];
+  technicalOptions?: unknown[];
+};
+
 export type ExecutionGateId =
   | "ai_interpretation"
   | "gateway_governance"
@@ -529,6 +546,7 @@ export interface ResolveResponse {
   connectorPlanningTargetResolution?: ConnectorPlanningTargetResolution;
   pendingFollowUp?: PendingFollowUpContext;
   planningFollowUpResolution?: PlanningFollowUpResolution;
+  safeTargetSelection?: SafeTargetSelection;
   connectorRouting?: {
     status: string;
     targetSystem?: string;

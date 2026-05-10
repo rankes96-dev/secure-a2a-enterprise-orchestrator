@@ -4617,6 +4617,59 @@ pre {
   overflow-wrap: anywhere;
 }
 
+.safe-target-selection-card {
+  border-left: 4px solid var(--primary);
+}
+
+.safe-target-search {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.safe-target-search:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  outline: none;
+}
+
+.safe-target-option-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.safe-target-option {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 12px;
+  color: var(--text);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.safe-target-option:hover {
+  border-color: var(--primary);
+  background: var(--surface-soft);
+}
+
+.safe-target-option strong {
+  color: var(--brand);
+}
+
+.safe-target-option small {
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
 .connector-decision-section {
   display: grid;
   gap: 12px;
@@ -4873,6 +4926,7 @@ pre {
 
 @media (max-width: 768px) {
   .gateway-response-header,
+  .safe-target-option-list,
   .connector-decision-grid,
   .connector-runtime-grid,
   .connector-execution-summary dl,

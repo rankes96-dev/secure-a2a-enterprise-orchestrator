@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import type { ResolveResponse } from "@a2a/shared";
 import type { ExtractedScreenContext, Scenario } from "../types";
 
@@ -303,6 +303,18 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage
   } = ctx;
 
+  const [targetSearch, setTargetSearch] = useState("");
+  const safeTargetSelection = latestResponse?.safeTargetSelection;
+  const filteredSafeTargetOptions = useMemo(() => {
+    const query = targetSearch.trim().toLowerCase();
+    return safeTargetSelection?.options.filter((option) =>
+      !query ||
+      option.label.toLowerCase().includes(query) ||
+      option.value.toLowerCase().includes(query) ||
+      option.description?.toLowerCase().includes(query)
+    ) ?? [];
+  }, [safeTargetSelection, targetSearch]);
+
   const allPromptScenarios = [...quickScenarios, ...advancedScenarios];
   const adversarialPrompts: Scenario[] = [
     {
@@ -548,6 +560,49 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     );
   }
 
+  function renderSafeTargetSelection() {
+    const selection = safeTargetSelection;
+    if (!selection) {
+      return null;
+    }
+
+    return (
+      <section className="safe-target-selection-card gateway-response-section">
+        <span>{selection.question || "Which system do you need access to?"}</span>
+        <input
+          type="search"
+          className="safe-target-search"
+          value={targetSearch}
+          onChange={(event: React.ChangeEvent<HTMLInputElement>) => setTargetSearch(event.target.value)}
+          placeholder={selection.searchPlaceholder || "Search supported systems..."}
+          aria-label={selection.searchPlaceholder || "Search supported systems..."}
+        />
+        <div className="safe-target-option-list">
+          {filteredSafeTargetOptions.map((option) => (
+            <button
+              type="button"
+              className="safe-target-option"
+              key={option.id}
+              onClick={() => {
+                const followUp = option.kind === "other" ? "Other / not listed" : option.label;
+                setMessage(followUp);
+                showGuidedStatus("Target system selected");
+                void resolveIssue(followUp);
+              }}
+            >
+              <strong>{option.label}</strong>
+              {option.description ? <small>{option.description}</small> : null}
+            </button>
+          ))}
+        </div>
+        <details className="technical-details">
+          <summary>Technical details</summary>
+          <p>{selection.reason}</p>
+        </details>
+      </section>
+    );
+  }
+
   function renderGatewayResponseCard() {
     if (!latestResponse) {
     return (
@@ -609,6 +664,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           )}
         </section>
         {renderExecutionGateStack(latestResponse)}
+        {renderSafeTargetSelection()}
         {renderConnectorActionPlan()}
         {latestResponse.connectorRouting ? (
           <section className="connector-decision-section">
