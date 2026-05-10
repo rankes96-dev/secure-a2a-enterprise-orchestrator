@@ -1,4 +1,4 @@
-import type { Classification, ExecutionGate, ExecutionGateId, ExecutionGateStack, RequestInterpretation, ResolveResponse, SecurityIntent, SelectedAgent } from "@a2a/shared";
+import type { Classification, ConnectorActionPlan, EvaluatedConnectorActionPlan, ExecutionGate, ExecutionGateId, ExecutionGateStack, RequestInterpretation, ResolveResponse, SecurityIntent, SelectedAgent } from "@a2a/shared";
 import type { ConnectorRuntimeResult } from "./connectorRuntime";
 
 type ConnectorRouting = NonNullable<ResolveResponse["connectorRouting"]>;
@@ -10,6 +10,8 @@ export type BuildExecutionGateStackParams = {
   connectorRouting?: ConnectorRouting;
   connectorPolicy?: ConnectorPolicy;
   connectorRuntime?: ConnectorRuntimeResult;
+  connectorActionPlan?: ConnectorActionPlan;
+  evaluatedActionPlan?: EvaluatedConnectorActionPlan;
   selectedAgents?: SelectedAgent[];
   resolutionStatus: ResolveResponse["resolutionStatus"];
   classification: Classification;
@@ -26,6 +28,10 @@ function gate(params: ExecutionGate): ExecutionGate {
 function finalOutcome(params: BuildExecutionGateStackParams): ExecutionGateStack["finalOutcome"] {
   if (params.securityIntent?.detected) {
     return "blocked_at_gateway";
+  }
+
+  if (params.connectorActionPlan) {
+    return "planned";
   }
 
   const routing = params.connectorRouting;
@@ -118,15 +124,18 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       targetSystem: routing?.targetSystem ?? params.requestInterpretation?.targetSystemText ?? params.classification.system,
       requestedAction: routing?.skillLabel ?? routing?.skillId ?? params.requestInterpretation?.requestedActionText ?? params.requestInterpretation?.requestedCapability ?? "not mapped",
       confidence: params.requestInterpretation?.confidence ?? params.classification.confidence,
-      securityIntent: params.securityIntent?.detected ? params.securityIntent.category : undefined
+      securityIntent: params.securityIntent?.detected ? params.securityIntent.category : undefined,
+      actionPlan: params.connectorActionPlan?.interpretedIntent
     }
   });
 
   const gatewayGate = gate({
     id: "gateway_governance",
     label: "Gateway Governance",
-    status: (routing?.status === "connector_skill_approved" || accessBoundaryBlocked) && !params.securityIntent?.detected ? "passed" : "blocked",
-    reason: params.securityIntent?.detected
+    status: (params.connectorActionPlan || routing?.status === "connector_skill_approved" || accessBoundaryBlocked) && !params.securityIntent?.detected ? "passed" : "blocked",
+    reason: params.connectorActionPlan
+      ? "Gateway requested a side-effect-free connector action plan."
+      : params.securityIntent?.detected
       ? "Gateway blocked the request because prompt text cannot grant scopes, permissions, Gateway approval, or raw token access."
       : accessBoundaryBlocked
         ? "Gateway evaluated the request and stopped it at the access boundary shown below."
@@ -136,7 +145,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       connectorId: routing?.connectorId,
       skillId: routing?.skillId,
       policyEffect: params.connectorPolicy?.effect,
-      executionType: semantics?.executionType
+      executionType: semantics?.executionType,
+      planMode: params.connectorActionPlan?.mode
     }
   });
 
@@ -145,6 +155,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
     label: "OAuth Scope Gate",
     status: gatewayBlocked
       ? "not_evaluated"
+      : params.connectorActionPlan
+        ? "not_evaluated"
       : oauthBlocked
         ? "blocked"
         : routing?.status === "connector_skill_approved" || serviceAccountBlocked || runtime?.tokenMetadata?.tokenIssued
@@ -152,6 +164,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
           : "not_evaluated",
     reason: gatewayBlocked
       ? "Gateway stopped the request before token issuance."
+      : params.connectorActionPlan
+        ? "No write/runtime scope issued. Plan-only mode allowed no side effects."
       : oauthBlocked
         ? "Required OAuth application grants are missing."
       : routing?.status === "connector_skill_approved" || serviceAccountBlocked || runtime?.tokenMetadata?.tokenIssued
@@ -173,6 +187,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
     label: "Service Account Permission Gate",
     status: gatewayBlocked || oauthBlocked
       ? "not_evaluated"
+      : params.connectorActionPlan
+        ? "not_evaluated"
       : serviceAccountBlocked
         ? "blocked"
         : routing?.status === "connector_skill_approved"
@@ -180,6 +196,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
           : "not_evaluated",
     reason: gatewayBlocked || oauthBlocked
       ? "Stopped before this layer."
+      : params.connectorActionPlan
+        ? "Permissions are evaluated against proposed plan options, not runtime execution."
       : serviceAccountBlocked
         ? "Required service-account permissions are missing or explicitly denied."
         : routing?.status === "connector_skill_approved"
@@ -196,6 +214,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
     label: "Runtime Execution",
     status: gatewayBlocked || oauthBlocked || serviceAccountBlocked
       ? "not_evaluated"
+      : params.connectorActionPlan
+        ? "not_evaluated"
       : runtime?.executed
         ? semantics?.outcome === "diagnosed" || runtime.agentResponse?.status === "diagnosed" ? "diagnosed" : "executed"
         : runtime
@@ -203,6 +223,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
           : "not_evaluated",
     reason: gatewayBlocked || oauthBlocked || serviceAccountBlocked
       ? "Runtime not executed. Stopped before this layer."
+      : params.connectorActionPlan
+        ? "Connector returned a safe action plan only. Runtime write execution was not attempted."
       : runtime?.executed
         ? semantics?.outcome === "diagnosed" || runtime.agentResponse?.status === "diagnosed"
           ? "Read-only diagnostic runtime executed. No target write/action operation was attempted."

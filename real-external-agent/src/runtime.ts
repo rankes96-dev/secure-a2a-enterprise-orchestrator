@@ -60,6 +60,9 @@ export type ConnectorRuntimeTask = {
   connectorId?: unknown;
   resourceSystem?: unknown;
   message?: unknown;
+  mode?: unknown;
+  runtimeMode?: unknown;
+  allowedSideEffects?: unknown;
   context?: {
     actor?: {
       email?: unknown;

@@ -15,6 +15,7 @@ import { bearerToken, readJsonBody, sendJson } from "./http.js";
 import { createSignedTrustResponse, OnboardingError, type OnboardingRequest } from "./onboarding.js";
 import { publicJwks } from "./keys.js";
 import { runtimeSkillRequirement, safeDiagnosis, validateRuntimeToken, validateRuntimeTrustedConfig, type ConnectorRuntimeTask } from "./runtime.js";
+import { buildJiraActionPlan, isJiraAccessPlanningRequest } from "./connectors/jiraActionPlan.js";
 
 function discoveryDocument() {
   const issuer = agentIssuer();
@@ -146,6 +147,44 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && request.url === "/a2a/task") {
       const body = await readJsonBody<ConnectorRuntimeTask>(request);
+      const message = typeof body.message === "string" ? body.message : "";
+      const planOnly = body.mode === "plan_only" || body.runtimeMode === "connector_plan_only";
+      if (planOnly) {
+        const profile = getConnectorProfile(publicAdminConfig().selectedConnectorId);
+        if (profile.connectorId === "jira-reference" && isJiraAccessPlanningRequest(message)) {
+          sendJson(response, 200, {
+            agentId,
+            status: "diagnosed",
+            summary: "Connector returned a safe action plan.",
+            actionPlan: buildJiraActionPlan(message),
+            trace: [
+              {
+                agent: agentId,
+                action: "connector_plan_only",
+                detail: "Returned side-effect-free connector action plan. No write action was attempted.",
+                timestamp: new Date().toISOString()
+              }
+            ]
+          });
+          return;
+        }
+
+        sendJson(response, 200, {
+          agentId,
+          status: "needs_more_info",
+          summary: "Connector could not produce a safe action plan for this request.",
+          trace: [
+            {
+              agent: agentId,
+              action: "connector_plan_only_unsupported",
+              detail: "Plan-only mode completed without side effects.",
+              timestamp: new Date().toISOString()
+            }
+          ]
+        });
+        return;
+      }
+
       const skill = runtimeSkillRequirement(body.skillId);
       if (!skill) {
         sendJson(response, 400, { error: "unknown_skill" });

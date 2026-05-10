@@ -24,6 +24,7 @@
     "verify:ui-style": "tsx scripts/verify-ui-style.ts",
     "verify:diagnostic-runtime-semantics": "tsx scripts/verify-diagnostic-runtime-semantics.ts",
     "verify:execution-gate-stack": "tsx scripts/verify-execution-gate-stack.ts",
+    "verify:connector-action-planning": "tsx scripts/verify-connector-action-planning.ts",
     "verify:runtime-safety": "tsx scripts/verify-runtime-safety.ts",
     "verify:decision-engine": "tsx scripts/verify-decision-engine.ts",
     "verify:policy-model": "tsx scripts/verify-policy-model.ts",

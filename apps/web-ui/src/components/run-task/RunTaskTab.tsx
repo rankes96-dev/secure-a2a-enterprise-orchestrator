@@ -26,6 +26,7 @@ function gatewayOutcomeLabel(response: ResolveResponse | null): string {
   }
 
   const backendOutcomeLabels: Record<NonNullable<ResolveResponse["executionGateStack"]>["finalOutcome"], string> = {
+    planned: "PLANNED",
     diagnosed: "DIAGNOSED",
     executed: "COMPLETED",
     blocked_at_gateway: "BLOCKED",
@@ -329,6 +330,16 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
       badge: "Adversarial"
     }
   ];
+  const planningPrompts: Scenario[] = [
+    {
+      label: "Plan Jira project access",
+      message: "I need access to FIN project",
+      subtitle: "Safe connector planning",
+      purpose: "Shows safe connector planning before execution.",
+      proves: "Gateway does not need to know every Jira permission. The connector proposes an action plan, and the Gateway evaluates it before runtime.",
+      badge: "Planning"
+    }
+  ];
 
   const diagnosticPrompts = allPromptScenarios.filter((scenario) => {
     const text = `${scenario.label} ${scenario.badge ?? ""}`.toLowerCase();
@@ -463,6 +474,46 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     );
   }
 
+  function renderConnectorActionPlan() {
+    const plan = latestResponse?.connectorActionPlan ?? latestResponse?.evaluatedActionPlan?.plan;
+    const evaluated = latestResponse?.evaluatedActionPlan;
+    if (!plan) {
+      return null;
+    }
+
+    return (
+      <section className="connector-action-plan-section gateway-response-section">
+        <span>Connector Action Plan</span>
+        <p>The Gateway asked the connector for a side-effect-free action plan. No write action was attempted.</p>
+        <p className="muted-note">Example Jira options: Inspect Jira project access and Grant Jira project access.</p>
+        <div className="action-plan-option-list">
+          {plan.options.map((option) => {
+            const decision = evaluated?.options.find((item) => item.option.actionId === option.actionId);
+            return (
+              <article className="action-plan-option-card" key={option.actionId}>
+                <div className="gate-card-header">
+                  <strong>{option.label}</strong>
+                  <span>{decision?.decision ?? "not evaluated"}</span>
+                </div>
+                <p>{option.description}</p>
+                <dl className="gate-metadata">
+                  <div><dt>Execution type</dt><dd>{option.executionType}</dd></div>
+                  <div><dt>Risk</dt><dd>{option.riskLevel}</dd></div>
+                  <div><dt>Side effects</dt><dd>{option.sideEffects}</dd></div>
+                  <div><dt>Required grants</dt><dd>{compactList(option.requiredApplicationGrants)}</dd></div>
+                  <div><dt>Required permissions</dt><dd>{compactList(option.requiredEffectivePermissions)}</dd></div>
+                  <div><dt>Gateway decision</dt><dd>{decision?.decision ?? "not evaluated"}</dd></div>
+                  <div><dt>Blocked layer</dt><dd>{decision?.blockedAt ?? "none"}</dd></div>
+                </dl>
+                {decision ? <p><strong>Reason:</strong> {decision.reason}</p> : null}
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
+
   function renderGatewayResponseCard() {
     if (!latestResponse) {
     return (
@@ -524,6 +575,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           )}
         </section>
         {renderExecutionGateStack(latestResponse)}
+        {renderConnectorActionPlan()}
         {latestResponse.connectorRouting ? (
           <section className="connector-decision-section">
             <div className="section-heading-row compact-heading">
@@ -1008,6 +1060,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
             <details className="scenario-launcher suggested-prompts cockpit-card" aria-label="Suggested prompts">
               <summary>Suggested prompts</summary>
               {renderPromptGroup("Diagnostic prompts", diagnosticPrompts)}
+              {renderPromptGroup("Planning prompts", planningPrompts)}
               {renderPromptGroup("Blocked action prompts", blockedActionPrompts)}
               {renderPromptGroup("Adversarial prompts", adversarialPrompts)}
               {renderPromptGroup("Unsupported prompts", unsupportedPrompts)}

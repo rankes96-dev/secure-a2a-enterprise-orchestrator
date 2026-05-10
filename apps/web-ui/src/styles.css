@@ -6546,6 +6546,32 @@ summary:focus-visible,
   font-family: var(--font-mono);
 }
 
+.connector-action-plan-section {
+  display: grid;
+  gap: 10px;
+}
+
+.action-plan-option-list {
+  display: grid;
+  gap: 10px;
+}
+
+.action-plan-option-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--surface);
+}
+
+.action-plan-option-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .gate-metadata {
   display: grid;
   gap: 5px;

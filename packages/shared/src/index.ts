@@ -316,6 +316,7 @@ export interface A2AAgentResponse {
     title: string;
     data: unknown;
   }>;
+  actionPlan?: ConnectorActionPlan;
   runtimeSemantics?: ConnectorRuntimeSemantics;
   trace?: Array<{
     agent: string;
@@ -358,6 +359,76 @@ export type ConnectorRuntimeSemantics = {
   diagnosticOnly: boolean;
 };
 
+export type ConnectorPlanMode = "plan_only";
+
+export type PlannedActionExecutionType =
+  | "inspection_read_only"
+  | "diagnostic_read_only"
+  | "write_action"
+  | "admin_action"
+  | "unsupported";
+
+export type PlannedActionRiskLevel =
+  | "low"
+  | "medium"
+  | "high"
+  | "critical";
+
+export type PlannedActionSideEffects =
+  | "none"
+  | "reads_data"
+  | "modifies_state"
+  | "admin_change"
+  | "cross_system";
+
+export type ConnectorActionPlanOption = {
+  actionId: string;
+  label: string;
+  description: string;
+  executionType: PlannedActionExecutionType;
+  riskLevel: PlannedActionRiskLevel;
+  sideEffects: PlannedActionSideEffects;
+  requiredApplicationGrants: string[];
+  requiredEffectivePermissions: string[];
+  requiresApproval?: boolean;
+  targetObjectTypes?: string[];
+  missingInputs?: string[];
+};
+
+export type ConnectorActionPlan = {
+  planId: string;
+  connectorId: string;
+  resourceSystem: string;
+  interpretedIntent: string;
+  userRequest: string;
+  mode: ConnectorPlanMode;
+  safeToDisplay: true;
+  sideEffectsAllowed: "none";
+  missingInputs: string[];
+  options: ConnectorActionPlanOption[];
+  recommendedOptionId?: string;
+  recommendedNextStep: string;
+};
+
+export type EvaluatedConnectorActionPlan = {
+  plan: ConnectorActionPlan;
+  options: Array<{
+    option: ConnectorActionPlanOption;
+    decision: "allowed" | "blocked" | "needs_approval";
+    blockedAt?: "gateway_governance" | "oauth_scope" | "service_account_permission";
+    reason: string;
+    missingApplicationGrants: string[];
+    missingEffectivePermissions: string[];
+    deniedEffectivePermissions: string[];
+  }>;
+  recommendedOptionDecision?: {
+    optionId: string;
+    decision: "allowed" | "blocked" | "needs_approval";
+    blockedAt?: "gateway_governance" | "oauth_scope" | "service_account_permission";
+    reason: string;
+  };
+};
+
 export type ExecutionGateId =
   | "ai_interpretation"
   | "gateway_governance"
@@ -388,6 +459,7 @@ export type ExecutionGate = {
 export type ExecutionGateStack = {
   stoppedAt?: ExecutionGateId;
   finalOutcome:
+    | "planned"
     | "diagnosed"
     | "executed"
     | "blocked_at_gateway"
@@ -422,6 +494,8 @@ export interface ResolveResponse {
   requestInterpretation?: RequestInterpretation;
   securityIntent?: SecurityIntent;
   executionGateStack?: ExecutionGateStack;
+  connectorActionPlan?: ConnectorActionPlan;
+  evaluatedActionPlan?: EvaluatedConnectorActionPlan;
   connectorRouting?: {
     status: string;
     targetSystem?: string;

@@ -44,6 +44,8 @@ import { detectSensitiveAction } from "./sensitiveActionGuard";
 import { discoverAgentOnboarding, listSupportedConnectorTemplates, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
 import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting";
 import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime";
+import { requestConnectorActionPlan } from "./connectorActionPlanner";
+import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation";
 import { AuditEvents } from "./audit/auditEvents";
 import { evaluateConnectorPolicy } from "./policy/connectorPolicy";
 import { detectAdversarialIntent } from "./adversarialIntent";
@@ -559,6 +561,18 @@ function connectorRoutingResolutionStatus(decision: ConnectorRoutingDecision): R
   }
 
   return "unsupported";
+}
+
+function isConnectorAccessPlanningRequest(message: string): boolean {
+  return /\b(i need access to|need access|can't access project|cannot access project|permission to project|add me to project|grant access|project access)\b/i.test(message);
+}
+
+function planningConnectorTarget(message: string): { connectorId: string; resourceSystem: string } | undefined {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("jira") || normalized.includes("project") || /\bfin\b/.test(normalized)) {
+    return { connectorId: "jira-reference", resourceSystem: "jira" };
+  }
+  return undefined;
 }
 
 function primarySecurityDecision(decisions: SecurityDecision[]): SecurityDecision | undefined {
@@ -1168,6 +1182,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         connectorRouting: responseWithIdentity.connectorRouting,
         connectorPolicy: responseWithIdentity.connectorPolicy,
         connectorRuntime: responseWithIdentity.connectorRuntime,
+        connectorActionPlan: responseWithIdentity.connectorActionPlan,
+        evaluatedActionPlan: responseWithIdentity.evaluatedActionPlan,
         selectedAgents: responseWithIdentity.selectedAgents,
         resolutionStatus: responseWithIdentity.resolutionStatus,
         classification: responseWithIdentity.classification
@@ -1229,6 +1245,103 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       diagnosis,
       conversationId
     });
+  }
+
+  if (isConnectorAccessPlanningRequest(effectiveMessage)) {
+    const planTarget = planningConnectorTarget(effectiveMessage);
+    const onboardedAgent = planTarget
+      ? (sessionToken ? listTrustedOnboardedAgents(sessionToken) : []).find((agent) =>
+          agent.connectorId === planTarget.connectorId ||
+          agent.connectorProfile?.connectorId === planTarget.connectorId ||
+          agent.resourceSystem === planTarget.resourceSystem ||
+          agent.connectorProfile?.resourceSystem === planTarget.resourceSystem
+        )
+      : undefined;
+
+    if (onboardedAgent) {
+      try {
+        const { agentResponse, actionPlan } = await requestConnectorActionPlan({
+          message: effectiveMessage,
+          conversationId,
+          onboardedAgent
+        });
+        if (actionPlan) {
+          const evaluatedActionPlan = evaluateConnectorActionPlan(actionPlan, onboardedAgent);
+          const finalAnswer = "PLANNED: The Gateway asked the connector for a side-effect-free action plan. No write action was attempted. The connector recommends starting with read-only inspection.";
+          const diagnosis = {
+            probableCause: "Connector action planning completed without side effects",
+            recommendedFix: actionPlan.recommendedNextStep
+          };
+
+          return finalize({
+            conversationId,
+            finalAnswer,
+            classification,
+            selectedAgents: [],
+            skippedAgents: routingDecision.skippedAgents,
+            routingSource: "rules_fallback",
+            routingConfidence: routingDecision.routingConfidence,
+            routingReasoningSummary: "Detected access-planning request and requested a safe connector action plan.",
+            resolutionStatus: "needs_more_info",
+            evidence: [
+              {
+                agent: orchestratorAgentId,
+                title: "Connector Action Plan",
+                data: {
+                  connectorId: actionPlan.connectorId,
+                  resourceSystem: actionPlan.resourceSystem,
+                  planId: actionPlan.planId,
+                  mode: actionPlan.mode,
+                  sideEffectsAllowed: actionPlan.sideEffectsAllowed,
+                  options: evaluatedActionPlan.options.map((item) => ({
+                    actionId: item.option.actionId,
+                    decision: item.decision,
+                    blockedAt: item.blockedAt,
+                    missingApplicationGrants: item.missingApplicationGrants,
+                    missingEffectivePermissions: item.missingEffectivePermissions,
+                    deniedEffectivePermissions: item.deniedEffectivePermissions
+                  }))
+                }
+              }
+            ],
+            agentTrace: [
+              trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
+              trace("connector_action_plan_requested", "Gateway requested a side-effect-free connector action plan."),
+              ...(agentResponse.trace ?? []).map((entry) => ({
+                ...trace(entry.action, entry.detail),
+                agent: entry.agent,
+                toAgent: onboardedAgent.connectorId,
+                timestamp: entry.timestamp
+              }))
+            ],
+            executionTrace: [
+              executionStep("user", "submit_issue", requestBody.message),
+              ...(routingDecision.requestInterpretation
+                ? [
+                    executionStep(
+                      "orchestrator",
+                      "interpret_request",
+                      `${routingDecision.requestInterpretation.scope} / ${routingDecision.requestInterpretation.intentType}: ${routingDecision.requestInterpretation.reason}`
+                    )
+                  ]
+                : []),
+              executionStep("orchestrator", "request_connector_action_plan", "Requested plan_only connector action plan with sideEffectsAllowed=none."),
+              executionStep("orchestrator", "evaluate_connector_action_plan", "Gateway evaluated planned options against governance, grants, and permissions."),
+              executionStep("orchestrator", "skip_runtime_execution", "No write action was attempted during connector planning.")
+            ],
+            securityDecisions: [],
+            requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+            connectorActionPlan: actionPlan,
+            evaluatedActionPlan,
+            a2aTasks: [],
+            a2aResponses: [agentResponse],
+            diagnosis
+          });
+        }
+      } catch (error) {
+        console.warn(`[connector-plan] ${error instanceof Error ? error.message : "failed"}`);
+      }
+    }
   }
 
   if (sensitiveAction.isSensitive && sensitiveAction.requestedAction) {
