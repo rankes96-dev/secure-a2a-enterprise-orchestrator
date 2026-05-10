@@ -500,6 +500,20 @@ function responseIsDiagnostic(response: ResolveResponse): boolean {
 }
 
 function chatOutcomeLabel(response: ResolveResponse): string {
+  const backendOutcomeLabels: Record<NonNullable<ResolveResponse["executionGateStack"]>["finalOutcome"], string> = {
+    diagnosed: "DIAGNOSED",
+    executed: "COMPLETED",
+    blocked_at_gateway: "BLOCKED",
+    blocked_at_oauth_scope: "BLOCKED AT OAUTH SCOPE",
+    blocked_at_service_account_permission: "BLOCKED AT SERVICE ACCOUNT",
+    runtime_failed: "RUNTIME FAILED",
+    unsupported: "UNSUPPORTED",
+    needs_more_info: "NEEDS MORE INFO"
+  };
+  if (response.executionGateStack) {
+    return backendOutcomeLabels[response.executionGateStack.finalOutcome];
+  }
+
   const semantics = response.connectorRuntime?.agentResponse?.runtimeSemantics;
   const agentStatus = response.connectorRuntime?.agentResponse?.status;
   const id = responseSkillId(response);
@@ -561,6 +575,15 @@ function governedChatAnswer(response: ResolveResponse): string {
   const nextAction = firstRecommendedAction(response);
   const targetStatus = response.connectorRuntime?.agentResponse?.runtimeSemantics?.targetActionStatus;
   const targetAction = response.connectorRuntime?.agentResponse?.runtimeSemantics?.targetActionLabel ?? response.connectorRouting?.skillLabel ?? "target action";
+
+  if (response.securityIntent?.detected) {
+    return [
+      "BLOCKED",
+      "The request attempted to bypass governance or access protected runtime data.",
+      "Prompt text cannot grant scopes, permissions, Gateway approval, or raw token access.",
+      `Next: ${nextAction}`
+    ].join("\n");
+  }
 
   if (outcome === "DIAGNOSED" || responseIsDiagnostic(response)) {
     const targetReadiness = targetStatus === "ready"
@@ -931,6 +954,8 @@ function safeRawExecutionData(response: ResolveResponse) {
   return {
     userIdentity: response.userIdentity,
     requestInterpretation: response.requestInterpretation,
+    securityIntent: response.securityIntent,
+    executionGateStack: response.executionGateStack,
     connectorRouting: response.connectorRouting,
     connectorRuntime: response.connectorRuntime,
     selectedAgents: response.selectedAgents,

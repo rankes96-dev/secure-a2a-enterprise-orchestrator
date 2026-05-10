@@ -25,6 +25,20 @@ function gatewayOutcomeLabel(response: ResolveResponse | null): string {
     return "NO TASK RUN YET";
   }
 
+  const backendOutcomeLabels: Record<NonNullable<ResolveResponse["executionGateStack"]>["finalOutcome"], string> = {
+    diagnosed: "DIAGNOSED",
+    executed: "COMPLETED",
+    blocked_at_gateway: "BLOCKED",
+    blocked_at_oauth_scope: "BLOCKED AT OAUTH SCOPE",
+    blocked_at_service_account_permission: "BLOCKED AT SERVICE ACCOUNT",
+    runtime_failed: "RUNTIME FAILED",
+    unsupported: "UNSUPPORTED",
+    needs_more_info: "NEEDS MORE INFO"
+  };
+  if (response.executionGateStack) {
+    return backendOutcomeLabels[response.executionGateStack.finalOutcome];
+  }
+
   const agentStatus = response.connectorRuntime?.agentResponse?.status;
   const semantics = response.connectorRuntime?.agentResponse?.runtimeSemantics;
   const id = skillId(response);
@@ -128,7 +142,7 @@ function gatewayStoppedBeforeRuntime(response: ResolveResponse): boolean {
   return Boolean(status && status !== "connector_skill_approved");
 }
 
-function buildExecutionGateStack(response: ResolveResponse): ExecutionGate[] {
+function buildFallbackExecutionGateStack(response: ResolveResponse): ExecutionGate[] {
   const routing = response.connectorRouting;
   const runtime = response.connectorRuntime;
   const semantics = runtime?.agentResponse?.runtimeSemantics;
@@ -384,7 +398,18 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   }
 
   function renderExecutionGateStack(response: ResolveResponse) {
-    const gates = buildExecutionGateStack(response);
+    const gates = response.executionGateStack?.gates.map((gate) => ({
+      name: gate.label,
+      status: gate.status.replace(/_/g, " ").toUpperCase() as GateStatus,
+      reason: gate.reason,
+      details: [
+        gate.required?.length ? { label: "Required", value: compactList(gate.required) } : undefined,
+        gate.present?.length ? { label: "Present", value: compactList(gate.present) } : undefined,
+        gate.missing?.length ? { label: "Missing", value: compactList(gate.missing) } : undefined,
+        gate.denied?.length ? { label: "Denied", value: compactList(gate.denied) } : undefined,
+        gate.evidence ? { label: "Evidence", value: JSON.stringify(gate.evidence) } : undefined
+      ].filter((detail): detail is { label: string; value: string } => Boolean(detail))
+    })) ?? buildFallbackExecutionGateStack(response);
 
     return (
       <section className="execution-gate-stack gateway-response-section">

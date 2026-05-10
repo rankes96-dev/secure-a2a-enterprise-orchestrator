@@ -56,6 +56,19 @@ export type RequestScopeContext = {
   detectedTopic?: string;
 };
 
+export type AdversarialIntent =
+  | "prompt_injection_attempt"
+  | "token_exfiltration_attempt"
+  | "policy_bypass_attempt"
+  | "privilege_escalation_attempt"
+  | "false_authority_attempt";
+
+export type SecurityIntent = {
+  detected: boolean;
+  category?: AdversarialIntent;
+  reason: string;
+};
+
 export type RequestInterpretation = {
   scope: RequestScope;
   intentType: RequestIntentType;
@@ -345,6 +358,47 @@ export type ConnectorRuntimeSemantics = {
   diagnosticOnly: boolean;
 };
 
+export type ExecutionGateId =
+  | "ai_interpretation"
+  | "gateway_governance"
+  | "oauth_scope"
+  | "service_account_permission"
+  | "runtime_execution";
+
+export type ExecutionGateStatus =
+  | "passed"
+  | "blocked"
+  | "not_evaluated"
+  | "executed"
+  | "diagnosed"
+  | "failed";
+
+export type ExecutionGate = {
+  id: ExecutionGateId;
+  label: string;
+  status: ExecutionGateStatus;
+  reason: string;
+  required?: string[];
+  present?: string[];
+  missing?: string[];
+  denied?: string[];
+  evidence?: Record<string, unknown>;
+};
+
+export type ExecutionGateStack = {
+  stoppedAt?: ExecutionGateId;
+  finalOutcome:
+    | "diagnosed"
+    | "executed"
+    | "blocked_at_gateway"
+    | "blocked_at_oauth_scope"
+    | "blocked_at_service_account_permission"
+    | "runtime_failed"
+    | "unsupported"
+    | "needs_more_info";
+  gates: ExecutionGate[];
+};
+
 export interface ResolveRequest {
   message: string;
   conversationId?: string;
@@ -366,6 +420,8 @@ export interface ResolveResponse {
   securityDecision?: SecurityDecision;
   securityDecisions?: SecurityDecision[];
   requestInterpretation?: RequestInterpretation;
+  securityIntent?: SecurityIntent;
+  executionGateStack?: ExecutionGateStack;
   connectorRouting?: {
     status: string;
     targetSystem?: string;

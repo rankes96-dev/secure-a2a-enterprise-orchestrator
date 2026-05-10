@@ -46,6 +46,8 @@ import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connecto
 import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime";
 import { AuditEvents } from "./audit/auditEvents";
 import { evaluateConnectorPolicy } from "./policy/connectorPolicy";
+import { detectAdversarialIntent } from "./adversarialIntent";
+import { buildExecutionGateStack } from "./executionGateStack";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -1133,6 +1135,9 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     `${effectiveMessage}\n${requestBody.message}\n${conversationState.lastRequestInterpretation?.requestedActionText ?? ""}\n${conversationState.lastIncidentContext?.errorText ?? ""}`,
     incidentInterpretation ?? routingDecision.requestInterpretation
   );
+  const securityIntent = detectAdversarialIntent(
+    `${requestBody.message}\n${effectiveMessage}\n${incidentInterpretation?.requestedActionText ?? routingDecision.requestInterpretation?.requestedActionText ?? ""}`
+  );
   const connectorRouting = routeConnectorRequest(
     effectiveMessage,
     sessionToken ? listTrustedOnboardedAgents(sessionToken) : []
@@ -1147,7 +1152,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           )
         ]
       : [];
-    const finalResponse = {
+    const responseWithIdentity = {
       ...response,
       conversationId,
       userIdentity: responseUserIdentity,
@@ -1155,9 +1160,76 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       followUpInterpretation: response.followUpInterpretation ?? followUp,
       incidentContext: response.incidentContext ?? mergedIncidentContext
     };
+    const finalResponse: ResolveResponse = {
+      ...responseWithIdentity,
+      executionGateStack: response.executionGateStack ?? buildExecutionGateStack({
+        requestInterpretation: responseWithIdentity.requestInterpretation,
+        securityIntent: responseWithIdentity.securityIntent,
+        connectorRouting: responseWithIdentity.connectorRouting,
+        connectorPolicy: responseWithIdentity.connectorPolicy,
+        connectorRuntime: responseWithIdentity.connectorRuntime,
+        selectedAgents: responseWithIdentity.selectedAgents,
+        resolutionStatus: responseWithIdentity.resolutionStatus,
+        classification: responseWithIdentity.classification
+      })
+    };
     updateConversationState(conversationState, finalResponse, mergedIncidentContext);
     return finalResponse;
   };
+
+  if (securityIntent.detected) {
+    const diagnosis = {
+      probableCause: "Adversarial governance bypass request blocked",
+      recommendedFix: "Use normal approved requests. Prompt text cannot grant scopes, permissions, Gateway approval, or raw token access."
+    };
+
+    return finalize({
+      finalAnswer: "Blocked by Gateway governance: The request attempted to bypass governance or access protected runtime data. Prompt text cannot grant scopes, permissions, Gateway approval, or raw token access.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: securityIntent.reason,
+      resolutionStatus: "resolved",
+      evidence: [],
+      agentTrace: [
+        trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
+        {
+          ...trace("ADVERSARIAL_INTENT_DETECTED", securityIntent.reason),
+          decision: "Blocked"
+        },
+        {
+          ...trace("GATEWAY_GOVERNANCE_BLOCKED", "Prompt text cannot grant scopes, permissions, Gateway approval, or raw token access."),
+          decision: "Blocked"
+        }
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        ...(routingDecision.requestInterpretation
+          ? [
+              executionStep(
+                "orchestrator",
+                "interpret_request",
+                `${routingDecision.requestInterpretation.scope} / ${routingDecision.requestInterpretation.intentType}: ${routingDecision.requestInterpretation.reason}`
+              )
+            ]
+          : []),
+        executionStep("orchestrator", "detect_adversarial_intent", securityIntent.reason),
+        executionStep("orchestrator", "block_at_gateway_governance", "Did not issue OAuth token or invoke runtime for adversarial prompt."),
+        executionStep("orchestrator", "skip_runtime_execution", "Runtime was not executed because Gateway governance blocked the request.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      securityIntent,
+      followUpInterpretation: followUp,
+      incidentContext: mergedIncidentContext,
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis,
+      conversationId
+    });
+  }
 
   if (sensitiveAction.isSensitive && sensitiveAction.requestedAction) {
     const policyDecision = evaluateSecurityPolicy({
