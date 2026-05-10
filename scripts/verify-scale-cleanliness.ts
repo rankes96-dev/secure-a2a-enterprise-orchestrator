@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 type Check = {
   file: string;
@@ -50,6 +51,16 @@ const checks: Check[] = [
 ];
 
 let failed = false;
+
+function readTsxTree(path: string): string {
+  return readdirSync(path, { withFileTypes: true }).map((entry) => {
+    const fullPath = join(path, entry.name);
+    if (entry.isDirectory()) {
+      return readTsxTree(fullPath);
+    }
+    return entry.isFile() && entry.name.endsWith(".tsx") ? readFileSync(fullPath, "utf8") : "";
+  }).join("\n");
+}
 
 for (const check of checks) {
   const content = readFileSync(check.file, "utf8");
@@ -162,7 +173,10 @@ for (const phrase of ["Connector Catalog", "Installed Connectors", "Custom Conne
   }
 }
 
-const webUi = readFileSync("apps/web-ui/src/main.tsx", "utf8");
+const webUi = [
+  readFileSync("apps/web-ui/src/main.tsx", "utf8"),
+  readTsxTree("apps/web-ui/src/components")
+].join("\n");
 const webUiStyles = readFileSync("apps/web-ui/src/styles.css", "utf8");
 for (const phrase of ["Connector Catalog", "Installed Connector Agents", "Custom Connector SDK"]) {
   if (!webUi.includes(phrase)) {
@@ -288,13 +302,13 @@ for (const forbiddenUiCopy of [
     failed = true;
   }
 }
-const runTaskStart = webUi.indexOf("function renderRunTaskTab()");
-const agentRegistryStart = webUi.indexOf("function renderAgentRegistryTab()");
-if (runTaskStart === -1 || agentRegistryStart === -1 || agentRegistryStart <= runTaskStart) {
-  console.error("fail - scale check could not identify renderRunTaskTab boundary");
+const runTaskComponent = readFileSync("apps/web-ui/src/components/run-task/RunTaskTab.tsx", "utf8");
+const runTaskStart = runTaskComponent.indexOf("function renderRunTaskTab()");
+if (runTaskStart === -1) {
+  console.error("fail - scale check could not identify renderRunTaskTab in extracted component");
   failed = true;
 } else {
-  const runTaskBody = webUi.slice(runTaskStart, agentRegistryStart);
+  const runTaskBody = runTaskComponent.slice(runTaskStart);
   if (runTaskBody.includes("renderDemoReadinessPanel") || runTaskBody.includes("Demo Progress") || runTaskBody.includes("Demo path")) {
     console.error("fail - Run Task should not render the full Demo Guide progress/readiness section directly");
     failed = true;

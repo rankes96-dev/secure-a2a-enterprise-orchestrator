@@ -1,0 +1,657 @@
+// @ts-nocheck
+import React from "react";
+
+type ScreenContext = Record<string, any>;
+
+export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
+  const {
+    activeTab, setActiveTab, message, setMessage, messages, error, isLoading, health, healthError, isHealthLoading,
+    zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl, zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId,
+    setSupportedConnectorGuardrails, setZeroTrustOnboardedAgents, setZeroTrustDiscovery, setZeroTrustResult, setZeroTrustError, setZeroTrustCopyMessage,
+    zeroTrustExpectedResourceSystem, setZeroTrustExpectedResourceSystem, zeroTrustExpectedConnectorId, setZeroTrustExpectedConnectorId,
+    supportedConnectorGuardrails, zeroTrustOnboardedAgents, zeroTrustDiscovery, zeroTrustResult, zeroTrustError, zeroTrustCopyMessage,
+    setGatewayRegistrationMetadata, setIsZeroTrustDiscovering, setIsZeroTrustOnboarding, setIdentitySession, setTrustStatus, setIdentityError, setIdentityMessage, setIsIdentityLoading,
+    gatewayRegistrationMetadata, connectionAudience, setConnectionAudience, connectionWizardStep, setConnectionWizardStep,
+    connectionWizardCollapsedAfterSuccess, setConnectionWizardCollapsedAfterSuccess, customConnectorContractOpen, setCustomConnectorContractOpen,
+    expandedInstalledAgentIds, setExpandedInstalledAgentIds, selectedInstalledConnectorTemplateId, setSelectedInstalledConnectorTemplateId,
+    isZeroTrustDiscovering, isZeroTrustOnboarding, identitySession, trustStatus, selectedDemoUserEmail, setSelectedDemoUserEmail,
+    identityError, identityMessage, isIdentityLoading, securityTimelineFilter, setSecurityTimelineFilter, guidedStatus,
+    demoGuideRootRef, runTaskRootRef, composerRef, taskTextareaRef, gatewayResponseRef, securitySummaryRef, trustIdentityRootRef,
+    loginPanelRef, demoUserSelectRef, loginButtonRef, agentRegistryRootRef, connectorCatalogRef, zeroTrustOnboardingRef,
+    registeredAgentsRef, legacyAgentsRef, securityTimelineRootRef, timelineListRef,
+    latestResponse, securityTimelineEvents, visibleSecurityTimelineEvents, healthLabel, authModeLabel, userBadgeLabel,
+    builtInAgentsCount, healthyAgentsCount, registeredAgentRows, latestActorAttached, latestActorTokenObserved, latestActorRoles,
+    isUserAuthenticated, connectorTemplateCount, installedConnectorAgentCount, runtimeReadyConnectorAgentCount, latestRequest,
+    executionState, authModeSummary, lastResult, policySummary, tokenSummary, delegationSummary, primarySelectedAgent, actorEmail,
+    policyOutcome, tokenOutcome,
+    guideToTarget, showGuidedStatus, goToTrustIdentity, goToRunTask, goToAgentRegistry, goToConnectorCatalog,
+    goToInstalledConnectorAgents, goToSecurityTimeline, hasInstalledConnector, hasApprovedSkill, hasBlockedSkill, readinessStatusForSkill,
+    checkAgentHealth, loadTrustStatus, loginDemoUser, logoutIdentity, applyLocalConnectorPreset, discoverZeroTrustAgent,
+    copyGatewayRegistrationJson, startZeroTrustOnboarding, resolveIssue, submitIssue, startNewConversation, resetZeroTrustConnectionState,
+    loadZeroTrustOnboardedAgents, loadSupportedConnectorGuardrails, loadGatewayRegistrationMetadata,
+    renderPageHeader,
+    localConnectorPresets, scenarios, quickScenarios, advancedScenarios, securityTimelineFilters, demoUserOptions,
+    cockpitStatusClass, statusDisplayLabel, connectorRoutingStatusLabel, connectorRoutingStatusClass, connectorRuntimeFailureCopy,
+    firstSentence, recommendedActionItems, shortHash, JsonBlock, MessageList, safeRawExecutionData, healthClass,
+    endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage
+  } = ctx;
+
+  function renderScenarioOptions(items: any[]) {
+    return (
+      <div className="scenario-buttons">
+        {items.map((scenario) => (
+          <article className="scenario-card" key={scenario.label}>
+            <div className="scenario-card-body">
+              <span className={`scenario-outcome-badge status-${cockpitStatusClass(scenario.badge ?? scenario.subtitle)}`}>{scenario.badge ?? "Advanced"}</span>
+              <h3>{scenario.label}</h3>
+              <p>{scenario.purpose ?? scenario.subtitle}</p>
+              <details className="scenario-proves">
+                <summary>Proves</summary>
+                <p>{scenario.proves}</p>
+              </details>
+            </div>
+            <div className="scenario-card-actions">
+              <button
+                type="button"
+                className="secondary-inline-button"
+                title={scenario.subtitle}
+                onClick={() => {
+                  setMessage(scenario.message);
+                  showGuidedStatus("Scenario loaded in composer");
+                  guideToTarget("composer");
+                }}
+              >
+                Use scenario
+              </button>
+              <button
+                type="button"
+                className="scenario-run"
+                disabled={isLoading}
+                onClick={() => {
+                  setMessage(scenario.message);
+                  if (!isUserAuthenticated) {
+                    goToTrustIdentity();
+                    return;
+                  }
+                  showGuidedStatus("Scenario running");
+                  void resolveIssue(scenario.message);
+                }}
+              >
+                {isUserAuthenticated ? "Run" : "Login required"}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    );
+  }
+  function renderGatewayResponseCard() {
+    if (!latestResponse) {
+    return (
+      <section className="cockpit-card gateway-response-panel empty-response-panel scroll-target" ref={gatewayResponseRef} tabIndex={-1}>
+          <div>
+            <p className="active-panel-eyebrow">Gateway response</p>
+            <h2>No governed task result yet</h2>
+          </div>
+          <p>Login, choose a scenario, and run a task to see the governed response.</p>
+        </section>
+      );
+    }
+
+    const executiveSummary = firstSentence(latestResponse.finalAnswer);
+    const actionItems = recommendedActionItems(latestResponse.diagnosis.recommendedFix);
+    const showFullResponse = latestResponse.finalAnswer.trim() !== executiveSummary.trim();
+    const supportingAgents = latestResponse.selectedAgents;
+    const outcomeBadges = [
+      { label: "Identity verified", className: "status-success" },
+      ...(latestResponse.connectorRouting
+        ? [
+            {
+              label: connectorRoutingStatusLabel(latestResponse.connectorRouting.status),
+              className: `status-${connectorRoutingStatusClass(latestResponse.connectorRouting.status)}`
+            }
+          ]
+        : []),
+      { label: policyOutcome, className: `status-${cockpitStatusClass(policyOutcome)}` },
+      { label: tokenOutcome, className: `status-${cockpitStatusClass(tokenOutcome)}` },
+      { label: latestActorAttached ? "Actor attached" : "Actor not attached", className: latestActorAttached ? "status-success" : "status-neutral" },
+      { label: delegationSummary === "yes" ? "Delegation mediated" : "No delegation", className: delegationSummary === "yes" ? "status-success" : "status-neutral" },
+      { label: "Raw token hidden", className: "status-success" }
+    ];
+
+    return (
+      <section className="cockpit-card gateway-response-panel scroll-target" ref={gatewayResponseRef} tabIndex={-1}>
+        <div className="gateway-response-header">
+          <div>
+            <p className="active-panel-eyebrow">Gateway response</p>
+            <h2>{executiveSummary}</h2>
+          </div>
+          <span className={`summary-result status-${cockpitStatusClass(lastResult)}`}>{statusDisplayLabel(lastResult)}</span>
+        </div>
+        <section className="gateway-response-section root-cause-section">
+          <span>Root cause</span>
+          <p>{latestResponse.diagnosis.probableCause}</p>
+        </section>
+        <section className="gateway-response-section recommended-actions-section">
+          <span>Recommended actions</span>
+          <ol>
+            {actionItems.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
+          </ol>
+        </section>
+        {latestResponse.connectorRouting ? (
+          <section className="connector-decision-section">
+            <div className="section-heading-row compact-heading">
+              <div>
+                <span>Connector Decision</span>
+                <h3>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</h3>
+              </div>
+              <strong className={`summary-chip status-${connectorRoutingStatusClass(latestResponse.connectorRouting.status)}`}>
+                {statusDisplayLabel(latestResponse.connectorRouting.status)}
+              </strong>
+            </div>
+            <div className="connector-decision-grid">
+              <div>
+                <span>Target system</span>
+                <strong>{latestResponse.connectorRouting.targetSystem ?? "unknown"}</strong>
+              </div>
+              <div>
+                <span>Connector</span>
+                <strong>{latestResponse.connectorRouting.connectorId ?? "not selected"}</strong>
+              </div>
+              <div>
+                <span>Skill / Action</span>
+                <strong>{latestResponse.connectorRouting.skillLabel ?? latestResponse.connectorRouting.skillId ?? "not mapped"}</strong>
+                {latestResponse.connectorRouting.skillId ? <small>{latestResponse.connectorRouting.skillId}</small> : null}
+              </div>
+              <div>
+                <span>Decision</span>
+                <strong>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</strong>
+              </div>
+            </div>
+            <p>{latestResponse.connectorRouting.reason}</p>
+            {latestResponse.connectorPolicy ? (
+              <p><strong>Policy:</strong> {latestResponse.connectorPolicy.reason}</p>
+            ) : latestResponse.connectorRouting.status === "connector_skill_approved" ? (
+              <p><strong>Policy:</strong> Default connector policy allowed this approved connector skill.</p>
+            ) : latestResponse.connectorRouting.status === "connector_skill_blocked" ? (
+              <p><strong>Policy:</strong> Skill was not eligible for runtime execution because Gateway action decision blocked it.</p>
+            ) : null}
+            <p><strong>Next step:</strong> {latestResponse.connectorRouting.recommendedNextStep}</p>
+            {latestResponse.connectorRouting.status === "connector_not_onboarded" || latestResponse.connectorRouting.status === "connector_skill_not_declared" || latestResponse.connectorRouting.status === "connector_skill_not_enabled" ? (
+              <button type="button" className="secondary-inline-button" onClick={goToAgentRegistry}>
+                Open Connector Catalog
+              </button>
+            ) : null}
+            {latestResponse.connectorRouting.status === "unsupported" || latestResponse.connectorRouting.status === "connector_skill_not_declared" || latestResponse.connectorRouting.status === "connector_skill_not_enabled" ? (
+              <button
+                type="button"
+                className="secondary-inline-button"
+                onClick={() => {
+                  setMessage(`Create a support ticket draft for: ${latestRequest || message}`);
+                  guideToTarget("composer");
+                }}
+              >
+                Create ticket draft
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+        {latestResponse.connectorRuntime ? (() => {
+          const runtimeFailure = !latestResponse.connectorRuntime.executed
+            ? connectorRuntimeFailureCopy(latestResponse.connectorRuntime.error, latestResponse.connectorRuntime.errorMessage)
+            : undefined;
+          return (
+          <section className="connector-runtime-section">
+            <div className="section-heading-row compact-heading">
+              <div>
+                <span>Connector Runtime Result</span>
+                <h3>{latestResponse.connectorRuntime.executed ? "Runtime executed with scoped A2A JWT" : runtimeFailure?.title}</h3>
+              </div>
+              <strong className={`summary-chip status-${latestResponse.connectorRuntime.executed ? "success" : "warning"}`}>
+                {latestResponse.connectorRuntime.executed ? "EXECUTED" : statusDisplayLabel(latestResponse.connectorRuntime.runtimeMode)}
+              </strong>
+            </div>
+            <div className="connector-runtime-grid">
+              <div>
+                <span>Runtime status</span>
+                <strong>{latestResponse.connectorRuntime.executed ? "executed" : "not executed"}</strong>
+              </div>
+              <div>
+                <span>External agent</span>
+                <strong>{latestResponse.connectorRuntime.agentResponse?.agentId ?? "not available"}</strong>
+              </div>
+              <div>
+                <span>Connector</span>
+                <strong>{latestResponse.connectorRuntime.connectorId ?? latestResponse.connectorRouting?.connectorId ?? "not selected"}</strong>
+              </div>
+              <div>
+                <span>Resource system</span>
+                <strong>{latestResponse.connectorRuntime.resourceSystem ?? latestResponse.connectorRouting?.resourceSystem ?? latestResponse.connectorRouting?.targetSystem ?? "unknown"}</strong>
+              </div>
+              <div>
+                <span>Skill / Action</span>
+                <strong>{latestResponse.connectorRouting?.skillLabel ?? latestResponse.connectorRouting?.skillId ?? "not mapped"}</strong>
+              </div>
+              <div>
+                <span>Token</span>
+                <strong>{latestResponse.connectorRuntime.tokenMetadata?.tokenIssued ? "scoped A2A JWT issued" : "not issued"}</strong>
+                <small>raw token hidden</small>
+              </div>
+              <div>
+                <span>Actor</span>
+                <strong>{latestResponse.connectorRuntime.tokenMetadata?.actor ? "attached" : "not attached"}</strong>
+                {latestResponse.connectorRuntime.tokenMetadata?.actor ? <small>{latestResponse.connectorRuntime.tokenMetadata.actor}</small> : null}
+              </div>
+            </div>
+            {latestResponse.connectorPolicy ? (
+              <p><strong>Policy:</strong> {latestResponse.connectorPolicy.reason}</p>
+            ) : null}
+            {latestResponse.connectorRuntime.agentResponse ? (
+              <div className="connector-runtime-diagnosis">
+                <p><strong>{latestResponse.connectorRuntime.agentResponse.summary}</strong></p>
+                {latestResponse.connectorRuntime.agentResponse.probableCause ? <p>{latestResponse.connectorRuntime.agentResponse.probableCause}</p> : null}
+                {latestResponse.connectorRuntime.agentResponse.recommendedActions?.length ? (
+                  <ol>
+                    {latestResponse.connectorRuntime.agentResponse.recommendedActions.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
+                  </ol>
+                ) : null}
+                {latestResponse.connectorRuntime.agentResponse.evidence?.length ? (
+                  <details>
+                    <summary>Runtime evidence</summary>
+                    <JsonBlock value={latestResponse.connectorRuntime.agentResponse.evidence} />
+                  </details>
+                ) : null}
+              </div>
+            ) : runtimeFailure ? (
+              <div className="connector-runtime-diagnosis">
+                <p><strong>{runtimeFailure.title}</strong></p>
+                <p>{runtimeFailure.body}</p>
+                {runtimeFailure.nextStep ? <p><strong>Next step:</strong> {runtimeFailure.nextStep}</p> : null}
+                {latestResponse.connectorRuntime.error === "connector_configuration_changed" ? (
+                  <button type="button" className="secondary-inline-button" onClick={goToAgentRegistry}>
+                    Open Agent Registry
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+          );
+        })() : null}
+        <div className="response-security-strip" aria-label="Security outcome">
+          {outcomeBadges.map((badge) => (
+            <span className={badge.className} key={badge.label}>{badge.label}</span>
+          ))}
+          <button type="button" className="response-timeline-link" onClick={goToSecurityTimeline}>
+            View security timeline
+          </button>
+        </div>
+        <section className="supporting-agents-section">
+          <div className="section-heading-row compact-heading">
+            <div>
+              <span>{latestResponse.connectorRouting ? "Execution path" : "Supporting agents"}</span>
+            </div>
+          </div>
+          {latestResponse.connectorRouting ? (
+            <div className="connector-execution-summary">
+              <p><strong>Connector-backed route selected.</strong></p>
+              <dl>
+                <div>
+                  <dt>Target system</dt>
+                  <dd>{latestResponse.connectorRouting.targetSystem ?? "unknown"}</dd>
+                </div>
+                <div>
+                  <dt>Connector</dt>
+                  <dd>{latestResponse.connectorRouting.connectorId ?? "not selected"}</dd>
+                </div>
+                <div>
+                  <dt>Skill / Action</dt>
+                  <dd>{latestResponse.connectorRouting.skillLabel ?? latestResponse.connectorRouting.skillId ?? "not mapped"}</dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</dd>
+                </div>
+                <div>
+                  <dt>Runtime mode</dt>
+                  <dd>{latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "runtime not executed"}</dd>
+                </div>
+              </dl>
+              <p className="muted-note">
+                {latestResponse.connectorRuntime?.executed
+                  ? "Runtime executed with scoped A2A JWT. Raw token hidden."
+                  : latestResponse.connectorRuntime
+                    ? "Connector was approved, but runtime failed safely. No legacy mock diagnosis was used."
+                    : "Runtime mode: runtime not executed yet."}
+              </p>
+            </div>
+          ) : null}
+          {supportingAgents.length ? (
+            <div className="supporting-agent-list">
+              {latestResponse.connectorRouting ? <p className="muted-note">Supporting legacy/internal agents</p> : null}
+              {supportingAgents.map((agent) => (
+                <article key={`${agent.agentId}-${agent.skillId ?? "default"}`}>
+                  <strong>{agent.agentId}</strong>
+                  <span>{agent.role}</span>
+                  <code>{agent.skillId ?? agent.matchedCapability ?? "default skill"}</code>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="muted-note">{latestResponse.connectorRouting ? "No legacy internal agents were used for this connector-first route." : "No supporting agents selected yet."}</p>
+          )}
+        </section>
+        <details className="full-gateway-response">
+          <summary>{showFullResponse ? "Full gateway response" : "Original request"}</summary>
+          {showFullResponse ? <p>{latestResponse.finalAnswer}</p> : null}
+          <div>
+            <span>Original request</span>
+            <p>{latestRequest || message}</p>
+          </div>
+        </details>
+      </section>
+    );
+  }
+
+  function renderSecuritySummaryCard() {
+    return (
+      <section className="cockpit-card security-summary-card scroll-target" aria-label="Security Summary" ref={securitySummaryRef} tabIndex={-1}>
+        <div className="section-heading-row">
+          <div>
+            <p className="active-panel-eyebrow">Latest outcome</p>
+            <h2>Security Summary</h2>
+          </div>
+          <span className={`summary-result status-${cockpitStatusClass(lastResult)}`}>{lastResult}</span>
+        </div>
+        <div className="security-summary-grid">
+          <div>
+            <span>Identity</span>
+            <strong>{isUserAuthenticated ? "Identity verified" : "Login required"}</strong>
+          </div>
+          <div>
+            <span>Actor</span>
+            <strong>{actorEmail ?? "No actor attached yet"}</strong>
+          </div>
+          <div>
+            <span>Routing</span>
+            <strong>{latestResponse?.connectorRouting ? `Connector route: ${connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}` : latestResponse ? `${latestResponse.selectedAgents.length} selected / ${primarySelectedAgent}` : "No route selected yet"}</strong>
+          </div>
+          <div>
+            <span>Policy</span>
+            <strong className={`summary-chip status-${cockpitStatusClass(policyOutcome)}`}>{policyOutcome}</strong>
+          </div>
+          <div>
+            <span>Token</span>
+            <strong className={`summary-chip status-${cockpitStatusClass(tokenOutcome)}`}>{tokenOutcome}</strong>
+          </div>
+          <div>
+            <span>Delegation</span>
+            <strong>{delegationSummary === "yes" ? "Delegation mediated" : "No delegation observed"}</strong>
+          </div>
+          <div>
+            <span>Result</span>
+            <strong>{latestResponse?.resolutionStatus ?? "No task run yet"}</strong>
+          </div>
+        </div>
+        {!latestResponse ? <p className="muted-note">Run a task after login to populate security outcomes.</p> : null}
+      </section>
+    );
+  }
+
+  function renderLatestSecurityDetails() {
+    return (
+      <section className="cockpit-card latest-security-card" aria-label="Execution evidence">
+        <div className="section-heading-row">
+          <div>
+            <p className="active-panel-eyebrow">Control checks</p>
+            <h2>Execution evidence</h2>
+          </div>
+        </div>
+        <div className="security-detail-list">
+          <div>
+            <span>Selected agents</span>
+            <strong>{latestResponse?.selectedAgents.map((agent) => agent.agentId).join(", ") || "none"}</strong>
+          </div>
+          <div>
+            <span>Policy decision</span>
+            <strong className={`summary-chip status-${cockpitStatusClass(policySummary)}`}>{policySummary}</strong>
+          </div>
+          <div>
+            <span>Token status</span>
+            <strong className={`summary-chip status-${cockpitStatusClass(tokenSummary)}`}>{tokenSummary}</strong>
+          </div>
+          <div>
+            <span>Actor status</span>
+            <strong>{latestActorAttached ? `attached: ${latestResponse?.userIdentity.email ?? "unknown"}` : "not attached"}</strong>
+          </div>
+          <div>
+            <span>Actor propagated</span>
+            <strong>{latestActorTokenObserved ? "yes" : latestResponse ? "not observed" : "none"}</strong>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  function renderCockpitStatusStrip() {
+    return (
+      <div className="cockpit-status-strip" aria-label="Execution status">
+        <article>
+          <span>Current user</span>
+          <strong>{identitySession?.authenticated ? identitySession.user?.email : "not authenticated"}</strong>
+        </article>
+        <article className={`status-${cockpitStatusClass(executionState)}`}>
+          <span>Execution</span>
+          <strong>{executionState}</strong>
+        </article>
+        <article>
+          <span>A2A auth mode</span>
+          <strong>{authModeSummary}</strong>
+        </article>
+        <article className={`status-${cockpitStatusClass(lastResult)}`}>
+          <span>Last result</span>
+          <strong>{lastResult}</strong>
+        </article>
+      </div>
+    );
+  }
+
+  function renderTechnicalDetails() {
+    if (!latestResponse) {
+      return null;
+    }
+
+    return (
+      <details className="technical-details">
+        <summary>Technical trace (sanitized)</summary>
+        <div className="technical-details-grid">
+          <section>
+            <h2>Classification</h2>
+            <div className="classification-details">
+              <div>
+                <span>System</span>
+                <strong>{latestResponse.classification.system}</strong>
+              </div>
+              <div>
+                <span>Issue type</span>
+                <strong>{latestResponse.classification.issueType}</strong>
+              </div>
+              <div>
+                <span>Routing source</span>
+                <strong>{latestResponse.routingSource}</strong>
+              </div>
+              <div>
+                <span>Confidence</span>
+                <strong>{latestResponse.routingConfidence}</strong>
+              </div>
+              <p>{routingDescription(latestResponse)} {latestResponse.routingReasoningSummary}</p>
+            </div>
+          </section>
+          <section>
+            <h2>Security Decisions</h2>
+            {securityDecisions(latestResponse).length ? securityDecisions(latestResponse).map((decision, index) => (
+              <div className="security-decision compact" key={`${decision.caller}-${decision.target}-${decision.requestedAction}-${index}`}>
+                <div>
+                  <span>Target</span>
+                  <strong>{decision.target}</strong>
+                </div>
+                <div>
+                  <span>Decision</span>
+                  <strong className={`decision-badge ${decisionClass(decision.decision)}`}>{decision.decision}</strong>
+                </div>
+                <p>{decision.reason}</p>
+              </div>
+            )) : <p className="muted-note">No policy decision recorded.</p>}
+          </section>
+          <section>
+            <h2>A2A Tasks</h2>
+            {latestResponse.a2aTasks?.length ? latestResponse.a2aTasks.map((task) => (
+              <article className="evidence" key={task.taskId}>
+                <strong>{task.fromAgent} to {task.toAgent}</strong>
+                <span>{task.skillId ?? "no skill"} / token {task.context.auth?.tokenIssued ? "issued" : "not issued"}</span>
+              </article>
+            )) : <p className="muted-note">No A2A task created.</p>}
+          </section>
+          <section>
+            <h2>Sanitized JSON</h2>
+            <JsonBlock value={safeRawExecutionData(latestResponse)} />
+          </section>
+        </div>
+      </details>
+    );
+  }
+  function renderRunTaskTab() {
+    return (
+      <section className="control-panel demo-cockpit scroll-target" aria-label="Execution Cockpit" ref={runTaskRootRef} tabIndex={-1}>
+        {renderPageHeader({
+          eyebrow: "Execution cockpit",
+          title: "Run Task",
+          subtitle: "Submit an enterprise request and watch the Gateway route, authorize, and execute approved connector skills."
+        })}
+
+        {renderCockpitStatusStrip()}
+        <div className="cockpit-grid">
+          <section className="cockpit-main">
+            {!isUserAuthenticated ? (
+              <section className="identity-gate-panel" role="status">
+                <div>
+                  <p className="active-panel-eyebrow">Execution locked</p>
+                  <h2>Login required before execution</h2>
+                  <p>This gateway blocks task execution until a verified user identity is attached to the session.</p>
+                </div>
+                <button type="button" onClick={goToTrustIdentity}>Login</button>
+              </section>
+            ) : null}
+
+            <div className="scenario-launcher cockpit-card" aria-label="Security story scenarios">
+            <div className="section-heading-row">
+              <div>
+                <p className="active-panel-eyebrow">Scenario picker</p>
+                <h2>Connector-first scenarios</h2>
+              </div>
+            </div>
+            {renderScenarioOptions(quickScenarios)}
+            {advancedScenarios.length ? (
+              <details className="advanced-scenarios">
+                <summary>Advanced Scenarios</summary>
+                {renderScenarioOptions(advancedScenarios)}
+              </details>
+            ) : null}
+            </div>
+
+            <form className="composer cockpit-card scroll-target" onSubmit={submitIssue} ref={composerRef}>
+              <div className="section-heading-row">
+                <div>
+                  <p className="active-panel-eyebrow">Task input</p>
+                  <h2>AI command composer</h2>
+                </div>
+              </div>
+              <div className={`composer-recommendation ${runtimeReadyConnectorAgentCount > 0 ? "ready" : "setup"}`}>
+                <span>
+                  {runtimeReadyConnectorAgentCount > 0
+                    ? "Recommended: Run Jira approved diagnosis first."
+                    : "Install a connector agent before running connector-backed scenarios."}
+                </span>
+                {runtimeReadyConnectorAgentCount > 0 ? (
+                  <button type="button" className="secondary-inline-button compact-button" onClick={() => {
+                    setMessage(sampleMessage);
+                    showGuidedStatus("Recommended prompt loaded");
+                    guideToTarget("composer");
+                  }}>Use recommended prompt</button>
+                ) : (
+                  <button type="button" className="secondary-inline-button compact-button" onClick={goToConnectorCatalog}>Open Connector Catalog</button>
+                )}
+              </div>
+              <div className="composer-surface">
+                <textarea
+                  ref={taskTextareaRef}
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  aria-label="Integration issue"
+                  placeholder="Describe the enterprise issue or access request to run through the Secure A2A Gateway"
+                />
+                <div className="composer-action-row">
+                  <div className="composer-helper">
+                    <span>{isUserAuthenticated ? `Verified actor ${actorEmail ?? "current user"} will be attached to the A2A task and token metadata.` : "Login in Trust & Identity to unlock secure execution."}</span>
+                    {!isUserAuthenticated ? (
+                      <button type="button" className="composer-trust-link" onClick={goToTrustIdentity}>
+                        Login to unlock execution
+                      </button>
+                    ) : null}
+                  </div>
+                  <button type="submit" className="composer-run-button" disabled={isLoading || !isUserAuthenticated}>
+                    {isLoading ? "Running..." : isUserAuthenticated ? "Run secure task" : "Login required"}
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            {error ? <p className="error cockpit-error">{error}</p> : null}
+
+            {renderGatewayResponseCard()}
+          </section>
+
+          <aside className="cockpit-side">
+            {renderSecuritySummaryCard()}
+            {renderLatestSecurityDetails()}
+            <section className="cockpit-card selected-agents-card">
+              <div className="section-heading-row">
+                <div>
+                  <p className="active-panel-eyebrow">Routing</p>
+                  <h2>{latestResponse?.connectorRouting ? "Connector Route" : "Selected Agents"}</h2>
+                </div>
+              </div>
+              {latestResponse?.connectorRouting ? (
+                <div className="connector-side-route">
+                  <strong>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</strong>
+                  <span>{latestResponse.connectorRouting.targetSystem ?? "unknown"} / {latestResponse.connectorRouting.connectorId ?? "no connector"}</span>
+                  <p>{latestResponse.connectorRouting.skillLabel ?? latestResponse.connectorRouting.skillId ?? "No skill/action mapped"}</p>
+                  <small>Runtime mode: {latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "runtime not executed"}</small>
+                </div>
+              ) : null}
+              {latestResponse?.selectedAgents.length ? (
+                <>
+                  {latestResponse.connectorRouting ? <p className="muted-note">Supporting legacy/internal agents</p> : null}
+                  <ul className="agent-list compact">
+                    {latestResponse.selectedAgents.map((agent) => (
+                      <li key={`${agent.agentId}-${agent.skillId ?? "default"}`}>
+                        <strong>{agent.agentId}</strong>
+                        <span>{agent.role}{agent.skillId ? ` / ${agent.skillId}` : ""}</span>
+                        <p>{agent.matchedCapability ?? agent.reason}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : latestResponse?.connectorRouting ? (
+                <p className="muted-note">No legacy internal agents were used for this connector-first route.</p>
+              ) : (
+                <p className="muted-note">No agents selected yet.</p>
+              )}
+            </section>
+            {renderTechnicalDetails()}
+          </aside>
+        </div>
+      </section>
+    );
+  }
+  return renderRunTaskTab();
+}

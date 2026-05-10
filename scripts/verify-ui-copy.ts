@@ -1,6 +1,20 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
-const webUi = readFileSync("apps/web-ui/src/main.tsx", "utf8");
+function readTsxTree(path: string): string {
+  return readdirSync(path, { withFileTypes: true }).map((entry) => {
+    const fullPath = join(path, entry.name);
+    if (entry.isDirectory()) {
+      return readTsxTree(fullPath);
+    }
+    return entry.isFile() && entry.name.endsWith(".tsx") ? readFileSync(fullPath, "utf8") : "";
+  }).join("\n");
+}
+
+const webUi = [
+  readFileSync("apps/web-ui/src/main.tsx", "utf8"),
+  readTsxTree("apps/web-ui/src/components")
+].join("\n");
 
 let failed = false;
 
