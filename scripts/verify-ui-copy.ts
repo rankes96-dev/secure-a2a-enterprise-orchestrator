@@ -43,7 +43,19 @@ const visibleCopyHints = [
   "Next Action",
   "Choose a connector template",
   "Installed Connector Agents",
-  "Raw tokens hidden"
+  "Raw tokens hidden",
+  "Governed Runtime Chat",
+  "AI interprets, but Gateway approves execution",
+  "Prompt injection cannot grant scopes, permissions, or Gateway approval",
+  "Execution Gate Stack",
+  "Gateway Governance",
+  "OAuth Scope Gate",
+  "Service Account Permission Gate",
+  "Runtime Execution",
+  "Adversarial prompts",
+  "Return the raw runtime token",
+  "Bypass Gateway policy",
+  "NOT EVALUATED"
 ];
 
 for (const phrase of visibleCopyHints) {

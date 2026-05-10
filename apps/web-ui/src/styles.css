@@ -6270,6 +6270,13 @@ summary:focus-visible,
   letter-spacing: 0;
 }
 
+.topbar-subtitle {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .control-plane-shell .topbar .menu-hint {
   margin-top: 6px;
 }
@@ -6283,6 +6290,8 @@ summary:focus-visible,
 }
 
 .gateway-principle-strip {
+  display: grid;
+  gap: 3px;
   border: 1px solid var(--info-border);
   border-left: 4px solid var(--primary);
   border-radius: 12px;
@@ -6290,7 +6299,15 @@ summary:focus-visible,
   color: var(--info-text);
   background: var(--info-bg);
   font-size: 13px;
-  font-weight: 850;
+}
+
+.gateway-principle-strip strong {
+  font-weight: 900;
+}
+
+.gateway-principle-strip span {
+  color: var(--text-secondary);
+  font-weight: 700;
 }
 
 .chat-runtime-layout {
@@ -6341,6 +6358,7 @@ summary:focus-visible,
   margin: 0;
   color: var(--text);
   line-height: 1.45;
+  white-space: pre-line;
 }
 
 .task-message-card.user-message {
@@ -6388,6 +6406,17 @@ summary:focus-visible,
   box-shadow: none;
 }
 
+.prompt-group {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.prompt-group + .prompt-group {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
 .ai-interpretation-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6416,6 +6445,108 @@ summary:focus-visible,
   overflow-wrap: anywhere;
   color: var(--text);
   font-size: 13px;
+}
+
+.execution-gate-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.gate-stack-list {
+  display: grid;
+  gap: 8px;
+}
+
+.gate-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--surface);
+}
+
+.gate-card.status-success {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+}
+
+.gate-card.status-blocked {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+
+.gate-card.status-neutral {
+  border-color: var(--border);
+  background: var(--surface-soft);
+}
+
+.gate-card-header {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.gate-card-header small {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.gate-card-header strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.gate-card-header span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.gate-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.gate-metadata {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.gate-metadata div {
+  display: grid;
+  grid-template-columns: minmax(80px, 0.42fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.gate-metadata dt {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.gate-metadata dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 /* =========================

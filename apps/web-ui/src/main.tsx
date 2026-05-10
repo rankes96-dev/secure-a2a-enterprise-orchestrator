@@ -118,6 +118,29 @@ const tabs: Array<{ id: ActiveTab; label: string; hint: string }> = [
   { id: "security-timeline", label: "Security Timeline", hint: "Audit proof" }
 ];
 
+const activePageHeaders: Record<ActiveTab, { title: string; subtitle: string }> = {
+  "demo-guide": {
+    title: "Demo Guide",
+    subtitle: "Present the zero-trust external connector flow in 5 minutes."
+  },
+  "run-task": {
+    title: "Governed Runtime Chat",
+    subtitle: "Ask in natural language. AI interprets, but Gateway approves execution."
+  },
+  "agent-registry": {
+    title: "Agent Registry",
+    subtitle: "Choose connector templates and install trusted external connector agents."
+  },
+  "trust-identity": {
+    title: "Trust & Identity",
+    subtitle: "Authenticate a demo user and verify Gateway identity context."
+  },
+  "security-timeline": {
+    title: "Security Timeline",
+    subtitle: "Inspect identity, policy, token, runtime, and audit proof."
+  }
+};
+
 const localConnectorPresets = [
   {
     label: "Use local Jira reference agent",
@@ -465,6 +488,118 @@ function connectorRoutingStatusClass(status: string): string {
   }
 
   return "neutral";
+}
+
+function responseSkillId(response: ResolveResponse): string {
+  return response.connectorRuntime?.agentResponse?.runtimeSemantics?.executedSkillId ?? response.connectorRouting?.skillId ?? response.connectorRuntime?.skillId ?? "";
+}
+
+function responseIsDiagnostic(response: ResolveResponse): boolean {
+  const semantics = response.connectorRuntime?.agentResponse?.runtimeSemantics;
+  return semantics?.executionType === "diagnostic_read_only" || responseSkillId(response).includes(".diagnose");
+}
+
+function chatOutcomeLabel(response: ResolveResponse): string {
+  const semantics = response.connectorRuntime?.agentResponse?.runtimeSemantics;
+  const agentStatus = response.connectorRuntime?.agentResponse?.status;
+  const id = responseSkillId(response);
+
+  if (agentStatus === "diagnosed" || semantics?.outcome === "diagnosed" || id.includes(".diagnose")) {
+    return "DIAGNOSED";
+  }
+
+  if (id.includes(".inspect")) {
+    return "INSPECTED";
+  }
+
+  if (response.connectorRouting?.status === "connector_skill_blocked") {
+    return "BLOCKED";
+  }
+
+  if (response.resolutionStatus === "unsupported" || response.connectorRouting?.status === "unsupported" || semantics?.outcome === "unsupported") {
+    return "UNSUPPORTED";
+  }
+
+  if (response.connectorRuntime?.executed || semantics?.outcome === "executed") {
+    return "COMPLETED";
+  }
+
+  return statusDisplayLabel(response.resolutionStatus);
+}
+
+function compactRequirementSummary(response: ResolveResponse): string {
+  const routing = response.connectorRouting;
+  if (!routing) {
+    return "Gateway policy and connector requirements did not produce a runnable route.";
+  }
+
+  const parts = [
+    routing.missingApplicationGrants?.length ? `application grants ${routing.missingApplicationGrants.join(", ")}` : "",
+    routing.missingEffectivePermissions?.length ? `effective permissions ${routing.missingEffectivePermissions.join(", ")}` : "",
+    routing.deniedEffectivePermissions?.length ? `denied permissions ${routing.deniedEffectivePermissions.join(", ")}` : ""
+  ].filter(Boolean);
+
+  return parts.length ? `Missing: ${parts.join("; ")}.` : routing.reason;
+}
+
+function firstRecommendedAction(response: ResolveResponse): string {
+  const runtimeAction = response.connectorRuntime?.agentResponse?.recommendedActions?.[0];
+  if (runtimeAction) {
+    return runtimeAction;
+  }
+
+  if (response.connectorRouting?.recommendedNextStep) {
+    return response.connectorRouting.recommendedNextStep;
+  }
+
+  return firstSentence(response.diagnosis.recommendedFix);
+}
+
+function governedChatAnswer(response: ResolveResponse): string {
+  const outcome = chatOutcomeLabel(response);
+  const summary = firstSentence(response.finalAnswer);
+  const nextAction = firstRecommendedAction(response);
+  const targetStatus = response.connectorRuntime?.agentResponse?.runtimeSemantics?.targetActionStatus;
+  const targetAction = response.connectorRuntime?.agentResponse?.runtimeSemantics?.targetActionLabel ?? response.connectorRouting?.skillLabel ?? "target action";
+
+  if (outcome === "DIAGNOSED" || responseIsDiagnostic(response)) {
+    const targetReadiness = targetStatus === "ready"
+      ? `Connector-level access checks for ${targetAction} passed. Investigate object-level rules, workflow validators, or resource-specific restrictions.`
+      : `The ${targetAction} is not currently enabled/ready in this connector configuration.`;
+    return [
+      "DIAGNOSED",
+      "The read-only diagnostic skill executed successfully. No target write/action operation was attempted.",
+      targetReadiness,
+      `Next: ${nextAction}`
+    ].join("\n");
+  }
+
+  if (outcome === "BLOCKED") {
+    return [
+      "BLOCKED",
+      "The Gateway understood the request as a write action, but blocked it before runtime.",
+      compactRequirementSummary(response),
+      `Next: ${nextAction}`
+    ].join("\n");
+  }
+
+  if (outcome === "UNSUPPORTED") {
+    return [
+      "UNSUPPORTED",
+      summary,
+      "The Gateway did not find a supported connector route for this request.",
+      `Next: ${nextAction}`
+    ].join("\n");
+  }
+
+  return [
+    outcome,
+    summary,
+    response.connectorRuntime?.executed
+      ? "The Gateway approved the route and runtime executed with scoped A2A JWT. Raw token remains hidden."
+      : "The Gateway evaluated the request without exposing raw runtime credentials.",
+    `Next: ${nextAction}`
+  ].join("\n");
 }
 
 function shortHash(value?: string): string {
@@ -1981,7 +2116,7 @@ function App() {
           chatMessage.id === loadingMessageId
             ? {
               ...chatMessage,
-              content: resolvedResponse.finalAnswer,
+              content: governedChatAnswer(resolvedResponse),
               timestamp: new Date().toISOString(),
               status: "done",
               metadata: resolvedResponse
@@ -2089,6 +2224,8 @@ function App() {
     }
   }
 
+  const activePageHeader = activePageHeaders[activeTab];
+
   return (
     <main className="shell control-plane-shell">
       <aside className="control-sidebar" aria-label="Product navigation">
@@ -2153,10 +2290,11 @@ function App() {
       <section className="workspace">
         <header className="topbar">
           <div className="topbar-copy">
-            <p className="eyebrow">Secure A2A Control Plane</p>
-            <h1>Secure Agent Orchestration Gateway</h1>
+            <p className="eyebrow">Active section</p>
+            <h1>{activePageHeader.title}</h1>
+            <p className="topbar-subtitle">{activePageHeader.subtitle}</p>
             <div className="menu-hint">
-              <span>Open Demo Guide for the recommended presentation flow.</span>
+              <span>{activeTab === "demo-guide" ? "Follow the guided demo path from the Next Action card." : "Open Demo Guide for the recommended presentation flow."}</span>
               <button type="button" onClick={() => {
                 navigateToTab("demo-guide");
                 guideToTarget("demo-guide");
