@@ -1,43 +1,80 @@
 import React from "react";
-import type { AgentRegistryContext } from "./types";
+import type { AgentRegistryContext, ConnectorAction, ConnectorTemplate, ConnectionWizardStep, LocalConnectorPreset, OnboardingCheck, RegisteredAgentRow, TrustedOnboardedAgent } from "./types";
 
 export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
   const {
-    activeTab, setActiveTab, message, setMessage, messages, error, isLoading, health, healthError, isHealthLoading,
-    zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl, zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId,
-    setSupportedConnectorGuardrails, setZeroTrustOnboardedAgents, setZeroTrustDiscovery, setZeroTrustResult, setZeroTrustError, setZeroTrustCopyMessage,
-    zeroTrustExpectedResourceSystem, setZeroTrustExpectedResourceSystem, zeroTrustExpectedConnectorId, setZeroTrustExpectedConnectorId,
-    supportedConnectorGuardrails, zeroTrustOnboardedAgents, zeroTrustDiscovery, zeroTrustResult, zeroTrustError, zeroTrustCopyMessage,
-    setGatewayRegistrationMetadata, setIsZeroTrustDiscovering, setIsZeroTrustOnboarding, setIdentitySession, setTrustStatus, setIdentityError, setIdentityMessage, setIsIdentityLoading,
-    gatewayRegistrationMetadata, connectionAudience, setConnectionAudience, connectionWizardStep, setConnectionWizardStep,
-    connectionWizardCollapsedAfterSuccess, setConnectionWizardCollapsedAfterSuccess, customConnectorContractOpen, setCustomConnectorContractOpen,
-    expandedInstalledAgentIds, setExpandedInstalledAgentIds, selectedInstalledConnectorTemplateId, setSelectedInstalledConnectorTemplateId,
-    isZeroTrustDiscovering, isZeroTrustOnboarding, identitySession, trustStatus, selectedDemoUserEmail, setSelectedDemoUserEmail,
-    identityError, identityMessage, isIdentityLoading, securityTimelineFilter, setSecurityTimelineFilter, guidedStatus,
-    demoGuideRootRef, runTaskRootRef, composerRef, taskTextareaRef, gatewayResponseRef, securitySummaryRef, trustIdentityRootRef,
-    loginPanelRef, demoUserSelectRef, loginButtonRef, agentRegistryRootRef, connectorCatalogRef, zeroTrustOnboardingRef,
-    registeredAgentsRef, legacyAgentsRef, securityTimelineRootRef, timelineListRef,
-    latestResponse, securityTimelineEvents, visibleSecurityTimelineEvents, healthLabel, authModeLabel, userBadgeLabel,
-    builtInAgentsCount, healthyAgentsCount, registeredAgentRows, latestActorAttached, latestActorTokenObserved, latestActorRoles,
-    isUserAuthenticated, connectorTemplateCount, installedConnectorAgentCount, runtimeReadyConnectorAgentCount, latestRequest,
-    executionState, authModeSummary, lastResult, policySummary, tokenSummary, delegationSummary, primarySelectedAgent, actorEmail,
-    policyOutcome, tokenOutcome,
-    guideToTarget, showGuidedStatus, goToTrustIdentity, goToRunTask, goToAgentRegistry, goToConnectorCatalog,
-    goToInstalledConnectorAgents, goToSecurityTimeline, hasInstalledConnector, hasApprovedSkill, hasBlockedSkill, readinessStatusForSkill,
-    checkAgentHealth, loadTrustStatus, loginDemoUser, logoutIdentity, applyLocalConnectorPreset, discoverZeroTrustAgent,
-    copyGatewayRegistrationJson, startZeroTrustOnboarding, resolveIssue, submitIssue, startNewConversation, resetZeroTrustConnectionState,
-    loadZeroTrustOnboardedAgents, loadSupportedConnectorGuardrails, loadGatewayRegistrationMetadata,
+    isLoading,
+    health,
+    healthError,
+    isHealthLoading,
+    zeroTrustAgentBaseUrl,
+    setZeroTrustAgentBaseUrl,
+    zeroTrustExpectedAgentId,
+    setZeroTrustExpectedAgentId,
+    setActiveTab,
+    setZeroTrustDiscovery,
+    setZeroTrustResult,
+    setZeroTrustCopyMessage,
+    zeroTrustExpectedResourceSystem,
+    setZeroTrustExpectedResourceSystem,
+    zeroTrustExpectedConnectorId,
+    setZeroTrustExpectedConnectorId,
+    supportedConnectorGuardrails,
+    zeroTrustOnboardedAgents,
+    zeroTrustDiscovery,
+    zeroTrustResult,
+    zeroTrustError,
+    setZeroTrustError,
+    zeroTrustCopyMessage,
+    gatewayRegistrationMetadata,
+    connectionAudience,
+    setConnectionAudience,
+    connectionWizardStep,
+    setConnectionWizardStep,
+    connectionWizardCollapsedAfterSuccess,
+    setConnectionWizardCollapsedAfterSuccess,
+    customConnectorContractOpen,
+    setCustomConnectorContractOpen,
+    expandedInstalledAgentIds,
+    setExpandedInstalledAgentIds,
+    selectedInstalledConnectorTemplateId,
+    setSelectedInstalledConnectorTemplateId,
+    isZeroTrustDiscovering,
+    isZeroTrustOnboarding,
+    agentRegistryRootRef,
+    connectorCatalogRef,
+    zeroTrustOnboardingRef,
+    registeredAgentsRef,
+    legacyAgentsRef,
+    registeredAgentRows,
+    localConnectorPresets,
+    builtInAgentsCount,
+    healthyAgentsCount,
+    applyLocalConnectorPreset,
+    discoverZeroTrustAgent,
+    copyGatewayRegistrationJson,
+    startZeroTrustOnboarding,
+    loadZeroTrustOnboardedAgents,
+    loadSupportedConnectorGuardrails,
+    resetZeroTrustConnectionState,
     renderPageHeader,
-    localConnectorPresets, scenarios, quickScenarios, advancedScenarios, securityTimelineFilters, demoUserOptions,
-    cockpitStatusClass, statusDisplayLabel, connectorRoutingStatusLabel, connectorRoutingStatusClass, connectorRuntimeFailureCopy,
-    firstSentence, recommendedActionItems, shortHash, JsonBlock, MessageList, safeRawExecutionData, healthClass,
-    endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage
+    guideToTarget,
+    goToConnectorCatalog,
+    showGuidedStatus,
+    setMessage,
+    resolveIssue,
+    statusDisplayLabel,
+    shortHash,
+    JsonBlock,
+    checkAgentHealth,
+    healthClass,
+    endpointTypeLabel
   } = ctx;
 
   function renderZeroTrustOnboardingPanel() {
     const approvedActions = zeroTrustResult?.skillDecision?.approvedActions ?? zeroTrustResult?.capabilityDecision.approvedCapabilities ?? [];
     const blockedActions = zeroTrustResult?.skillDecision?.blockedActions ?? zeroTrustResult?.capabilityDecision.blockedCapabilities ?? [];
-    const wizardSteps: Array<{ id: any; label: string }> = [
+    const wizardSteps: Array<{ id: ConnectionWizardStep; label: string }> = [
       { id: "overview", label: "Overview" },
       { id: "gateway-registration", label: "Register Gateway" },
       { id: "connection-input", label: "Enter Agent URL" },
@@ -59,15 +96,15 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
       jwksUri: gatewayMetadata.jwksUri,
       onboardingMethod: gatewayMetadata.supportedOnboardingMethods[0] ?? "signed_gateway_challenge"
     };
-    const discoveryCheckStatus = (name: string) => zeroTrustDiscovery?.checks.find((check: any) => check.name === name)?.status;
-    const resultCheckStatus = (name: string) => zeroTrustResult?.checks.find((check: any) => check.name === name)?.status;
+    const discoveryCheckStatus = (name: string) => zeroTrustDiscovery?.checks.find((check) => check.name === name)?.status;
+    const resultCheckStatus = (name: string) => zeroTrustResult?.checks.find((check) => check.name === name)?.status;
     const checkStatus = (name: string) => resultCheckStatus(name) ?? discoveryCheckStatus(name);
     const activeStepIndex = wizardSteps.findIndex((step) => step.id === connectionWizardStep);
     const adminConsoleUrl = zeroTrustDiscovery?.discovery.adminConsoleUrl ?? "http://localhost:4201/admin";
-    const availableConnectorTemplates = supportedConnectorGuardrails.filter((connector: any) => connector.status === "available");
-    const resourceSystemOptions = [...new Map<string, any>(availableConnectorTemplates.map((connector: any) => [connector.resourceSystem, connector])).values()];
+    const availableConnectorTemplates = supportedConnectorGuardrails.filter((connector) => connector.status === "available");
+    const resourceSystemOptions = [...new Map<string, ConnectorTemplate>(availableConnectorTemplates.map((connector) => [connector.resourceSystem, connector])).values()];
     const currentStepIndex = activeStepIndex >= 0 ? activeStepIndex : 0;
-    const wizardStatus = (step: any, index: number): "waiting" | "active" | "completed" | "failed" => {
+    const wizardStatus = (step: ConnectionWizardStep, index: number): "waiting" | "active" | "completed" | "failed" => {
       if (zeroTrustError && step === connectionWizardStep && (step === "discovery" || step === "verify")) {
         return "failed";
       }
@@ -147,9 +184,9 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
     const renderDecisionValues = (label: string, values?: string[]) => values?.length ? (
       <small>{label}: {values.join(", ")}</small>
     ) : null;
-    const renderCapabilityList = (items: any[], emptyLabel: string) => (
+    const renderCapabilityList = (items: ConnectorAction[], emptyLabel: string) => (
       <div className="capability-list">
-        {items.length ? items.map((item: any) => (
+        {items.length ? items.map((item) => (
           <article key={item.capability}>
             <strong>{item.label ?? item.capability}</strong>
             <small>{item.capability}</small>
@@ -230,7 +267,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
                 <details className="wizard-technical-details">
                   <summary>Expected signed trust response fields</summary>
                   <div className="concept-pill-row">
-                    {["agentId", "issuer", "clientId", "audience", "requestedScopes", "agentDeclaredSkills", "agentDeclaredCapabilities", "nonce", "signedTrustResponse"].map((item: any) => <span key={item}>{item}</span>)}
+                    {["agentId", "issuer", "clientId", "audience", "requestedScopes", "agentDeclaredSkills", "agentDeclaredCapabilities", "nonce", "signedTrustResponse"].map((item) => <span key={item}>{item}</span>)}
                   </div>
                 </details>
                 <div className="wizard-action-row">
@@ -284,7 +321,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
             <h3>Enter Agent URL</h3>
             <p>The connector template defines the expected profile contract, skills, grants, permissions, and runtime response shape. The external agent instance must still prove identity and return a signed attestation before it becomes installed and trusted.</p>
             <div className="connector-preset-grid" aria-label="Local reference connectors">
-              {localConnectorPresets.map((preset: any) => (
+              {localConnectorPresets.map((preset) => (
                 <button
                   type="button"
                   className="connector-preset-card"
@@ -300,7 +337,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
             <div className="zero-trust-form wizard-form">
               <label>
                 <span>Agent Base URL</span>
-                <input value={zeroTrustAgentBaseUrl} onChange={(event: any) => {
+                <input value={zeroTrustAgentBaseUrl} onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
                   setZeroTrustAgentBaseUrl(event.target.value);
                   resetZeroTrustConnectionState();
                 }} />
@@ -308,7 +345,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
               </label>
               <label>
                 <span>Expected Agent ID</span>
-                <input value={zeroTrustExpectedAgentId} onChange={(event: any) => {
+                <input value={zeroTrustExpectedAgentId} onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
                   setZeroTrustExpectedAgentId(event.target.value);
                   resetZeroTrustConnectionState();
                 }} />
@@ -316,12 +353,12 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
               </label>
               <label>
                 <span>Expected external system</span>
-                <select value={zeroTrustExpectedResourceSystem} onChange={(event: any) => {
+                <select value={zeroTrustExpectedResourceSystem} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
                   setZeroTrustExpectedResourceSystem(event.target.value);
                   resetZeroTrustConnectionState();
                 }}>
                   <option value="">Auto-detect</option>
-                  {resourceSystemOptions.map((connector: any) => (
+                  {resourceSystemOptions.map((connector) => (
                     <option value={connector.resourceSystem} key={connector.resourceSystem}>{connector.displayName.replace(" Reference Connector", "")}</option>
                   ))}
                 </select>
@@ -329,12 +366,12 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
               </label>
               <label>
                 <span>Expected connector</span>
-                <select value={zeroTrustExpectedConnectorId} onChange={(event: any) => {
+                <select value={zeroTrustExpectedConnectorId} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
                   setZeroTrustExpectedConnectorId(event.target.value);
                   resetZeroTrustConnectionState();
                 }}>
                   <option value="">Auto-detect</option>
-                  {availableConnectorTemplates.map((connector: any) => (
+                  {availableConnectorTemplates.map((connector) => (
                     <option value={connector.connectorId} key={connector.connectorId}>{connector.connectorId}</option>
                   ))}
                 </select>
@@ -498,8 +535,8 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
                 <article>
                   <span>Effective Permission Proof</span>
                   <strong>{zeroTrustResult.externalApplicationAttestation?.servicePrincipal?.principalId ?? zeroTrustResult.resourcePermissionProof.principal}</strong>
-                  <small>Effective permissions: {zeroTrustResult.resourcePermissionProof.effectivePermissions.join(", ") || "none"}</small>
-                  <small>Denied permissions: {zeroTrustResult.resourcePermissionProof.deniedPermissions.join(", ") || "none"}</small>
+                  <small>Effective permissions: {(zeroTrustResult.resourcePermissionProof.effectivePermissions ?? []).join(", ") || "none"}</small>
+                  <small>Denied permissions: {(zeroTrustResult.resourcePermissionProof.deniedPermissions ?? []).join(", ") || "none"}</small>
                 </article>
                 <article>
                   <span>Runtime</span>
@@ -636,10 +673,10 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
 
 
   function renderAgentRegistryTab() {
-    const builtInAgents = registeredAgentRows.filter((agent: any) => agent.source === "built-in");
-    const infrastructureAgents = registeredAgentRows.filter((agent: any) => agent.source === "infrastructure");
-    const zeroTrustAgents = registeredAgentRows.filter((agent: any) => agent.source === "zero-trust-onboarded");
-    const connectorTemplates = supportedConnectorGuardrails.some((connector: any) => connector.connectorId === "custom-sdk")
+    const builtInAgents = registeredAgentRows.filter((agent) => agent.source === "built-in");
+    const infrastructureAgents = registeredAgentRows.filter((agent) => agent.source === "infrastructure");
+    const zeroTrustAgents = registeredAgentRows.filter((agent) => agent.source === "zero-trust-onboarded");
+    const connectorTemplates = supportedConnectorGuardrails.some((connector) => connector.connectorId === "custom-sdk")
       ? supportedConnectorGuardrails
       : [
           ...supportedConnectorGuardrails,
@@ -662,7 +699,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
       }
     ];
 
-    function installedAgentMatchesTemplate(agent: any, template: any): boolean {
+    function installedAgentMatchesTemplate(agent: TrustedOnboardedAgent | RegisteredAgentRow, template: ConnectorTemplate): boolean {
       if (agent.connectorId) {
         return agent.connectorId === template.connectorId;
       }
@@ -670,15 +707,15 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
       return agent.resourceSystem === template.resourceSystem;
     }
 
-    function installedCountForTemplate(template: any): number {
-      return zeroTrustOnboardedAgents.filter((agent: any) => installedAgentMatchesTemplate(agent, template)).length;
+    function installedCountForTemplate(template: ConnectorTemplate): number {
+      return zeroTrustOnboardedAgents.filter((agent) => installedAgentMatchesTemplate(agent, template)).length;
     }
 
-    function templateForAgent(agent: (typeof zeroTrustAgents)[number]): any | undefined {
-      return connectorTemplates.find((template: any) => installedAgentMatchesTemplate(agent, template));
+    function templateForAgent(agent: RegisteredAgentRow): ConnectorTemplate | undefined {
+      return connectorTemplates.find((template) => installedAgentMatchesTemplate(agent, template));
     }
 
-    function lifecycleForInstalledAgent(agent: (typeof zeroTrustAgents)[number]) {
+    function lifecycleForInstalledAgent(agent: RegisteredAgentRow) {
       const approved = (agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0;
       return agent.lifecycle ?? (
         approved > 0 && agent.connectorProfileVerified && agent.runtimeEndpoint
@@ -690,9 +727,9 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
     const registrySummary = {
       connectorTemplates: connectorTemplates.length,
       installedConnectors: zeroTrustAgents.length,
-      runtimeReady: zeroTrustAgents.filter((agent: any) => lifecycleForInstalledAgent(agent).state === "runtime_ready").length,
-      needsReverification: zeroTrustAgents.filter((agent: any) => lifecycleForInstalledAgent(agent).state === "needs_reverification").length,
-      blockedSkills: zeroTrustAgents.reduce((total: any, agent: any) => total + ((agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0), 0)
+      runtimeReady: zeroTrustAgents.filter((agent) => lifecycleForInstalledAgent(agent).state === "runtime_ready").length,
+      needsReverification: zeroTrustAgents.filter((agent) => lifecycleForInstalledAgent(agent).state === "needs_reverification").length,
+      blockedSkills: zeroTrustAgents.reduce((total, agent) => total + ((agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0), 0)
     };
 
     const approvedSkillScenarioMap: Record<string, string> = {
@@ -707,8 +744,8 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
       "github.pull_request.access.diagnose": "GitHub pull request checks cannot read the repository"
     };
 
-    function scenarioForApprovedSkill(agent: (typeof zeroTrustAgents)[number]): string | undefined {
-      const approved = agent.approvedActions ?? agent.approvedCapabilities ?? [];
+    function scenarioForApprovedSkill(agent: RegisteredAgentRow): string | undefined {
+      const approved: ConnectorAction[] = agent.approvedActions ?? agent.approvedCapabilities ?? [];
       for (const action of approved) {
         const scenario = approvedSkillScenarioMap[action.capability];
         if (scenario) {
@@ -718,7 +755,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
       return undefined;
     }
 
-    function runMatchingScenario(agent: (typeof zeroTrustAgents)[number]) {
+    function runMatchingScenario(agent: RegisteredAgentRow) {
       const scenario = scenarioForApprovedSkill(agent);
       if (!scenario) {
         return;
@@ -729,8 +766,8 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
       guideToTarget("composer");
     }
 
-    function prefillReverification(agent: (typeof zeroTrustAgents)[number]) {
-      const preset = localConnectorPresets.find((item: any) =>
+    function prefillReverification(agent: RegisteredAgentRow) {
+      const preset = localConnectorPresets.find((item) =>
         item.expectedConnectorId === agent.connectorId ||
           item.expectedResourceSystem === agent.resourceSystem
       );
@@ -761,7 +798,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
 
       return (
         <section className="agent-registry-summary-bar" aria-label="Agent Registry summary">
-          {summaryItems.map((item: any) => (
+          {summaryItems.map((item) => (
             <div key={item.label}>
               <span>{item.label}</span>
               <strong>{item.value}</strong>
@@ -783,8 +820,8 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
             </div>
           </div>
           <div className="connector-preset-grid" aria-label="Connector Catalog">
-            {connectorTemplates.map((template: any) => {
-              const preset = localConnectorPresets.find((item: any) => item.expectedConnectorId === template.connectorId);
+            {connectorTemplates.map((template) => {
+              const preset = localConnectorPresets.find((item) => item.expectedConnectorId === template.connectorId);
               const installedCount = installedCountForTemplate(template);
               const sourceLabel = template.source === "custom_sdk" ? "SDK / Bring your own connector" : "Local reference template";
               const runtimeSupportLabel = template.runtimeSupport === "planned" ? "Planned" : template.runtimeSupport === "not_supported" ? "Not supported" : "Supported";
@@ -844,7 +881,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
             })}
           </div>
           <p className="muted-note">Policies can govern which installed connector agent skills may execute. Advanced policy controls are planned for V2.</p>
-          <details className="wizard-technical-details" open={customConnectorContractOpen} onToggle={(event: any) => setCustomConnectorContractOpen(event.currentTarget.open)}>
+          <details className="wizard-technical-details" open={customConnectorContractOpen} onToggle={(event: React.SyntheticEvent<HTMLDetailsElement>) => setCustomConnectorContractOpen(event.currentTarget.open)}>
             <summary>Build your own connector</summary>
             <p>Organizations or vendors will be able to implement the Secure A2A connector contract.</p>
             <ul>
@@ -862,7 +899,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
       );
     }
 
-    function renderInstalledConnectorCard(agent: (typeof zeroTrustAgents)[number]) {
+    function renderInstalledConnectorCard(agent: RegisteredAgentRow) {
       const approved = (agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0;
       const blocked = (agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0;
       const lifecycle = lifecycleForInstalledAgent(agent);
@@ -892,9 +929,9 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
           <p className="muted-note compact-lifecycle-reason">{lifecycle.reason}</p>
           <div className="installed-connector-actions">
             <button type="button" className="secondary-button compact-button" onClick={() => {
-              setExpandedInstalledAgentIds((current: any) =>
+              setExpandedInstalledAgentIds((current) =>
                 current.includes(agent.agentId)
-                  ? current.filter((id: any) => id !== agent.agentId)
+                  ? current.filter((id) => id !== agent.agentId)
                   : [...current, agent.agentId]
               );
             }}>View details</button>
@@ -912,8 +949,8 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
                 <div><span>Trust level</span><strong>{agent.trustLevel}</strong></div>
                 <div><span>Profile verified</span><strong>{agent.connectorProfileVerified ? "yes" : "no"}</strong></div>
                 <div><span>External config</span><strong>{shortHash(agent.externalConfigHash)}</strong></div>
-                <div><span>Approved actions</span><strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item: any) => item.label ?? item.capability).join(", ") || "none"}</strong></div>
-                <div><span>Blocked actions</span><strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item: any) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong></div>
+                <div><span>Approved actions</span><strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item: ConnectorAction) => item.label ?? item.capability).join(", ") || "none"}</strong></div>
+                <div><span>Blocked actions</span><strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item: ConnectorAction) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong></div>
                 <div><span>Resource principal</span><strong>{agent.resourcePrincipal ?? "unknown"}</strong></div>
                 <div><span>Execution state</span><strong>{agent.executionState}</strong></div>
               </div>
@@ -925,12 +962,12 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
 
     function renderInstalledConnectors() {
       const selectedTemplate = selectedInstalledConnectorTemplateId
-        ? connectorTemplates.find((template: any) => template.connectorId === selectedInstalledConnectorTemplateId)
+        ? connectorTemplates.find((template) => template.connectorId === selectedInstalledConnectorTemplateId)
         : undefined;
       const matchingAgents = selectedTemplate
-        ? zeroTrustAgents.filter((agent: any) => installedAgentMatchesTemplate(agent, selectedTemplate))
+        ? zeroTrustAgents.filter((agent) => installedAgentMatchesTemplate(agent, selectedTemplate))
         : zeroTrustAgents;
-      const groups = [...new Map<string, any>(matchingAgents.map((agent: any) => [agent.resourceSystem ?? agent.connectorId ?? "unknown", agent])).keys()];
+      const groups = [...new Map<string, RegisteredAgentRow>(matchingAgents.map((agent) => [agent.resourceSystem ?? agent.connectorId ?? "unknown", agent])).keys()];
       return (
         <section className="registry-section scroll-target" ref={registeredAgentsRef} tabIndex={-1}>
           <div className="section-heading-row">
@@ -953,12 +990,12 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
                   <summary>
                     <div>
                       <strong>{group}</strong>
-                      <span>{matchingAgents.filter((agent: any) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).length} installed agent(s)</span>
+                      <span>{matchingAgents.filter((agent) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).length} installed agent(s)</span>
                     </div>
                     <b aria-hidden="true">v</b>
                   </summary>
                   <div className="registry-agent-group-body">
-                    {matchingAgents.filter((agent: any) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).map(renderInstalledConnectorCard)}
+                    {matchingAgents.filter((agent) => (agent.resourceSystem ?? agent.connectorId ?? "unknown") === group).map(renderInstalledConnectorCard)}
                   </div>
                 </details>
               ))}
@@ -966,8 +1003,8 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
           ) : selectedTemplate ? (
             <div className="installed-filter-empty">
               <p className="muted-note">No installed agents from this template yet.</p>
-              {localConnectorPresets.find((item: any) => item.expectedConnectorId === selectedTemplate.connectorId) ? (
-                <button type="button" className="secondary-button compact-button" onClick={() => applyLocalConnectorPreset(localConnectorPresets.find((item: any) => item.expectedConnectorId === selectedTemplate.connectorId)!)}>Connect external agent</button>
+              {localConnectorPresets.find((item) => item.expectedConnectorId === selectedTemplate.connectorId) ? (
+                <button type="button" className="secondary-button compact-button" onClick={() => applyLocalConnectorPreset(localConnectorPresets.find((item) => item.expectedConnectorId === selectedTemplate.connectorId)!)}>Connect external agent</button>
               ) : null}
             </div>
           ) : (
@@ -1043,11 +1080,11 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
                   </div>
                   <div>
                     <span>Approved actions</span>
-                    <strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item: any) => item.label ?? item.capability).join(", ") || "none"}</strong>
+                    <strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item: ConnectorAction) => item.label ?? item.capability).join(", ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Blocked actions</span>
-                    <strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item: any) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
+                    <strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item: ConnectorAction) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Resource principal</span>
@@ -1067,7 +1104,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
     }
 
     function renderAgentRegistryNav() {
-      const navItems: Array<{ label: string; target: any }> = [
+      const navItems: Array<{ label: string; target: import("./types").GuidedFocusTarget }> = [
         { label: `1. Choose template (${registrySummary.connectorTemplates})`, target: "connector-catalog" },
         { label: "2. Connect external agent", target: "zero-trust-onboarding" },
         { label: `3. Installed Connector Agents (${registrySummary.installedConnectors})`, target: "registered-agents" },
@@ -1076,7 +1113,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
 
       return (
         <nav className="agent-registry-anchor-nav" aria-label="Agent Registry sections">
-          {navItems.map((item: any) => (
+          {navItems.map((item) => (
             <button type="button" key={item.target} onClick={() => guideToTarget(item.target)}>
               {item.label}
             </button>

@@ -1,6 +1,7 @@
 import React from "react";
+import type { ExtractedScreenContext, Scenario } from "../types";
 
-type ScreenContext = { [key: string]: any };
+type ScreenContext = ExtractedScreenContext;
 
 export function TrustIdentityTab({ ctx }: { ctx: ScreenContext }) {
   const {
@@ -76,8 +77,8 @@ export function TrustIdentityTab({ ctx }: { ctx: ScreenContext }) {
             <div className="trust-login-form">
               <label>
                 <span>Demo user</span>
-                <select ref={demoUserSelectRef} value={selectedDemoUserEmail} onChange={(event: any) => setSelectedDemoUserEmail(event.target.value)} disabled={isIdentityLoading}>
-                  {demoUserOptions.map((user: any) => (
+                <select ref={demoUserSelectRef} value={selectedDemoUserEmail} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => setSelectedDemoUserEmail(event.target.value)} disabled={isIdentityLoading}>
+                  {demoUserOptions.map((user) => (
                     <option value={user.email} key={user.email}>{user.label} / {user.roleLabel}</option>
                   ))}
                 </select>

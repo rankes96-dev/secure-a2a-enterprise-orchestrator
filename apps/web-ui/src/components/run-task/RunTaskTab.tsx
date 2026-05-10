@@ -1,6 +1,7 @@
 import React from "react";
+import type { ExtractedScreenContext, Scenario } from "../types";
 
-type ScreenContext = { [key: string]: any };
+type ScreenContext = ExtractedScreenContext;
 
 export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   const {
@@ -35,7 +36,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage
   } = ctx;
 
-  function renderScenarioOptions(items: any[]) {
+  function renderScenarioOptions(items: Scenario[]) {
     return (
       <div className="scenario-buttons">
         {items.map((scenario) => (
@@ -134,7 +135,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
         <section className="gateway-response-section recommended-actions-section">
           <span>Recommended actions</span>
           <ol>
-            {actionItems.map((item: any, index: number) => <li key={`${index}-${item}`}>{item}</li>)}
+            {actionItems.map((item, index: number) => <li key={`${index}-${item}`}>{item}</li>)}
           </ol>
         </section>
         {latestResponse.connectorRouting ? (
@@ -251,7 +252,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                 {latestResponse.connectorRuntime.agentResponse.probableCause ? <p>{latestResponse.connectorRuntime.agentResponse.probableCause}</p> : null}
                 {latestResponse.connectorRuntime.agentResponse.recommendedActions?.length ? (
                   <ol>
-                    {latestResponse.connectorRuntime.agentResponse.recommendedActions.map((item: any, index: number) => <li key={`${index}-${item}`}>{item}</li>)}
+                    {latestResponse.connectorRuntime.agentResponse.recommendedActions.map((item, index: number) => <li key={`${index}-${item}`}>{item}</li>)}
                   </ol>
                 ) : null}
                 {latestResponse.connectorRuntime.agentResponse.evidence?.length ? (
@@ -327,7 +328,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           {supportingAgents.length ? (
             <div className="supporting-agent-list">
               {latestResponse.connectorRouting ? <p className="muted-note">Supporting legacy/internal agents</p> : null}
-              {supportingAgents.map((agent: any) => (
+              {supportingAgents.map((agent) => (
                 <article key={`${agent.agentId}-${agent.skillId ?? "default"}`}>
                   <strong>{agent.agentId}</strong>
                   <span>{agent.role}</span>
@@ -408,7 +409,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
         <div className="security-detail-list">
           <div>
             <span>Selected agents</span>
-            <strong>{latestResponse?.selectedAgents.map((agent: any) => agent.agentId).join(", ") || "none"}</strong>
+            <strong>{latestResponse?.selectedAgents.map((agent) => agent.agentId).join(", ") || "none"}</strong>
           </div>
           <div>
             <span>Policy decision</span>
@@ -487,7 +488,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           </section>
           <section>
             <h2>Security Decisions</h2>
-            {securityDecisions(latestResponse).length ? securityDecisions(latestResponse).map((decision: any, index: number) => (
+            {securityDecisions(latestResponse).length ? securityDecisions(latestResponse).map((decision, index: number) => (
               <div className="security-decision compact" key={`${decision.caller}-${decision.target}-${decision.requestedAction}-${index}`}>
                 <div>
                   <span>Target</span>
@@ -503,7 +504,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           </section>
           <section>
             <h2>A2A Tasks</h2>
-            {latestResponse.a2aTasks?.length ? latestResponse.a2aTasks.map((task: any) => (
+            {latestResponse.a2aTasks?.length ? latestResponse.a2aTasks.map((task) => (
               <article className="evidence" key={task.taskId}>
                 <strong>{task.fromAgent} to {task.toAgent}</strong>
                 <span>{task.skillId ?? "no skill"} / token {task.context.auth?.tokenIssued ? "issued" : "not issued"}</span>
@@ -584,7 +585,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                 <textarea
                   ref={taskTextareaRef}
                   value={message}
-                  onChange={(event: any) => setMessage(event.target.value)}
+                  onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setMessage(event.target.value)}
                   aria-label="Integration issue"
                   placeholder="Describe the enterprise issue or access request to run through the Secure A2A Gateway"
                 />
@@ -631,7 +632,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                 <>
                   {latestResponse.connectorRouting ? <p className="muted-note">Supporting legacy/internal agents</p> : null}
                   <ul className="agent-list compact">
-                    {latestResponse.selectedAgents.map((agent: any) => (
+                    {latestResponse.selectedAgents.map((agent) => (
                       <li key={`${agent.agentId}-${agent.skillId ?? "default"}`}>
                         <strong>{agent.agentId}</strong>
                         <span>{agent.role}{agent.skillId ? ` / ${agent.skillId}` : ""}</span>

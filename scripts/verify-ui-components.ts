@@ -50,7 +50,7 @@ function componentFiles(path: string): string[] {
     if (entry.isDirectory()) {
       return componentFiles(fullPath);
     }
-    return entry.isFile() && entry.name.endsWith(".tsx") ? [fullPath] : [];
+    return entry.isFile() && (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) ? [fullPath] : [];
   });
 }
 
@@ -58,6 +58,9 @@ const componentsRoot = "apps/web-ui/src/components";
 const forbiddenComponentTokens = [
   "@ts-nocheck",
   "Record<string, any>",
+  "[key: string]: any",
+  ": any",
+  "as any",
   "anys",
   "loadanys",
   "FIXME_TEMP"

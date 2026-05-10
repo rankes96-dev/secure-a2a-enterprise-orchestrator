@@ -1,6 +1,7 @@
 import React from "react";
+import type { ExtractedScreenContext, Scenario } from "../types";
 
-type ScreenContext = { [key: string]: any };
+type ScreenContext = ExtractedScreenContext;
 
 export function DemoGuideTab({ ctx }: { ctx: ScreenContext }) {
   const {
@@ -65,7 +66,7 @@ export function DemoGuideTab({ ctx }: { ctx: ScreenContext }) {
   }
 
   function renderDemoReadinessPanel() {
-    const jiraPreset = localConnectorPresets.find((preset: any) => preset.expectedConnectorId === "jira-reference") ?? localConnectorPresets[0];
+    const jiraPreset = localConnectorPresets.find((preset) => preset.expectedConnectorId === "jira-reference") ?? localConnectorPresets[0];
     const approvedJiraScenario = "Jira issue creation fails with 403 when creating issues in FIN project";
     const blockedJiraScenario = "Create a Jira issue in FIN project for this outage";
     const serviceNowScenario = "ServiceNow incident assignment keeps failing for network tickets";
@@ -229,7 +230,7 @@ export function DemoGuideTab({ ctx }: { ctx: ScreenContext }) {
               <small>Identity, connector, runtime, and token proof.</small>
             </summary>
             <ul>
-              {checklist.map((item: any) => (
+              {checklist.map((item) => (
                 <li key={item.label}>
                   <span className={`check-indicator status-${demoReadinessStatusClass(item.status)}`}>{item.status === "ready" ? "OK" : "!"}</span>
                   <strong>{item.label}</strong>
@@ -245,7 +246,7 @@ export function DemoGuideTab({ ctx }: { ctx: ScreenContext }) {
               <small>Ready scenarios for the installed connector agents.</small>
             </summary>
             <div className="scenario-readiness-grid">
-              {scenarioReadiness.map((item: any) => (
+              {scenarioReadiness.map((item) => (
                 <article key={item.label}>
                   <div className="readiness-card-heading">
                     <strong>{item.label}</strong>
