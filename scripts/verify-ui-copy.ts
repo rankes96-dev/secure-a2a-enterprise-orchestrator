@@ -79,7 +79,7 @@ if (runTask.includes("Use recommended prompt")) {
 }
 
 const supportAnswerBuilder = mainTsx.match(/function buildEndUserSupportAnswer[\s\S]*?function governedChatAnswer/)?.[0] ?? "";
-const connectorAnswerFormatter = mainTsx.match(/function formatConnectorEndUserAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
+const connectorAnswerFormatter = mainTsx.match(/function renderEndUserAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
 for (const phrase of [
   "I checked this safely",
   "No changes were made",
@@ -117,11 +117,15 @@ for (const phrase of [
 
 for (const phrase of [
   "isSafeEndUserAnswer",
+  "containsForbiddenSecretMarker",
   "connectorEndUserAnswer",
-  "formatConnectorEndUserAnswer",
+  "renderEndUserAnswer",
   "safeToDisplay !== true",
   "responseExecutedWriteOrAdmin",
-  "unsafeChangeClaims"
+  "unsafeChangeClaims",
+  "raw token",
+  "user was added",
+  "role was changed"
 ]) {
   if (!mainTsx.includes(phrase)) {
     console.error(`fail - Run Task main chat should validate connector-provided end-user answers: ${phrase}`);
@@ -131,6 +135,16 @@ for (const phrase of [
 
 if (mainTsx.indexOf("const safeConnectorAnswer = connectorEndUserAnswer(response)") > mainTsx.indexOf('if (outcome === "PLANNED"')) {
   console.error("fail - main chat should prefer safe connector endUserAnswer before generic outcome fallback");
+  failed = true;
+}
+
+if (mainTsx.includes('"changes were made"')) {
+  console.error('fail - unsafe change claim checks must not reject the safe phrase "No changes were made."');
+  failed = true;
+}
+
+if (!connectorAnswerFormatter.includes("userFriendlyOutcomeLabel(outcome)")) {
+  console.error("fail - connector end-user answer renderer should map technical blocked labels to BLOCKED");
   failed = true;
 }
 

@@ -606,6 +606,20 @@ function endUserAnswerFields(answer: EndUserAnswer): string[] {
   ];
 }
 
+function containsForbiddenSecretMarker(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return [
+    "bearer",
+    "authorization",
+    "access_token",
+    "refresh_token",
+    "client_secret",
+    "private_key",
+    "raw jwt",
+    "raw token"
+  ].some((marker) => normalized.includes(marker));
+}
+
 function isSafeEndUserAnswer(answer: EndUserAnswer, response: ResolveResponse): boolean {
   if (answer.safeToDisplay !== true) {
     return false;
@@ -613,20 +627,14 @@ function isSafeEndUserAnswer(answer: EndUserAnswer, response: ResolveResponse): 
 
   const fields = endUserAnswerFields(answer);
   const maxLengths = [120, 360, 260, 180, 260];
+  if (!answer.title.trim() || !answer.summary.trim() || !answer.nextStep.trim()) {
+    return false;
+  }
   if (fields.some((field, index) => field.length > maxLengths[index])) {
     return false;
   }
 
-  const secretMarkers = [
-    "bearer",
-    "authorization",
-    "access_token",
-    "refresh_token",
-    "client_secret",
-    "private_key",
-    "raw jwt"
-  ];
-  if (fields.some((field) => secretMarkers.some((marker) => field.toLowerCase().includes(marker)))) {
+  if (fields.some((field) => containsForbiddenSecretMarker(field))) {
     return false;
   }
 
@@ -642,9 +650,11 @@ function isSafeEndUserAnswer(answer: EndUserAnswer, response: ResolveResponse): 
       "incident was assigned",
       "assigned the incident",
       "catalog request was approved",
+      "request was approved",
       "request was fulfilled",
       "repository was changed",
-      "changes were made"
+      "user was added",
+      "role was changed"
     ];
     if (unsafeChangeClaims.some((claim) => changedText.includes(claim))) {
       return false;
@@ -660,9 +670,13 @@ function connectorEndUserAnswer(response: ResolveResponse): EndUserAnswer | unde
   return answer && isSafeEndUserAnswer(answer, response) ? answer : undefined;
 }
 
-function formatConnectorEndUserAnswer(outcome: string, answer: EndUserAnswer, response: ResolveResponse): string {
+function userFriendlyOutcomeLabel(outcome: string): string {
+  return outcome.startsWith("BLOCKED") ? "BLOCKED" : outcome;
+}
+
+function renderEndUserAnswer(outcome: string, answer: EndUserAnswer, response: ResolveResponse): string {
   return [
-    outcome,
+    userFriendlyOutcomeLabel(outcome),
     answer.title,
     "",
     "What I found:",
@@ -726,7 +740,7 @@ function buildEndUserSupportAnswer(response: ResolveResponse): string {
 
   const safeConnectorAnswer = connectorEndUserAnswer(response);
   if (safeConnectorAnswer) {
-    return formatConnectorEndUserAnswer(outcome, safeConnectorAnswer, response);
+    return renderEndUserAnswer(outcome, safeConnectorAnswer, response);
   }
 
   if (outcome === "PLANNED" || response.connectorActionPlan) {
