@@ -6258,6 +6258,14 @@ summary:focus-visible,
   min-width: 0;
 }
 
+.connector-test-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
 .connector-test-card h3 {
   margin: 0;
   color: var(--text);
@@ -6281,6 +6289,12 @@ summary:focus-visible,
   background: var(--surface-soft);
   font-size: 11px;
   font-weight: 900;
+}
+
+.connector-test-badge.reference {
+  border-color: var(--info-border);
+  color: var(--info-text);
+  background: var(--info-bg);
 }
 
 .connector-test-detail {

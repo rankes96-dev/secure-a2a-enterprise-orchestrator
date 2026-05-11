@@ -91,7 +91,7 @@ const connectorTestGroups: ConnectorTestGroup[] = [
       {
         name: "Other target handoff",
         proves: "An unlisted target moves to an unsupported support-ticket handoff instead of inventing a connector route.",
-        prompts: ["I need access to the system", "Other / not listed"],
+        prompts: ["I need access to the system", "Other / not listed for the previous access request"],
         expected: "UNSUPPORTED + support ticket handoff"
       }
     ]
@@ -147,6 +147,10 @@ function routeSelected(response: ResolveResponse | null, statusLabel: (status: s
   return routeParts.join(" / ");
 }
 
+function isReferenceConnectorTest(test: ConnectorTest): boolean {
+  return [test.name, test.proves, test.expected, ...test.prompts].some((value) => value.toLowerCase().includes("jira"));
+}
+
 export function ConnectorTestCenterTab({ ctx }: { ctx: ScreenContext }) {
   const {
     connectorTestCenterRootRef,
@@ -171,7 +175,11 @@ export function ConnectorTestCenterTab({ ctx }: { ctx: ScreenContext }) {
   }
 
   async function runTestNow(test: ConnectorTest) {
-    showGuidedStatus(test.prompts.length > 1 ? "Running first safe test step" : "Running safe connector test");
+    if (test.prompts.length > 1) {
+      loadInRunTask(test);
+      return;
+    }
+    showGuidedStatus("Running safe connector test");
     await resolveIssue(test.prompts[0]);
   }
 
@@ -190,11 +198,15 @@ export function ConnectorTestCenterTab({ ctx }: { ctx: ScreenContext }) {
 
   function renderTestCard(test: ConnectorTest) {
     const multiStep = test.prompts.length > 1;
+    const referenceConnector = isReferenceConnectorTest(test);
     return (
       <article className="connector-test-card" key={test.name}>
         <div className="connector-test-card-heading">
           <h3>{test.name}</h3>
-          <span className="connector-test-badge">{multiStep ? "Multi-step" : "Single prompt"}</span>
+          <div className="connector-test-badges">
+            {referenceConnector ? <span className="connector-test-badge reference">Reference connector</span> : null}
+            <span className="connector-test-badge">{multiStep ? "Multi-step" : "Single prompt"}</span>
+          </div>
         </div>
         <p>{test.proves}</p>
         <div className="connector-test-detail">
@@ -205,13 +217,14 @@ export function ConnectorTestCenterTab({ ctx }: { ctx: ScreenContext }) {
           <strong>Expected outcome</strong>
           <span>{test.expected}</span>
         </div>
-        {multiStep ? <p className="muted-note">Run test now sends step 1 only. Continue the follow-up steps in Run Task to keep the conversation context visible.</p> : null}
+        {referenceConnector ? <p className="muted-note">Reference connector test for the current demo connector.</p> : null}
+        {multiStep ? <p className="muted-note">This is a multi-step test. Continue the remaining steps in Run Task so the conversation context is visible.</p> : null}
         <div className="connector-test-actions">
           <button type="button" className="secondary-inline-button" onClick={() => loadInRunTask(test)}>
-            Load in Run Task
+            {multiStep ? "Load first step" : "Load in Run Task"}
           </button>
           <button type="button" className="scenario-run" onClick={() => void runTestNow(test)} disabled={isLoading || installedConnectorAgentCount === 0}>
-            Run test now
+            {multiStep ? "Start in Run Task" : "Run test now"}
           </button>
         </div>
       </article>
@@ -296,7 +309,7 @@ export function ConnectorTestCenterTab({ ctx }: { ctx: ScreenContext }) {
         </section>
         <section className="installed-empty-state">
           <h2>No connector agents installed yet.</h2>
-          <p>Install and verify an external connector agent before running governance tests.</p>
+          <p>Connector tests are available after a BizApps / IT operator installs and verifies an external connector agent.</p>
           <button type="button" className="scenario-run" onClick={goToAgentRegistry}>
             Open Agent Registry
           </button>
