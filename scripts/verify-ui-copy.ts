@@ -78,6 +78,23 @@ if (runTask.includes("Use recommended prompt")) {
   failed = true;
 }
 
+const topbarMarkup = mainTsx.match(/<header className="topbar"[\s\S]*?<\/header>/)?.[0] ?? "";
+const chatPanelHeader = runTask.match(/<div className="chat-panel-header"[\s\S]*?<\/div>\s*<\/div>/)?.[0] ?? "";
+if (topbarMarkup.includes("New conversation")) {
+  console.error("fail - global topbar should not render New conversation");
+  failed = true;
+}
+if (!topbarMarkup.includes("Reset demo")) {
+  console.error("fail - global topbar should render Reset demo");
+  failed = true;
+}
+for (const phrase of ["Conversation", "Gateway Runtime Chat", "New conversation"]) {
+  if (!chatPanelHeader.includes(phrase)) {
+    console.error(`fail - Run Task chat header missing conversation control copy: ${phrase}`);
+    failed = true;
+  }
+}
+
 const supportAnswerBuilder = mainTsx.match(/function buildEndUserSupportAnswer[\s\S]*?function governedChatAnswer/)?.[0] ?? "";
 const connectorAnswerFormatter = mainTsx.match(/function renderEndUserAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
 const runtimeFailureDetector = mainTsx.match(/function connectorRuntimeFailed[\s\S]*?function userFriendlyOutcomeLabel/)?.[0] ?? "";

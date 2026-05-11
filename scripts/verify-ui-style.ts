@@ -211,6 +211,55 @@ if (!recommendationBlock.includes("grid-template-columns: minmax(0, 1fr) auto"))
   failed = true;
 }
 
+const finalRunTaskStatusBlock = styles.match(/\.chat-first-cockpit\s+\.cockpit-status-strip\s*\{[\s\S]*?\}/)?.[0] ?? "";
+if (!finalRunTaskStatusBlock.includes("repeat(auto-fit, minmax(220px, 1fr))")) {
+  console.error("fail - Run Task status grid should use equal responsive minmax(220px, 1fr) columns");
+  failed = true;
+}
+
+const finalRunTaskStatusCardBlock = styles.match(/\.chat-first-cockpit\s+\.cockpit-status-strip\s+article\s*\{[\s\S]*?\}/)?.[0] ?? "";
+for (const phrase of ["min-height: 72px", "padding: 12px 14px", "border-radius: 8px"]) {
+  if (!finalRunTaskStatusCardBlock.includes(phrase)) {
+    console.error(`fail - Run Task status cards need consistent compact styling: ${phrase}`);
+    failed = true;
+  }
+}
+
+const finalRecommendationBlock = styles.match(/\.chat-first-cockpit\s+\.composer-recommendation\s*\{[\s\S]*?\}/)?.[0] ?? "";
+const finalRecommendationButtonBlock = styles.match(/\.chat-first-cockpit\s+\.composer-recommendation\s+\.secondary-inline-button\s*\{[\s\S]*?\}/)?.[0] ?? "";
+for (const phrase of ["border: 1px solid var(--border)", "background: var(--surface-soft)", "grid-template-columns: minmax(0, 1fr) auto"]) {
+  if (!finalRecommendationBlock.includes(phrase)) {
+    console.error(`fail - recommendation strip should render as a complete visible strip: ${phrase}`);
+    failed = true;
+  }
+}
+for (const phrase of ["min-width: 108px", "background: var(--surface)", "border: 1px solid var(--border)"]) {
+  if (!finalRecommendationButtonBlock.includes(phrase)) {
+    console.error(`fail - recommendation action button should be visible at rest: ${phrase}`);
+    failed = true;
+  }
+}
+
+const chatPanelHeaderBlock = styles.match(/\.chat-panel-header\s*\{[\s\S]*?\}/)?.[0] ?? "";
+for (const phrase of ["display: flex", "justify-content: space-between", "padding: 14px 16px"]) {
+  if (!chatPanelHeaderBlock.includes(phrase)) {
+    console.error(`fail - Run Task should have an in-panel conversation header: ${phrase}`);
+    failed = true;
+  }
+}
+
+const registrySectionPaddingBlock = styles.match(/\.agent-registry-panel\s*>\s*\.registry-section,[\s\S]*?\.agent-registry-panel\s+\.registry-overview-section\s+\.registry-section\s*\{[\s\S]*?\}/)?.[0] ?? "";
+if (!registrySectionPaddingBlock.includes("padding: 18px")) {
+  console.error("fail - Agent Registry sections should have at least 18px padding");
+  failed = true;
+}
+
+const registryHeadingSpacingBlock = styles.match(/\.agent-registry-panel\s+\.section-heading-row,[\s\S]*?\.zero-trust-onboarding-panel\s+\.section-heading-row\s*\{[\s\S]*?\}/)?.[0] ?? "";
+if (!registryHeadingSpacingBlock.includes("margin-bottom: 8px")) {
+  console.error("fail - Agent Registry section headings should have bottom spacing");
+  failed = true;
+}
+
 const topbarBlocks = [...styles.matchAll(/\.topbar\s*\{[\s\S]*?\}/g)].map((match) => match[0]);
 if (topbarBlocks.some((block) => /position:\s*(sticky|fixed)/.test(block))) {
   console.error("fail - .topbar must not be sticky or fixed");

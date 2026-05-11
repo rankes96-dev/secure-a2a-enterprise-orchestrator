@@ -1085,6 +1085,16 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
 
         <div className="chat-runtime-layout">
           <section className="chat-conversation-panel">
+            <div className="chat-panel-header">
+              <div>
+                <p className="active-panel-eyebrow">Conversation</p>
+                <h2>Gateway Runtime Chat</h2>
+              </div>
+              <button type="button" className="secondary-button compact-button" onClick={startNewConversation} disabled={isLoading}>
+                New conversation
+              </button>
+            </div>
+
             {!isUserAuthenticated ? (
               <section className="identity-gate-panel" role="status">
                 <div>

@@ -7160,3 +7160,99 @@ summary:focus-visible,
   z-index: auto;
 }
 
+/* Final V1 Run Task layout polish */
+.chat-first-cockpit.control-panel {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.chat-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.chat-panel-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.chat-panel-header .active-panel-eyebrow {
+  margin-bottom: 5px;
+}
+
+.chat-first-cockpit .cockpit-status-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.chat-first-cockpit .cockpit-status-strip article {
+  min-height: 72px;
+  border-left-width: 1px;
+  border-left-color: var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  align-content: center;
+  box-shadow: none;
+}
+
+.chat-first-cockpit .task-transcript {
+  min-height: 420px;
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.chat-first-cockpit .composer.cockpit-card {
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.chat-first-cockpit .composer-recommendation {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 12px 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface-soft);
+}
+
+.chat-first-cockpit .composer-recommendation span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.chat-first-cockpit .composer-recommendation .secondary-inline-button {
+  min-width: 108px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+/* Final V1 Agent Registry spacing polish */
+.agent-registry-panel > .registry-section,
+.agent-registry-panel > .zero-trust-onboarding-panel,
+.agent-registry-panel .registry-overview-section .registry-section {
+  padding: 18px;
+}
+
+.agent-registry-panel .section-heading-row,
+.zero-trust-onboarding-panel .section-heading-row {
+  margin-bottom: 8px;
+}
+
+.agent-registry-panel .active-panel-eyebrow,
+.zero-trust-onboarding-panel .active-panel-eyebrow {
+  margin-bottom: 8px;
+}
+

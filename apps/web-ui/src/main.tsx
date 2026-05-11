@@ -2661,8 +2661,8 @@ function App() {
               <span>{isHealthLoading ? "Checking..." : healthLabel}</span>
               <small>{health?.orchestrator.status ?? "unknown"}</small>
             </div>
-            <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
-              New conversation
+            <button type="button" className="secondary-button" onClick={resetZeroTrustConnectionState} disabled={isLoading} title="Reset local demo setup state">
+              Reset demo
             </button>
           </div>
         </header>
