@@ -242,25 +242,23 @@ for (const phrase of [
   "Demo Guide",
   "Presenter control center",
   "Next Action",
-  "Demo path",
+  "V1 story",
+  "V1 demo path",
   "Proof checklist",
-  "Full demo script",
-  "Login to start governed execution",
-  "Install your first connector agent",
-  "Run approved runtime diagnosis",
-  "Runtime proof captured",
-  "Advanced proof steps",
+  "End user",
+  "BizApps / IT",
+  "Security / Audit",
+  "Install a connector agent",
+  "Run the end-user access planning flow",
+  "View security proof",
   "Start here",
-  "Connector templates are not installed by default",
-  "Recommended: Run",
-  "Install Jira reference agent",
-  "What this proves",
-  "Raw token hidden",
-  "Scoped A2A JWT",
-  "External config hash",
+  "connector-published tests",
+  "safe check",
+  "Raw tokens exposed",
+  "Security proof",
   "Open Demo Guide for the recommended presentation flow",
-  "Open Connector Catalog",
-  "View Installed Connector Agents"
+  "Open Agent Registry",
+  "Open Connector Test Center"
 ]) {
   if (!webUi.includes(phrase)) {
     console.error(`fail - Demo Guide UI should include phrase: ${phrase}`);
@@ -335,7 +333,7 @@ if (runTaskStart === -1) {
   failed = true;
 } else {
   const runTaskBody = runTaskComponent.slice(runTaskStart);
-  if (runTaskBody.includes("renderDemoReadinessPanel") || runTaskBody.includes("Demo Progress") || runTaskBody.includes("Demo path")) {
+  if (runTaskBody.includes("renderDemoReadinessPanel") || runTaskBody.includes("Demo Progress") || runTaskBody.includes("V1 demo path")) {
     console.error("fail - Run Task should not render the full Demo Guide progress/readiness section directly");
     failed = true;
   }

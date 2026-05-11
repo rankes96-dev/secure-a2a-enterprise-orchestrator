@@ -153,7 +153,7 @@ for (const className of [".status-success", ".status-warning", ".status-danger",
 
 for (const phrase of [
   "Next Action",
-  "Demo path",
+  "V1 demo path",
   "Connector template",
   "Installed connector agent",
   "Technical details",

@@ -22,6 +22,7 @@
     "verify:ui-copy": "tsx scripts/verify-ui-copy.ts",
     "verify:ui-components": "tsx scripts/verify-ui-components.ts",
     "verify:ui-style": "tsx scripts/verify-ui-style.ts",
+    "verify:demo-readiness": "tsx scripts/verify-demo-readiness.ts",
     "verify:diagnostic-runtime-semantics": "tsx scripts/verify-diagnostic-runtime-semantics.ts",
     "verify:execution-gate-stack": "tsx scripts/verify-execution-gate-stack.ts",
     "verify:connector-test-center": "tsx scripts/verify-connector-test-center.ts",
