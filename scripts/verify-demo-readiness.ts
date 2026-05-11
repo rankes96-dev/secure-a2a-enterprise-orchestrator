@@ -26,9 +26,19 @@ for (const phrase of [
   "Run the end-user access planning flow",
   "View security proof",
   "Connector Test Center",
-  "connector-published tests"
+  "connector-published tests",
+  "If the target system is clear",
+  "routes to the matching installed connector",
+  "If the request is unclear",
+  "asks a simple follow-up",
+  "Direct route example",
+  "Clarification example"
 ]) {
   requireIncludes(demoGuide, phrase, "Demo Guide");
+}
+
+if (demoGuide.includes("User selects an installed system.")) {
+  fail("Demo Guide should not present target selection as a mandatory story step");
 }
 
 for (const phrase of [

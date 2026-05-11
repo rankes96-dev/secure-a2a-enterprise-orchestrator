@@ -100,8 +100,9 @@ export function DemoGuideTab({ ctx }: { ctx: ScreenContext }) {
 
     const storySteps = [
       "End user asks for help in natural language.",
-      "Gateway asks a simple follow-up if the request is unclear.",
-      "User selects an installed system.",
+      "AI/Gateway interprets the request.",
+      "If the target system is clear, Gateway routes to the matching installed connector.",
+      "If the request is unclear, Gateway asks a simple follow-up or shows installed systems to choose from.",
       "Connector returns a safe plan or approved diagnostic.",
       "Gateway blocks unsafe write/admin paths.",
       "BizApps / IT validates installed connectors in Test Center.",
@@ -123,11 +124,23 @@ export function DemoGuideTab({ ctx }: { ctx: ScreenContext }) {
     ];
     const demoPath = [
       { label: "Agent Registry", detail: "install a reference connector.", action: goToAgentRegistry },
-      { label: "Run Task", detail: "ask: I need access to the system.", action: loadAccessPlanningFlow },
-      { label: "Run Task", detail: "select an installed system.", action: goToRunTask },
-      { label: "Run Task", detail: "confirm the safe check.", action: goToRunTask },
+      { label: "Run Task", detail: "ask a clear request, or use the ambiguous example: \"I need access to the system\".", action: loadAccessPlanningFlow },
+      { label: "Run Task", detail: "if ambiguous, select an installed system.", action: goToRunTask },
+      { label: "Run Task", detail: "Gateway returns a safe plan or approved diagnostic.", action: goToRunTask },
       { label: "Connector Test Center", detail: "validate connector-published tests and generic Gateway tests.", action: openConnectorTestCenter },
       { label: "Security Timeline", detail: "show proof.", action: goToSecurityTimeline }
+    ];
+    const routingExamples = [
+      {
+        title: "Direct route example",
+        prompt: "Jira issue creation fails with 403 in FIN project",
+        outcome: "Gateway routes to Jira diagnostic."
+      },
+      {
+        title: "Clarification example",
+        prompt: "I need access to the system",
+        outcome: "Gateway asks which installed system."
+      }
     ];
     const progressSteps = [
       { id: "install", label: "Install connector agent", completed: installedConnectorAgentCount > 0, explanation: "BizApps / IT trusts an external agent." },
@@ -206,6 +219,16 @@ export function DemoGuideTab({ ctx }: { ctx: ScreenContext }) {
             <article key={persona.title}>
               <h3>{persona.title}</h3>
               <p>{persona.text}</p>
+            </article>
+          ))}
+        </section>
+
+        <section className="demo-example-grid" aria-label="Routing examples">
+          {routingExamples.map((example) => (
+            <article key={example.title}>
+              <h3>{example.title}</h3>
+              <p className="monospace">{example.prompt}</p>
+              <strong>{example.outcome}</strong>
             </article>
           ))}
         </section>
