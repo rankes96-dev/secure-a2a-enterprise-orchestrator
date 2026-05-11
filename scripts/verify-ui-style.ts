@@ -199,6 +199,18 @@ if (/position:\s*(sticky|fixed)/.test(chatComposerBlock)) {
   failed = true;
 }
 
+const statusStripBlocks = [...styles.matchAll(/\.cockpit-status-strip\s*\{[\s\S]*?\}/g)].map((match) => match[0]);
+if (!statusStripBlocks.some((block) => block.includes("repeat(auto-fit, minmax(220px, 1fr))"))) {
+  console.error("fail - Run Task status cards should use responsive minmax(220px, 1fr) grid");
+  failed = true;
+}
+
+const recommendationBlock = styles.match(/\.composer-recommendation\s*\{[\s\S]*?\}/g)?.at(-1) ?? "";
+if (!recommendationBlock.includes("grid-template-columns: minmax(0, 1fr) auto")) {
+  console.error("fail - composer recommendation strip should not reserve a blank action block");
+  failed = true;
+}
+
 const topbarBlocks = [...styles.matchAll(/\.topbar\s*\{[\s\S]*?\}/g)].map((match) => match[0]);
 if (topbarBlocks.some((block) => /position:\s*(sticky|fixed)/.test(block))) {
   console.error("fail - .topbar must not be sticky or fixed");

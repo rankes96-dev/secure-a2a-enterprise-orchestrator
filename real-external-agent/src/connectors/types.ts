@@ -29,6 +29,22 @@ export type ConnectorDemoDefaults = {
   defaultEnabledSkillIds?: string[];
 };
 
+export type EndUserAnswerSeverity =
+  | "info"
+  | "low"
+  | "medium"
+  | "high";
+
+export type EndUserAnswer = {
+  title: string;
+  summary: string;
+  whatWasChecked?: string;
+  whatWasChanged?: string;
+  nextStep: string;
+  severity?: EndUserAnswerSeverity;
+  safeToDisplay: true;
+};
+
 export type ConnectorValidationTestCategory =
   | "end_user_planning"
   | "approved_diagnostic"

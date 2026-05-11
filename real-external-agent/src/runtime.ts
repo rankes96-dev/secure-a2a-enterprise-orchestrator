@@ -326,6 +326,7 @@ export function safeDiagnosis(params: {
     summary: diagnosis.summary,
     probableCause: diagnosis.probableCause,
     recommendedActions: diagnosis.recommendedActions,
+    endUserAnswer: diagnosis.endUserAnswer,
     runtimeSemantics,
     evidence: [
       {

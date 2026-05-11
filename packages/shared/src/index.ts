@@ -299,12 +299,29 @@ export interface A2ATask {
   };
 }
 
+export type EndUserAnswerSeverity =
+  | "info"
+  | "low"
+  | "medium"
+  | "high";
+
+export type EndUserAnswer = {
+  title: string;
+  summary: string;
+  whatWasChecked?: string;
+  whatWasChanged?: string;
+  nextStep: string;
+  severity?: EndUserAnswerSeverity;
+  safeToDisplay: true;
+};
+
 export interface A2AAgentResponse {
   agentId: string;
   status: "diagnosed" | "completed" | "needs_more_info" | "blocked" | "unsupported" | "error";
   summary: string;
   probableCause?: string;
   recommendedActions?: string[];
+  endUserAnswer?: EndUserAnswer;
   clarifyingQuestions?: string[];
   requestedDelegations?: Array<{
     targetAgentId: AgentId;

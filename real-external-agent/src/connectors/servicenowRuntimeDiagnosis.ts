@@ -1,4 +1,5 @@
 import type { ConnectorRuntimeSemantics, ConnectorTargetActionStatus } from "../runtime.js";
+import type { EndUserAnswer } from "./types.js";
 
 export type ServiceNowRuntimeDiagnosisInput = {
   skillId: string;
@@ -19,6 +20,7 @@ export type ServiceNowRuntimeDiagnosis = {
   summary: string;
   probableCause: string;
   recommendedActions: string[];
+  endUserAnswer?: EndUserAnswer;
 };
 
 function statusExplanation(status?: ConnectorTargetActionStatus): string {
@@ -68,7 +70,16 @@ export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnos
       recommendedActions: diagnosticActions(
         params.runtimeSemantics.targetActionLabel ?? "Process catalog request",
         params.runtimeSemantics.targetActionStatus
-      )
+      ),
+      endUserAnswer: {
+        title: "I found a catalog request workflow issue",
+        summary: "The catalog request appears to be blocked by request state, catalog role, or fulfillment configuration.",
+        whatWasChecked: "Request item visibility, catalog access, and fulfillment context were checked.",
+        whatWasChanged: "No changes were made.",
+        nextStep: "Open a ServiceNow support request with the request item number and the catalog item name.",
+        severity: "medium",
+        safeToDisplay: true
+      }
     };
   }
 
@@ -81,7 +92,16 @@ export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnos
         "Check user table ACLs for the integration user.",
         "Compare expected ITIL or catalog roles with the affected workflow.",
         "Inspect recent role or group changes in ServiceNow audit history."
-      ]
+      ],
+      endUserAnswer: {
+        title: "I checked ServiceNow role access",
+        summary: "The request appears related to user roles, groups, or access rules.",
+        whatWasChecked: "Assigned roles, inherited groups, and access-rule visibility were checked.",
+        whatWasChanged: "No changes were made.",
+        nextStep: "Ask the ServiceNow owner to review the expected role or group membership.",
+        severity: "medium",
+        safeToDisplay: true
+      }
     };
   }
 
@@ -91,6 +111,15 @@ export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnos
     recommendedActions: diagnosticActions(
       params.runtimeSemantics.targetActionLabel ?? "Assign ServiceNow incident",
       params.runtimeSemantics.targetActionStatus
-    )
+    ),
+    endUserAnswer: {
+      title: "I found an assignment workflow issue",
+      summary: "The incident assignment flow appears to be blocked by routing, role, or assignment configuration.",
+      whatWasChecked: "Assignment routing and incident access context were checked.",
+      whatWasChanged: "No changes were made.",
+      nextStep: "Open a ServiceNow support request with the incident number and target assignment group.",
+      severity: "medium",
+      safeToDisplay: true
+    }
   };
 }

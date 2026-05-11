@@ -1,4 +1,5 @@
 import type { ConnectorRuntimeSemantics, ConnectorTargetActionStatus } from "../runtime.js";
+import type { EndUserAnswer } from "./types.js";
 
 export type GitHubRuntimeDiagnosisInput = {
   skillId: string;
@@ -19,6 +20,7 @@ export type GitHubRuntimeDiagnosis = {
   summary: string;
   probableCause: string;
   recommendedActions: string[];
+  endUserAnswer?: EndUserAnswer;
 };
 
 function statusExplanation(status?: ConnectorTargetActionStatus): string {
@@ -70,7 +72,16 @@ export function buildGitHubRuntimeDiagnosis(params: GitHubRuntimeDiagnosisInput)
         "Verify repository metadata permissions are granted.",
         "Confirm whether the repository is private, archived, transferred, or outside the installation scope.",
         "Inspect the GitHub App installation audit log for permission changes."
-      ]
+      ],
+      endUserAnswer: {
+        title: "I found a repository access issue",
+        summary: "The repository may not be available to the connected GitHub app or current access configuration.",
+        whatWasChecked: "Repository visibility, installation access, and metadata access context were checked.",
+        whatWasChanged: "No changes were made.",
+        nextStep: "Ask the repository owner to review GitHub app installation access for this repository.",
+        severity: "medium",
+        safeToDisplay: true
+      }
     };
   }
 
@@ -81,7 +92,16 @@ export function buildGitHubRuntimeDiagnosis(params: GitHubRuntimeDiagnosisInput)
       recommendedActions: diagnosticActions(
         params.runtimeSemantics.targetActionLabel ?? "Read pull request checks",
         params.runtimeSemantics.targetActionStatus
-      )
+      ),
+      endUserAnswer: {
+        title: "I found a pull request access issue",
+        summary: "The pull request or its checks may not be visible to the connected GitHub app or current access configuration.",
+        whatWasChecked: "Pull request visibility, repository access, and check-read context were checked.",
+        whatWasChanged: "No changes were made.",
+        nextStep: "Ask the repository owner to review app installation access and pull request visibility.",
+        severity: "medium",
+        safeToDisplay: true
+      }
     };
   }
 
@@ -91,6 +111,15 @@ export function buildGitHubRuntimeDiagnosis(params: GitHubRuntimeDiagnosisInput)
     recommendedActions: diagnosticActions(
       params.runtimeSemantics.targetActionLabel ?? "Sync GitHub repository",
       params.runtimeSemantics.targetActionStatus
-    )
+    ),
+    endUserAnswer: {
+      title: "I found a GitHub API capacity issue",
+      summary: "Repository sync appears to be affected by API rate limits or repository access configuration.",
+      whatWasChecked: "Repository access, installation context, and rate-limit related signals were checked.",
+      whatWasChanged: "No changes were made.",
+      nextStep: "Retry after the rate-limit window resets or ask the repository owner to review app access.",
+      severity: "medium",
+      safeToDisplay: true
+    }
   };
 }

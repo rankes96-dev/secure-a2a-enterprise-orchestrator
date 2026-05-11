@@ -39,10 +39,26 @@ for (const term of [
   "diagnostic_read_only",
   "writeActionAttempted",
   "targetActionStatus",
-  "targetActionId"
+  "targetActionId",
+  "EndUserAnswer",
+  "endUserAnswer"
 ]) {
   if (!`${sharedText}\n${runtimeText}`.includes(term)) {
     fail(`runtime semantics term is missing: ${term}`);
+  }
+}
+
+for (const phrase of [
+  "I found an access or permission issue",
+  "I found an assignment workflow issue",
+  "I found a catalog request workflow issue",
+  "I found a GitHub API capacity issue",
+  "I found a pull request access issue",
+  "No changes were made.",
+  "safeToDisplay: true"
+]) {
+  if (!runtimeText.includes(phrase)) {
+    fail(`reference connector runtime end-user answer is missing: ${phrase}`);
   }
 }
 

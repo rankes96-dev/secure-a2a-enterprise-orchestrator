@@ -1111,7 +1111,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
               <div className={`composer-recommendation ${runtimeReadyConnectorAgentCount > 0 ? "ready" : "setup"}`}>
                 <span>
                   {runtimeReadyConnectorAgentCount > 0
-                    ? "Recommended: Run Jira approved diagnosis first."
+                    ? "Recommended: Run an approved diagnostic first."
                     : "No governed connector systems are available right now."}
                 </span>
                 {runtimeReadyConnectorAgentCount > 0 ? (
@@ -1119,7 +1119,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                     setMessage(sampleMessage);
                     showGuidedStatus("Recommended prompt loaded");
                     guideToTarget("composer");
-                  }}>Use recommended prompt</button>
+                  }}>Use prompt</button>
                 ) : (
                   <button type="button" className="secondary-inline-button compact-button" onClick={() => setMessage("I need access to the system")}>Ask for access</button>
                 )}

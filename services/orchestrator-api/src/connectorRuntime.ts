@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { A2AAgentResponse, ConnectorRuntimeExecutionType, ConnectorRuntimeOutcome, ConnectorRuntimeSemantics, ConnectorTargetActionStatus } from "@a2a/shared";
+import type { A2AAgentResponse, ConnectorRuntimeExecutionType, ConnectorRuntimeOutcome, ConnectorRuntimeSemantics, ConnectorTargetActionStatus, EndUserAnswer } from "@a2a/shared";
 import { getA2AAccessToken, type A2AIssuedTokenMetadata } from "./security/tokenClient";
 import type { VerifiedUserIdentity } from "./security/userIdentity";
 import type { ConnectorRoutingDecision } from "./connectorRouting";
@@ -108,6 +108,35 @@ function normalizeRuntimeSemantics(value: unknown): ConnectorRuntimeSemantics | 
   };
 }
 
+function normalizeEndUserAnswer(value: unknown): EndUserAnswer | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const severity = record.severity === "info" || record.severity === "low" || record.severity === "medium" || record.severity === "high"
+    ? record.severity
+    : undefined;
+  if (
+    record.safeToDisplay !== true ||
+    typeof record.title !== "string" ||
+    typeof record.summary !== "string" ||
+    typeof record.nextStep !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    title: record.title,
+    summary: record.summary,
+    whatWasChecked: typeof record.whatWasChecked === "string" ? record.whatWasChecked : undefined,
+    whatWasChanged: typeof record.whatWasChanged === "string" ? record.whatWasChanged : undefined,
+    nextStep: record.nextStep,
+    severity,
+    safeToDisplay: true
+  };
+}
+
 async function readJsonWithLimit(response: Response): Promise<unknown> {
   const text = await response.text();
   if (text.length > maxConnectorRuntimeJsonBytes) {
@@ -127,6 +156,7 @@ function normalizeRuntimeResponse(value: unknown): A2AAgentResponse {
       summary: typeof record.summary === "string" ? record.summary : "External connector runtime returned a response.",
       probableCause: typeof record.probableCause === "string" ? record.probableCause : undefined,
       recommendedActions: Array.isArray(record.recommendedActions) ? record.recommendedActions.filter((item): item is string => typeof item === "string") : undefined,
+      endUserAnswer: normalizeEndUserAnswer(record.endUserAnswer),
       clarifyingQuestions: Array.isArray(record.clarifyingQuestions) ? record.clarifyingQuestions.filter((item): item is string => typeof item === "string") : undefined,
       runtimeSemantics: normalizeRuntimeSemantics(record.runtimeSemantics),
       evidence: Array.isArray(record.evidence)

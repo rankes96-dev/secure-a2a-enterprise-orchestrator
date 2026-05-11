@@ -1,4 +1,5 @@
 import type { ConnectorRuntimeSemantics, ConnectorTargetActionStatus } from "../runtime.js";
+import type { EndUserAnswer } from "./types.js";
 
 export type JiraConnectorAccessEvaluation = {
   missingApplicationGrants: string[];
@@ -21,6 +22,7 @@ export type JiraRuntimeDiagnosis = {
   summary: string;
   probableCause: string;
   recommendedActions: string[];
+  endUserAnswer?: EndUserAnswer;
 };
 
 function targetStatusExplanation(status?: ConnectorTargetActionStatus): string {
@@ -70,7 +72,16 @@ export function buildJiraRuntimeDiagnosis(params: JiraRuntimeDiagnosisInput): Ji
         "Review project role membership for the affected user or integration account.",
         "Compare project role visibility with the permission scheme.",
         "Confirm whether the failing action runs as the service account or as the end-user actor."
-      ]
+      ],
+      endUserAnswer: {
+        title: "I checked Jira access details",
+        summary: "The request appears related to Jira project roles, visibility, or permission configuration.",
+        whatWasChecked: "Project roles, issue visibility, and relevant access context were checked.",
+        whatWasChanged: "No changes were made.",
+        nextStep: "Ask the project owner to review the user's role and project access.",
+        severity: "medium",
+        safeToDisplay: true
+      }
     };
   }
 
@@ -92,6 +103,15 @@ export function buildJiraRuntimeDiagnosis(params: JiraRuntimeDiagnosisInput): Ji
     recommendedActions: diagnosticActions(
       params.runtimeSemantics.targetActionLabel ?? "Create Jira issue",
       params.runtimeSemantics.targetActionStatus
-    )
+    ),
+    endUserAnswer: {
+      title: "I found an access or permission issue",
+      summary: "The request is failing because the current access configuration does not allow this operation.",
+      whatWasChecked: "Project access, issue visibility, and relevant permission context were checked.",
+      whatWasChanged: "No changes were made.",
+      nextStep: "Open an approved access request or ask the project owner to review the required role.",
+      severity: "medium",
+      safeToDisplay: true
+    }
   };
 }

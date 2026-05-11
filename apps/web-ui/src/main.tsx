@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AgentsHealthResponse, ResolveResponse } from "@a2a/shared";
+import type { AgentsHealthResponse, EndUserAnswer, ResolveResponse } from "@a2a/shared";
 import "./styles.css";
 import { PageHeader } from "./components/layout/PageHeader";
 import { DemoGuideTab } from "./components/demo-guide/DemoGuideTab";
@@ -549,222 +549,277 @@ function chatOutcomeLabel(response: ResolveResponse): string {
   return statusDisplayLabel(response.resolutionStatus);
 }
 
-function compactRequirementSummary(response: ResolveResponse): string {
-  const routing = response.connectorRouting;
-  if (!routing) {
-    return "Gateway policy and connector requirements did not produce a runnable route.";
+function sanitizeEndUserText(value?: string): string {
+  const text = firstSentence(value ?? "").trim();
+  if (!text) {
+    return "";
   }
 
-  const parts = [
-    routing.missingApplicationGrants?.length ? `application grants ${routing.missingApplicationGrants.join(", ")}` : "",
-    routing.missingEffectivePermissions?.length ? `effective permissions ${routing.missingEffectivePermissions.join(", ")}` : "",
-    routing.deniedEffectivePermissions?.length ? `denied permissions ${routing.deniedEffectivePermissions.join(", ")}` : ""
-  ].filter(Boolean);
+  const lower = text.toLowerCase();
+  if (
+    lower.includes("diagnostic skill") ||
+    lower.includes("target write/action operation") ||
+    lower.includes("execution gate") ||
+    lower.includes("oauth") ||
+    lower.includes("service account") ||
+    lower.includes("service-account") ||
+    lower.includes("required grants") ||
+    lower.includes("required permissions") ||
+    lower.includes("connector runtime") ||
+    lower.includes("side-effect-free action plan")
+  ) {
+    return "";
+  }
 
-  return parts.length ? `Missing: ${parts.join("; ")}.` : routing.reason;
+  return text;
 }
 
-function firstRecommendedAction(response: ResolveResponse): string {
-  const runtimeAction = response.connectorRuntime?.agentResponse?.recommendedActions?.[0];
-  if (runtimeAction) {
-    return runtimeAction;
-  }
-
-  if (response.connectorRouting?.recommendedNextStep) {
-    return response.connectorRouting.recommendedNextStep;
-  }
-
-  return firstSentence(response.diagnosis.recommendedFix);
+function supportNextStep(response: ResolveResponse): string {
+  return sanitizeEndUserText(response.connectorRouting?.recommendedNextStep) ||
+    sanitizeEndUserText(response.diagnosis.recommendedFix) ||
+    sanitizeEndUserText(response.connectorRuntime?.agentResponse?.recommendedActions?.[0]) ||
+    "Open an approved access request or contact IT with the details.";
 }
 
-type EvaluatedPlanOption = NonNullable<ResolveResponse["evaluatedActionPlan"]>["options"][number];
-
-function plainActionPhrase(option: EvaluatedPlanOption["option"]): string {
-  const copy = option.description || option.label;
-  if (option.executionType === "inspection_read_only") {
-    return `check: ${copy}`;
-  }
-  if (option.executionType === "diagnostic_read_only") {
-    return `diagnose: ${copy}`;
-  }
-  if (option.executionType === "write_action" || option.executionType === "admin_action") {
-    return `request a change: ${copy}`;
-  }
-  return copy;
+function supportFinding(response: ResolveResponse): string {
+  return sanitizeEndUserText(response.diagnosis.probableCause) ||
+    sanitizeEndUserText(response.connectorRuntime?.agentResponse?.probableCause) ||
+    sanitizeEndUserText(response.connectorRuntime?.agentResponse?.summary) ||
+    sanitizeEndUserText(response.finalAnswer) ||
+    "The Gateway found the safest available path for this request.";
 }
 
-function preferredPlannedOption(response: ResolveResponse): EvaluatedPlanOption | undefined {
-  const evaluatedPlan = response.evaluatedActionPlan;
-  if (!evaluatedPlan?.options.length) {
-    return undefined;
-  }
-
-  const recommendedOptionId = evaluatedPlan.recommendedOptionDecision?.optionId ?? evaluatedPlan.plan.recommendedOptionId;
-  const recommended = recommendedOptionId
-    ? evaluatedPlan.options.find((item) => item.option.actionId === recommendedOptionId)
-    : undefined;
-
-  return recommended ??
-    evaluatedPlan.options.find((item) =>
-      item.decision === "allowed" &&
-      (item.option.executionType === "inspection_read_only" || item.option.executionType === "diagnostic_read_only")
-    ) ??
-    evaluatedPlan.options.find((item) => item.decision === "needs_approval") ??
-    evaluatedPlan.options.find((item) => item.decision === "blocked");
+function responseExecutedWriteOrAdmin(response: ResolveResponse): boolean {
+  const semantics = response.connectorRuntime?.agentResponse?.runtimeSemantics;
+  return response.connectorRuntime?.executed === true &&
+    semantics?.writeActionAttempted === true &&
+    semantics.executionType === "write_action";
 }
 
-function buildEndUserPlannedAnswer(response: ResolveResponse): string {
-  const evaluatedOptions = response.evaluatedActionPlan?.options ?? [];
-  const selectedOption = preferredPlannedOption(response);
-  const hasAllowedSafeOption = selectedOption?.decision === "allowed" &&
-    (selectedOption.option.executionType === "inspection_read_only" || selectedOption.option.executionType === "diagnostic_read_only");
-  const onlyApprovalOrChangeOptions = (selectedOption?.decision === "needs_approval") ||
-    (evaluatedOptions.length > 0 &&
-      evaluatedOptions.every((item) => item.option.executionType === "write_action" || item.option.executionType === "admin_action" || item.decision === "needs_approval"));
-  const allBlocked = evaluatedOptions.length > 0 &&
-    evaluatedOptions.every((item) => item.decision === "blocked");
-
-  if (hasAllowedSafeOption && selectedOption) {
-    return [
-      "PLANNED",
-      "I checked this request safely.",
-      `Recommended next step: I can start with a safe ${plainActionPhrase(selectedOption.option)}.`,
-      "No changes were made.",
-      "If a permission or data change is required, it must go through an approved access request."
-    ].join("\n");
-  }
-
-  if (onlyApprovalOrChangeOptions) {
-    return [
-      "PLANNED",
-      "I checked this request safely.",
-      "This request may require a permission or data change.",
-      "That must go through an approved access request.",
-      "No changes were made."
-    ].join("\n");
-  }
-
-  if (allBlocked) {
-    return [
-      "PLANNED",
-      "I checked this request safely.",
-      "I found possible next steps, but none are currently available here.",
-      "Open a support ticket with the system name and access details.",
-      "No changes were made."
-    ].join("\n");
-  }
-
+function endUserAnswerFields(answer: EndUserAnswer): string[] {
   return [
-    "PLANNED",
-    "I checked this request safely.",
-    "Recommended next step: start with the safest available check.",
-    "No changes were made.",
-    "If a permission or data change is required, it must go through an approved access request."
+    answer.title,
+    answer.summary,
+    answer.whatWasChecked ?? "",
+    answer.whatWasChanged ?? "",
+    answer.nextStep
+  ];
+}
+
+function isSafeEndUserAnswer(answer: EndUserAnswer, response: ResolveResponse): boolean {
+  if (answer.safeToDisplay !== true) {
+    return false;
+  }
+
+  const fields = endUserAnswerFields(answer);
+  const maxLengths = [120, 360, 260, 180, 260];
+  if (fields.some((field, index) => field.length > maxLengths[index])) {
+    return false;
+  }
+
+  const secretMarkers = [
+    "bearer",
+    "authorization",
+    "access_token",
+    "refresh_token",
+    "client_secret",
+    "private_key",
+    "raw jwt"
+  ];
+  if (fields.some((field) => secretMarkers.some((marker) => field.toLowerCase().includes(marker)))) {
+    return false;
+  }
+
+  if (!responseExecutedWriteOrAdmin(response)) {
+    const changedText = (answer.whatWasChanged ?? "").toLowerCase();
+    const unsafeChangeClaims = [
+      "access was granted",
+      "granted access",
+      "issue was created",
+      "created an issue",
+      "permission was changed",
+      "permissions were changed",
+      "incident was assigned",
+      "assigned the incident",
+      "catalog request was approved",
+      "request was fulfilled",
+      "repository was changed",
+      "changes were made"
+    ];
+    if (unsafeChangeClaims.some((claim) => changedText.includes(claim))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function connectorEndUserAnswer(response: ResolveResponse): EndUserAnswer | undefined {
+  const answer = response.connectorRuntime?.agentResponse?.endUserAnswer ??
+    response.a2aResponses?.find((item) => item.endUserAnswer)?.endUserAnswer;
+  return answer && isSafeEndUserAnswer(answer, response) ? answer : undefined;
+}
+
+function formatConnectorEndUserAnswer(outcome: string, answer: EndUserAnswer, response: ResolveResponse): string {
+  return [
+    outcome,
+    answer.title,
+    "",
+    "What I found:",
+    answer.summary,
+    "",
+    "What I checked:",
+    answer.whatWasChecked ?? "The request and available connector information were checked.",
+    "",
+    "Changes:",
+    answer.whatWasChanged ?? (responseExecutedWriteOrAdmin(response) ? "The approved action completed." : "No changes were made."),
+    "",
+    "Next step:",
+    answer.nextStep
   ].join("\n");
 }
 
-function governedChatAnswer(response: ResolveResponse): string {
+function buildEndUserSupportAnswer(response: ResolveResponse): string {
   const outcome = chatOutcomeLabel(response);
-  const summary = firstSentence(response.finalAnswer);
-  const nextAction = firstRecommendedAction(response);
+  const nextStep = supportNextStep(response);
   const targetStatus = response.connectorRuntime?.agentResponse?.runtimeSemantics?.targetActionStatus;
-  const targetAction = response.connectorRuntime?.agentResponse?.runtimeSemantics?.targetActionLabel ?? response.connectorRouting?.skillLabel ?? "target action";
 
   if (response.securityIntent?.detected) {
     return [
       "BLOCKED",
-      "The request attempted to bypass governance or access protected runtime data.",
-      "Prompt text cannot grant scopes, permissions, Gateway approval, or raw token access.",
-      `Next: ${nextAction}`
+      "I cannot perform this request directly.",
+      "",
+      "Reason:",
+      "This request would require a permission change, write action, admin action, or protected runtime data.",
+      "Prompt text cannot grant access, change permissions, or reveal protected runtime data.",
+      "",
+      "No changes were made.",
+      "",
+      "Next step:",
+      "Open an approved access request or contact IT with the details."
     ].join("\n");
   }
 
   if (response.finalAnswer.startsWith("CHECK READY")) {
-    return response.finalAnswer;
+    return [
+      "CHECK READY",
+      "I can continue with the safe check, but this V1 demo stops at the approved plan for this request.",
+      "",
+      "No changes were made.",
+      "",
+      "Next step:",
+      "Use Connector Test Center or Security Timeline to review the proof."
+    ].join("\n");
   }
 
   if (response.finalAnswer.startsWith("CANCELLED")) {
-    return response.finalAnswer;
+    return [
+      "CANCELLED",
+      "I stopped the current request.",
+      "",
+      "No changes were made.",
+      "",
+      "Next step:",
+      "Send a new request when you are ready."
+    ].join("\n");
+  }
+
+  const safeConnectorAnswer = connectorEndUserAnswer(response);
+  if (safeConnectorAnswer) {
+    return formatConnectorEndUserAnswer(outcome, safeConnectorAnswer, response);
   }
 
   if (outcome === "PLANNED" || response.connectorActionPlan) {
-    return buildEndUserPlannedAnswer(response);
+    return [
+      "PLANNED",
+      "I checked this request safely.",
+      "",
+      "What I found:",
+      "The Gateway found a safe next step for this request.",
+      "",
+      "No changes were made.",
+      "",
+      "Next step:",
+      "Start with the safe check, or open an approved access request if a permission change is needed."
+    ].join("\n");
   }
 
   if (outcome === "NEEDS MORE INFO" && response.connectorPlanningTargetResolution?.strategy === "needs_clarification") {
     return [
       "NEEDS MORE INFO",
-      "Which system do you need access to?",
+      "I need one more detail before I can help safely.",
+      "",
+      "What I found:",
+      "The target system is unclear.",
+      "",
+      "No changes were made.",
+      "",
+      "Next step:",
       "Search installed systems or choose Other / not listed."
     ].join("\n");
   }
 
   if (outcome === "DIAGNOSED" || responseIsDiagnostic(response)) {
-    const targetReadiness = targetStatus === "ready"
-      ? `Connector-level access checks for ${targetAction} passed. Investigate object-level rules, workflow validators, or resource-specific restrictions.`
-      : `The ${targetAction} is not currently enabled/ready in this connector configuration.`;
+    const changeRequestNote = targetStatus && targetStatus !== "ready"
+      ? "\nChanging this may require an approved access or configuration request."
+      : "";
     return [
       "DIAGNOSED",
-      "The read-only diagnostic skill executed successfully. No target write/action operation was attempted.",
-      targetReadiness,
-      `Next: ${nextAction}`
+      "I checked this safely.",
+      "",
+      "What I found:",
+      `${supportFinding(response)}${changeRequestNote}`,
+      "",
+      "No changes were made.",
+      "",
+      "Next step:",
+      nextStep
     ].join("\n");
   }
 
-  if (outcome === "BLOCKED") {
+  if (outcome === "BLOCKED" || outcome === "BLOCKED AT OAUTH SCOPE" || outcome === "BLOCKED AT SERVICE ACCOUNT") {
     return [
       "BLOCKED",
-      "The Gateway understood the request as a write action, but blocked it before runtime.",
-      compactRequirementSummary(response),
-      `Next: ${nextAction}`
-    ].join("\n");
-  }
-
-  if (outcome === "BLOCKED AT OAUTH SCOPE") {
-    return [
-      "BLOCKED AT OAUTH SCOPE",
-      "The Gateway understood the request, but the connected OAuth application is missing required grants.",
-      compactRequirementSummary(response),
-      `Next: ${nextAction}`
-    ].join("\n");
-  }
-
-  if (outcome === "BLOCKED AT SERVICE ACCOUNT") {
-    return [
-      "BLOCKED AT SERVICE ACCOUNT",
-      "The Gateway understood the request, but the service account lacks the required role/permission or has an explicit denial.",
-      compactRequirementSummary(response),
-      `Next: ${nextAction}`
+      "I cannot perform this request directly.",
+      "",
+      "Reason:",
+      "This request would require a permission change, write action, admin action, or protected runtime data.",
+      "",
+      "No changes were made.",
+      "",
+      "Next step:",
+      "Open an approved access request or contact IT with the details."
     ].join("\n");
   }
 
   if (outcome === "UNSUPPORTED") {
-    if (response.connectorPlanningTargetResolution?.strategy === "not_supported") {
-      return [
-        "UNSUPPORTED",
-        "This system is not available here yet.",
-        "Open a support ticket with:",
-        "- the system name",
-        "- what you need access to",
-        "- why you need it"
-      ].join("\n");
-    }
     return [
       "UNSUPPORTED",
-      summary,
-      "The Gateway did not find a supported connector route for this request.",
-      `Next: ${nextAction}`
+      "This system is not available here yet.",
+      "",
+      "Open a support ticket with:",
+      "- the system name",
+      "- what you need access to",
+      "- why you need it"
     ].join("\n");
   }
 
   return [
     outcome,
-    summary,
-    response.connectorRuntime?.executed
-      ? "The Gateway approved the route and runtime executed with scoped A2A JWT. Raw token remains hidden."
-      : "The Gateway evaluated the request without exposing raw runtime credentials.",
-    `Next: ${nextAction}`
+    "I checked this safely.",
+    "",
+    "What I found:",
+    supportFinding(response),
+    "",
+    "No changes were made.",
+    "",
+    "Next step:",
+    nextStep
   ].join("\n");
+}
+
+function governedChatAnswer(response: ResolveResponse): string {
+  return buildEndUserSupportAnswer(response);
 }
 
 function shortHash(value?: string): string {

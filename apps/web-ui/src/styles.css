@@ -2488,7 +2488,7 @@ select:focus {
 
 .cockpit-status-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px;
 }
 
@@ -2503,6 +2503,7 @@ select:focus {
 .cockpit-status-strip article {
   display: grid;
   gap: 5px;
+  min-height: 86px;
   padding: 12px;
   border-left: 4px solid #8aa1ad;
 }
@@ -3351,7 +3352,7 @@ pre {
 }
 
 .cockpit-status-strip {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .cockpit-status-strip article,
@@ -6229,16 +6230,18 @@ summary:focus-visible,
 }
 
 .composer-recommendation {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
   margin: 12px 16px 0;
 }
 
 .composer-recommendation .secondary-inline-button {
-  flex: 0 0 auto;
+  min-width: 104px;
+  color: var(--text-secondary);
   background: var(--surface);
+  border-color: var(--border);
 }
 
 /* =========================

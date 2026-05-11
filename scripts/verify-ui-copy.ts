@@ -16,6 +16,9 @@ const webUi = [
   readTsxTree("apps/web-ui/src/components")
 ].join("\n");
 const mainTsx = readFileSync("apps/web-ui/src/main.tsx", "utf8");
+const runTask = readFileSync("apps/web-ui/src/components/run-task/RunTaskTab.tsx", "utf8");
+const shared = readFileSync("packages/shared/src/index.ts", "utf8");
+const connectorRuntime = readFileSync("services/orchestrator-api/src/connectorRuntime.ts", "utf8");
 
 let failed = false;
 
@@ -42,6 +45,10 @@ for (const forbidden of [
 const visibleCopyHints = [
   "Templates are not trusted until an external agent completes onboarding",
   "Next Action",
+  "Use prompt",
+  "Ask for access",
+  "Recommended: Run an approved diagnostic first.",
+  "No governed connector systems are available right now.",
   "Choose a connector template",
   "Installed Connector Agents",
   "Raw tokens hidden",
@@ -66,19 +73,78 @@ for (const phrase of visibleCopyHints) {
   }
 }
 
-const plannedAnswerBuilder = mainTsx.match(/function buildEndUserPlannedAnswer[\s\S]*?function governedChatAnswer/)?.[0] ?? "";
+if (runTask.includes("Use recommended prompt")) {
+  console.error("fail - recommendation button should use concise visible copy: Use prompt");
+  failed = true;
+}
+
+const supportAnswerBuilder = mainTsx.match(/function buildEndUserSupportAnswer[\s\S]*?function governedChatAnswer/)?.[0] ?? "";
+const connectorAnswerFormatter = mainTsx.match(/function formatConnectorEndUserAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
 for (const phrase of [
-  "I checked this request safely",
+  "I checked this safely",
   "No changes were made",
-  "approved access request"
+  "What I found",
+  "Next step",
+  "I checked this request safely",
+  "Open an approved access request"
 ]) {
-  if (!plannedAnswerBuilder.includes(phrase)) {
-    console.error(`fail - planned main chat copy missing end-user phrase: ${phrase}`);
+  if (!supportAnswerBuilder.includes(phrase)) {
+    console.error(`fail - main chat support copy missing end-user phrase: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const phrase of [
+  "export type EndUserAnswer",
+  "safeToDisplay: true",
+  "endUserAnswer?: EndUserAnswer"
+]) {
+  if (!shared.includes(phrase)) {
+    console.error(`fail - shared runtime response type missing connector end-user answer support: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const phrase of [
+  "normalizeEndUserAnswer",
+  "endUserAnswer: normalizeEndUserAnswer(record.endUserAnswer)"
+]) {
+  if (!connectorRuntime.includes(phrase)) {
+    console.error(`fail - connector runtime normalization should preserve safe endUserAnswer shape: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const phrase of [
+  "isSafeEndUserAnswer",
+  "connectorEndUserAnswer",
+  "formatConnectorEndUserAnswer",
+  "safeToDisplay !== true",
+  "responseExecutedWriteOrAdmin",
+  "unsafeChangeClaims"
+]) {
+  if (!mainTsx.includes(phrase)) {
+    console.error(`fail - Run Task main chat should validate connector-provided end-user answers: ${phrase}`);
+    failed = true;
+  }
+}
+
+if (mainTsx.indexOf("const safeConnectorAnswer = connectorEndUserAnswer(response)") > mainTsx.indexOf('if (outcome === "PLANNED"')) {
+  console.error("fail - main chat should prefer safe connector endUserAnswer before generic outcome fallback");
+  failed = true;
+}
+
+for (const connectorName of ["Jira", "ServiceNow", "GitHub", "SAP", "Workday"]) {
+  if (`${supportAnswerBuilder}\n${connectorAnswerFormatter}`.includes(connectorName)) {
+    console.error(`fail - Gateway end-user formatter should not hardcode connector-specific copy: ${connectorName}`);
     failed = true;
   }
 }
 
 for (const forbidden of [
+  "diagnostic skill",
+  "target write/action operation",
+  "execution gate",
   "side-effect-free action plan",
   "Gateway evaluated the proposed options",
   "Connector Action Plan",
@@ -91,8 +157,15 @@ for (const forbidden of [
   "Do you want to inspect",
   "request/grant access"
 ]) {
-  if (plannedAnswerBuilder.includes(forbidden)) {
-    console.error(`fail - planned main chat copy should not expose technical term: ${forbidden}`);
+  if (supportAnswerBuilder.includes(forbidden)) {
+    console.error(`fail - main chat support copy should not expose technical term: ${forbidden}`);
+    failed = true;
+  }
+}
+
+for (const forbidden of ["access_token", "refresh_token", "client_secret", "private_key", "raw jwt"]) {
+  if (`${supportAnswerBuilder}\n${connectorAnswerFormatter}`.toLowerCase().includes(forbidden)) {
+    console.error(`fail - main chat rendered answer copy should not expose secret marker: ${forbidden}`);
     failed = true;
   }
 }

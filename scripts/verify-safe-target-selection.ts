@@ -149,7 +149,7 @@ function verifyStatic(): void {
   if (!ui.includes('useEffect(() =>') || !ui.includes('setTargetSearch("")')) {
     fail("safe target search should reset when a new safe target selection response arrives");
   }
-  if (!ui.includes('<MessageList messages={messages} />') || !ui.includes('renderSafeTargetSelection("chat")')) {
+  if (!ui.includes("<MessageList") || !ui.includes("messages={messages}") || !ui.includes('renderSafeTargetSelection("chat")')) {
     fail("safe target picker should be rendered in the chat panel, not only in the Gateway response side panel");
   }
   if (!orchestrator.includes("function buildSafeTargetSelection(intentClasses: string[], installedAgents") || !orchestrator.includes("installedAgents\n    .map")) {
