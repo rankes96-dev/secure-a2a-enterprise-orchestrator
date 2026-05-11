@@ -121,6 +121,22 @@ for (const phrase of [
   }
 }
 
+const messageListBlock = mainTsx.match(/function MessageList[\s\S]*?function App/)?.[0] ?? "";
+if (!messageListBlock.includes("No messages yet") || !messageListBlock.includes("Ask your question below to start a governed chat")) {
+  console.error("fail - transcript empty state should use subtle empty-state copy");
+  failed = true;
+}
+
+if (messageListBlock.includes("Ask about Jira, ServiceNow, GitHub, or try to request a blocked action")) {
+  console.error("fail - transcript empty state should not reuse composer placeholder text");
+  failed = true;
+}
+
+if (!runTask.includes('placeholder="Ask about Jira, ServiceNow, GitHub, or try to request a blocked action..."')) {
+  console.error("fail - composer textarea should keep the support prompt placeholder");
+  failed = true;
+}
+
 const supportAnswerBuilder = mainTsx.match(/function buildEndUserSupportAnswer[\s\S]*?function governedChatAnswer/)?.[0] ?? "";
 const connectorAnswerFormatter = mainTsx.match(/function renderEndUserAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
 const runtimeFailureDetector = mainTsx.match(/function connectorRuntimeFailed[\s\S]*?function userFriendlyOutcomeLabel/)?.[0] ?? "";

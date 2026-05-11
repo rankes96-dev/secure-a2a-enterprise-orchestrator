@@ -1797,7 +1797,13 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
         </article>
       ))}
       {messages.length === 0 ? (
-        <div className="empty-state compact">Ask about Jira, ServiceNow, GitHub, or try to request a blocked action.</div>
+        <div className="task-transcript-empty">
+          <div>
+            <h3>No messages yet</h3>
+            <p>Ask your question below to start a governed chat.</p>
+            <p className="task-transcript-empty-hint">Examples: access requests, incident issues, integration failures, or security checks.</p>
+          </div>
+        </div>
       ) : null}
       <div ref={endRef} />
     </section>

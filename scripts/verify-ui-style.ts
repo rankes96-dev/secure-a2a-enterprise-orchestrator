@@ -264,6 +264,7 @@ for (const phrase of [
   ".end-user-shell.control-plane-shell",
   ".end-user-run-task .chat-runtime-layout",
   ".end-user-run-task .task-transcript",
+  ".task-transcript-empty",
   ".end-user-proof-drawer",
   ".technical-proof-modal-backdrop",
   ".technical-proof-modal",
@@ -271,6 +272,27 @@ for (const phrase of [
 ]) {
   if (!styles.includes(phrase)) {
     console.error(`fail - persona/end-user layout style missing: ${phrase}`);
+    failed = true;
+  }
+}
+
+const transcriptEmptyBlock = styles.match(/\.task-transcript-empty\s*\{[\s\S]*?\}/)?.[0] ?? "";
+for (const phrase of ["display: grid", "place-items: center", "min-height: 180px", "text-align: center"]) {
+  if (!transcriptEmptyBlock.includes(phrase)) {
+    console.error(`fail - transcript empty state should be subtle and centered: ${phrase}`);
+    failed = true;
+  }
+}
+
+const transcriptEmptyCombined = [
+  transcriptEmptyBlock,
+  styles.match(/\.task-transcript-empty\s+h3\s*\{[\s\S]*?\}/)?.[0] ?? "",
+  styles.match(/\.task-transcript-empty\s+p\s*\{[\s\S]*?\}/)?.[0] ?? ""
+].join("\n");
+
+for (const forbidden of ["textarea", "input", "composer-surface", "border:"]) {
+  if (transcriptEmptyCombined.includes(forbidden)) {
+    console.error(`fail - transcript empty state should not use input-like styling: ${forbidden}`);
     failed = true;
   }
 }
