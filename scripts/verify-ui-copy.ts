@@ -82,6 +82,8 @@ const supportAnswerBuilder = mainTsx.match(/function buildEndUserSupportAnswer[\
 const connectorAnswerFormatter = mainTsx.match(/function renderEndUserAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
 const runtimeFailureDetector = mainTsx.match(/function connectorRuntimeFailed[\s\S]*?function userFriendlyOutcomeLabel/)?.[0] ?? "";
 const runtimeFailureAnswer = mainTsx.match(/function buildRuntimeFailureAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
+const connectorUnavailableDetector = mainTsx.match(/function connectorUnavailableForEndUser[\s\S]*?function userFriendlyOutcomeLabel/)?.[0] ?? "";
+const connectorUnavailableAnswer = mainTsx.match(/function buildConnectorUnavailableAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
 for (const phrase of [
   "I checked this safely",
   "No changes were made",
@@ -124,6 +126,8 @@ for (const phrase of [
   "renderEndUserAnswer",
   "connectorRuntimeFailed",
   "buildRuntimeFailureAnswer",
+  "connectorUnavailableForEndUser",
+  "buildConnectorUnavailableAnswer",
   "safeToDisplay !== true",
   "responseExecutedWriteOrAdmin",
   "unsafeChangeClaims",
@@ -133,6 +137,44 @@ for (const phrase of [
 ]) {
   if (!mainTsx.includes(phrase)) {
     console.error(`fail - Run Task main chat should validate connector-provided end-user answers: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const phrase of [
+  'response.connectorRouting?.status === "connector_not_onboarded"',
+  'response.connectorPlanningTargetResolution?.strategy === "not_supported"',
+  'gatewayRouteStatus === "connector_not_onboarded"'
+]) {
+  if (!connectorUnavailableDetector.includes(phrase)) {
+    console.error(`fail - Run Task should detect unavailable supported systems before rendering diagnosis copy: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const phrase of [
+  "I cant handle this system here yet",
+  "Open a support ticket",
+  "No changes were made"
+]) {
+  if (!connectorUnavailableAnswer.includes(phrase)) {
+    console.error(`fail - connector unavailable answer missing end-user handoff copy: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const forbidden of [
+  "connector not onboarded",
+  "external agent",
+  "Connector Catalog",
+  "Agent Registry",
+  "onboarding",
+  "runtime",
+  "OAuth",
+  "service account"
+]) {
+  if (connectorUnavailableAnswer.toLowerCase().includes(forbidden.toLowerCase())) {
+    console.error(`fail - connector unavailable main chat copy should not expose technical term: ${forbidden}`);
     failed = true;
   }
 }
@@ -171,6 +213,16 @@ if (supportAnswerBuilder.indexOf("if (connectorRuntimeFailed(response))") > supp
 
 if (supportAnswerBuilder.indexOf("if (connectorRuntimeFailed(response))") > supportAnswerBuilder.indexOf('if (outcome === "DIAGNOSED"')) {
   console.error("fail - runtime failure must take priority over generic diagnostic fallback");
+  failed = true;
+}
+
+if (supportAnswerBuilder.indexOf("if (connectorUnavailableForEndUser(response))") > supportAnswerBuilder.indexOf("const safeConnectorAnswer = connectorEndUserAnswer(response)")) {
+  console.error("fail - connector unavailable handling must take priority over connector endUserAnswer");
+  failed = true;
+}
+
+if (supportAnswerBuilder.indexOf("if (connectorUnavailableForEndUser(response))") > supportAnswerBuilder.indexOf('if (outcome === "DIAGNOSED"')) {
+  console.error("fail - connector unavailable handling must take priority over generic diagnostic fallback");
   failed = true;
 }
 

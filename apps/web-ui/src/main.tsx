@@ -680,6 +680,19 @@ function connectorRuntimeFailed(response: ResolveResponse): boolean {
   );
 }
 
+function connectorUnavailableForEndUser(response: ResolveResponse): boolean {
+  const gatewayRouteStatus = response.executionGateStack?.gates.find((gate) => gate.id === "gateway_governance")?.evidence?.routeStatus;
+  return (
+    response.connectorRouting?.status === "connector_not_onboarded" ||
+    response.connectorPlanningTargetResolution?.strategy === "not_supported" ||
+    gatewayRouteStatus === "connector_not_onboarded" ||
+    (
+      response.executionGateStack?.finalOutcome === "blocked_at_gateway" &&
+      response.connectorRouting?.runtimeMode === "not_available"
+    )
+  );
+}
+
 function userFriendlyOutcomeLabel(outcome: string): string {
   return outcome.startsWith("BLOCKED") ? "BLOCKED" : outcome;
 }
@@ -716,6 +729,25 @@ function buildRuntimeFailureAnswer(response: ResolveResponse): string {
     "",
     "Next step:",
     "Try again. If this keeps happening, contact IT with the system name and request details."
+  ].join("\n");
+}
+
+function buildConnectorUnavailableAnswer(response: ResolveResponse): string {
+  void response;
+  return [
+    "UNAVAILABLE",
+    "I cant handle this system here yet.",
+    "",
+    "What I found:",
+    "This system is not available in the Gateway for your organization right now.",
+    "",
+    "No changes were made.",
+    "",
+    "Next step:",
+    "Open a support ticket with:",
+    "- the system name",
+    "- what failed or what access you need",
+    "- why you need it"
   ].join("\n");
 }
 
@@ -766,6 +798,10 @@ function buildEndUserSupportAnswer(response: ResolveResponse): string {
 
   if (connectorRuntimeFailed(response)) {
     return buildRuntimeFailureAnswer(response);
+  }
+
+  if (connectorUnavailableForEndUser(response)) {
+    return buildConnectorUnavailableAnswer(response);
   }
 
   const safeConnectorAnswer = connectorEndUserAnswer(response);
