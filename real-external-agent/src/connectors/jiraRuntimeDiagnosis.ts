@@ -106,10 +106,10 @@ export function buildJiraRuntimeDiagnosis(params: JiraRuntimeDiagnosisInput): Ji
     ),
     endUserAnswer: {
       title: "I found an access or permission issue",
-      summary: "The request is failing because the current access configuration does not allow this operation.",
-      whatWasChecked: "Project access, issue visibility, and relevant permission context were checked.",
+      summary: "The request appears to be blocked by the current project access or issue configuration.",
+      whatWasChecked: "Project access, issue visibility, and issue creation requirements were checked.",
       whatWasChanged: "No changes were made.",
-      nextStep: "Open an approved access request or ask the project owner to review the required role.",
+      nextStep: "Open an approved access request for the project or ask the project owner to review the required role.",
       severity: "medium",
       safeToDisplay: true
     }

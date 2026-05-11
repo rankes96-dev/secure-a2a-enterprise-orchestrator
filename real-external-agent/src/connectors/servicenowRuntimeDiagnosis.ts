@@ -73,10 +73,10 @@ export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnos
       ),
       endUserAnswer: {
         title: "I found a catalog request workflow issue",
-        summary: "The catalog request appears to be blocked by request state, catalog role, or fulfillment configuration.",
-        whatWasChecked: "Request item visibility, catalog access, and fulfillment context were checked.",
+        summary: "The catalog request appears to be blocked by approval, fulfillment, or access configuration.",
+        whatWasChecked: "Catalog request status, approval context, and fulfillment path were checked.",
         whatWasChanged: "No changes were made.",
-        nextStep: "Open a ServiceNow support request with the request item number and the catalog item name.",
+        nextStep: "Open a ServiceNow support request with the request number and requested item details.",
         severity: "medium",
         safeToDisplay: true
       }

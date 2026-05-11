@@ -50,8 +50,14 @@ for (const term of [
 
 for (const phrase of [
   "I found an access or permission issue",
+  "The request appears to be blocked by the current project access or issue configuration.",
+  "Project access, issue visibility, and issue creation requirements were checked.",
+  "Open an approved access request for the project or ask the project owner to review the required role.",
   "I found an assignment workflow issue",
   "I found a catalog request workflow issue",
+  "The catalog request appears to be blocked by approval, fulfillment, or access configuration.",
+  "Catalog request status, approval context, and fulfillment path were checked.",
+  "Open a ServiceNow support request with the request number and requested item details.",
   "I found a GitHub API capacity issue",
   "I found a pull request access issue",
   "No changes were made.",
