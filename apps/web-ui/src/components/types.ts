@@ -1,6 +1,6 @@
 import type { AgentsHealthResponse, ResolveResponse } from "@a2a/shared";
 import type { Dispatch, FormEvent, MutableRefObject, ReactNode, RefObject, SetStateAction } from "react";
-import type { GuidedFocusTarget, LocalConnectorPreset } from "./agent-registry/types";
+import type { GuidedFocusTarget, LocalConnectorPreset, TrustedOnboardedAgent } from "./agent-registry/types";
 
 export type Scenario = {
   label: string;
@@ -115,6 +115,7 @@ export type ExtractedScreenContext = Record<string, unknown> & {
   connectorTemplateCount: number;
   installedConnectorAgentCount: number;
   runtimeReadyConnectorAgentCount: number;
+  zeroTrustOnboardedAgents: TrustedOnboardedAgent[];
   latestRequest: string;
   latestActorAttached: boolean;
   latestActorTokenObserved: boolean;

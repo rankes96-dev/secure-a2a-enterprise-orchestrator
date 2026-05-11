@@ -1318,6 +1318,41 @@ type ConnectorProfileSummary = {
   displayName: string;
   version: string;
   profileSource: "external_agent" | "built_in_reference" | "custom_connector";
+  validationTests?: ConnectorValidationTest[];
+};
+
+type ConnectorValidationTestCategory =
+  | "end_user_planning"
+  | "approved_diagnostic"
+  | "blocked_write_action"
+  | "adversarial"
+  | "unsupported_handoff";
+
+type ConnectorValidationTestOutcome =
+  | "needs_more_info"
+  | "planned"
+  | "check_ready"
+  | "diagnosed"
+  | "blocked"
+  | "unsupported";
+
+type ConnectorValidationTestStep = {
+  message: string;
+  expectedOutcome: ConnectorValidationTestOutcome;
+};
+
+type ConnectorValidationTest = {
+  id: string;
+  title: string;
+  category: ConnectorValidationTestCategory;
+  persona: "end_user" | "bizapps_it" | "security";
+  description: string;
+  proves: string;
+  steps: ConnectorValidationTestStep[];
+  expectedFinalOutcome: ConnectorValidationTestOutcome;
+  requiresPlanning?: boolean;
+  requiresRuntimeReady?: boolean;
+  referenceOnly?: boolean;
 };
 
 type GatewayRegistrationMetadata = {

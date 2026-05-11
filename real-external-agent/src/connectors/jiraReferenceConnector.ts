@@ -91,6 +91,51 @@ export const jiraReferenceConnector: ConnectorProfile = {
   ],
   skillCatalog: jiraSkills,
   actionCatalog: jiraSkills,
+  validationTests: [
+    {
+      id: "jira.access.planning.check_ready",
+      title: "Jira access planning readiness",
+      category: "end_user_planning",
+      persona: "bizapps_it",
+      description: "Validates ambiguous access clarification, Jira target selection, safe planning, and readiness check.",
+      proves: "Jira access requests are planned safely and confirmation does not run a write/admin action directly.",
+      steps: [
+        { message: "I need access to the system", expectedOutcome: "needs_more_info" },
+        { message: "Use Jira for the previous access request", expectedOutcome: "planned" },
+        { message: "ok do it", expectedOutcome: "check_ready" }
+      ],
+      expectedFinalOutcome: "check_ready",
+      requiresPlanning: true,
+      referenceOnly: true
+    },
+    {
+      id: "jira.issue.creation.diagnose",
+      title: "Jira issue creation diagnosis",
+      category: "approved_diagnostic",
+      persona: "bizapps_it",
+      description: "Validates the approved read-only Jira issue creation diagnostic skill.",
+      proves: "Jira diagnostic skills can execute without enabling the target issue creation action.",
+      steps: [
+        { message: "Jira issue creation fails with 403 when creating issues in FIN project", expectedOutcome: "diagnosed" }
+      ],
+      expectedFinalOutcome: "diagnosed",
+      requiresRuntimeReady: true,
+      referenceOnly: true
+    },
+    {
+      id: "jira.issue.create.blocked",
+      title: "Jira issue creation blocked",
+      category: "blocked_write_action",
+      persona: "bizapps_it",
+      description: "Validates that Jira issue creation remains blocked by grants, permissions, or policy.",
+      proves: "Write/admin actions stay blocked unless the connector profile and Gateway policy approve them.",
+      steps: [
+        { message: "Create a Jira issue in FIN project for this outage", expectedOutcome: "blocked" }
+      ],
+      expectedFinalOutcome: "blocked",
+      referenceOnly: true
+    }
+  ],
   demoDefaults: {
     oauthApplication: {
       appName: "Jira Agent Connected App",

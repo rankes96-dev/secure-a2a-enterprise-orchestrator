@@ -118,6 +118,49 @@ export const serviceNowReferenceConnector: ConnectorProfile = {
   ],
   skillCatalog: serviceNowRuntimeSkills,
   actionCatalog: serviceNowSkills,
+  validationTests: [
+    {
+      id: "servicenow.incident.assignment.diagnose.validation",
+      title: "ServiceNow incident assignment diagnosis",
+      category: "approved_diagnostic",
+      persona: "bizapps_it",
+      description: "Validates the approved read-only ServiceNow incident assignment diagnostic skill.",
+      proves: "ServiceNow incident assignment diagnostics run through the installed connector without granting incident write access.",
+      steps: [
+        { message: "ServiceNow incident assignment keeps failing for network tickets", expectedOutcome: "diagnosed" }
+      ],
+      expectedFinalOutcome: "diagnosed",
+      requiresRuntimeReady: true,
+      referenceOnly: true
+    },
+    {
+      id: "servicenow.catalog.request.diagnose.validation",
+      title: "ServiceNow catalog request diagnosis",
+      category: "approved_diagnostic",
+      persona: "bizapps_it",
+      description: "Validates the approved read-only ServiceNow catalog request diagnostic skill.",
+      proves: "ServiceNow catalog request diagnostics can execute without enabling fulfillment or approval changes.",
+      steps: [
+        { message: "ServiceNow catalog request is stuck", expectedOutcome: "diagnosed" }
+      ],
+      expectedFinalOutcome: "diagnosed",
+      requiresRuntimeReady: true,
+      referenceOnly: true
+    },
+    {
+      id: "servicenow.incident.assign.blocked.validation",
+      title: "ServiceNow incident assignment blocked",
+      category: "blocked_write_action",
+      persona: "bizapps_it",
+      description: "Validates that ServiceNow incident assignment write actions remain blocked.",
+      proves: "Incident assignment changes do not execute unless write grants, permissions, and Gateway policy approve them.",
+      steps: [
+        { message: "Assign this ServiceNow incident to the network team", expectedOutcome: "blocked" }
+      ],
+      expectedFinalOutcome: "blocked",
+      referenceOnly: true
+    }
+  ],
   demoDefaults: {
     oauthApplication: {
       appName: "ServiceNow Agent Connected App",

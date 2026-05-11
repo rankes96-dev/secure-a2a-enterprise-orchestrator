@@ -71,7 +71,8 @@ export function connectorProfileSummary(connectorProfile: ConnectorProfile | und
         displayName: connectorProfile.displayName,
         version: connectorProfile.version,
         profileSource: connectorProfile.profileSource,
-        planning: connectorProfile.planning
+        planning: connectorProfile.planning,
+        validationTests: connectorProfile.validationTests
       }
     : undefined;
 }

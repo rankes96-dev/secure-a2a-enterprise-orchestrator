@@ -43,7 +43,8 @@ export function publicConnectorProfile(profile: ConnectorProfile): PublicConnect
     applicationAccessGrantCatalog: profile.applicationAccessGrantCatalog,
     effectivePermissionCatalog: profile.effectivePermissionCatalog,
     skillCatalog: profile.skillCatalog,
-    actionCatalog: profile.actionCatalog
+    actionCatalog: profile.actionCatalog,
+    validationTests: profile.validationTests
   };
 }
 

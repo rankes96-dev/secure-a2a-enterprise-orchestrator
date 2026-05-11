@@ -123,6 +123,36 @@ export const githubReferenceConnector: ConnectorProfile = {
   ],
   skillCatalog: githubRuntimeSkills,
   actionCatalog: githubSkills,
+  validationTests: [
+    {
+      id: "github.repository.rate_limit.diagnose.validation",
+      title: "GitHub repository rate-limit diagnosis",
+      category: "approved_diagnostic",
+      persona: "bizapps_it",
+      description: "Validates the approved read-only GitHub repository rate-limit diagnostic skill.",
+      proves: "GitHub repository rate-limit diagnostics execute through the installed connector using read-only access.",
+      steps: [
+        { message: "GitHub repository sync is failing after API rate limit", expectedOutcome: "diagnosed" }
+      ],
+      expectedFinalOutcome: "diagnosed",
+      requiresRuntimeReady: true,
+      referenceOnly: true
+    },
+    {
+      id: "github.pull_request.access.diagnose.validation",
+      title: "GitHub pull request access diagnosis",
+      category: "approved_diagnostic",
+      persona: "bizapps_it",
+      description: "Validates the approved read-only GitHub pull request access diagnostic skill.",
+      proves: "GitHub pull request access diagnostics execute without write or administration access.",
+      steps: [
+        { message: "GitHub pull request checks cannot read the repository", expectedOutcome: "diagnosed" }
+      ],
+      expectedFinalOutcome: "diagnosed",
+      requiresRuntimeReady: true,
+      referenceOnly: true
+    }
+  ],
   demoDefaults: {
     oauthApplication: {
       appName: "GitHub Agent Connected App",

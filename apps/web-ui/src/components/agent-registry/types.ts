@@ -77,6 +77,41 @@ export type ConnectorProfileSummary = {
   displayName: string;
   version?: string;
   profileSource?: "external_agent" | "built_in_reference" | "custom_connector";
+  validationTests?: ConnectorValidationTest[];
+};
+
+export type ConnectorValidationTestCategory =
+  | "end_user_planning"
+  | "approved_diagnostic"
+  | "blocked_write_action"
+  | "adversarial"
+  | "unsupported_handoff";
+
+export type ConnectorValidationTestOutcome =
+  | "needs_more_info"
+  | "planned"
+  | "check_ready"
+  | "diagnosed"
+  | "blocked"
+  | "unsupported";
+
+export type ConnectorValidationTestStep = {
+  message: string;
+  expectedOutcome: ConnectorValidationTestOutcome;
+};
+
+export type ConnectorValidationTest = {
+  id: string;
+  title: string;
+  category: ConnectorValidationTestCategory;
+  persona: "end_user" | "bizapps_it" | "security";
+  description: string;
+  proves: string;
+  steps: ConnectorValidationTestStep[];
+  expectedFinalOutcome: ConnectorValidationTestOutcome;
+  requiresPlanning?: boolean;
+  requiresRuntimeReady?: boolean;
+  referenceOnly?: boolean;
 };
 
 export type TrustedOnboardedAgent = {
@@ -99,6 +134,7 @@ export type TrustedOnboardedAgent = {
   blockedActions?: ConnectorAction[];
   approvedCapabilities?: ConnectorAction[];
   blockedCapabilities?: ConnectorAction[];
+  connectorProfile?: ConnectorProfileSummary;
   connectorProfileVerified?: boolean;
   lifecycle?: {
     state: "installed" | "verified" | "runtime_ready" | "needs_reverification" | "runtime_blocked" | "disabled" | "revoked";

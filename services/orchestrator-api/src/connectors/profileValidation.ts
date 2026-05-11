@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ConnectorActionRequirement, ConnectorProfile } from "./types";
+import type { ConnectorActionRequirement, ConnectorProfile, ConnectorValidationTest, ConnectorValidationTestCategory, ConnectorValidationTestOutcome } from "./types";
 
 const forbiddenSecretPatterns = [
   /client[_-]?secret/i,
@@ -86,6 +86,58 @@ function actionCatalog(value: unknown) {
     : [];
 }
 
+function validationTestCategory(value: unknown): ConnectorValidationTestCategory | undefined {
+  return value === "end_user_planning" ||
+    value === "approved_diagnostic" ||
+    value === "blocked_write_action" ||
+    value === "adversarial" ||
+    value === "unsupported_handoff"
+    ? value
+    : undefined;
+}
+
+function validationTestOutcome(value: unknown): ConnectorValidationTestOutcome | undefined {
+  return value === "needs_more_info" ||
+    value === "planned" ||
+    value === "check_ready" ||
+    value === "diagnosed" ||
+    value === "blocked" ||
+    value === "unsupported"
+    ? value
+    : undefined;
+}
+
+function validationTests(value: unknown): ConnectorValidationTest[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.map((item) => {
+    const input = record(item);
+    return {
+      id: cleanString(input.id),
+      title: cleanString(input.title),
+      category: validationTestCategory(input.category) ?? "approved_diagnostic",
+      persona: input.persona === "end_user" || input.persona === "bizapps_it" || input.persona === "security" ? input.persona : "bizapps_it",
+      description: cleanString(input.description),
+      proves: cleanString(input.proves),
+      steps: Array.isArray(input.steps)
+        ? input.steps.map((step) => {
+            const stepInput = record(step);
+            return {
+              message: cleanString(stepInput.message),
+              expectedOutcome: validationTestOutcome(stepInput.expectedOutcome) ?? "blocked"
+            };
+          })
+        : [],
+      expectedFinalOutcome: validationTestOutcome(input.expectedFinalOutcome) ?? "blocked",
+      requiresPlanning: input.requiresPlanning === true || undefined,
+      requiresRuntimeReady: input.requiresRuntimeReady === true || undefined,
+      referenceOnly: input.referenceOnly === true || undefined
+    };
+  });
+}
+
 export function connectorProfileHash(profile: ConnectorProfile): string {
   return createHash("sha256").update(stableStringify(profile)).digest("hex");
 }
@@ -115,6 +167,7 @@ export function validateConnectorProfile(value: unknown): { profile?: ConnectorP
     effectivePermissionCatalog: catalog(input.effectivePermissionCatalog),
     skillCatalog: actionCatalog(input.skillCatalog).length ? actionCatalog(input.skillCatalog) : actionCatalog(input.actionCatalog),
     actionCatalog: actionCatalog(input.actionCatalog).length ? actionCatalog(input.actionCatalog) : actionCatalog(input.skillCatalog),
+    validationTests: validationTests(input.validationTests),
     intentHints: input.intentHints,
     demoDefaults: input.demoDefaults
   };
@@ -129,6 +182,9 @@ export function validateConnectorProfile(value: unknown): { profile?: ConnectorP
   if (profile.applicationAccessGrantCatalog.some((item) => !item.id || !item.label)) details.push("connector profile contains invalid application access grant catalog entries.");
   if (profile.effectivePermissionCatalog.some((item) => !item.id || !item.label)) details.push("connector profile contains invalid effective permission catalog entries.");
   if (profile.skillCatalog.some((action) => !action.id || !action.label)) details.push("connector profile contains invalid skill catalog entries.");
+  if (profile.validationTests?.some((test) => !test.id || !test.title || !test.description || !test.proves || test.steps.length === 0 || test.steps.some((step) => !step.message))) {
+    details.push("connector profile contains invalid validation test entries.");
+  }
 
   return details.length > 0 ? { details } : { profile, details };
 }

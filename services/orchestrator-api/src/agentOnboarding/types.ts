@@ -143,7 +143,7 @@ export type TrustedOnboardedAgent = {
   /** Compatibility aliases for approvedActions / blockedActions. */
   approvedCapabilities: DerivedCapability[];
   blockedCapabilities: DerivedCapability[];
-  connectorProfile?: Pick<ConnectorProfile, "connectorId" | "resourceSystem" | "displayName" | "version" | "profileSource" | "planning">;
+  connectorProfile?: Pick<ConnectorProfile, "connectorId" | "resourceSystem" | "displayName" | "version" | "profileSource" | "planning" | "validationTests">;
   connectorProfileVerified: boolean;
   connectorDecisionSource: string;
   lifecycle?: InstalledConnectorLifecycle;
@@ -222,7 +222,7 @@ export type AgentOnboardingValidationResult =
       oauthApplicationProof: OAuthApplicationProof;
       resourcePermissionProof: ResourcePermissionProof;
       externalApplicationAttestation?: ExternalApplicationAttestation;
-      connectorProfile?: Pick<ConnectorProfile, "connectorId" | "resourceSystem" | "displayName" | "version" | "profileSource">;
+      connectorProfile?: Pick<ConnectorProfile, "connectorId" | "resourceSystem" | "displayName" | "version" | "profileSource" | "validationTests">;
       connectorProfileVerified: boolean;
       connectorDecisionSource: string;
       skillDecision: {
