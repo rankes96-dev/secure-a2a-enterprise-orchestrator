@@ -736,7 +736,7 @@ function buildConnectorUnavailableAnswer(response: ResolveResponse): string {
   void response;
   return [
     "UNAVAILABLE",
-    "I cant handle this system here yet.",
+    "I can't help with this system here yet.",
     "",
     "What I found:",
     "This system is not available in the Gateway for your organization right now.",

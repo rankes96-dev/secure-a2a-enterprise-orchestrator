@@ -153,7 +153,7 @@ for (const phrase of [
 }
 
 for (const phrase of [
-  "I cant handle this system here yet",
+  "I can't help with this system here yet",
   "Open a support ticket",
   "No changes were made"
 ]) {
