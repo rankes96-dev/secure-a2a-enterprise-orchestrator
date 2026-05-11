@@ -122,7 +122,7 @@ const tabs: Array<{ id: ActiveTab; label: string; hint: string }> = [
   { id: "security-timeline", label: "Security Timeline", hint: "Audit proof" }
 ];
 
-const personaStorageKey = "persona";
+const personaStorageKey = "secureA2A.persona";
 
 function storedPersonaMode(): PersonaMode | null {
   if (typeof window === "undefined") {
@@ -1834,6 +1834,13 @@ function App() {
   const healthLabel = health
     ? `${health.summary.healthy}/${health.summary.total} healthy`
     : "Agents unknown";
+  const systemHealthLabel = health?.summary.down
+    ? "Needs attention"
+    : health?.summary.degraded
+      ? "Degraded"
+      : health
+        ? "All systems healthy"
+        : "Unknown";
   const authModeLabel = health?.orchestrator.authMode === "oauth2_client_credentials_jwt"
     ? "Secure A2A JWT"
     : "Local mock";
@@ -2339,6 +2346,7 @@ function App() {
 
   function changePersonaView() {
     window.localStorage.removeItem(personaStorageKey);
+    window.localStorage.removeItem("persona");
     setPersona(null);
     setEndUserAutoLoginAttempted(false);
   }
@@ -2347,6 +2355,7 @@ function App() {
     resetZeroTrustConnectionState();
     startNewConversation();
     window.localStorage.removeItem(personaStorageKey);
+    window.localStorage.removeItem("persona");
     setPersona(null);
     setEndUserAutoLoginAttempted(false);
   }
@@ -2592,7 +2601,7 @@ function App() {
     demoGuideRootRef, runTaskRootRef, composerRef, taskTextareaRef, gatewayResponseRef, securitySummaryRef, trustIdentityRootRef,
     loginPanelRef, demoUserSelectRef, loginButtonRef, agentRegistryRootRef, connectorCatalogRef, zeroTrustOnboardingRef,
     registeredAgentsRef, legacyAgentsRef, connectorTestCenterRootRef, securityTimelineRootRef, timelineListRef,
-    latestResponse, securityTimelineEvents, visibleSecurityTimelineEvents, healthLabel, authModeLabel, userBadgeLabel,
+    latestResponse, securityTimelineEvents, visibleSecurityTimelineEvents, healthLabel, authModeLabel, userBadgeLabel, systemHealthLabel,
     builtInAgentsCount, healthyAgentsCount, registeredAgentRows, latestActorAttached, latestActorTokenObserved, latestActorRoles,
     isUserAuthenticated, connectorTemplateCount, installedConnectorAgentCount, runtimeReadyConnectorAgentCount, latestRequest,
     executionState, authModeSummary, lastResult, policySummary, tokenSummary, delegationSummary, primarySelectedAgent, actorEmail,
@@ -2703,7 +2712,7 @@ function App() {
               <div className="topbar-actions end-user-topbar-actions">
                 <div className="status user-status authenticated">{userBadgeLabel}</div>
                 <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
-                  Reset conversation
+                  New conversation
                 </button>
                 <button type="button" className="secondary-button" onClick={changePersonaView}>
                   Change view
@@ -2739,7 +2748,7 @@ function App() {
                 </div>
                 <div className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"}`}>
                   <span>{isHealthLoading ? "Checking..." : "System health"}</span>
-                  <small>{health?.orchestrator.status ?? "unknown"}</small>
+                  <small>{systemHealthLabel}</small>
                 </div>
                 <button type="button" className="secondary-button" onClick={changePersonaView}>
                   Change view
@@ -2776,11 +2785,11 @@ function App() {
             <div className="persona-choice-grid">
               <button type="button" className="persona-choice-card" onClick={() => selectPersonaMode("end_user")}>
                 <strong>End user</strong>
-                <span>I want to ask for help or access in natural language.</span>
+                <span>Ask for help or access in natural language.</span>
               </button>
               <button type="button" className="persona-choice-card" onClick={() => selectPersonaMode("technical")}>
                 <strong>BizApps / IT</strong>
-                <span>I want to configure connectors, validate tests, and review security proof.</span>
+                <span>Configure connectors, validate tests, and review security proof.</span>
               </button>
             </div>
           </section>

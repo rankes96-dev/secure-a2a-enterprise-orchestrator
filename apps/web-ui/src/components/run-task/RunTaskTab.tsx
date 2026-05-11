@@ -1238,12 +1238,33 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                 <button
                   type="button"
                   className="secondary-button compact-button"
-                  onClick={() => setShowEndUserTechnicalProof((visible) => !visible)}
+                  onClick={() => setShowEndUserTechnicalProof(true)}
                 >
                   View technical proof
                 </button>
               ) : null}
-              {showEndUserTechnicalProof && latestResponse ? technicalProofPanel : null}
+              {showEndUserTechnicalProof && latestResponse ? (
+                <div className="technical-proof-modal-backdrop" role="presentation" onClick={() => setShowEndUserTechnicalProof(false)}>
+                  <section
+                    className="technical-proof-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="technical-proof-modal-title"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="technical-proof-modal-header">
+                      <div>
+                        <p className="active-panel-eyebrow">Security proof</p>
+                        <h2 id="technical-proof-modal-title">Technical proof</h2>
+                      </div>
+                      <button type="button" className="secondary-button compact-button" onClick={() => setShowEndUserTechnicalProof(false)}>
+                        Close
+                      </button>
+                    </div>
+                    {technicalProofPanel}
+                  </section>
+                </div>
+              ) : null}
             </section>
           ) : technicalProofPanel}
         </div>

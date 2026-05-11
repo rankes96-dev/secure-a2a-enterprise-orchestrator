@@ -16,10 +16,10 @@ function expect(source: string, phrase: string, message: string) {
 for (const phrase of [
   "Choose your demo view",
   "End user",
-  "I want to ask for help or access in natural language.",
+  "Ask for help or access in natural language.",
   "BizApps / IT",
-  "I want to configure connectors, validate tests, and review security proof.",
-  'personaStorageKey = "persona"',
+  "Configure connectors, validate tests, and review security proof.",
+  'personaStorageKey = "secureA2A.persona"',
   "window.localStorage.getItem(personaStorageKey)",
   "window.localStorage.setItem(personaStorageKey, nextPersona)",
   "Change view",
@@ -35,7 +35,7 @@ for (const phrase of [
   "loginDemoUser({ silent: true })",
   "end-user-shell",
   "end-user-topbar-actions",
-  "Reset conversation",
+  "New conversation",
   "System health",
   "Reset demo"
 ]) {
@@ -46,6 +46,8 @@ for (const phrase of [
   "end-user-run-task",
   "!isEndUserMode ? renderCockpitStatusStrip() : null",
   "View technical proof",
+  "technical-proof-modal",
+  "Technical proof",
   "showEndUserTechnicalProof",
   "Try asking:"
 ]) {
@@ -58,7 +60,9 @@ for (const phrase of [
   ".end-user-shell.control-plane-shell",
   ".end-user-run-task .chat-runtime-layout",
   ".end-user-run-task .task-transcript",
-  ".end-user-proof-drawer"
+  ".end-user-proof-drawer",
+  ".technical-proof-modal",
+  ".technical-proof-modal .governance-proof-panel"
 ]) {
   expect(styles, phrase, "persona mode styles are missing");
 }
@@ -66,6 +70,14 @@ for (const phrase of [
 if (!main.includes("{!isEndUserMode ? (") || !main.includes('<aside className="control-sidebar"')) {
   console.error("fail - end-user mode should hide the technical sidebar navigation");
   failed = true;
+}
+
+const endUserRenderBranch = main.match(/\{isEndUserMode \? \([\s\S]*?<RunTaskTab ctx=\{screenContext\} \/>[\s\S]*?\) : \(/)?.[0] ?? "";
+for (const forbidden of ["AgentRegistryTab", "ConnectorTestCenterTab", "SecurityTimelineTab", "TrustIdentityTab", "DemoGuideTab"]) {
+  if (endUserRenderBranch.includes(forbidden)) {
+    console.error(`fail - end-user mode should hide technical nav/content: ${forbidden}`);
+    failed = true;
+  }
 }
 
 if (!main.includes("isEndUserMode ? (") || !main.includes('<RunTaskTab ctx={screenContext} />')) {

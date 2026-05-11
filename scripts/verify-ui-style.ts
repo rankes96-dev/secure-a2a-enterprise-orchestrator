@@ -200,8 +200,8 @@ if (/position:\s*(sticky|fixed)/.test(chatComposerBlock)) {
 }
 
 const statusStripBlocks = [...styles.matchAll(/\.cockpit-status-strip\s*\{[\s\S]*?\}/g)].map((match) => match[0]);
-if (!statusStripBlocks.some((block) => block.includes("repeat(auto-fit, minmax(220px, 1fr))"))) {
-  console.error("fail - Run Task status cards should use responsive minmax(220px, 1fr) grid");
+if (!styles.includes("repeat(4, minmax(0, 1fr))")) {
+  console.error("fail - Run Task status cards should use a stable four-column desktop grid");
   failed = true;
 }
 
@@ -212,13 +212,13 @@ if (!recommendationBlock.includes("grid-template-columns: minmax(0, 1fr) auto"))
 }
 
 const finalRunTaskStatusBlock = styles.match(/\.chat-first-cockpit\s+\.cockpit-status-strip\s*\{[\s\S]*?\}/)?.[0] ?? "";
-if (!finalRunTaskStatusBlock.includes("repeat(auto-fit, minmax(220px, 1fr))")) {
-  console.error("fail - Run Task status grid should use equal responsive minmax(220px, 1fr) columns");
+if (!styles.includes(".chat-first-cockpit:not(.end-user-run-task) .cockpit-status-strip")) {
+  console.error("fail - Run Task status grid should be scoped to technical mode");
   failed = true;
 }
 
-const finalRunTaskStatusCardBlock = styles.match(/\.chat-first-cockpit\s+\.cockpit-status-strip\s+article\s*\{[\s\S]*?\}/)?.[0] ?? "";
-for (const phrase of ["min-height: 72px", "padding: 12px 14px", "border-radius: 8px"]) {
+const finalRunTaskStatusCardBlock = styles.match(/\.chat-first-cockpit:not\(\.end-user-run-task\)\s+\.cockpit-status-strip\s+article\s*\{[\s\S]*?\}/)?.[0] ?? "";
+for (const phrase of ["width: 100%", "min-height: 76px", "padding: 14px"]) {
   if (!finalRunTaskStatusCardBlock.includes(phrase)) {
     console.error(`fail - Run Task status cards need consistent compact styling: ${phrase}`);
     failed = true;
@@ -226,12 +226,12 @@ for (const phrase of ["min-height: 72px", "padding: 12px 14px", "border-radius: 
 }
 
 const technicalStatusGridBlock = styles.match(/\.chat-first-cockpit:not\(\.end-user-run-task\)\s+\.cockpit-status-strip\s*\{[\s\S]*?\}/)?.[0] ?? "";
-if (!technicalStatusGridBlock.includes("repeat(4, minmax(180px, 1fr))")) {
+if (!technicalStatusGridBlock.includes("repeat(4, minmax(0, 1fr))")) {
   console.error("fail - technical Run Task status cards should use a stable four-column desktop grid");
   failed = true;
 }
 
-if (!styles.includes("@media (max-width: 1180px)") || !styles.includes("repeat(auto-fit, minmax(180px, 1fr))")) {
+if (!styles.includes("@media (max-width: 900px)") || !styles.includes("repeat(auto-fit, minmax(180px, 1fr))")) {
   console.error("fail - technical Run Task status cards should collapse responsively");
   failed = true;
 }
@@ -264,12 +264,29 @@ for (const phrase of [
   ".end-user-shell.control-plane-shell",
   ".end-user-run-task .chat-runtime-layout",
   ".end-user-run-task .task-transcript",
-  ".end-user-proof-drawer"
+  ".end-user-proof-drawer",
+  ".technical-proof-modal-backdrop",
+  ".technical-proof-modal",
+  ".technical-proof-modal .governance-proof-panel"
 ]) {
   if (!styles.includes(phrase)) {
     console.error(`fail - persona/end-user layout style missing: ${phrase}`);
     failed = true;
   }
+}
+
+const technicalProofModalBlock = styles.match(/\.technical-proof-modal\s*\{[\s\S]*?\}/)?.[0] ?? "";
+for (const phrase of ["width: min(960px", "max-height: 80vh", "overflow-y: auto"]) {
+  if (!technicalProofModalBlock.includes(phrase)) {
+    console.error(`fail - end-user technical proof should open in a usable modal: ${phrase}`);
+    failed = true;
+  }
+}
+
+const proofModalPanelBlock = styles.match(/\.technical-proof-modal\s+\.governance-proof-panel\s*\{[\s\S]*?\}/)?.[0] ?? "";
+if (!proofModalPanelBlock.includes("grid-template-columns: 1fr")) {
+  console.error("fail - proof modal should use a single-column layout, not narrow inline cards");
+  failed = true;
 }
 
 const registrySectionPaddingBlock = styles.match(/\.agent-registry-panel\s*>\s*\.registry-section,[\s\S]*?\.agent-registry-panel\s+\.registry-overview-section\s+\.registry-section\s*\{[\s\S]*?\}/)?.[0] ?? "";

@@ -8,9 +8,9 @@ This V1 demo is designed for a split deployment where the browser UI, Gateway AP
 - Orchestrator API on Railway.
 - Redis on Railway or Upstash.
 - External agents as separate Railway services:
-  - `real-external-agent-jira`
-  - `real-external-agent-servicenow`
-  - `real-external-agent-github`
+  - Jira external agent
+  - ServiceNow external agent
+  - GitHub external agent
 
 ## Required Environment Variables
 
@@ -49,8 +49,8 @@ Do not expose secrets to the frontend. Public browser configuration should only 
 
 ## Checklist
 
-1. Deploy the orchestrator API to Railway.
-2. Deploy Redis on Railway or Upstash and set `REDIS_URL`.
+1. Deploy Redis on Railway or Upstash and set `REDIS_URL`.
+2. Deploy the orchestrator API to Railway.
 3. Deploy the external connector agents as separate Railway services.
 4. Configure the Vercel environment with `VITE_ORCHESTRATOR_API_URL`.
 5. Open the Web UI.

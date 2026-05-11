@@ -7378,12 +7378,65 @@ summary:focus-visible,
 
 .end-user-proof-drawer .governance-proof-panel {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
+.technical-proof-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.technical-proof-modal {
+  width: min(960px, calc(100vw - 32px));
+  max-height: 80vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.technical-proof-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.technical-proof-modal-header h2 {
+  margin: 0;
+}
+
+.technical-proof-modal .governance-proof-panel {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.technical-proof-modal .cockpit-card {
+  width: 100%;
+}
+
+.technical-proof-modal .technical-details-grid {
+  grid-template-columns: 1fr;
+}
+
 .chat-first-cockpit:not(.end-user-run-task) .cockpit-status-strip {
-  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.chat-first-cockpit:not(.end-user-run-task) .cockpit-status-strip article {
+  width: 100%;
+  min-height: 76px;
+  padding: 14px;
 }
 
 .chat-first-cockpit .cockpit-status-strip article strong {
@@ -7414,7 +7467,7 @@ summary:focus-visible,
   text-align: left;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 900px) {
   .chat-first-cockpit:not(.end-user-run-task) .cockpit-status-strip {
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
