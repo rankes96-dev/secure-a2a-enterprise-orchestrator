@@ -7256,3 +7256,182 @@ summary:focus-visible,
   margin-bottom: 8px;
 }
 
+/* Persona mode and V1 chat-first polish */
+.persona-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.persona-modal {
+  width: min(680px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+}
+
+.persona-modal h2 {
+  margin: 0 0 18px;
+  font-size: 24px;
+}
+
+.persona-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.persona-choice-card {
+  display: grid;
+  gap: 8px;
+  min-height: 132px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--text);
+  text-align: left;
+}
+
+.persona-choice-card:hover,
+.persona-choice-card:focus-visible {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.persona-choice-card strong {
+  font-size: 18px;
+}
+
+.persona-choice-card span {
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.end-user-shell.control-plane-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.end-user-shell .workspace {
+  max-width: 980px;
+  width: min(980px, calc(100vw - 32px));
+  margin: 0 auto;
+}
+
+.end-user-shell .topbar {
+  align-items: center;
+  gap: 16px;
+}
+
+.end-user-topbar-copy h1 {
+  font-size: 20px;
+}
+
+.end-user-topbar-actions {
+  align-items: center;
+}
+
+.end-user-run-task.control-panel {
+  display: block;
+}
+
+.end-user-run-task .chat-runtime-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.end-user-run-task .chat-conversation-panel {
+  gap: 12px;
+}
+
+.end-user-run-task .chat-panel-header,
+.end-user-run-task .task-transcript,
+.end-user-run-task .composer.cockpit-card {
+  box-shadow: var(--shadow-sm);
+}
+
+.end-user-run-task .task-transcript {
+  min-height: 52vh;
+}
+
+.end-user-run-task .task-transcript .section-heading-row {
+  display: none;
+}
+
+.end-user-login-state {
+  background: var(--surface-soft);
+}
+
+.end-user-proof-drawer {
+  display: grid;
+  gap: 12px;
+}
+
+.end-user-proof-drawer > .secondary-button {
+  justify-self: start;
+}
+
+.end-user-proof-drawer .governance-proof-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.chat-first-cockpit:not(.end-user-run-task) .cockpit-status-strip {
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+}
+
+.chat-first-cockpit .cockpit-status-strip article strong {
+  overflow-wrap: anywhere;
+}
+
+.composer-helper {
+  gap: 8px;
+}
+
+.end-user-run-task .composer-helper span {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.end-user-run-task .composer-run-button {
+  min-width: 120px;
+}
+
+.end-user-run-task .composer-recommendation.end-user-suggestion {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.end-user-run-task .composer-recommendation.end-user-suggestion .secondary-inline-button {
+  min-width: 0;
+  justify-self: start;
+  white-space: normal;
+  text-align: left;
+}
+
+@media (max-width: 1180px) {
+  .chat-first-cockpit:not(.end-user-run-task) .cockpit-status-strip {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .persona-choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .end-user-shell .workspace {
+    width: min(100%, calc(100vw - 20px));
+  }
+
+  .end-user-shell .topbar,
+  .end-user-topbar-actions {
+    align-items: stretch;
+  }
+}
+

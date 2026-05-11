@@ -272,7 +272,8 @@ function buildFallbackExecutionGateStack(response: ResolveResponse): ExecutionGa
 
 export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   const {
-    activeTab, setActiveTab, message, setMessage, messages, error, isLoading, health, healthError, isHealthLoading,
+    isEndUserMode,
+    message, setMessage, messages, error, isLoading,
     zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl, zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId,
     setSupportedConnectorGuardrails, setZeroTrustOnboardedAgents, setZeroTrustDiscovery, setZeroTrustResult, setZeroTrustError, setZeroTrustCopyMessage,
     zeroTrustExpectedResourceSystem, setZeroTrustExpectedResourceSystem, zeroTrustExpectedConnectorId, setZeroTrustExpectedConnectorId,
@@ -286,8 +287,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     demoGuideRootRef, runTaskRootRef, composerRef, taskTextareaRef, gatewayResponseRef, securitySummaryRef, trustIdentityRootRef,
     loginPanelRef, demoUserSelectRef, loginButtonRef, agentRegistryRootRef, connectorCatalogRef, zeroTrustOnboardingRef,
     registeredAgentsRef, legacyAgentsRef, securityTimelineRootRef, timelineListRef,
-    latestResponse, securityTimelineEvents, visibleSecurityTimelineEvents, healthLabel, authModeLabel, userBadgeLabel,
-    builtInAgentsCount, healthyAgentsCount, registeredAgentRows, latestActorAttached, latestActorTokenObserved, latestActorRoles,
+    latestResponse, latestActorAttached, latestActorTokenObserved,
     isUserAuthenticated, connectorTemplateCount, installedConnectorAgentCount, runtimeReadyConnectorAgentCount, latestRequest,
     executionState, authModeSummary, lastResult, policySummary, tokenSummary, delegationSummary, primarySelectedAgent, actorEmail,
     policyOutcome, tokenOutcome,
@@ -304,6 +304,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   } = ctx;
 
   const [targetSearch, setTargetSearch] = useState("");
+  const [showEndUserTechnicalProof, setShowEndUserTechnicalProof] = useState(false);
   const safeTargetSelection = latestResponse?.safeTargetSelection;
   const filteredSafeTargetOptions = useMemo(() => {
     const query = targetSearch.trim().toLowerCase();
@@ -318,6 +319,13 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   useEffect(() => {
     setTargetSearch("");
   }, [safeTargetSelection]);
+
+  function handleComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.ctrlKey && !event.shiftKey) {
+      event.preventDefault();
+      void resolveIssue(message);
+    }
+  }
 
   const allPromptScenarios = [...quickScenarios, ...advancedScenarios];
   const adversarialPrompts: Scenario[] = [
@@ -1070,18 +1078,62 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     );
   }
   function renderRunTaskTab() {
+    const runTaskClassName = `control-panel demo-cockpit chat-first-cockpit scroll-target ${isEndUserMode ? "end-user-run-task" : ""}`;
+    const technicalProofPanel = (
+      <aside className="cockpit-side governance-proof-panel">
+        {renderGatewayResponseCard()}
+        {renderSecuritySummaryCard()}
+        {renderLatestSecurityDetails()}
+        <section className="cockpit-card selected-agents-card">
+          <div className="section-heading-row">
+            <div>
+              <p className="active-panel-eyebrow">Routing</p>
+              <h2>{latestResponse?.connectorRouting ? "Connector Route" : "Selected Agents"}</h2>
+            </div>
+          </div>
+          {latestResponse?.connectorRouting ? (
+            <div className="connector-side-route">
+              <strong>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</strong>
+              <span>{latestResponse.connectorRouting.targetSystem ?? "unknown"} / {latestResponse.connectorRouting.connectorId ?? "no connector"}</span>
+              <p>{latestResponse.connectorRouting.skillLabel ?? latestResponse.connectorRouting.skillId ?? "No skill/action mapped"}</p>
+              <small>Runtime mode: {latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "runtime not executed"}</small>
+            </div>
+          ) : null}
+          {latestResponse?.selectedAgents.length ? (
+            <>
+              {latestResponse.connectorRouting ? <p className="muted-note">Supporting legacy/internal agents</p> : null}
+              <ul className="agent-list compact">
+                {latestResponse.selectedAgents.map((agent) => (
+                  <li key={`${agent.agentId}-${agent.skillId ?? "default"}`}>
+                    <strong>{agent.agentId}</strong>
+                    <span>{agent.role}{agent.skillId ? ` / ${agent.skillId}` : ""}</span>
+                    <p>{agent.matchedCapability ?? agent.reason}</p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : latestResponse?.connectorRouting ? (
+            <p className="muted-note">No legacy internal agents were used for this connector-first route.</p>
+          ) : (
+            <p className="muted-note">No agents selected yet.</p>
+          )}
+        </section>
+        {renderTechnicalDetails()}
+      </aside>
+    );
+
     return (
-      <section className="control-panel demo-cockpit chat-first-cockpit scroll-target" aria-label="Execution Cockpit" ref={runTaskRootRef} tabIndex={-1}>
-        {renderPageHeader({
+      <section className={runTaskClassName} aria-label={isEndUserMode ? "Support Chat" : "Execution Cockpit"} ref={runTaskRootRef} tabIndex={-1}>
+        {!isEndUserMode ? renderPageHeader({
           eyebrow: "Execution cockpit",
           title: "Run Task",
           subtitle: "Submit an enterprise request and watch the Gateway route, authorize, and execute approved connector skills."
-        })}
+        }) : null}
 
-        <section className="gateway-principle-strip">
+        {!isEndUserMode ? <section className="gateway-principle-strip">
           <strong>AI can interpret the request, but only the Gateway can approve execution.</strong>
           <span>Prompt injection cannot grant scopes, permissions, or Gateway approval.</span>
-        </section>
+        </section> : null}
 
         <div className="chat-runtime-layout">
           <section className="chat-conversation-panel">
@@ -1096,17 +1148,17 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
             </div>
 
             {!isUserAuthenticated ? (
-              <section className="identity-gate-panel" role="status">
+              <section className={`identity-gate-panel ${isEndUserMode ? "end-user-login-state" : ""}`} role="status">
                 <div>
-                  <p className="active-panel-eyebrow">Execution locked</p>
-                  <h2>Login required before execution</h2>
-                  <p>This gateway blocks task execution until a verified user identity is attached to the session.</p>
+                  <p className="active-panel-eyebrow">{isEndUserMode ? "Getting ready" : "Execution locked"}</p>
+                  <h2>{isEndUserMode ? "Preparing your demo session" : "Login required before execution"}</h2>
+                  <p>{isEndUserMode ? "We are attaching the demo user so you can start chatting." : "This gateway blocks task execution until a verified user identity is attached to the session."}</p>
                 </div>
-                <button type="button" onClick={goToTrustIdentity}>Login</button>
+                {!isEndUserMode ? <button type="button" onClick={goToTrustIdentity}>Login</button> : null}
               </section>
             ) : null}
 
-            {renderCockpitStatusStrip()}
+            {!isEndUserMode ? renderCockpitStatusStrip() : null}
 
             <MessageList messages={messages} />
             {renderSafeTargetSelection("chat")}
@@ -1118,34 +1170,44 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                   <h2>Ask the Gateway</h2>
                 </div>
               </div>
-              <div className={`composer-recommendation ${runtimeReadyConnectorAgentCount > 0 ? "ready" : "setup"}`}>
-                <span>
-                  {runtimeReadyConnectorAgentCount > 0
-                    ? "Recommended: Run an approved diagnostic first."
-                    : "No governed connector systems are available right now."}
-                </span>
-                {runtimeReadyConnectorAgentCount > 0 ? (
-                  <button type="button" className="secondary-inline-button compact-button" onClick={() => {
-                    setMessage(sampleMessage);
-                    showGuidedStatus("Recommended prompt loaded");
-                    guideToTarget("composer");
-                  }}>Use prompt</button>
-                ) : (
-                  <button type="button" className="secondary-inline-button compact-button" onClick={() => setMessage("I need access to the system")}>Ask for access</button>
-                )}
-              </div>
+              {isEndUserMode ? (
+                <div className="composer-recommendation end-user-suggestion ready">
+                  <span>Try asking:</span>
+                  <button type="button" className="secondary-inline-button compact-button" onClick={() => setMessage(sampleMessage)}>
+                    {sampleMessage}
+                  </button>
+                </div>
+              ) : (
+                <div className={`composer-recommendation ${runtimeReadyConnectorAgentCount > 0 ? "ready" : "setup"}`}>
+                  <span>
+                    {runtimeReadyConnectorAgentCount > 0
+                      ? "Recommended: Run an approved diagnostic first."
+                      : "No governed connector systems are available right now."}
+                  </span>
+                  {runtimeReadyConnectorAgentCount > 0 ? (
+                    <button type="button" className="secondary-inline-button compact-button" onClick={() => {
+                      setMessage(sampleMessage);
+                      showGuidedStatus("Recommended prompt loaded");
+                      guideToTarget("composer");
+                    }}>Use prompt</button>
+                  ) : (
+                    <button type="button" className="secondary-inline-button compact-button" onClick={() => setMessage("I need access to the system")}>Ask for access</button>
+                  )}
+                </div>
+              )}
               <div className="composer-surface">
                 <textarea
                   ref={taskTextareaRef}
                   value={message}
+                  onKeyDown={handleComposerKeyDown}
                   onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setMessage(event.target.value)}
                   aria-label="Integration issue"
                   placeholder="Ask about Jira, ServiceNow, GitHub, or try to request a blocked action..."
                 />
                 <div className="composer-action-row">
                   <div className="composer-helper">
-                    <span>{isUserAuthenticated ? `Verified actor ${actorEmail ?? "current user"} will be attached to the A2A task and token metadata.` : "Login in Trust & Identity to unlock secure execution."}</span>
-                    {!isUserAuthenticated ? (
+                    <span>Press Enter to send&nbsp;&nbsp;Ctrl+Enter for a new line</span>
+                    {!isUserAuthenticated && !isEndUserMode ? (
                       <button type="button" className="composer-trust-link" onClick={goToTrustIdentity}>
                         Login to unlock execution
                       </button>
@@ -1158,58 +1220,32 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
               </div>
             </form>
 
-            <details className="scenario-launcher suggested-prompts cockpit-card" aria-label="Suggested prompts">
+            {!isEndUserMode ? <details className="scenario-launcher suggested-prompts cockpit-card" aria-label="Suggested prompts">
               <summary>Suggested prompts</summary>
               {renderPromptGroup("Diagnostic prompts", diagnosticPrompts)}
               {renderPromptGroup("Planning prompts", planningPrompts)}
               {renderPromptGroup("Blocked action prompts", blockedActionPrompts)}
               {renderPromptGroup("Adversarial prompts", adversarialPrompts)}
               {renderPromptGroup("Unsupported prompts", unsupportedPrompts)}
-            </details>
+            </details> : null}
 
             {error ? <p className="error cockpit-error">{error}</p> : null}
           </section>
 
-          <aside className="cockpit-side governance-proof-panel">
-            {renderGatewayResponseCard()}
-            {renderSecuritySummaryCard()}
-            {renderLatestSecurityDetails()}
-            <section className="cockpit-card selected-agents-card">
-              <div className="section-heading-row">
-                <div>
-                  <p className="active-panel-eyebrow">Routing</p>
-                  <h2>{latestResponse?.connectorRouting ? "Connector Route" : "Selected Agents"}</h2>
-                </div>
-              </div>
-              {latestResponse?.connectorRouting ? (
-                <div className="connector-side-route">
-                  <strong>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</strong>
-                  <span>{latestResponse.connectorRouting.targetSystem ?? "unknown"} / {latestResponse.connectorRouting.connectorId ?? "no connector"}</span>
-                  <p>{latestResponse.connectorRouting.skillLabel ?? latestResponse.connectorRouting.skillId ?? "No skill/action mapped"}</p>
-                  <small>Runtime mode: {latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "runtime not executed"}</small>
-                </div>
+          {isEndUserMode ? (
+            <section className="end-user-proof-drawer">
+              {latestResponse ? (
+                <button
+                  type="button"
+                  className="secondary-button compact-button"
+                  onClick={() => setShowEndUserTechnicalProof((visible) => !visible)}
+                >
+                  View technical proof
+                </button>
               ) : null}
-              {latestResponse?.selectedAgents.length ? (
-                <>
-                  {latestResponse.connectorRouting ? <p className="muted-note">Supporting legacy/internal agents</p> : null}
-                  <ul className="agent-list compact">
-                    {latestResponse.selectedAgents.map((agent) => (
-                      <li key={`${agent.agentId}-${agent.skillId ?? "default"}`}>
-                        <strong>{agent.agentId}</strong>
-                        <span>{agent.role}{agent.skillId ? ` / ${agent.skillId}` : ""}</span>
-                        <p>{agent.matchedCapability ?? agent.reason}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : latestResponse?.connectorRouting ? (
-                <p className="muted-note">No legacy internal agents were used for this connector-first route.</p>
-              ) : (
-                <p className="muted-note">No agents selected yet.</p>
-              )}
+              {showEndUserTechnicalProof && latestResponse ? technicalProofPanel : null}
             </section>
-            {renderTechnicalDetails()}
-          </aside>
+          ) : technicalProofPanel}
         </div>
       </section>
     );

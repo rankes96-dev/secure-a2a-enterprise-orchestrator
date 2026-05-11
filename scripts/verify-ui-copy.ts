@@ -95,6 +95,32 @@ for (const phrase of ["Conversation", "Gateway Runtime Chat", "New conversation"
   }
 }
 
+for (const phrase of [
+  "Choose your demo view",
+  "End user",
+  "BizApps / IT",
+  "Change view",
+  "Reset conversation",
+  "Support chat"
+]) {
+  if (!mainTsx.includes(phrase)) {
+    console.error(`fail - persona mode UI copy missing: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const phrase of [
+  "Try asking:",
+  "Press Enter to send",
+  "Ctrl+Enter for a new line",
+  "View technical proof"
+]) {
+  if (!runTask.includes(phrase)) {
+    console.error(`fail - end-user Run Task copy missing: ${phrase}`);
+    failed = true;
+  }
+}
+
 const supportAnswerBuilder = mainTsx.match(/function buildEndUserSupportAnswer[\s\S]*?function governedChatAnswer/)?.[0] ?? "";
 const connectorAnswerFormatter = mainTsx.match(/function renderEndUserAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
 const runtimeFailureDetector = mainTsx.match(/function connectorRuntimeFailed[\s\S]*?function userFriendlyOutcomeLabel/)?.[0] ?? "";

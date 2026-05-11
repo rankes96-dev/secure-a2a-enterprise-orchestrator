@@ -102,6 +102,10 @@ export type TrustStatusView = {
 export type ExtractedScreenContext = Record<string, unknown> & {
   activeTab: string;
   setActiveTab: Dispatch<SetStateAction<"demo-guide" | "run-task" | "agent-registry" | "connector-test-center" | "trust-identity" | "security-timeline">>;
+  persona: "end_user" | "technical" | null;
+  isEndUserMode: boolean;
+  isTechnicalMode: boolean;
+  changePersonaView: () => void;
   message: string;
   setMessage: Dispatch<SetStateAction<string>>;
   messages: ChatMessage[];
@@ -181,7 +185,7 @@ export type ExtractedScreenContext = Record<string, unknown> & {
   resetZeroTrustConnectionState: () => void;
   checkAgentHealth: () => Promise<void>;
   loadTrustStatus: () => Promise<void>;
-  loginDemoUser: () => Promise<void>;
+  loginDemoUser: (options?: { silent?: boolean }) => Promise<void>;
   logoutIdentity: () => Promise<void>;
   cockpitStatusClass: (value: string) => string;
   statusDisplayLabel: (value: string) => string;

@@ -225,6 +225,17 @@ for (const phrase of ["min-height: 72px", "padding: 12px 14px", "border-radius: 
   }
 }
 
+const technicalStatusGridBlock = styles.match(/\.chat-first-cockpit:not\(\.end-user-run-task\)\s+\.cockpit-status-strip\s*\{[\s\S]*?\}/)?.[0] ?? "";
+if (!technicalStatusGridBlock.includes("repeat(4, minmax(180px, 1fr))")) {
+  console.error("fail - technical Run Task status cards should use a stable four-column desktop grid");
+  failed = true;
+}
+
+if (!styles.includes("@media (max-width: 1180px)") || !styles.includes("repeat(auto-fit, minmax(180px, 1fr))")) {
+  console.error("fail - technical Run Task status cards should collapse responsively");
+  failed = true;
+}
+
 const finalRecommendationBlock = styles.match(/\.chat-first-cockpit\s+\.composer-recommendation\s*\{[\s\S]*?\}/)?.[0] ?? "";
 const finalRecommendationButtonBlock = styles.match(/\.chat-first-cockpit\s+\.composer-recommendation\s+\.secondary-inline-button\s*\{[\s\S]*?\}/)?.[0] ?? "";
 for (const phrase of ["border: 1px solid var(--border)", "background: var(--surface-soft)", "grid-template-columns: minmax(0, 1fr) auto"]) {
@@ -244,6 +255,19 @@ const chatPanelHeaderBlock = styles.match(/\.chat-panel-header\s*\{[\s\S]*?\}/)?
 for (const phrase of ["display: flex", "justify-content: space-between", "padding: 14px 16px"]) {
   if (!chatPanelHeaderBlock.includes(phrase)) {
     console.error(`fail - Run Task should have an in-panel conversation header: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const phrase of [
+  ".persona-modal-backdrop",
+  ".end-user-shell.control-plane-shell",
+  ".end-user-run-task .chat-runtime-layout",
+  ".end-user-run-task .task-transcript",
+  ".end-user-proof-drawer"
+]) {
+  if (!styles.includes(phrase)) {
+    console.error(`fail - persona/end-user layout style missing: ${phrase}`);
     failed = true;
   }
 }

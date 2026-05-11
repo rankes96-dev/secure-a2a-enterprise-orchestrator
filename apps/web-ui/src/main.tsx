@@ -87,6 +87,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
 ];
 
 type ActiveTab = "demo-guide" | "run-task" | "agent-registry" | "connector-test-center" | "trust-identity" | "security-timeline";
+type PersonaMode = "end_user" | "technical";
 type ResolveA2ATask = NonNullable<ResolveResponse["a2aTasks"]>[number];
 type GuidedFocusTarget =
   | "demo-guide"
@@ -120,6 +121,16 @@ const tabs: Array<{ id: ActiveTab; label: string; hint: string }> = [
   { id: "trust-identity", label: "Trust & Identity", hint: "Login / identity" },
   { id: "security-timeline", label: "Security Timeline", hint: "Audit proof" }
 ];
+
+const personaStorageKey = "persona";
+
+function storedPersonaMode(): PersonaMode | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const stored = window.localStorage.getItem(personaStorageKey);
+  return stored === "end_user" || stored === "technical" ? stored : null;
+}
 
 const activePageHeaders: Record<ActiveTab, { title: string; subtitle: string }> = {
   "demo-guide": {
@@ -1751,7 +1762,8 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>("demo-guide");
+  const [persona, setPersona] = useState<PersonaMode | null>(() => storedPersonaMode());
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => storedPersonaMode() === "end_user" ? "run-task" : "demo-guide");
   const [message, setMessage] = useState(sampleMessage);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -1785,6 +1797,7 @@ function App() {
   const [identityError, setIdentityError] = useState("");
   const [identityMessage, setIdentityMessage] = useState("");
   const [isIdentityLoading, setIsIdentityLoading] = useState(false);
+  const [endUserAutoLoginAttempted, setEndUserAutoLoginAttempted] = useState(false);
   const [securityTimelineFilter, setSecurityTimelineFilter] = useState<SecurityTimelineFilter>("all");
   const [pendingFocusTarget, setPendingFocusTarget] = useState<GuidedFocusTarget | null>(null);
   const [guidedStatus, setGuidedStatus] = useState("");
@@ -1883,6 +1896,8 @@ function App() {
   ));
   const latestActorRoles = latestResponse?.userIdentity.roles?.join(", ") ?? "none";
   const isUserAuthenticated = identitySession?.authenticated === true || trustStatus?.userIdentity.authenticated === true;
+  const isEndUserMode = persona === "end_user";
+  const isTechnicalMode = persona === "technical";
   const connectorTemplateCount = supportedConnectorGuardrails.length;
   const installedConnectorAgentCount = zeroTrustOnboardedAgents.length;
   const runtimeReadyConnectorAgentCount = zeroTrustOnboardedAgents.filter((agent) => {
@@ -2046,6 +2061,19 @@ function App() {
   }, [activeTab]);
 
   useEffect(() => {
+    if (persona !== "end_user") {
+      return;
+    }
+    if (activeTab !== "run-task") {
+      setActiveTab("run-task");
+    }
+    if (!isUserAuthenticated && !isIdentityLoading && !endUserAutoLoginAttempted) {
+      setEndUserAutoLoginAttempted(true);
+      void loginDemoUser({ silent: true });
+    }
+  }, [persona, activeTab, isUserAuthenticated, isIdentityLoading, endUserAutoLoginAttempted]);
+
+  useEffect(() => {
     if (!pendingFocusTarget) {
       return;
     }
@@ -2181,7 +2209,7 @@ function App() {
     }
   }
 
-  async function loginDemoUser() {
+  async function loginDemoUser(options?: { silent?: boolean }) {
     setIdentityError("");
     setIdentityMessage("");
     setIsIdentityLoading(true);
@@ -2201,9 +2229,13 @@ function App() {
 
       const body = (await response.json()) as IdentitySessionResponse;
       setIdentitySession(body);
-      setIdentityMessage("Demo user identity verified and attached to this gateway session.");
+      if (!options?.silent) {
+        setIdentityMessage("Demo user identity verified and attached to this gateway session.");
+      }
       await loadTrustStatus();
-      guideToTarget("trust-login");
+      if (!options?.silent) {
+        guideToTarget("trust-login");
+      }
     } catch (caughtError) {
       setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to login as demo user");
     } finally {
@@ -2290,6 +2322,33 @@ function App() {
     setZeroTrustError("");
     setZeroTrustCopyMessage("");
     setConnectionWizardCollapsedAfterSuccess(false);
+  }
+
+  function selectPersonaMode(nextPersona: PersonaMode) {
+    window.localStorage.setItem(personaStorageKey, nextPersona);
+    setPersona(nextPersona);
+    if (nextPersona === "end_user") {
+      setEndUserAutoLoginAttempted(false);
+      setActiveTab("run-task");
+      guideToTarget("composer");
+      return;
+    }
+    setActiveTab("demo-guide");
+    guideToTarget("demo-guide");
+  }
+
+  function changePersonaView() {
+    window.localStorage.removeItem(personaStorageKey);
+    setPersona(null);
+    setEndUserAutoLoginAttempted(false);
+  }
+
+  function resetDemoState() {
+    resetZeroTrustConnectionState();
+    startNewConversation();
+    window.localStorage.removeItem(personaStorageKey);
+    setPersona(null);
+    setEndUserAutoLoginAttempted(false);
   }
 
   function applyLocalConnectorPreset(preset: typeof localConnectorPresets[number]) {
@@ -2518,7 +2577,8 @@ function App() {
   }
 
   const screenContext = {
-    activeTab, setActiveTab, message, setMessage, messages, error, isLoading, health, healthError, isHealthLoading,
+    activeTab, setActiveTab, persona, isEndUserMode, isTechnicalMode, changePersonaView,
+    message, setMessage, messages, error, isLoading, health, healthError, isHealthLoading,
     zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl, zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId,
     setSupportedConnectorGuardrails, setZeroTrustOnboardedAgents, setZeroTrustDiscovery, setZeroTrustResult, setZeroTrustError, setZeroTrustCopyMessage,
     zeroTrustExpectedResourceSystem, setZeroTrustExpectedResourceSystem, zeroTrustExpectedConnectorId, setZeroTrustExpectedConnectorId,
@@ -2574,7 +2634,8 @@ function App() {
   const activePageHeader = activePageHeaders[activeTab];
 
   return (
-    <main className="shell control-plane-shell">
+    <main className={`shell control-plane-shell ${isEndUserMode ? "end-user-shell" : "technical-shell"}`}>
+      {!isEndUserMode ? (
       <aside className="control-sidebar" aria-label="Product navigation">
         <div className="sidebar-brand">
           <p className="eyebrow">Secure A2A Gateway</p>
@@ -2629,54 +2690,102 @@ function App() {
           </div>
         </div>
       </aside>
+      ) : null}
 
       <section className="workspace">
         <header className="topbar">
-          <div className="topbar-copy">
-            <p className="eyebrow">Active section</p>
-            <h1>{activePageHeader.title}</h1>
-            <p className="topbar-subtitle">{activePageHeader.subtitle}</p>
-            <div className="menu-hint">
-              <span>{activeTab === "demo-guide" ? "Follow the guided demo path from the Next Action card." : "Open Demo Guide for the recommended presentation flow."}</span>
-              <button type="button" onClick={() => {
-                navigateToTab("demo-guide");
-                guideToTarget("demo-guide");
-              }}>Demo Guide</button>
-            </div>
-          </div>
-          <div className="topbar-actions">
-            {isUserAuthenticated ? (
-              <div className="status user-status authenticated">{userBadgeLabel}</div>
-            ) : (
-              <button type="button" className="status user-status anonymous clickable-status" onClick={goToTrustIdentity}>
-                {userBadgeLabel}
-              </button>
-            )}
-            <div className={`status execution-status ${isUserAuthenticated ? "unlocked" : "locked"}`}>Execution {isUserAuthenticated ? "unlocked" : "locked"}</div>
-            <div className="status">
-              {authModeLabel}
-              {health?.orchestrator.secureAuthRequired ? " / Secure auth required" : ""}
-            </div>
-            <div className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"}`}>
-              <span>{isHealthLoading ? "Checking..." : healthLabel}</span>
-              <small>{health?.orchestrator.status ?? "unknown"}</small>
-            </div>
-            <button type="button" className="secondary-button" onClick={resetZeroTrustConnectionState} disabled={isLoading} title="Reset local demo setup state">
-              Reset demo
-            </button>
-          </div>
+          {isEndUserMode ? (
+            <>
+              <div className="topbar-copy end-user-topbar-copy">
+                <p className="eyebrow">Chat</p>
+                <h1>Support chat</h1>
+              </div>
+              <div className="topbar-actions end-user-topbar-actions">
+                <div className="status user-status authenticated">{userBadgeLabel}</div>
+                <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
+                  Reset conversation
+                </button>
+                <button type="button" className="secondary-button" onClick={changePersonaView}>
+                  Change view
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="topbar-copy">
+                <p className="eyebrow">Active section</p>
+                <h1>{activePageHeader.title}</h1>
+                <p className="topbar-subtitle">{activePageHeader.subtitle}</p>
+                <div className="menu-hint">
+                  <span>{activeTab === "demo-guide" ? "Follow the guided demo path from the Next Action card." : "Open Demo Guide for the recommended presentation flow."}</span>
+                  <button type="button" onClick={() => {
+                    navigateToTab("demo-guide");
+                    guideToTarget("demo-guide");
+                  }}>Demo Guide</button>
+                </div>
+              </div>
+              <div className="topbar-actions">
+                {isUserAuthenticated ? (
+                  <div className="status user-status authenticated">{userBadgeLabel}</div>
+                ) : (
+                  <button type="button" className="status user-status anonymous clickable-status" onClick={goToTrustIdentity}>
+                    {userBadgeLabel}
+                  </button>
+                )}
+                <div className={`status execution-status ${isUserAuthenticated ? "unlocked" : "locked"}`}>Execution {isUserAuthenticated ? "unlocked" : "locked"}</div>
+                <div className="status">
+                  {authModeLabel}
+                  {health?.orchestrator.secureAuthRequired ? " / Secure auth required" : ""}
+                </div>
+                <div className={`health-summary ${health?.summary.down ? "has-down" : health?.summary.degraded ? "has-degraded" : "all-healthy"}`}>
+                  <span>{isHealthLoading ? "Checking..." : "System health"}</span>
+                  <small>{health?.orchestrator.status ?? "unknown"}</small>
+                </div>
+                <button type="button" className="secondary-button" onClick={changePersonaView}>
+                  Change view
+                </button>
+                <button type="button" className="secondary-button" onClick={resetDemoState} disabled={isLoading} title="Reset local demo setup state">
+                  Reset demo
+                </button>
+              </div>
+            </>
+          )}
         </header>
 
         {guidedStatus ? <div className="guided-status" role="status">{guidedStatus}</div> : null}
 
-        {activeTab === "demo-guide" ? <DemoGuideTab ctx={screenContext} /> : null}
-        {activeTab === "run-task" ? <RunTaskTab ctx={screenContext} /> : null}
-        {activeTab === "agent-registry" ? <AgentRegistryTab ctx={screenContext} /> : null}
-        {activeTab === "connector-test-center" ? <ConnectorTestCenterTab ctx={screenContext} /> : null}
-        {activeTab === "trust-identity" ? <TrustIdentityTab ctx={screenContext} /> : null}
-        {activeTab === "security-timeline" ? <SecurityTimelineTab ctx={screenContext} /> : null}
+        {isEndUserMode ? (
+          <RunTaskTab ctx={screenContext} />
+        ) : (
+          <>
+            {activeTab === "demo-guide" ? <DemoGuideTab ctx={screenContext} /> : null}
+            {activeTab === "run-task" ? <RunTaskTab ctx={screenContext} /> : null}
+            {activeTab === "agent-registry" ? <AgentRegistryTab ctx={screenContext} /> : null}
+            {activeTab === "connector-test-center" ? <ConnectorTestCenterTab ctx={screenContext} /> : null}
+            {activeTab === "trust-identity" ? <TrustIdentityTab ctx={screenContext} /> : null}
+            {activeTab === "security-timeline" ? <SecurityTimelineTab ctx={screenContext} /> : null}
+          </>
+        )}
       </section>
 
+      {!persona ? (
+        <div className="persona-modal-backdrop" role="presentation">
+          <section className="persona-modal" role="dialog" aria-modal="true" aria-labelledby="persona-modal-title">
+            <p className="eyebrow">Demo view</p>
+            <h2 id="persona-modal-title">Choose your demo view</h2>
+            <div className="persona-choice-grid">
+              <button type="button" className="persona-choice-card" onClick={() => selectPersonaMode("end_user")}>
+                <strong>End user</strong>
+                <span>I want to ask for help or access in natural language.</span>
+              </button>
+              <button type="button" className="persona-choice-card" onClick={() => selectPersonaMode("technical")}>
+                <strong>BizApps / IT</strong>
+                <span>I want to configure connectors, validate tests, and review security proof.</span>
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
