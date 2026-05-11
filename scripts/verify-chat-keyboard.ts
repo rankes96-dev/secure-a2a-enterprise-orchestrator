@@ -10,6 +10,7 @@ for (const phrase of [
   "!event.ctrlKey",
   "!event.shiftKey",
   "event.preventDefault()",
+  "message.trim()",
   "void resolveIssue(message)",
   "onKeyDown={handleComposerKeyDown}",
   "Press Enter to send",

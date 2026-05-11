@@ -127,6 +127,8 @@ const runtimeFailureDetector = mainTsx.match(/function connectorRuntimeFailed[\s
 const runtimeFailureAnswer = mainTsx.match(/function buildRuntimeFailureAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
 const connectorUnavailableDetector = mainTsx.match(/function connectorUnavailableForEndUser[\s\S]*?function userFriendlyOutcomeLabel/)?.[0] ?? "";
 const connectorUnavailableAnswer = mainTsx.match(/function buildConnectorUnavailableAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
+const outOfScopeDetector = mainTsx.match(/function requestIsOutOfEnterpriseScope[\s\S]*?function connectorUnavailableForEndUser/)?.[0] ?? "";
+const outOfScopeAnswer = mainTsx.match(/function buildOutOfScopeAnswer[\s\S]*?return \[[\s\S]*?\]\.join\("\\n"\);\n}/)?.[0] ?? "";
 for (const phrase of [
   "I checked this safely",
   "No changes were made",
@@ -169,6 +171,8 @@ for (const phrase of [
   "renderEndUserAnswer",
   "connectorRuntimeFailed",
   "buildRuntimeFailureAnswer",
+  "requestIsOutOfEnterpriseScope",
+  "buildOutOfScopeAnswer",
   "connectorUnavailableForEndUser",
   "buildConnectorUnavailableAnswer",
   "safeToDisplay !== true",
@@ -180,6 +184,46 @@ for (const phrase of [
 ]) {
   if (!mainTsx.includes(phrase)) {
     console.error(`fail - Run Task main chat should validate connector-provided end-user answers: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const phrase of [
+  'response.requestInterpretation?.scope === "out_of_scope"',
+  'classificationSupportMode === "out_of_scope"',
+  'entry.action === "out_of_scope"',
+  "outside enterprise support scope",
+  "outside the supported enterprise"
+]) {
+  if (!outOfScopeDetector.includes(phrase)) {
+    console.error(`fail - Run Task should detect unrelated out-of-scope requests before connector unavailable: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const phrase of [
+  "I cant help with that request here",
+  "access requests",
+  "enterprise system problems",
+  "integration failures",
+  "security or policy checks"
+]) {
+  if (!outOfScopeAnswer.includes(phrase)) {
+    console.error(`fail - out-of-scope answer missing end-user scope guidance: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const forbidden of [
+  "connector",
+  "external agent",
+  "Gateway route",
+  "runtime",
+  "OAuth",
+  "service account"
+]) {
+  if (outOfScopeAnswer.toLowerCase().includes(forbidden.toLowerCase())) {
+    console.error(`fail - out-of-scope main chat copy should not expose technical term: ${forbidden}`);
     failed = true;
   }
 }
@@ -251,6 +295,16 @@ if (mainTsx.indexOf("const safeConnectorAnswer = connectorEndUserAnswer(response
 
 if (supportAnswerBuilder.indexOf("if (connectorRuntimeFailed(response))") > supportAnswerBuilder.indexOf("const safeConnectorAnswer = connectorEndUserAnswer(response)")) {
   console.error("fail - runtime failure must take priority over connector endUserAnswer");
+  failed = true;
+}
+
+if (supportAnswerBuilder.indexOf("if (requestIsOutOfEnterpriseScope(response))") > supportAnswerBuilder.indexOf("if (connectorUnavailableForEndUser(response))")) {
+  console.error("fail - out-of-scope handling must take priority over connector unavailable handling");
+  failed = true;
+}
+
+if (supportAnswerBuilder.indexOf("if (requestIsOutOfEnterpriseScope(response))") > supportAnswerBuilder.indexOf("const safeConnectorAnswer = connectorEndUserAnswer(response)")) {
+  console.error("fail - out-of-scope handling must take priority over connector endUserAnswer");
   failed = true;
 }
 

@@ -323,6 +323,9 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
   function handleComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.ctrlKey && !event.shiftKey) {
       event.preventDefault();
+      if (!message.trim()) {
+        return;
+      }
       void resolveIssue(message);
     }
   }

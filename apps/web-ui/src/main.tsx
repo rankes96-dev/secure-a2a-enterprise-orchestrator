@@ -691,6 +691,28 @@ function connectorRuntimeFailed(response: ResolveResponse): boolean {
   );
 }
 
+function requestIsOutOfEnterpriseScope(response: ResolveResponse): boolean {
+  const classificationSupportMode = (response.classification as { supportMode?: string }).supportMode;
+  const scopeEvidence = [
+    response.routingReasoningSummary,
+    response.finalAnswer,
+    response.diagnosis?.probableCause,
+    response.diagnosis?.recommendedFix,
+    ...response.agentTrace.map((entry) => `${entry.action} ${entry.detail}`),
+    ...(response.executionGateStack?.gates.map((gate) => `${gate.id} ${gate.reason}`) ?? [])
+  ].join(" ").toLowerCase();
+
+  return (
+    response.requestInterpretation?.scope === "out_of_scope" ||
+    classificationSupportMode === "out_of_scope" ||
+    response.agentTrace.some((entry) => entry.action === "out_of_scope") ||
+    scopeEvidence.includes("outside enterprise support scope") ||
+    scopeEvidence.includes("outside the supported enterprise") ||
+    scopeEvidence.includes("outside supported enterprise") ||
+    scopeEvidence.includes("supported enterprise scope guidance")
+  );
+}
+
 function connectorUnavailableForEndUser(response: ResolveResponse): boolean {
   const gatewayRouteStatus = response.executionGateStack?.gates.find((gate) => gate.id === "gateway_governance")?.evidence?.routeStatus;
   return (
@@ -740,6 +762,23 @@ function buildRuntimeFailureAnswer(response: ResolveResponse): string {
     "",
     "Next step:",
     "Try again. If this keeps happening, contact IT with the system name and request details."
+  ].join("\n");
+}
+
+function buildOutOfScopeAnswer(response: ResolveResponse): string {
+  void response;
+  return [
+    "OUT OF SCOPE",
+    "I cant help with that request here.",
+    "",
+    "I can help with:",
+    "- access requests",
+    "- incident or workflow issues",
+    "- enterprise system problems",
+    "- integration failures",
+    "- security or policy checks",
+    "",
+    "Try asking about a supported work system or access issue."
   ].join("\n");
 }
 
@@ -809,6 +848,10 @@ function buildEndUserSupportAnswer(response: ResolveResponse): string {
 
   if (connectorRuntimeFailed(response)) {
     return buildRuntimeFailureAnswer(response);
+  }
+
+  if (requestIsOutOfEnterpriseScope(response)) {
+    return buildOutOfScopeAnswer(response);
   }
 
   if (connectorUnavailableForEndUser(response)) {
