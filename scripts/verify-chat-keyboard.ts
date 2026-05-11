@@ -6,6 +6,8 @@ let failed = false;
 
 for (const phrase of [
   "function insertNewlineAtCursor",
+  "function submitComposerMessage",
+  "function handleComposerSubmit",
   "function handleComposerKeyDown",
   'event.key !== "Enter"',
   "event.ctrlKey || event.metaKey",
@@ -15,8 +17,10 @@ for (const phrase of [
   "selectionEnd",
   "setMessage(nextValue)",
   "requestAnimationFrame",
-  "message.trim()",
-  "void resolveIssue(message)",
+  "currentMessage.trim()",
+  "void resolveIssue(currentMessage)",
+  'setMessage("")',
+  "onSubmit={handleComposerSubmit}",
   "onKeyDown={handleComposerKeyDown}",
   "Press Enter to send",
   "Ctrl+Enter for a new line"
@@ -33,7 +37,23 @@ if (!handler.includes("insertNewlineAtCursor(event.currentTarget, message)")) {
   failed = true;
 }
 
-if (handler.includes("event.ctrlKey") && handler.includes("void resolveIssue(message)") && handler.indexOf("event.ctrlKey") > handler.indexOf("void resolveIssue(message)")) {
+if (!handler.includes("submitComposerMessage()")) {
+  console.error("fail - Enter should submit through submitComposerMessage");
+  failed = true;
+}
+
+const submitHelper = runTask.match(/function submitComposerMessage[\s\S]*?function handleComposerSubmit/)?.[0] ?? "";
+if (submitHelper.indexOf("void resolveIssue(currentMessage)") > submitHelper.indexOf('setMessage("")')) {
+  console.error("fail - submitComposerMessage should clear the textarea after submitting");
+  failed = true;
+}
+
+if (submitHelper.indexOf("if (!currentMessage.trim())") > submitHelper.indexOf("void resolveIssue(currentMessage)")) {
+  console.error("fail - whitespace-only messages should not be sent");
+  failed = true;
+}
+
+if (handler.includes("event.ctrlKey") && handler.includes("submitComposerMessage()") && handler.indexOf("event.ctrlKey") > handler.indexOf("submitComposerMessage()")) {
   console.error("fail - Ctrl+Enter handling should occur before message submission");
   failed = true;
 }

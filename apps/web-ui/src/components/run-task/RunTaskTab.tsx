@@ -294,7 +294,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     guideToTarget, showGuidedStatus, goToTrustIdentity, goToRunTask, goToAgentRegistry,
     goToInstalledConnectorAgents, goToSecurityTimeline, hasInstalledConnector, hasApprovedSkill, hasBlockedSkill, readinessStatusForSkill,
     checkAgentHealth, loadTrustStatus, loginDemoUser, logoutIdentity, applyLocalConnectorPreset, discoverZeroTrustAgent,
-    copyGatewayRegistrationJson, startZeroTrustOnboarding, resolveIssue, submitIssue, startNewConversation, resetZeroTrustConnectionState,
+    copyGatewayRegistrationJson, startZeroTrustOnboarding, resolveIssue, startNewConversation, resetZeroTrustConnectionState,
     loadZeroTrustOnboardedAgents, loadSupportedConnectorGuardrails, loadGatewayRegistrationMetadata,
     renderPageHeader,
     localConnectorPresets, scenarios, quickScenarios, advancedScenarios, securityTimelineFilters, demoUserOptions,
@@ -331,6 +331,20 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     });
   }
 
+  function submitComposerMessage() {
+    const currentMessage = message;
+    if (!currentMessage.trim()) {
+      return;
+    }
+    void resolveIssue(currentMessage);
+    setMessage("");
+  }
+
+  function handleComposerSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    submitComposerMessage();
+  }
+
   function handleComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter") {
       return;
@@ -345,10 +359,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     }
 
     event.preventDefault();
-    if (!message.trim()) {
-      return;
-    }
-    void resolveIssue(message);
+    submitComposerMessage();
   }
 
   const allPromptScenarios = [...quickScenarios, ...advancedScenarios];
@@ -1187,7 +1198,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
             <MessageList messages={messages} />
             {renderSafeTargetSelection("chat")}
 
-            <form className="composer chat-composer cockpit-card scroll-target" onSubmit={submitIssue} ref={composerRef}>
+            <form className="composer chat-composer cockpit-card scroll-target" onSubmit={handleComposerSubmit} ref={composerRef}>
               <div className="section-heading-row">
                 <div>
                   <p className="active-panel-eyebrow">Free-form request</p>
