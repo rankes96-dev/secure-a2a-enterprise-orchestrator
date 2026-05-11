@@ -84,8 +84,9 @@ if (!topbarMarkup.includes("Reset demo")) {
   console.error("fail - global topbar should render Reset demo");
   failed = true;
 }
-if (!topbarMarkup.includes("New conversation")) {
-  console.error("fail - end-user topbar should render New conversation");
+const endUserTopbarMarkup = mainTsx.match(/isEndUserMode \? \([\s\S]*?\) : \(/)?.[0] ?? "";
+if (endUserTopbarMarkup.includes("New conversation")) {
+  console.error("fail - end-user topbar should not render duplicate New conversation");
   failed = true;
 }
 for (const phrase of ["Conversation", "Gateway Runtime Chat", "New conversation"]) {
@@ -100,7 +101,6 @@ for (const phrase of [
   "End user",
   "BizApps / IT",
   "Change view",
-  "New conversation",
   "Support chat"
 ]) {
   if (!mainTsx.includes(phrase)) {

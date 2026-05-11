@@ -2754,9 +2754,6 @@ function App() {
               </div>
               <div className="topbar-actions end-user-topbar-actions">
                 <div className="status user-status authenticated">{userBadgeLabel}</div>
-                <button type="button" className="secondary-button" onClick={startNewConversation} disabled={isLoading}>
-                  New conversation
-                </button>
                 <button type="button" className="secondary-button" onClick={changePersonaView}>
                   Change view
                 </button>

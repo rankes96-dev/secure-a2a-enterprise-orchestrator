@@ -35,7 +35,6 @@ for (const phrase of [
   "loginDemoUser({ silent: true })",
   "end-user-shell",
   "end-user-topbar-actions",
-  "New conversation",
   "System health",
   "Reset demo"
 ]) {
@@ -91,6 +90,22 @@ for (const forbidden of ["Secure A2A JWT", "healthLabel", "Execution unlocked", 
     console.error(`fail - end-user topbar should hide technical status: ${forbidden}`);
     failed = true;
   }
+}
+
+if (endUserTopbar.includes("New conversation")) {
+  console.error("fail - end-user topbar should not include duplicate New conversation");
+  failed = true;
+}
+
+if (!endUserTopbar.includes("Change view")) {
+  console.error("fail - end-user topbar should keep Change view");
+  failed = true;
+}
+
+const chatPanelHeader = runTask.match(/<div className="chat-panel-header"[\s\S]*?<\/div>\s*<\/div>/)?.[0] ?? "";
+if (!chatPanelHeader.includes("New conversation")) {
+  console.error("fail - chat panel header should keep New conversation");
+  failed = true;
 }
 
 if (failed) {

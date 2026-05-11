@@ -320,14 +320,35 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     setTargetSearch("");
   }, [safeTargetSelection]);
 
+  function insertNewlineAtCursor(textarea: HTMLTextAreaElement, value: string) {
+    const start = textarea.selectionStart ?? value.length;
+    const end = textarea.selectionEnd ?? value.length;
+    const nextValue = `${value.slice(0, start)}\n${value.slice(end)}`;
+    setMessage(nextValue);
+
+    requestAnimationFrame(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + 1;
+    });
+  }
+
   function handleComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.ctrlKey && !event.shiftKey) {
-      event.preventDefault();
-      if (!message.trim()) {
-        return;
-      }
-      void resolveIssue(message);
+    if (event.key !== "Enter") {
+      return;
     }
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      insertNewlineAtCursor(event.currentTarget, message);
+      return;
+    }
+    if (event.shiftKey) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!message.trim()) {
+      return;
+    }
+    void resolveIssue(message);
   }
 
   const allPromptScenarios = [...quickScenarios, ...advancedScenarios];
