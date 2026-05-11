@@ -804,6 +804,18 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
               <strong>{item.value}</strong>
             </div>
           ))}
+          {registrySummary.installedConnectors > 0 ? (
+            <div className="agent-registry-summary-action">
+              <span>Validation</span>
+              <button type="button" className="secondary-inline-button" onClick={() => {
+                setActiveTab("connector-test-center");
+                showGuidedStatus("Moved to Connector Test Center");
+                guideToTarget("connector-test-center");
+              }}>
+                Open Connector Test Center
+              </button>
+            </div>
+          ) : null}
         </section>
       );
     }

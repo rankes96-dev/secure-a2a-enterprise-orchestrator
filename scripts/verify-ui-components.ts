@@ -7,6 +7,7 @@ const requiredFiles = [
   "apps/web-ui/src/components/demo-guide/DemoGuideTab.tsx",
   "apps/web-ui/src/components/run-task/RunTaskTab.tsx",
   "apps/web-ui/src/components/agent-registry/AgentRegistryTab.tsx",
+  "apps/web-ui/src/components/connector-test-center/ConnectorTestCenterTab.tsx",
   "apps/web-ui/src/components/layout/PageHeader.tsx"
 ];
 
@@ -37,7 +38,7 @@ if (mainLineCount > 3000) {
   failed = true;
 }
 
-for (const componentName of ["DemoGuideTab", "RunTaskTab", "AgentRegistryTab", "TrustIdentityTab", "SecurityTimelineTab"]) {
+for (const componentName of ["DemoGuideTab", "RunTaskTab", "AgentRegistryTab", "ConnectorTestCenterTab", "TrustIdentityTab", "SecurityTimelineTab"]) {
   if (!main.includes(`<${componentName} ctx={screenContext} />`)) {
     console.error(`fail - main.tsx should route to extracted component: ${componentName}`);
     failed = true;

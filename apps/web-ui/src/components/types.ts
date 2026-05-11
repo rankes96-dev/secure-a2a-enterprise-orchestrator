@@ -101,7 +101,7 @@ export type TrustStatusView = {
 
 export type ExtractedScreenContext = Record<string, unknown> & {
   activeTab: string;
-  setActiveTab: Dispatch<SetStateAction<"demo-guide" | "run-task" | "agent-registry" | "trust-identity" | "security-timeline">>;
+  setActiveTab: Dispatch<SetStateAction<"demo-guide" | "run-task" | "agent-registry" | "connector-test-center" | "trust-identity" | "security-timeline">>;
   message: string;
   setMessage: Dispatch<SetStateAction<string>>;
   messages: ChatMessage[];
@@ -160,6 +160,7 @@ export type ExtractedScreenContext = Record<string, unknown> & {
   loginPanelRef: RefObject<HTMLElement>;
   demoUserSelectRef: RefObject<HTMLSelectElement>;
   loginButtonRef: RefObject<HTMLButtonElement>;
+  connectorTestCenterRootRef: RefObject<HTMLElement>;
   securityTimelineRootRef: RefObject<HTMLElement>;
   timelineListRef: MutableRefObject<HTMLElement | null>;
   renderPageHeader: RenderPageHeader;

@@ -6,6 +6,7 @@ import { PageHeader } from "./components/layout/PageHeader";
 import { DemoGuideTab } from "./components/demo-guide/DemoGuideTab";
 import { RunTaskTab } from "./components/run-task/RunTaskTab";
 import { AgentRegistryTab } from "./components/agent-registry/AgentRegistryTab";
+import { ConnectorTestCenterTab } from "./components/connector-test-center/ConnectorTestCenterTab";
 import { TrustIdentityTab } from "./components/trust-identity/TrustIdentityTab";
 import { SecurityTimelineTab } from "./components/security-timeline/SecurityTimelineTab";
 
@@ -85,7 +86,7 @@ const scenarios: Array<{ category: string; items: Scenario[] }> = [
   }
 ];
 
-type ActiveTab = "demo-guide" | "run-task" | "agent-registry" | "trust-identity" | "security-timeline";
+type ActiveTab = "demo-guide" | "run-task" | "agent-registry" | "connector-test-center" | "trust-identity" | "security-timeline";
 type ResolveA2ATask = NonNullable<ResolveResponse["a2aTasks"]>[number];
 type GuidedFocusTarget =
   | "demo-guide"
@@ -95,6 +96,7 @@ type GuidedFocusTarget =
   | "security-summary"
   | "trust-login"
   | "agent-registry"
+  | "connector-test-center"
   | "connector-catalog"
   | "zero-trust-onboarding"
   | "registered-agents"
@@ -114,6 +116,7 @@ const tabs: Array<{ id: ActiveTab; label: string; hint: string }> = [
   { id: "demo-guide", label: "Demo Guide", hint: "Start here" },
   { id: "run-task", label: "Run Task", hint: "Execute scenario" },
   { id: "agent-registry", label: "Agent Registry", hint: "Install agents" },
+  { id: "connector-test-center", label: "Connector Test Center", hint: "Validate safety" },
   { id: "trust-identity", label: "Trust & Identity", hint: "Login / identity" },
   { id: "security-timeline", label: "Security Timeline", hint: "Audit proof" }
 ];
@@ -130,6 +133,10 @@ const activePageHeaders: Record<ActiveTab, { title: string; subtitle: string }> 
   "agent-registry": {
     title: "Agent Registry",
     subtitle: "Choose connector templates and install trusted external connector agents."
+  },
+  "connector-test-center": {
+    title: "Connector Test Center",
+    subtitle: "Validate installed connector agents with safe, repeatable governance tests."
   },
   "trust-identity": {
     title: "Trust & Identity",
@@ -1622,6 +1629,7 @@ function App() {
   const demoUserSelectRef = useRef<HTMLSelectElement | null>(null);
   const loginButtonRef = useRef<HTMLButtonElement | null>(null);
   const agentRegistryRootRef = useRef<HTMLElement | null>(null);
+  const connectorTestCenterRootRef = useRef<HTMLElement | null>(null);
   const connectorCatalogRef = useRef<HTMLElement | null>(null);
   const zeroTrustOnboardingRef = useRef<HTMLElement | null>(null);
   const registeredAgentsRef = useRef<HTMLElement | null>(null);
@@ -1906,6 +1914,10 @@ function App() {
       if (pendingFocusTarget === "agent-registry") {
         scrollToRef(agentRegistryRootRef);
         highlightSection(agentRegistryRootRef);
+      }
+      if (pendingFocusTarget === "connector-test-center") {
+        scrollToRef(connectorTestCenterRootRef);
+        highlightSection(connectorTestCenterRootRef);
       }
       if (pendingFocusTarget === "connector-catalog") {
         scrollToRef(connectorCatalogRef);
@@ -2349,7 +2361,7 @@ function App() {
     identityError, identityMessage, isIdentityLoading, securityTimelineFilter, setSecurityTimelineFilter, guidedStatus,
     demoGuideRootRef, runTaskRootRef, composerRef, taskTextareaRef, gatewayResponseRef, securitySummaryRef, trustIdentityRootRef,
     loginPanelRef, demoUserSelectRef, loginButtonRef, agentRegistryRootRef, connectorCatalogRef, zeroTrustOnboardingRef,
-    registeredAgentsRef, legacyAgentsRef, securityTimelineRootRef, timelineListRef,
+    registeredAgentsRef, legacyAgentsRef, connectorTestCenterRootRef, securityTimelineRootRef, timelineListRef,
     latestResponse, securityTimelineEvents, visibleSecurityTimelineEvents, healthLabel, authModeLabel, userBadgeLabel,
     builtInAgentsCount, healthyAgentsCount, registeredAgentRows, latestActorAttached, latestActorTokenObserved, latestActorRoles,
     isUserAuthenticated, connectorTemplateCount, installedConnectorAgentCount, runtimeReadyConnectorAgentCount, latestRequest,
@@ -2377,6 +2389,9 @@ function App() {
     }
     if (tabId === "agent-registry") {
       guideToTarget("agent-registry");
+    }
+    if (tabId === "connector-test-center") {
+      guideToTarget("connector-test-center");
     }
     if (tabId === "trust-identity") {
       guideToTarget("trust-login");
@@ -2412,12 +2427,8 @@ function App() {
           ))}
         </nav>
 
-        <div className="sidebar-nav sidebar-planned" aria-label="Future V1 planned sections">
-          <span>Future / V1 planned</span>
-          <button type="button" disabled>
-            <strong>Connector Test Center</strong>
-            <small>Coming soon</small>
-          </button>
+        <div className="sidebar-nav sidebar-planned" aria-label="Future planned sections">
+          <span>Future</span>
           <button type="button" disabled>
             <strong>External Agent Admin</strong>
             <small>Action plans are generated by the connector for a specific request. They are side-effect-free and must be approved by the Gateway before execution.</small>
@@ -2491,6 +2502,7 @@ function App() {
         {activeTab === "demo-guide" ? <DemoGuideTab ctx={screenContext} /> : null}
         {activeTab === "run-task" ? <RunTaskTab ctx={screenContext} /> : null}
         {activeTab === "agent-registry" ? <AgentRegistryTab ctx={screenContext} /> : null}
+        {activeTab === "connector-test-center" ? <ConnectorTestCenterTab ctx={screenContext} /> : null}
         {activeTab === "trust-identity" ? <TrustIdentityTab ctx={screenContext} /> : null}
         {activeTab === "security-timeline" ? <SecurityTimelineTab ctx={screenContext} /> : null}
       </section>

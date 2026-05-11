@@ -24,6 +24,7 @@
     "verify:ui-style": "tsx scripts/verify-ui-style.ts",
     "verify:diagnostic-runtime-semantics": "tsx scripts/verify-diagnostic-runtime-semantics.ts",
     "verify:execution-gate-stack": "tsx scripts/verify-execution-gate-stack.ts",
+    "verify:connector-test-center": "tsx scripts/verify-connector-test-center.ts",
     "verify:connector-action-planning": "tsx scripts/verify-connector-action-planning.ts",
     "verify:planning-follow-up": "tsx scripts/verify-planning-follow-up.ts",
     "verify:safe-target-selection": "tsx scripts/verify-safe-target-selection.ts",

@@ -1745,7 +1745,7 @@ select:focus {
 
 .agent-registry-summary-bar {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
 }
 
@@ -6097,6 +6097,15 @@ summary:focus-visible,
   font-size: 20px;
 }
 
+.agent-registry-summary-action {
+  align-content: center;
+}
+
+.agent-registry-summary-action .secondary-inline-button {
+  width: fit-content;
+  background: var(--surface);
+}
+
 .agent-registry-anchor-nav {
   display: flex;
   flex-wrap: wrap;
@@ -6155,6 +6164,191 @@ summary:focus-visible,
 
 .registry-overview-section:not([open]) {
   background: var(--surface-soft);
+}
+
+/* =========================
+   Connector Test Center
+   ========================= */
+
+.connector-test-center-panel {
+  gap: 16px;
+}
+
+.connector-test-stats,
+.connector-test-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.connector-test-stats article,
+.connector-test-result-grid div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--surface-soft);
+}
+
+.connector-test-stats span,
+.connector-test-result-grid span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.connector-test-stats strong,
+.connector-test-result-grid strong {
+  color: var(--text);
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.connector-test-result-panel,
+.connector-test-group {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.connector-test-result-panel.empty-result {
+  border-style: dashed;
+  background: var(--surface-soft);
+}
+
+.connector-test-result-panel.empty-result p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+}
+
+.connector-test-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.connector-test-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.connector-test-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 13px;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.connector-test-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.connector-test-card h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.connector-test-card p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.connector-test-badge {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  background: var(--surface-soft);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.connector-test-detail {
+  display: grid;
+  gap: 6px;
+}
+
+.connector-test-detail > strong {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.connector-test-detail > span {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.connector-test-steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connector-test-steps li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.connector-test-steps span {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--surface-soft);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.connector-test-steps code {
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 7px 8px;
+  color: var(--text);
+  background: var(--surface-soft);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.connector-test-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  align-self: end;
 }
 
 /* =========================

@@ -18,13 +18,14 @@ export type GuidedFocusTarget =
   | "security-summary"
   | "trust-login"
   | "agent-registry"
+  | "connector-test-center"
   | "connector-catalog"
   | "zero-trust-onboarding"
   | "registered-agents"
   | "legacy-agents"
   | "security-timeline";
 
-export type ActiveTab = "demo-guide" | "run-task" | "agent-registry" | "trust-identity" | "security-timeline";
+export type ActiveTab = "demo-guide" | "run-task" | "agent-registry" | "connector-test-center" | "trust-identity" | "security-timeline";
 
 export type LocalConnectorPreset = {
   label: string;
