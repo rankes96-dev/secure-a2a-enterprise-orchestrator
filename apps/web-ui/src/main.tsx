@@ -670,6 +670,16 @@ function connectorEndUserAnswer(response: ResolveResponse): EndUserAnswer | unde
   return answer && isSafeEndUserAnswer(answer, response) ? answer : undefined;
 }
 
+function connectorRuntimeFailed(response: ResolveResponse): boolean {
+  return (
+    response.executionGateStack?.finalOutcome === "runtime_failed" ||
+    response.executionGateStack?.gates.some(
+      (gate) => gate.id === "runtime_execution" && gate.status === "failed"
+    ) === true ||
+    (response.connectorRuntime !== undefined && response.connectorRuntime.executed === false)
+  );
+}
+
 function userFriendlyOutcomeLabel(outcome: string): string {
   return outcome.startsWith("BLOCKED") ? "BLOCKED" : outcome;
 }
@@ -690,6 +700,22 @@ function renderEndUserAnswer(outcome: string, answer: EndUserAnswer, response: R
     "",
     "Next step:",
     answer.nextStep
+  ].join("\n");
+}
+
+function buildRuntimeFailureAnswer(response: ResolveResponse): string {
+  void response;
+  return [
+    "TEMPORARY ISSUE",
+    "I could not complete the check right now.",
+    "",
+    "What happened:",
+    "The connected system agent did not return a result.",
+    "",
+    "No changes were made.",
+    "",
+    "Next step:",
+    "Try again. If this keeps happening, contact IT with the system name and request details."
   ].join("\n");
 }
 
@@ -736,6 +762,10 @@ function buildEndUserSupportAnswer(response: ResolveResponse): string {
       "Next step:",
       "Send a new request when you are ready."
     ].join("\n");
+  }
+
+  if (connectorRuntimeFailed(response)) {
+    return buildRuntimeFailureAnswer(response);
   }
 
   const safeConnectorAnswer = connectorEndUserAnswer(response);

@@ -80,6 +80,8 @@ if (runTask.includes("Use recommended prompt")) {
 
 const supportAnswerBuilder = mainTsx.match(/function buildEndUserSupportAnswer[\s\S]*?function governedChatAnswer/)?.[0] ?? "";
 const connectorAnswerFormatter = mainTsx.match(/function renderEndUserAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
+const runtimeFailureDetector = mainTsx.match(/function connectorRuntimeFailed[\s\S]*?function userFriendlyOutcomeLabel/)?.[0] ?? "";
+const runtimeFailureAnswer = mainTsx.match(/function buildRuntimeFailureAnswer[\s\S]*?function buildEndUserSupportAnswer/)?.[0] ?? "";
 for (const phrase of [
   "I checked this safely",
   "No changes were made",
@@ -120,6 +122,8 @@ for (const phrase of [
   "containsForbiddenSecretMarker",
   "connectorEndUserAnswer",
   "renderEndUserAnswer",
+  "connectorRuntimeFailed",
+  "buildRuntimeFailureAnswer",
   "safeToDisplay !== true",
   "responseExecutedWriteOrAdmin",
   "unsafeChangeClaims",
@@ -133,8 +137,40 @@ for (const phrase of [
   }
 }
 
+for (const phrase of [
+  'finalOutcome === "runtime_failed"',
+  'gate.id === "runtime_execution" && gate.status === "failed"',
+  "response.connectorRuntime !== undefined && response.connectorRuntime.executed === false"
+]) {
+  if (!runtimeFailureDetector.includes(phrase)) {
+    console.error(`fail - Run Task should detect connector runtime failures before rendering diagnosis copy: ${phrase}`);
+    failed = true;
+  }
+}
+
+for (const phrase of [
+  "I could not complete the check right now",
+  "The connected system agent did not return a result",
+  "No changes were made"
+]) {
+  if (!runtimeFailureAnswer.includes(phrase)) {
+    console.error(`fail - runtime failure answer missing user-facing copy: ${phrase}`);
+    failed = true;
+  }
+}
+
 if (mainTsx.indexOf("const safeConnectorAnswer = connectorEndUserAnswer(response)") > mainTsx.indexOf('if (outcome === "PLANNED"')) {
   console.error("fail - main chat should prefer safe connector endUserAnswer before generic outcome fallback");
+  failed = true;
+}
+
+if (supportAnswerBuilder.indexOf("if (connectorRuntimeFailed(response))") > supportAnswerBuilder.indexOf("const safeConnectorAnswer = connectorEndUserAnswer(response)")) {
+  console.error("fail - runtime failure must take priority over connector endUserAnswer");
+  failed = true;
+}
+
+if (supportAnswerBuilder.indexOf("if (connectorRuntimeFailed(response))") > supportAnswerBuilder.indexOf('if (outcome === "DIAGNOSED"')) {
+  console.error("fail - runtime failure must take priority over generic diagnostic fallback");
   failed = true;
 }
 
