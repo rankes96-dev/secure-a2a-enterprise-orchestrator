@@ -1,14 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { AgentsHealthResponse, EndUserAnswer, ResolveResponse } from "@a2a/shared";
 import "./styles.css";
 import { PageHeader } from "./components/layout/PageHeader";
-import { DemoGuideTab } from "./components/demo-guide/DemoGuideTab";
-import { RunTaskTab } from "./components/run-task/RunTaskTab";
-import { AgentRegistryTab } from "./components/agent-registry/AgentRegistryTab";
-import { ConnectorTestCenterTab } from "./components/connector-test-center/ConnectorTestCenterTab";
-import { TrustIdentityTab } from "./components/trust-identity/TrustIdentityTab";
-import { SecurityTimelineTab } from "./components/security-timeline/SecurityTimelineTab";
+
+const DemoGuideTab = lazy(() => import("./components/demo-guide/DemoGuideTab").then((module) => ({ default: module.DemoGuideTab })));
+const RunTaskTab = lazy(() => import("./components/run-task/RunTaskTab").then((module) => ({ default: module.RunTaskTab })));
+const AgentRegistryTab = lazy(() => import("./components/agent-registry/AgentRegistryTab").then((module) => ({ default: module.AgentRegistryTab })));
+const ConnectorTestCenterTab = lazy(() => import("./components/connector-test-center/ConnectorTestCenterTab").then((module) => ({ default: module.ConnectorTestCenterTab })));
+const TrustIdentityTab = lazy(() => import("./components/trust-identity/TrustIdentityTab").then((module) => ({ default: module.TrustIdentityTab })));
+const SecurityTimelineTab = lazy(() => import("./components/security-timeline/SecurityTimelineTab").then((module) => ({ default: module.SecurityTimelineTab })));
 
 const API_URL = import.meta.env.VITE_ORCHESTRATOR_API_URL ?? "http://localhost:4000";
 const sampleMessage = "Jira issue creation fails with 403 when creating issues in FIN project";
@@ -2809,18 +2810,20 @@ function App() {
 
         {guidedStatus ? <div className="guided-status" role="status">{guidedStatus}</div> : null}
 
-        {isEndUserMode ? (
-          <RunTaskTab ctx={screenContext} />
-        ) : (
-          <>
-            {activeTab === "demo-guide" ? <DemoGuideTab ctx={screenContext} /> : null}
-            {activeTab === "run-task" ? <RunTaskTab ctx={screenContext} /> : null}
-            {activeTab === "agent-registry" ? <AgentRegistryTab ctx={screenContext} /> : null}
-            {activeTab === "connector-test-center" ? <ConnectorTestCenterTab ctx={screenContext} /> : null}
-            {activeTab === "trust-identity" ? <TrustIdentityTab ctx={screenContext} /> : null}
-            {activeTab === "security-timeline" ? <SecurityTimelineTab ctx={screenContext} /> : null}
-          </>
-        )}
+        <Suspense fallback={<section className="tab-loading" role="status" aria-live="polite">Loading section...</section>}>
+          {isEndUserMode ? (
+            <RunTaskTab ctx={screenContext} />
+          ) : (
+            <>
+              {activeTab === "demo-guide" ? <DemoGuideTab ctx={screenContext} /> : null}
+              {activeTab === "run-task" ? <RunTaskTab ctx={screenContext} /> : null}
+              {activeTab === "agent-registry" ? <AgentRegistryTab ctx={screenContext} /> : null}
+              {activeTab === "connector-test-center" ? <ConnectorTestCenterTab ctx={screenContext} /> : null}
+              {activeTab === "trust-identity" ? <TrustIdentityTab ctx={screenContext} /> : null}
+              {activeTab === "security-timeline" ? <SecurityTimelineTab ctx={screenContext} /> : null}
+            </>
+          )}
+        </Suspense>
       </section>
 
       {!persona ? (
