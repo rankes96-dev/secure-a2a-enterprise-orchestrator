@@ -1,4 +1,3 @@
-import { OpenRouter } from "@openrouter/sdk";
 import type {
   AgentName,
   Classification,
@@ -14,6 +13,7 @@ import type {
 } from "@a2a/shared";
 import { findAgentSkillsByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard, type AgentCard, type CapabilityMatch } from "./agentCards";
 import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
+import { callOpenRouterJson } from "./openRouterClient";
 import { interpretRequest } from "./requestInterpreter";
 
 const systems: EnterpriseSystem[] = ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday", "Unknown"];
@@ -586,30 +586,23 @@ function validateRoutingDecision(decision: RoutingDecision, fallback: RoutingDec
   };
 }
 
-async function callOpenRouter(message: string, interpretation: RequestInterpretation, apiKey: string, model: string, context: RoutingContext = {}): Promise<string | undefined> {
-  const openRouter = new OpenRouter({ apiKey });
-  const result = await openRouter.chat.send({
-    chatRequest: {
-      model,
-      messages: [
-        { role: "system", content: routerPrompt },
-        {
-          role: "user",
-          content: JSON.stringify({
-            message,
-            requestInterpretation: interpretation,
-            agentCards: getExecutableAgentCards(cardsForContext(context))
-          })
-        }
-      ],
-      responseFormat: { type: "json_object" },
-      stream: false,
-      temperature: 0
-    }
+async function callOpenRouter(message: string, interpretation: RequestInterpretation, apiKey: string, baseURL: string, model: string, context: RoutingContext = {}): Promise<string | undefined> {
+  return callOpenRouterJson({
+    apiKey,
+    baseURL,
+    model,
+    messages: [
+      { role: "system", content: routerPrompt },
+      {
+        role: "user",
+        content: JSON.stringify({
+          message,
+          requestInterpretation: interpretation,
+          agentCards: getExecutableAgentCards(cardsForContext(context))
+        })
+      }
+    ]
   });
-
-  const content = result.choices[0]?.message.content;
-  return typeof content === "string" ? content : undefined;
 }
 
 export async function routeWithAI(message: string, context: RoutingContext = {}): Promise<RoutingDecision> {
@@ -641,7 +634,7 @@ export async function routeWithAI(message: string, context: RoutingContext = {})
 
   try {
     console.info("[router] calling secondary AI router");
-    const content = await callOpenRouter(message, requestInterpretation, aiConfig.apiKey, aiConfig.model, context);
+    const content = await callOpenRouter(message, requestInterpretation, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model, context);
 
     if (!content) {
       console.warn("[router] secondary AI router returned empty content; using capability fallback");

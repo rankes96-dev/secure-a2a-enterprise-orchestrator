@@ -1,6 +1,6 @@
-import { OpenRouter } from "@openrouter/sdk";
 import type { Classification, EnterpriseSystem, ErrorCode, IntegrationOperation, IssueType } from "@a2a/shared";
 import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
+import { callOpenRouterJson } from "./openRouterClient";
 
 const systems: EnterpriseSystem[] = ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday", "Unknown"];
 const errorCodes: ErrorCode[] = ["401", "403", "404", "429", "500", "502", "503", "504"];
@@ -138,23 +138,16 @@ function normalizeAiClassification(value: unknown, fallback: Classification, aiP
   };
 }
 
-async function classifyWithOpenRouter(message: string, apiKey: string, model: string): Promise<string | undefined> {
-  const openRouter = new OpenRouter({ apiKey });
-  const result = await openRouter.chat.send({
-    chatRequest: {
-      model,
-      messages: [
-        { role: "system", content: classifierPrompt },
-        { role: "user", content: message }
-      ],
-      responseFormat: { type: "json_object" },
-      stream: false,
-      temperature: 0
-    }
+async function classifyWithOpenRouter(message: string, apiKey: string, baseURL: string, model: string): Promise<string | undefined> {
+  return callOpenRouterJson({
+    apiKey,
+    baseURL,
+    model,
+    messages: [
+      { role: "system", content: classifierPrompt },
+      { role: "user", content: message }
+    ]
   });
-
-  const content = result.choices[0]?.message.content;
-  return typeof content === "string" ? content : undefined;
 }
 
 export async function classify(message: string): Promise<Classification> {
@@ -169,7 +162,7 @@ export async function classify(message: string): Promise<Classification> {
 
   try {
     console.info(`[classifier] calling ${aiConfig.provider} model=${aiConfig.model}`);
-    const content = await classifyWithOpenRouter(message, aiConfig.apiKey, aiConfig.model);
+    const content = await classifyWithOpenRouter(message, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model);
 
     if (!content) {
       console.info(`[classifier] ${aiConfig.provider} returned empty content; using rules fallback`);

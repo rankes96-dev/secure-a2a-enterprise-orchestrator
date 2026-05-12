@@ -8,6 +8,10 @@
     "dev:jira": "tsx watch src/startConnector.ts jira",
     "dev:servicenow": "tsx watch src/startConnector.ts servicenow",
     "dev:github": "tsx watch src/startConnector.ts github",
+    "start": "tsx src/index.ts",
+    "start:jira": "tsx src/startConnector.ts jira",
+    "start:servicenow": "tsx src/startConnector.ts servicenow",
+    "start:github": "tsx src/startConnector.ts github",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "verify:agent": "tsx src/verify-agent.ts"

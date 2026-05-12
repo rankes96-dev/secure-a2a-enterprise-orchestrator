@@ -1,8 +1,8 @@
-import { OpenRouter } from "@openrouter/sdk";
 import type { FollowUpInterpretation, RequestInterpretation } from "@a2a/shared";
 import { incidentTaxonomy } from "./config/incidentTaxonomy";
 import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
 import type { IncidentContext } from "./incidentContext";
+import { callOpenRouterJson } from "./openRouterClient";
 
 const followUpPrompt = `You are a ServiceNow enterprise support follow-up interpreter.
 You receive:
@@ -163,23 +163,16 @@ function fallbackInterpretFollowUp(params: {
   };
 }
 
-async function callOpenRouter(input: unknown, apiKey: string, model: string): Promise<string | undefined> {
-  const openRouter = new OpenRouter({ apiKey });
-  const result = await openRouter.chat.send({
-    chatRequest: {
-      model,
-      messages: [
-        { role: "system", content: followUpPrompt },
-        { role: "user", content: JSON.stringify(input) }
-      ],
-      responseFormat: { type: "json_object" },
-      stream: false,
-      temperature: 0
-    }
+async function callOpenRouter(input: unknown, apiKey: string, baseURL: string, model: string): Promise<string | undefined> {
+  return callOpenRouterJson({
+    apiKey,
+    baseURL,
+    model,
+    messages: [
+      { role: "system", content: followUpPrompt },
+      { role: "user", content: JSON.stringify(input) }
+    ]
   });
-
-  const content = result.choices[0]?.message.content;
-  return typeof content === "string" ? content : undefined;
 }
 
 export async function interpretFollowUp(params: {
@@ -212,7 +205,7 @@ export async function interpretFollowUp(params: {
       previousInterpretation: params.previousInterpretation,
       previousIncidentContext: params.previousIncidentContext
     };
-    const content = await callOpenRouter(input, aiConfig.apiKey, aiConfig.model);
+    const content = await callOpenRouter(input, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model);
 
     if (!content) {
       console.info("[follow-up-interpreter] fallback used reason=AI returned empty content");

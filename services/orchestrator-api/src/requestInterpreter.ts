@@ -1,6 +1,6 @@
-import { OpenRouter } from "@openrouter/sdk";
 import type { RequestInterpretation, RequestIntentType, RequestScope } from "@a2a/shared";
 import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
+import { callOpenRouterJson } from "./openRouterClient";
 
 const scopes: RequestScope[] = ["enterprise_support", "manual_enterprise_workflow", "out_of_scope", "unknown"];
 const intentTypes: RequestIntentType[] = [
@@ -307,23 +307,16 @@ function normalizeInterpretation(value: unknown, fallback: RequestInterpretation
   };
 }
 
-async function callOpenRouter(message: string, apiKey: string, model: string): Promise<string | undefined> {
-  const openRouter = new OpenRouter({ apiKey });
-  const result = await openRouter.chat.send({
-    chatRequest: {
-      model,
-      messages: [
-        { role: "system", content: interpreterPrompt },
-        { role: "user", content: JSON.stringify({ message }) }
-      ],
-      responseFormat: { type: "json_object" },
-      stream: false,
-      temperature: 0
-    }
+async function callOpenRouter(message: string, apiKey: string, baseURL: string, model: string): Promise<string | undefined> {
+  return callOpenRouterJson({
+    apiKey,
+    baseURL,
+    model,
+    messages: [
+      { role: "system", content: interpreterPrompt },
+      { role: "user", content: JSON.stringify({ message }) }
+    ]
   });
-
-  const content = result.choices[0]?.message.content;
-  return typeof content === "string" ? content : undefined;
 }
 
 export async function interpretRequest(message: string): Promise<RequestInterpretation> {
@@ -339,7 +332,7 @@ export async function interpretRequest(message: string): Promise<RequestInterpre
 
   try {
     console.info(`[request-interpreter] calling ${aiConfig.provider} model=${aiConfig.model}`);
-    const content = await callOpenRouter(message, aiConfig.apiKey, aiConfig.model);
+    const content = await callOpenRouter(message, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model);
 
     if (!content) {
       return fallbackInterpretRequest(message, "AI request interpretation returned no content; deterministic fallback was used.");

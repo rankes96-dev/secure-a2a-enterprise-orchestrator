@@ -1,59 +1,206 @@
 # Deployment Readiness
 
-This V1 demo is designed for a split deployment where the browser UI, Gateway API, Redis/session storage, and external connector agents run as separate services.
+This V1 production demo uses OpenRouter for AI, Upstash Redis for shared state/session/replay storage, Vercel for the browser UI, and Railway for backend services.
+
+Do not commit or expose raw JWTs, access tokens, refresh tokens, Authorization headers, client assertions, client secrets, private keys, API keys, cookies, Upstash tokens, or the OpenRouter API key.
 
 ## Architecture
 
-- Web UI on Vercel.
-- Orchestrator API on Railway.
-- Redis on Railway or Upstash.
-- External agents as separate Railway services:
+- Vercel hosts only `apps/web-ui`.
+- Railway hosts `services/orchestrator-api`.
+- Railway hosts `services/mock-identity-provider`.
+- Railway hosts external connector agents as separate services:
   - Jira external agent
   - ServiceNow external agent
   - GitHub external agent
+- Upstash Redis is the production state store.
 
-## Required Environment Variables
+## Vercel
 
-### Vercel
+Build from the repository root:
 
-- `VITE_ORCHESTRATOR_API_URL=https://<orchestrator>.railway.app`
+```bash
+npm run build -w apps/web-ui
+```
 
-### Orchestrator Railway Service
+Output directory:
 
-- `PORT`
-- `NODE_ENV=production`
-- `REDIS_URL`
-- `WEB_ORIGIN=https://<vercel-app>.vercel.app`
-- `CORS_ALLOWED_ORIGINS=https://<vercel-app>.vercel.app`
-- JWT or signing environment variables used by the deployment.
-- OpenRouter or other AI provider variables if enabled.
-- External agent base URLs if the deployment preconfigures agents, otherwise use the public discovery URLs entered during onboarding.
+```text
+apps/web-ui/dist
+```
 
-### External Agent Railway Services
+Required public frontend env:
 
-- `PORT`
-- `PUBLIC_BASE_URL=https://<agent>.railway.app`
-- `ORCHESTRATOR_BASE_URL=https://<orchestrator>.railway.app` if the agent needs to call back to the Gateway.
-- Connector-specific demo variables.
+```env
+VITE_ORCHESTRATOR_API_URL=https://<orchestrator>.railway.app
+```
 
-Do not expose secrets to the frontend. Public browser configuration should only contain the orchestrator URL and other non-secret values.
+Vercel must not contain `OPENROUTER_API_KEY`, `UPSTASH_REDIS_REST_TOKEN`, `INTERNAL_SERVICE_TOKEN`, `ORCHESTRATOR_PRIVATE_JWK_JSON`, `ORCHESTRATOR_CLIENT_SECRET`, API keys, JWT secrets, cookies, or other server-side secrets.
 
-## Production Notes
+## Railway Orchestrator Service
 
-- Do not assume localhost agent URLs work in production.
-- Each external agent needs a public HTTPS URL.
-- Gateway onboarding must use the public Railway agent URL.
-- Redis/session storage must be configured before multi-instance deployment.
-- Vercel/Railway CORS must allow the frontend origin to call the orchestrator.
-- External agents should be deployed before running onboarding in production.
+Railway service root: repository root.
 
-## Checklist
+Build command:
 
-1. Deploy Redis on Railway or Upstash and set `REDIS_URL`.
-2. Deploy the orchestrator API to Railway.
-3. Deploy the external connector agents as separate Railway services.
-4. Configure the Vercel environment with `VITE_ORCHESTRATOR_API_URL`.
-5. Open the Web UI.
-6. Select BizApps / IT mode.
-7. Onboard each external agent using its public HTTPS Railway URL.
-8. Run Connector Test Center validation tests.
+```bash
+npm run build -w services/orchestrator-api
+```
+
+Start command:
+
+```bash
+npm run start -w services/orchestrator-api
+```
+
+Required production env:
+
+```env
+NODE_ENV=production
+HOST=0.0.0.0
+PORT=<railway-provided-port>
+ALLOWED_ORIGINS=https://<vercel-app>.vercel.app
+
+OPENROUTER_API_KEY=<server-side-openrouter-key>
+OPENROUTER_MODEL=openai/gpt-4o-mini
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+
+STATE_STORE_DRIVER=upstash
+STATE_STORE_KEY_PREFIX=a2a
+UPSTASH_REDIS_REST_URL=<upstash-rest-url>
+UPSTASH_REDIS_REST_TOKEN=<upstash-rest-token>
+
+SESSION_COOKIE_SECURE=true
+SESSION_COOKIE_SAMESITE=None
+TRUST_PROXY_HEADERS=false
+SHOW_INTERNAL_HEALTH_URLS=false
+INTERNAL_SERVICE_TOKEN=<shared-internal-service-token>
+
+A2A_AUTH_MODE=oauth2_client_credentials_jwt
+REQUIRE_SECURE_A2A_AUTH=true
+A2A_IDP_URL=https://<mock-idp>.railway.app
+A2A_JWKS_URI=https://<mock-idp>.railway.app/.well-known/jwks.json
+ORCHESTRATOR_CLIENT_ID=servicenow-orchestrator-agent
+ORCHESTRATOR_TOKEN_AUTH_METHOD=private_key_jwt
+ORCHESTRATOR_PRIVATE_KEY_JWT_ENABLED=true
+ORCHESTRATOR_PRIVATE_KEY_JWT_AUDIENCE=https://<mock-idp>.railway.app/oauth/token
+ORCHESTRATOR_PRIVATE_JWK_JSON=<private-jwk-json>
+ORCHESTRATOR_ALLOWED_AUTH_METHODS=private_key_jwt
+```
+
+Use `ALLOWED_ORIGINS` for the browser origin. Use `STATE_STORE_DRIVER=upstash` with `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+
+## Railway Mock IdP Service
+
+Railway service root: repository root.
+
+Build command:
+
+```bash
+npm run build -w services/mock-identity-provider
+```
+
+Start command:
+
+```bash
+npm run start -w services/mock-identity-provider
+```
+
+Required production env:
+
+```env
+NODE_ENV=production
+HOST=0.0.0.0
+PORT=<railway-provided-port>
+A2A_ISSUER=https://<mock-idp>.railway.app
+A2A_TOKEN_TTL_SECONDS=300
+INTERNAL_SERVICE_TOKEN=<shared-internal-service-token>
+
+ORCHESTRATOR_PRIVATE_KEY_JWT_ENABLED=true
+ORCHESTRATOR_PRIVATE_KEY_JWT_AUDIENCE=https://<mock-idp>.railway.app/oauth/token
+ORCHESTRATOR_ALLOWED_AUTH_METHODS=private_key_jwt
+ORCHESTRATOR_PUBLIC_JWK_JSON=<public-jwk-json>
+
+STATE_STORE_DRIVER=upstash
+STATE_STORE_KEY_PREFIX=a2a
+UPSTASH_REDIS_REST_URL=<upstash-rest-url>
+UPSTASH_REDIS_REST_TOKEN=<upstash-rest-token>
+
+MOCK_IDP_ENFORCE_IP_ALLOWLIST=false
+MOCK_IDP_ALLOWED_SOURCE_IPS=
+MOCK_IDP_ALLOWED_SOURCE_CIDRS=
+TRUST_PROXY_HEADERS=false
+```
+
+The Mock IdP receives the orchestrator public JWK only. Do not put the orchestrator private JWK on this service. Keep `/oauth/token` protected by `private_key_jwt`, replay protection, and optional source IP controls.
+
+## Railway External Connector Agent Services
+
+Deploy three separate Railway services from `real-external-agent`, one per connector.
+
+Build command for each:
+
+```bash
+npm run build -w real-external-agent
+```
+
+Start commands:
+
+```bash
+npm run start:jira -w real-external-agent
+npm run start:servicenow -w real-external-agent
+npm run start:github -w real-external-agent
+```
+
+Each agent must have a public HTTPS URL on Railway for production onboarding. Do not onboard `localhost` URLs in production. Gateway onboarding must use the public Railway agent URL. Each agent must expose:
+
+- `GET /.well-known/a2a-agent.json`
+- `GET /.well-known/a2a-supported-connectors.json`
+- `GET /.well-known/jwks.json`
+- `POST /onboarding/challenge`
+- `POST /a2a/task`
+
+Required production env per agent:
+
+```env
+NODE_ENV=production
+HOST=0.0.0.0
+PORT=<railway-provided-port>
+AGENT_ISSUER=https://<connector-agent>.railway.app
+MOCK_IDP_JWKS_URI=https://<mock-idp>.railway.app/.well-known/jwks.json
+EXPECTED_AUDIENCE=<external-agent-id>
+TRUSTED_GATEWAY_ISSUER=https://<orchestrator>.railway.app
+TRUSTED_GATEWAY_CLIENT_ID=secure-a2a-gateway-client
+TRUSTED_GATEWAY_JWKS_URI=https://<orchestrator>.railway.app/.well-known/jwks.json
+```
+
+Connector identity values:
+
+- Jira: `EXTERNAL_CONNECTOR_ID=jira-reference`, `EXTERNAL_AGENT_ID=external-jira-agent`, `EXTERNAL_AGENT_CLIENT_ID=jira-agent-client`
+- ServiceNow: `EXTERNAL_CONNECTOR_ID=servicenow-reference`, `EXTERNAL_AGENT_ID=external-servicenow-agent`, `EXTERNAL_AGENT_CLIENT_ID=servicenow-agent-client`
+- GitHub: `EXTERNAL_CONNECTOR_ID=github-reference`, `EXTERNAL_AGENT_ID=external-github-agent`, `EXTERNAL_AGENT_CLIENT_ID=github-agent-client`
+
+## Verification
+
+Static/local readiness:
+
+```bash
+npm install
+npm run verify:v1
+npm run verify:deployment-readiness
+npm run verify:demo-readiness
+```
+
+Service-dependent e2e routing checks require the orchestrator and external connector agents to be running:
+
+```bash
+npm run verify:v1:e2e
+```
+
+Manual production demo path:
+
+1. Open the Vercel URL.
+2. Select BizApps / IT mode.
+3. Onboard each external connector agent using its public HTTPS Railway URL.
+4. Run Connector Test Center validation tests.
+5. Open Security Timeline and confirm policy, token, runtime, and audit proof.

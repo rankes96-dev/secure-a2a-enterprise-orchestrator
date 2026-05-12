@@ -622,15 +622,17 @@ It shows:
 For repeatable Vercel + Railway setup, see:
 
 ```text
-docs/deployment-vercel-railway.md
+docs/deployment.md
 ```
 
 High-level Vercel/Railway shape:
 
 - Vercel hosts only `apps/web-ui`.
-- Railway hosts `services/orchestrator-api`, `services/mock-identity-provider`, and the mock agents.
+- Railway hosts `services/orchestrator-api`, `services/mock-identity-provider`, and separate `real-external-agent` connector services for Jira, ServiceNow, and GitHub.
 - Set `VITE_ORCHESTRATOR_API_URL` in Vercel to the Railway orchestrator URL.
+- Do not put `OPENROUTER_API_KEY`, Upstash credentials, internal service tokens, client secrets, private JWKs, cookies, or JWT secrets in Vercel.
 - Set `ALLOWED_ORIGINS` on the orchestrator to the Vercel frontend origin.
+- Configure OpenRouter on the Railway orchestrator with `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, and `OPENROUTER_BASE_URL=https://openrouter.ai/api/v1`.
 - Use `SESSION_COOKIE_SECURE=true`.
 - Use `SESSION_COOKIE_SAMESITE=None` for cross-site frontend/backend deployment.
 - Use the same `INTERNAL_SERVICE_TOKEN` across orchestrator, Mock IdP, and agents.
@@ -643,7 +645,7 @@ High-level Vercel/Railway shape:
 - Use `STATE_STORE_DRIVER=upstash`.
 - Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
 - Set public-demo guardrails such as `TRUST_PROXY_HEADERS=false`, `SESSION_RATE_LIMIT_*`, onboarding rate limits, and `HEALTH_RATE_LIMIT_*`.
-- Prefer Railway private/internal service URLs between backend services when available.
+- Onboard external connector agents using their public HTTPS Railway URLs, not localhost.
 - If the Mock IdP is public, keep `/oauth/token` protected by `private_key_jwt`, replay protection, and optional IP allowlist.
 
 Do not put server secrets in the frontend.

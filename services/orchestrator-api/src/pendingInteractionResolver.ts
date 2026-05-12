@@ -1,6 +1,6 @@
-import { OpenRouter } from "@openrouter/sdk";
 import type { PendingInteraction, PendingInteractionResolution, SecurityIntent } from "@a2a/shared";
 import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
+import { callOpenRouterJson } from "./openRouterClient";
 
 const pendingInteractionPrompt = `You are a Gateway pending interaction resolver.
 You receive:
@@ -144,23 +144,16 @@ function fallbackResolvePendingInteraction(params: {
   };
 }
 
-async function callOpenRouter(input: unknown, apiKey: string, model: string): Promise<string | undefined> {
-  const openRouter = new OpenRouter({ apiKey });
-  const result = await openRouter.chat.send({
-    chatRequest: {
-      model,
-      messages: [
-        { role: "system", content: pendingInteractionPrompt },
-        { role: "user", content: JSON.stringify(input) }
-      ],
-      responseFormat: { type: "json_object" },
-      stream: false,
-      temperature: 0
-    }
+async function callOpenRouter(input: unknown, apiKey: string, baseURL: string, model: string): Promise<string | undefined> {
+  return callOpenRouterJson({
+    apiKey,
+    baseURL,
+    model,
+    messages: [
+      { role: "system", content: pendingInteractionPrompt },
+      { role: "user", content: JSON.stringify(input) }
+    ]
   });
-
-  const content = result.choices[0]?.message.content;
-  return typeof content === "string" ? content : undefined;
 }
 
 export async function resolvePendingInteraction(params: {
@@ -191,7 +184,7 @@ export async function resolvePendingInteraction(params: {
       pendingInteraction: params.pendingInteraction,
       userMessage: params.userMessage,
       securityIntent: params.securityIntent
-    }, aiConfig.apiKey, aiConfig.model);
+    }, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model);
 
     if (!content) {
       console.info("[pending-interaction-resolver] fallback used reason=AI returned empty content");
