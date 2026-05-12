@@ -634,6 +634,8 @@ High-level Vercel/Railway shape:
 
 - Vercel hosts only `apps/web-ui`.
 - Railway hosts `services/orchestrator-api`, `services/mock-identity-provider`, and separate `real-external-agent` connector services for Jira, ServiceNow, and GitHub.
+- Production is connector-first: connector runtime comes from the `real-external-agent` Railway services.
+- Legacy internal agents are local/demo helpers only and are not deployed in V1 production.
 - Railway production uses compiled JavaScript from each workspace `dist` directory, not `tsx`.
 - Set `VITE_ORCHESTRATOR_API_URL` in Vercel to the Railway orchestrator URL.
 - Do not put `OPENROUTER_API_KEY`, Upstash credentials, internal service tokens, client secrets, private JWKs, cookies, or JWT secrets in Vercel.

@@ -8,6 +8,8 @@ Do not commit or expose raw JWTs, access tokens, refresh tokens, Authorization h
 
 ## Architecture
 
+Production services:
+
 - Vercel hosts only `apps/web-ui`.
 - Railway hosts `services/orchestrator-api`.
 - Railway hosts `services/mock-identity-provider`.
@@ -16,6 +18,9 @@ Do not commit or expose raw JWTs, access tokens, refresh tokens, Authorization h
   - ServiceNow external agent
   - GitHub external agent
 - Upstash Redis is the production state store.
+- OpenRouter is the production AI provider.
+
+Legacy internal mock agents are local-development helpers only and are not deployed in the V1 production connector-first setup.
 
 ## Build Model
 

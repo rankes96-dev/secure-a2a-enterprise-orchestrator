@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 
 const deploymentPath = "docs/deployment.md";
+const orchestratorProductionEnvPath = "services/orchestrator-api/.env.production.example";
 let failed = false;
 
 if (!existsSync(deploymentPath)) {
@@ -8,18 +9,27 @@ if (!existsSync(deploymentPath)) {
   process.exit(1);
 }
 
+if (!existsSync(orchestratorProductionEnvPath)) {
+  console.error("fail - orchestrator production environment template should exist");
+  process.exit(1);
+}
+
 const doc = readFileSync(deploymentPath, "utf8");
+const orchestratorProductionEnv = readFileSync(orchestratorProductionEnvPath, "utf8");
 
 for (const phrase of [
   "Vercel",
   "Railway",
+  "Production services:",
   "Upstash",
   "Upstash Redis",
+  "OpenRouter is the production AI provider",
   "external connector agents",
   "separate Railway services",
   "Jira external agent",
   "ServiceNow external agent",
   "GitHub external agent",
+  "Legacy internal mock agents are local-development helpers only and are not deployed in the V1 production connector-first setup.",
   "public HTTPS URL",
   "VITE_ORCHESTRATOR_API_URL",
   "ALLOWED_ORIGINS",
@@ -59,6 +69,54 @@ for (const forbidden of [
 ]) {
   if (doc.includes(forbidden)) {
     console.error(`fail - deployment readiness doc should not include: ${forbidden}`);
+    failed = true;
+  }
+}
+
+for (const forbiddenLegacyEnvPlaceholder of [
+  "<legacy-jira-agent>",
+  "<legacy-github-agent>",
+  "<legacy-pagerduty-agent>",
+  "<legacy-security-oauth-agent>",
+  "<legacy-api-health-agent>",
+  "<legacy-end-user-triage-agent>"
+]) {
+  if (orchestratorProductionEnv.includes(forbiddenLegacyEnvPlaceholder)) {
+    console.error(`fail - orchestrator production env should not include: ${forbiddenLegacyEnvPlaceholder}`);
+    failed = true;
+  }
+}
+
+for (const forbiddenProductionEnvName of [
+  "JIRA_AGENT_URL",
+  "GITHUB_AGENT_URL",
+  "PAGERDUTY_AGENT_URL",
+  "SECURITY_OAUTH_AGENT_URL",
+  "API_HEALTH_AGENT_URL",
+  "END_USER_TRIAGE_AGENT_URL"
+]) {
+  if (orchestratorProductionEnv.includes(forbiddenProductionEnvName)) {
+    console.error(`fail - orchestrator production env should not include local legacy agent env: ${forbiddenProductionEnvName}`);
+    failed = true;
+  }
+}
+
+for (const legacyDeployInstruction of [
+  "Railway hosts `services/end-user-triage-agent`",
+  "Railway hosts `services/jira-agent`",
+  "Railway hosts `services/github-agent`",
+  "Railway hosts `services/pagerduty-agent`",
+  "Railway hosts `services/security-oauth-agent`",
+  "Railway hosts `services/api-health-agent`",
+  "Deploy `services/end-user-triage-agent`",
+  "Deploy `services/jira-agent`",
+  "Deploy `services/github-agent`",
+  "Deploy `services/pagerduty-agent`",
+  "Deploy `services/security-oauth-agent`",
+  "Deploy `services/api-health-agent`"
+]) {
+  if (doc.includes(legacyDeployInstruction)) {
+    console.error(`fail - deployment doc should not instruct production deployment of legacy internal agent: ${legacyDeployInstruction}`);
     failed = true;
   }
 }
