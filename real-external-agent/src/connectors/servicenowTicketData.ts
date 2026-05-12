@@ -29,6 +29,19 @@ export const serviceNowTickets: ServiceNowTicket[] = [
     nextStep: "Wait for the VPN profile check, or add a screenshot of the VPN error if the issue happens again."
   },
   {
+    number: "INC0010213",
+    type: "incident",
+    state: "Assigned",
+    shortDescription: "Laptop replacement request is waiting for depot scheduling",
+    assignedGroup: "Endpoint Support",
+    requester: "ran@company.com",
+    openedBy: "ran@company.com",
+    watchers: ["analyst@company.com"],
+    allowedGroups: ["it-support"],
+    lastUpdate: "Endpoint Support confirmed stock availability and is waiting for the user to choose a pickup window.",
+    nextStep: "Choose a depot pickup window or ask Endpoint Support to ship the replacement device."
+  },
+  {
     number: "INC0010310",
     type: "incident",
     state: "Pending Customer",
@@ -58,12 +71,17 @@ export const serviceNowTickets: ServiceNowTicket[] = [
   }
 ];
 
-export function findServiceNowTicket(message: string): ServiceNowTicket | undefined {
-  const ticketNumber = message.match(/\b(?:INC|RITM)\d{7}\b/i)?.[0]?.toUpperCase();
-  if (!ticketNumber) {
-    return undefined;
-  }
+export function extractServiceNowTicketNumber(message: string): string | undefined {
+  return message.match(/\b(?:INC|RITM|REQ)\d+\b/i)?.[0]?.toUpperCase();
+}
+
+export function findServiceNowTicketByNumber(ticketNumber: string): ServiceNowTicket | undefined {
   return serviceNowTickets.find((ticket) => ticket.number === ticketNumber);
+}
+
+export function findServiceNowTicket(message: string): ServiceNowTicket | undefined {
+  const ticketNumber = extractServiceNowTicketNumber(message);
+  return ticketNumber ? findServiceNowTicketByNumber(ticketNumber) : undefined;
 }
 
 export function canReadServiceNowTicket(ticket: ServiceNowTicket, actor?: string, roles: string[] = []): boolean {

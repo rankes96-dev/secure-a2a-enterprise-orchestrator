@@ -3667,11 +3667,11 @@ pre {
 }
 
 .template-details {
-  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .template-details > div {
-  grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
   align-items: start;
 }
 
@@ -3953,7 +3953,6 @@ pre {
   .registry-summary-grid,
   .registry-agent-row,
   .registry-agent-metadata,
-  .template-details,
   .trust-card-grid,
   .security-timeline-summary,
   .timeline-metadata-grid,

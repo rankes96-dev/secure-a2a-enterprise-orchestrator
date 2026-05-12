@@ -60,6 +60,34 @@ const serviceNowAllowed = buildServiceNowRuntimeDiagnosis({
 assert(serviceNowAllowed.endUserAnswer?.summary.includes("VPN login fails"), "ServiceNow allowed ticket lookup should return ticket summary");
 assert(serviceNowAllowed.endUserAnswer?.whatWasChanged === "No changes were made.", "ServiceNow ticket lookup should state no changes");
 
+const serviceNowExactTicket = buildServiceNowRuntimeDiagnosis({
+  skillId: "servicenow.ticket.status.lookup",
+  message: "what is the status of INC0010213",
+  actor: "ran@company.com",
+  requiredApplicationGrants: [],
+  requiredEffectivePermissions: [],
+  connectorAccessEvaluation: approvedAccess,
+  runtimeSemantics: baseRuntime
+});
+const serviceNowExactTicketText = JSON.stringify(serviceNowExactTicket);
+assert(serviceNowExactTicketText.includes("INC0010213"), "ServiceNow exact lookup should answer about INC0010213");
+assert(!serviceNowExactTicketText.includes("INC0010245"), "ServiceNow exact lookup must not fall back to INC0010245");
+
+const serviceNowMissingExactTicket = buildServiceNowRuntimeDiagnosis({
+  skillId: "servicenow.ticket.status.lookup",
+  message: "what is the status of REQ0099999",
+  actor: "ran@company.com",
+  requiredApplicationGrants: [],
+  requiredEffectivePermissions: [],
+  connectorAccessEvaluation: approvedAccess,
+  runtimeSemantics: baseRuntime
+});
+const serviceNowMissingExactTicketText = JSON.stringify(serviceNowMissingExactTicket);
+assert(serviceNowMissingExactTicketText.includes("REQ0099999"), "ServiceNow not-found lookup should mention the exact requested ticket");
+assert(serviceNowMissingExactTicket.endUserAnswer?.summary.includes("REQ0099999"), "ServiceNow not-found answer should include the exact requested ticket");
+assert(serviceNowMissingExactTicket.endUserAnswer?.summary.includes("could not find"), "ServiceNow not-found answer should say the exact ticket was not found");
+assert(!serviceNowMissingExactTicketText.includes("INC0010245"), "ServiceNow not-found lookup must not fall back to INC0010245");
+
 const serviceNowDenied = buildServiceNowRuntimeDiagnosis({
   skillId: "servicenow.ticket.status.lookup",
   message: "What is the status of my ticket INC0010310?",
@@ -119,7 +147,7 @@ assert(jiraAccess.endUserAnswer?.whatWasChanged?.includes("No permission was gra
 
 const jiraReadyWrite = buildJiraRuntimeDiagnosis({
   skillId: "jira.issue.create",
-  message: "Create a Jira issue in FIN project for this outage",
+  message: "Create a Jira issue in OPS project for this outage",
   actor: "ran@company.com",
   requiredApplicationGrants: [],
   requiredEffectivePermissions: [],
@@ -129,6 +157,24 @@ const jiraReadyWrite = buildJiraRuntimeDiagnosis({
 assert(jiraReadyWrite.endUserAnswer?.title === "Ready for approval", "Jira ready write action should be approval/planned");
 assert(!jiraReadyWrite.endUserAnswer?.summary.includes("access or permission issue"), "Jira ready write action should not claim generic permission issue");
 assert(jiraReadyWrite.endUserAnswer?.whatWasChanged?.includes("No issue was created"), "Jira ready write action should not claim issue creation");
+assert(jiraReadyWrite.probableCause.includes("required grant and permission"), "Jira ready write action should state connector grant and permission passed");
+assert(jiraReadyWrite.probableCause.includes("approved execution flow"), "Jira ready write action should require approved execution flow");
+
+const jiraFinResourceBlock = buildJiraRuntimeDiagnosis({
+  skillId: "jira.issue.create",
+  message: "Why can't I create an issue in FIN?",
+  actor: "ran@company.com",
+  requiredApplicationGrants: [],
+  requiredEffectivePermissions: [],
+  connectorAccessEvaluation: approvedAccess,
+  runtimeSemantics: { ...baseRuntime, executionType: "write_action", diagnosticOnly: false }
+});
+const jiraFinResourceBlockText = JSON.stringify(jiraFinResourceBlock);
+assert(jiraFinResourceBlock.summary.includes("FIN project-specific check"), "Jira FIN create issue block should name the resource-specific layer");
+assert(jiraFinResourceBlockText.includes("resourceSpecificCheck"), "Jira FIN create issue block should expose resource-specific runtime evidence");
+assert(jiraFinResourceBlockText.includes("FIN project contributor"), "Jira FIN create issue block should name the missing resource-specific permission");
+assert(!jiraFinResourceBlockText.includes("missingApplicationGrants"), "Jira FIN resource block should not masquerade as a missing OAuth grant");
+assert(!jiraFinResourceBlockText.includes("missingEffectivePermissions"), "Jira FIN resource block should not masquerade as a missing service-account permission");
 
 const githubPr = buildGitHubRuntimeDiagnosis({
   skillId: "github.pull_request.status.lookup",
@@ -154,12 +200,15 @@ assert(githubAccess.endUserAnswer?.whatWasChanged?.includes("No repository acces
 
 for (const [label, response] of Object.entries({
   serviceNowAllowed,
+  serviceNowExactTicket,
+  serviceNowMissingExactTicket,
   serviceNowDenied,
   serviceNowAws,
   serviceNowMailingList,
   jiraIssue,
   jiraAccess,
   jiraReadyWrite,
+  jiraFinResourceBlock,
   githubPr,
   githubAccess
 })) {
@@ -188,7 +237,11 @@ for (const prompt of [
 const agentRegistry = readFileSync("apps/web-ui/src/components/agent-registry/AgentRegistryTab.tsx", "utf8");
 const styles = readFileSync("apps/web-ui/src/styles.css", "utf8");
 assert(agentRegistry.includes("registry-agent-metadata template-details"), "Agent Registry template details should use readable template-details layout");
-assert(styles.includes(".template-details") && styles.includes("repeat(2, minmax(220px, 1fr))"), "Template details should use max two readable columns");
+assert(styles.includes(".template-details") && styles.includes(".template-details > div"), "Template details should use a dedicated readable layout");
+assert(styles.includes(".template-details {\n  grid-template-columns: 1fr;"), "Template details should render as full-width key-value rows");
+assert(!styles.includes(".template-details {\n  grid-template-columns: repeat(5"), "Template details must not use five narrow columns");
+assert(!styles.includes(".template-details strong {\n  line-height: 1.45;\n  overflow-wrap: break-word;\n  word-break: break-all;"), "Template details should not force break-all wrapping");
+assert(!styles.includes("registry-agent-metadata,\n  .template-details,\n  .trust-card-grid"), "Responsive registry metadata grid must not force template details back into narrow columns");
 
 if (failed) {
   process.exitCode = 1;

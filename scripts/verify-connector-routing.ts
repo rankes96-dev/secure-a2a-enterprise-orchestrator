@@ -214,8 +214,8 @@ async function main(): Promise<void> {
   if (typeof agentResponse.summary !== "string" || !agentResponse.summary.includes("Jira issue creation failure diagnosis completed")) {
     throw new Error(`Jira diagnosis runtime summary missing actual external diagnosis: ${JSON.stringify(agentResponse)}`);
   }
-  if (typeof result.finalAnswer !== "string" || !result.finalAnswer.includes("Jira issue creation failure diagnosis completed")) {
-    throw new Error(`Jira diagnosis final answer did not use runtime diagnosis: ${JSON.stringify(result.finalAnswer)}`);
+  if (typeof result.finalAnswer !== "string" || !result.finalAnswer.includes("I found an access or permission issue")) {
+    throw new Error(`Jira diagnosis final answer did not use safe runtime end-user diagnosis: ${JSON.stringify(result.finalAnswer)}`);
   }
   const evidence = Array.isArray(agentResponse.evidence) ? agentResponse.evidence.map(asRecord) : [];
   const runtimeValidation = evidence.find((item) => item.title === "Connector runtime validation");
@@ -270,6 +270,16 @@ async function main(): Promise<void> {
   }
   if (!/project key|issue type|workflow validators|actor|audit logs/i.test(allAccessActions)) {
     throw new Error(`all-access Jira diagnosis should recommend project-specific checks: ${JSON.stringify(allAccessAgentResponse)}`);
+  }
+  if (typeof result.finalAnswer !== "string" || /I found an access or permission issue/i.test(result.finalAnswer)) {
+    throw new Error(`all-access Jira diagnosis must not claim generic access or permission issue: ${JSON.stringify(result.finalAnswer)}`);
+  }
+  if (!/connector-level grant and service-account permission checks passed/i.test(result.finalAnswer)) {
+    throw new Error(`all-access Jira diagnosis should align chat answer with proof checks: ${JSON.stringify(result.finalAnswer)}`);
+  }
+  const allAccessEvidence = Array.isArray(allAccessAgentResponse.evidence) ? JSON.stringify(allAccessAgentResponse.evidence) : "";
+  if (!allAccessEvidence.includes("resourceSpecificCheck")) {
+    throw new Error(`all-access Jira diagnosis should expose resource-specific runtime evidence: ${JSON.stringify(allAccessAgentResponse)}`);
   }
   assertNoSecretMarkers(result);
   logOk("all-access Jira diagnosis executes runtime and shifts to project-specific checks");

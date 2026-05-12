@@ -1,7 +1,7 @@
 import type { ConnectorRuntimeSemantics, ConnectorTargetActionStatus } from "../runtime.js";
 import type { EndUserAnswer } from "./types.js";
 import { recommendServiceNowCatalogItem } from "./servicenowCatalogItems.js";
-import { canReadServiceNowTicket, findServiceNowTicket } from "./servicenowTicketData.js";
+import { canReadServiceNowTicket, extractServiceNowTicketNumber, findServiceNowTicketByNumber } from "./servicenowTicketData.js";
 import { findApprovalContext, isApprovalPrompt } from "./servicenowUserAccess.js";
 
 export type ServiceNowRuntimeDiagnosisInput = {
@@ -71,20 +71,39 @@ export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnos
   const roleHints = params.actor?.startsWith("ran@") ? ["it-support"] : params.actor?.startsWith("admin@") ? ["identity-admin"] : params.actor?.startsWith("analyst@") ? ["read-only"] : [];
 
   if (params.skillId === "servicenow.ticket.status.lookup") {
-    const ticket = findServiceNowTicket(params.message);
-    if (!ticket) {
+    const requestedTicketNumber = extractServiceNowTicketNumber(params.message);
+    if (!requestedTicketNumber) {
       return {
         summary: "ServiceNow ticket lookup needs a ticket number.",
-        probableCause: "No INC or RITM number was provided in the request.",
+        probableCause: "No INC, RITM, or REQ number was provided in the request.",
         recommendedActions: ["Ask for the ticket or request number and retry the lookup."],
-        clarifyingQuestions: ["What is the ServiceNow ticket number, for example INC0010245 or RITM0042088?"],
+        clarifyingQuestions: ["What is the ServiceNow ticket number, for example INC0010213, RITM0042088, or REQ0010001?"],
         endUserAnswer: {
           title: "Which ticket should I check?",
           summary: "I can check a ServiceNow ticket status, but I need the ticket number first.",
           whatWasChecked: "No ticket lookup was performed because no ticket number was provided.",
           whatWasChanged: "No changes were made.",
-          nextStep: "Send the INC or RITM number.",
+          nextStep: "Send the INC, RITM, or REQ number.",
           severity: "info",
+          safeToDisplay: true
+        }
+      };
+    }
+
+    const ticket = findServiceNowTicketByNumber(requestedTicketNumber);
+    if (!ticket) {
+      return {
+        summary: `${requestedTicketNumber} was not found in the ServiceNow connector data.`,
+        probableCause: "The user provided an exact ticket number, but the connector mock data has no matching record.",
+        recommendedActions: ["Check the ticket number and retry, or open a support ticket with the exact number."],
+        evidence: [{ title: "ServiceNow ticket lookup", data: { requestedTicketNumber, status: "not_found" } }],
+        endUserAnswer: {
+          title: `${requestedTicketNumber} was not found`,
+          summary: `I looked for ${requestedTicketNumber}, but I could not find that ticket in the ServiceNow connector data.`,
+          whatWasChecked: `Exact ServiceNow ticket lookup for ${requestedTicketNumber}.`,
+          whatWasChanged: "No changes were made.",
+          nextStep: "Check the ticket number and try again, or open a support ticket with the exact number.",
+          severity: "low",
           safeToDisplay: true
         }
       };
