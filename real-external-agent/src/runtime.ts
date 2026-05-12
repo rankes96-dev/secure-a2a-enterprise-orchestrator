@@ -64,6 +64,12 @@ export type ConnectorRuntimeTask = {
   runtimeMode?: unknown;
   allowedSideEffects?: unknown;
   context?: {
+    intentClass?: unknown;
+    targetResourceSystem?: unknown;
+    targetResourceName?: unknown;
+    requestedAccessLevel?: unknown;
+    fulfillmentCapability?: unknown;
+    missingFields?: unknown;
     actor?: {
       email?: unknown;
       roles?: unknown;
@@ -306,6 +312,16 @@ export function safeDiagnosis(params: {
     skillId: params.skill.id,
     message: typeof params.task.message === "string" ? params.task.message : "",
     actor: params.actor,
+    requestContext: {
+      intentClass: typeof params.task.context?.intentClass === "string" ? params.task.context.intentClass : undefined,
+      targetResourceSystem: typeof params.task.context?.targetResourceSystem === "string" ? params.task.context.targetResourceSystem : undefined,
+      targetResourceName: typeof params.task.context?.targetResourceName === "string" ? params.task.context.targetResourceName : undefined,
+      requestedAccessLevel: typeof params.task.context?.requestedAccessLevel === "string" ? params.task.context.requestedAccessLevel : undefined,
+      fulfillmentCapability: typeof params.task.context?.fulfillmentCapability === "string" ? params.task.context.fulfillmentCapability : undefined,
+      missingFields: Array.isArray(params.task.context?.missingFields)
+        ? params.task.context.missingFields.filter((item): item is string => typeof item === "string")
+        : undefined
+    },
     requiredApplicationGrants: params.skill.requiredApplicationGrants,
     requiredEffectivePermissions: params.skill.requiredEffectivePermissions,
     connectorAccessEvaluation: params.accessEvaluation,

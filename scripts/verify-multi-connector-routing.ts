@@ -184,6 +184,30 @@ function expectConnectorStatus(body: Record<string, unknown>, expectedStatus: st
   return connectorRouting;
 }
 
+function expectServiceNowFulfillment(result: Record<string, unknown>, message: string, targetResourceSystem: string): void {
+  const route = expectConnectorStatus(result, "connector_skill_approved", `${message} fulfillment route`);
+  if (route.connectorId !== "servicenow-reference" || route.skillId !== "servicenow.catalog.item.recommend") {
+    throw new Error(`${message} should route to ServiceNow fulfillment capability, got ${JSON.stringify(route)}`);
+  }
+  if (route.targetResourceSystem !== targetResourceSystem || route.fulfillmentCapability !== "access.request.prepare") {
+    throw new Error(`${message} route did not preserve access request context: ${JSON.stringify(route)}`);
+  }
+  const runtime = asRecord(result.connectorRuntime);
+  if (runtime.executed !== true || runtime.resourceSystem !== "servicenow") {
+    throw new Error(`${message} should execute ServiceNow fulfillment runtime: ${JSON.stringify(runtime)}`);
+  }
+  const agentResponse = asRecord(runtime.agentResponse);
+  const endUserAnswer = asRecord(agentResponse.endUserAnswer);
+  const finalAnswer = typeof result.finalAnswer === "string" ? result.finalAnswer : "";
+  if (!finalAnswer.includes("Request preparation") || !finalAnswer.includes("No request was submitted")) {
+    throw new Error(`${message} should produce request-preparation copy with no submission claim: ${JSON.stringify(result.finalAnswer)}`);
+  }
+  if (!JSON.stringify(endUserAnswer).includes("No request was submitted")) {
+    throw new Error(`${message} end-user answer should say no request was submitted: ${JSON.stringify(endUserAnswer)}`);
+  }
+  assertNoSecretMarkers(result);
+}
+
 async function verifyApprovedRuntime(connector: ConnectorFixture): Promise<void> {
   const result = await resolveMessage(connector.approvedMessage);
   const route = expectConnectorStatus(result, "connector_skill_approved", `${connector.label} approved route`);
@@ -242,8 +266,58 @@ async function main(): Promise<void> {
     await verifyApprovedRuntime(connector);
   }
 
-  let result = await resolveMessage("The warehouse robot arm calibration failed");
-  let route = expectConnectorStatus(result, "unsupported", "unsupported warehouse request");
+  let result = await resolveMessage("I want to request access to Jira");
+  let route: Record<string, unknown>;
+  expectServiceNowFulfillment(result, "Jira access request", "jira");
+  if (!JSON.stringify(result).includes("Jira Access Request")) {
+    throw new Error(`Jira access request should recommend the Jira ServiceNow catalog item: ${JSON.stringify(result.finalAnswer)}`);
+  }
+  logOk("Jira access request routes to ServiceNow fulfillment capability");
+
+  result = await resolveMessage("I need access to GitHub");
+  expectServiceNowFulfillment(result, "GitHub access request", "github");
+  if (!JSON.stringify(result).includes("GitHub Repository Access Request")) {
+    throw new Error(`GitHub access request should recommend the GitHub ServiceNow catalog item: ${JSON.stringify(result.finalAnswer)}`);
+  }
+  logOk("GitHub access request routes to ServiceNow fulfillment capability");
+
+  result = await resolveMessage("I need AWS production access");
+  expectServiceNowFulfillment(result, "AWS access request", "aws");
+  if (!JSON.stringify(result).includes("AWS Access Request")) {
+    throw new Error(`AWS access request should recommend the AWS ServiceNow catalog item: ${JSON.stringify(result.finalAnswer)}`);
+  }
+  logOk("AWS access request routes to ServiceNow fulfillment capability");
+
+  result = await resolveMessage("I need access to billing-api repo");
+  expectServiceNowFulfillment(result, "billing-api repo access request", "github");
+  if (!JSON.stringify(result).includes("GitHub Repository Access Request")) {
+    throw new Error(`billing-api repo access request should use ServiceNow fulfillment for GitHub repo access: ${JSON.stringify(result.finalAnswer)}`);
+  }
+  logOk("repository access request uses ServiceNow fulfillment connector by declared capability");
+
+  result = await resolveMessage("Why can't I create a Jira issue in FIN?");
+  route = expectConnectorStatus(result, "connector_skill_approved", "Jira create diagnostic");
+  if (route.connectorId !== "jira-reference" || route.skillId !== "jira.issue.diagnose_creation_failure") {
+    throw new Error(`Jira create diagnostic should stay on Jira connector: ${JSON.stringify(route)}`);
+  }
+  logOk("Jira create diagnostic still routes to Jira connector");
+
+  result = await resolveMessage("What is the status of FIN-42?");
+  route = expectConnectorStatus(result, "connector_skill_approved", "Jira issue status");
+  if (route.connectorId !== "jira-reference" || route.skillId !== "jira.issue.status.lookup") {
+    throw new Error(`Jira issue status should stay on Jira connector: ${JSON.stringify(route)}`);
+  }
+  logOk("Jira issue status still routes to Jira connector");
+
+  result = await resolveMessage("What is the status of INC0010245?");
+  route = expectConnectorStatus(result, "connector_skill_approved", "ServiceNow ticket status");
+  if (route.connectorId !== "servicenow-reference" || route.skillId !== "servicenow.ticket.status.lookup") {
+    throw new Error(`ServiceNow ticket status should stay on ServiceNow ticket lookup: ${JSON.stringify(route)}`);
+  }
+  logOk("ServiceNow ticket status still routes to ticket lookup");
+
+  result = await resolveMessage("The warehouse robot arm calibration failed");
+  route = expectConnectorStatus(result, "unsupported", "unsupported warehouse request");
   if (typeof route.recommendedNextStep !== "string" || !route.recommendedNextStep.toLowerCase().includes("support ticket")) {
     throw new Error(`unsupported route did not recommend a support ticket: ${JSON.stringify(route)}`);
   }

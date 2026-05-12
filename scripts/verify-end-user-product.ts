@@ -109,8 +109,29 @@ const serviceNowAws = buildServiceNowRuntimeDiagnosis({
   connectorAccessEvaluation: approvedAccess,
   runtimeSemantics: baseRuntime
 });
-assert(serviceNowAws.endUserAnswer?.title === "AWS Access Request", "ServiceNow AWS request should recommend AWS Access Request");
+assert(serviceNowAws.endUserAnswer?.summary.includes("AWS Access Request"), "ServiceNow AWS request should recommend AWS Access Request");
 assert(serviceNowAws.endUserAnswer?.whatWasChanged?.includes("No request was submitted"), "ServiceNow AWS request should not claim submission");
+
+const serviceNowJiraAccess = buildServiceNowRuntimeDiagnosis({
+  skillId: "servicenow.catalog.item.recommend",
+  message: "I want to request access to Jira",
+  actor: "ran@company.com",
+  requestContext: {
+    intentClass: "access_request",
+    targetResourceSystem: "jira",
+    fulfillmentCapability: "access.request.prepare",
+    missingFields: ["resource/project/site", "accessLevel", "businessReason"]
+  },
+  requiredApplicationGrants: [],
+  requiredEffectivePermissions: [],
+  connectorAccessEvaluation: approvedAccess,
+  runtimeSemantics: baseRuntime
+});
+assert(serviceNowJiraAccess.endUserAnswer?.title === "Request preparation", "ServiceNow Jira access request should be request preparation");
+assert(serviceNowJiraAccess.endUserAnswer?.summary.includes("Jira"), "ServiceNow Jira access request should mention the target resource system");
+assert(serviceNowJiraAccess.endUserAnswer?.summary.includes("Jira Access Request"), "ServiceNow Jira access request should recommend the Jira catalog item");
+assert(serviceNowJiraAccess.endUserAnswer?.whatWasChanged?.includes("No request was submitted"), "ServiceNow Jira access request should not claim submission");
+assert(serviceNowJiraAccess.endUserAnswer?.nextStep.includes("what access level"), "ServiceNow Jira access request should ask for missing access level");
 
 const serviceNowMailingList = buildServiceNowRuntimeDiagnosis({
   skillId: "servicenow.catalog.item.recommend",
@@ -121,7 +142,7 @@ const serviceNowMailingList = buildServiceNowRuntimeDiagnosis({
   connectorAccessEvaluation: approvedAccess,
   runtimeSemantics: baseRuntime
 });
-assert(serviceNowMailingList.endUserAnswer?.title === "Distribution List Request", "ServiceNow mailing list should recommend Distribution List Request");
+assert(serviceNowMailingList.endUserAnswer?.summary.includes("Distribution List Request"), "ServiceNow mailing list should recommend Distribution List Request");
 
 const jiraIssue = buildJiraRuntimeDiagnosis({
   skillId: "jira.issue.status.lookup",
@@ -204,6 +225,7 @@ for (const [label, response] of Object.entries({
   serviceNowMissingExactTicket,
   serviceNowDenied,
   serviceNowAws,
+  serviceNowJiraAccess,
   serviceNowMailingList,
   jiraIssue,
   jiraAccess,
@@ -220,6 +242,11 @@ assert(orchestratorIndex.includes("/demo/end-user-ready"), "End user mode should
 assert(orchestratorIndex.includes("UNAVAILABLE\\nNo governed systems are connected here yet."), "Zero installed connectors should return unavailable handoff");
 assert(orchestratorIndex.includes("safeTargetSelection: hasInstalledConnectorSystems ?"), "Safe target picker should only appear when installed connector systems exist");
 assert(orchestratorIndex.includes("Other / not listed is not governed by an installed connector here."), "Other target selection should hand off to support");
+
+const connectorRouting = readFileSync("services/orchestrator-api/src/connectorRouting.ts", "utf8");
+assert(connectorRouting.includes("fulfillmentCapability: \"access.request.prepare\""), "Connector routing should infer generic access fulfillment capability");
+assert(connectorRouting.includes("fulfillmentSkillFor"), "Connector routing should select fulfillment connectors by declared capability");
+assert(!connectorRouting.includes("I want to request access to Jira"), "Connector routing should not hardcode the Jira access phrase");
 
 const runTaskTab = readFileSync("apps/web-ui/src/components/run-task/RunTaskTab.tsx", "utf8");
 for (const prompt of [

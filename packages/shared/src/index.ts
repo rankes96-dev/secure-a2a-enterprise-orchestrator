@@ -610,6 +610,12 @@ export interface ResolveResponse {
     resourceSystem?: string;
     skillId?: string;
     skillLabel?: string;
+    intentClass?: string;
+    targetResourceSystem?: string;
+    targetResourceName?: string;
+    requestedAccessLevel?: string;
+    fulfillmentCapability?: string;
+    missingFields?: string[];
     runtimeEndpoint?: string;
     trustedRuntimeEndpoint?: string;
     audience?: string;

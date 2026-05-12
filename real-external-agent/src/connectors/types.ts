@@ -10,6 +10,7 @@ export type ConnectorSkillRequirement = {
   description: string;
   requiredApplicationGrants: string[];
   requiredEffectivePermissions: string[];
+  capabilityIds?: string[];
   riskLevel?: "low" | "medium" | "high" | "sensitive";
   executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
   diagnosesActionId?: string;

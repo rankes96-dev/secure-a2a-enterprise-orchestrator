@@ -244,6 +244,19 @@ async function main(): Promise<void> {
   }
   logOk("default Jira diagnosis executes runtime and explains target create action status");
 
+  result = await resolveMessage("I want to request access to Jira");
+  route = expectConnectorStatus(result, "unsupported", "Jira access request without fulfillment connector");
+  if (route.connectorId === "jira-reference" || route.skillId === "jira.project.access.prepare") {
+    throw new Error(`access request should not route to target Jira connector without fulfillment capability: ${JSON.stringify(route)}`);
+  }
+  if (route.fulfillmentCapability !== "access.request.prepare" || typeof route.recommendedNextStep !== "string" || !route.recommendedNextStep.toLowerCase().includes("support ticket")) {
+    throw new Error(`access request without fulfillment connector should return support handoff with fulfillment context: ${JSON.stringify(route)}`);
+  }
+  if (result.connectorRuntime !== undefined) {
+    throw new Error(`access request without fulfillment connector should not execute runtime: ${JSON.stringify(result.connectorRuntime)}`);
+  }
+  logOk("access request without fulfillment connector returns support handoff");
+
   await configureExternalAgent({
     applicationAccessGrants: allApplicationAccessGrants,
     effectivePermissions: allEffectivePermissions,

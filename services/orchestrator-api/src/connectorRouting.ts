@@ -6,6 +6,12 @@ export type ConnectorRoutingIntent = {
   targetSystem: string;
   connectorId?: string;
   requestedSkillId?: string;
+  intentClass?: "access_request" | "permission_request" | "service_request";
+  targetResourceSystem?: string;
+  targetResourceName?: string;
+  requestedAccessLevel?: string;
+  fulfillmentCapability?: string;
+  missingFields?: string[];
   confidence: "high" | "medium" | "low";
   reason: string;
 };
@@ -24,6 +30,12 @@ export type ConnectorRoutingDecision = {
   resourceSystem?: string;
   skillId?: string;
   skillLabel?: string;
+  intentClass?: "access_request" | "permission_request" | "service_request";
+  targetResourceSystem?: string;
+  targetResourceName?: string;
+  requestedAccessLevel?: string;
+  fulfillmentCapability?: string;
+  missingFields?: string[];
   runtimeEndpoint?: string;
   trustedRuntimeEndpoint?: string;
   audience?: string;
@@ -70,7 +82,108 @@ function scoreSkillHint(text: string, hint: { includeAny: string[]; excludeAny?:
   return includeScore - excludePenalty;
 }
 
+function isAccessServiceRequest(text: string): boolean {
+  const asksForAccess = /\b(i need|need|want|request|asking for|please give|give me)\b.*\b(access|permission|permissions)\b/.test(text) ||
+    /\b(access|permission|permissions)\b.*\b(request|needed|need)\b/.test(text);
+  if (!asksForAccess) {
+    return false;
+  }
+
+  return !/\b(status|show me|what is the status|why can't|why cannot|create issue|create a jira issue|rate limit|pull request| pr\s*\d+|inc\d+|ritm\d+)\b/.test(text);
+}
+
+function extractTargetResourceSystem(text: string): string | undefined {
+  if (/\b(jira|fin project|fin-)\b/.test(text)) return "jira";
+  if (/\b(github|git hub|repository|repo|billing-api)\b/.test(text)) return "github";
+  if (/\b(aws|amazon|cloud|production)\b/.test(text)) return "aws";
+  if (/\b(salesforce|sfcc|crm)\b/.test(text)) return "salesforce";
+  if (/\b(servicenow|service now)\b/.test(text)) return "servicenow";
+  return undefined;
+}
+
+function extractTargetResourceName(message: string): string | undefined {
+  const repo = message.match(/\b[\w.-]+-api\b/i)?.[0];
+  if (repo) return repo;
+  const project = message.match(/\b(?:project\s+)?([A-Z][A-Z0-9]{1,8})\b/)?.[1];
+  if (project && !["AWS", "CRM"].includes(project.toUpperCase())) return project.toUpperCase();
+  return undefined;
+}
+
+function extractRequestedAccessLevel(text: string): string | undefined {
+  if (/\b(project admin|admin|administrator)\b/.test(text)) return "project admin";
+  if (/\b(contributor|write|edit|developer)\b/.test(text)) return "contributor";
+  if (/\b(viewer|view|read|browse)\b/.test(text)) return "viewer";
+  return undefined;
+}
+
+function missingAccessRequestFields(intent: ConnectorRoutingIntent): string[] {
+  return [
+    intent.targetResourceName ? "" : "resource/project/site",
+    intent.requestedAccessLevel ? "" : "accessLevel",
+    "businessReason"
+  ].filter(Boolean);
+}
+
+function inferAccessServiceRequestIntent(message: string): ConnectorRoutingIntent | undefined {
+  const text = normalize(message);
+  if (!isAccessServiceRequest(text)) {
+    return undefined;
+  }
+
+  const targetResourceSystem = extractTargetResourceSystem(text);
+  const targetResourceName = extractTargetResourceName(message);
+  if (!targetResourceSystem && !targetResourceName) {
+    return undefined;
+  }
+
+  const intentClass: ConnectorRoutingIntent["intentClass"] = text.includes("permission") ? "permission_request" : "access_request";
+  const intent: ConnectorRoutingIntent = {
+    targetSystem: "fulfillment",
+    intentClass,
+    targetResourceSystem,
+    targetResourceName,
+    requestedAccessLevel: extractRequestedAccessLevel(text),
+    fulfillmentCapability: "access.request.prepare",
+    confidence: "high",
+    reason: "The request asks to prepare access or permission fulfillment, so routing is based on fulfillment capability before target resource system."
+  };
+  return {
+    ...intent,
+    missingFields: missingAccessRequestFields(intent)
+  };
+}
+
+function fulfillmentSkillFor(intent: ConnectorRoutingIntent, onboardedAgents: TrustedOnboardedAgent[]) {
+  if (!intent.fulfillmentCapability) {
+    return undefined;
+  }
+
+  const candidates = localReferenceConnectorIntentCatalog.flatMap((connector) =>
+    connector.skillHints
+      .filter((hint) => hint.capabilityIds?.includes(intent.fulfillmentCapability ?? ""))
+      .map((hint) => ({ connector, hint }))
+  );
+
+  return candidates
+    .map((candidate) => ({
+      ...candidate,
+      onboarded: onboardedAgents.find((agent) =>
+        agent.connectorProfile?.connectorId === candidate.connector.connectorId ||
+          agent.connectorId === candidate.connector.connectorId ||
+          agent.connectorDecisionSource === candidate.connector.connectorId ||
+          agent.resourceSystem === candidate.connector.resourceSystem ||
+          agent.connectorProfile?.resourceSystem === candidate.connector.resourceSystem
+      )
+    }))
+    .find((candidate) => candidate.onboarded);
+}
+
 export function inferConnectorRoutingIntent(message: string): ConnectorRoutingIntent {
+  const fulfillmentIntent = inferAccessServiceRequestIntent(message);
+  if (fulfillmentIntent) {
+    return fulfillmentIntent;
+  }
+
   const text = normalize(message);
 
   for (const connector of localReferenceConnectorIntentCatalog) {
@@ -123,6 +236,33 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       status: "needs_more_info",
       reason: intent.reason,
       recommendedNextStep: "Provide the target enterprise system and the action you want to perform."
+    };
+  }
+
+  if (intent.fulfillmentCapability) {
+    const fulfillment = fulfillmentSkillFor(intent, onboardedAgents);
+    if (!fulfillment) {
+      return {
+        status: "unsupported",
+        targetSystem: "fulfillment",
+        resourceSystem: intent.targetResourceSystem,
+        intentClass: intent.intentClass,
+        targetResourceSystem: intent.targetResourceSystem,
+        targetResourceName: intent.targetResourceName,
+        requestedAccessLevel: intent.requestedAccessLevel,
+        fulfillmentCapability: intent.fulfillmentCapability,
+        missingFields: intent.missingFields,
+        reason: `No installed connector declares fulfillment capability ${intent.fulfillmentCapability}.`,
+        recommendedNextStep: "Open a support ticket with the target system, access needed, business reason, and duration."
+      };
+    }
+
+    intent = {
+      ...intent,
+      targetSystem: fulfillment.connector.resourceSystem,
+      connectorId: fulfillment.connector.connectorId,
+      requestedSkillId: fulfillment.hint.skillId,
+      reason: `${intent.reason} Selected ${fulfillment.connector.displayName} because it declares ${intent.fulfillmentCapability}.`
     };
   }
 
@@ -191,7 +331,13 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       requiredEffectivePermissions: approved.requiredEffectivePermissions ?? [],
       runtimeMode: runtimeAvailable ? "external_runtime_available" : "metadata_only",
       reason: "Connector is onboarded and the requested skill is approved by application access grants and effective permissions.",
-      recommendedNextStep: "Use connector-backed diagnosis flow."
+      recommendedNextStep: intent.fulfillmentCapability ? "Use connector-backed request preparation flow." : "Use connector-backed diagnosis flow.",
+      intentClass: intent.intentClass,
+      targetResourceSystem: intent.targetResourceSystem,
+      targetResourceName: intent.targetResourceName,
+      requestedAccessLevel: intent.requestedAccessLevel,
+      fulfillmentCapability: intent.fulfillmentCapability,
+      missingFields: intent.missingFields
     };
   }
 

@@ -15,6 +15,7 @@ const serviceNowSkills: ConnectorSkillRequirement[] = [
     description: "Recommend the right catalog item for access, mailbox, distribution list, or generic requests without submitting it.",
     requiredApplicationGrants: ["catalog.read"],
     requiredEffectivePermissions: ["table:sc_req_item:read"],
+    capabilityIds: ["access.request.prepare", "service.request.prepare", "catalog.item.recommend", "request.fulfillment.prepare"],
     executionType: "inspection_read_only"
   },
   {

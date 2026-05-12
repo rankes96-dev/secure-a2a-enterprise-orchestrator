@@ -948,6 +948,9 @@ function isConnectorPlanningCandidate(params: {
   connectorRoute?: ConnectorRoutingDecision;
   installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
 }): boolean {
+  if (params.connectorRoute?.fulfillmentCapability) {
+    return false;
+  }
   return isConnectorAccessPlanningRequest(params.message);
 }
 

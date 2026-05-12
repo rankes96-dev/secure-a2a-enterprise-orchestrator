@@ -71,12 +71,14 @@ function actionCatalog(value: unknown) {
           input.executionType === "unsupported"
             ? input.executionType
             : undefined;
+        const capabilityIds = stringArray(input.capabilityIds);
         return {
           id: cleanString(input.id),
           label: cleanString(input.label),
           description: cleanString(input.description),
           requiredApplicationGrants: stringArray(input.requiredApplicationGrants),
           requiredEffectivePermissions: stringArray(input.requiredEffectivePermissions),
+          capabilityIds: capabilityIds.length ? capabilityIds : undefined,
           riskLevel,
           executionType,
           diagnosesActionId: cleanString(input.diagnosesActionId) || undefined,

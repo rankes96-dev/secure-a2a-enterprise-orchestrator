@@ -284,6 +284,12 @@ export async function executeApprovedConnectorSkill(params: {
         message: params.message,
         context: {
           targetSystem: params.connectorRoute.targetSystem,
+          intentClass: params.connectorRoute.intentClass,
+          targetResourceSystem: params.connectorRoute.targetResourceSystem,
+          targetResourceName: params.connectorRoute.targetResourceName,
+          requestedAccessLevel: params.connectorRoute.requestedAccessLevel,
+          fulfillmentCapability: params.connectorRoute.fulfillmentCapability,
+          missingFields: params.connectorRoute.missingFields,
           runtimeMode: "external_connector_runtime",
           actor: params.actor
             ? {

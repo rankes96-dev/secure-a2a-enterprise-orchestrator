@@ -1,6 +1,6 @@
 import type { ConnectorRuntimeSemantics, ConnectorTargetActionStatus } from "../runtime.js";
 import type { EndUserAnswer } from "./types.js";
-import { recommendServiceNowCatalogItem } from "./servicenowCatalogItems.js";
+import { recommendServiceNowCatalogItem, recommendServiceNowCatalogItemForTarget } from "./servicenowCatalogItems.js";
 import { canReadServiceNowTicket, extractServiceNowTicketNumber, findServiceNowTicketByNumber } from "./servicenowTicketData.js";
 import { findApprovalContext, isApprovalPrompt } from "./servicenowUserAccess.js";
 
@@ -8,6 +8,14 @@ export type ServiceNowRuntimeDiagnosisInput = {
   skillId: string;
   message: string;
   actor?: string;
+  requestContext?: {
+    intentClass?: string;
+    targetResourceSystem?: string;
+    targetResourceName?: string;
+    requestedAccessLevel?: string;
+    fulfillmentCapability?: string;
+    missingFields?: string[];
+  };
   requiredApplicationGrants: string[];
   requiredEffectivePermissions: string[];
   connectorAccessEvaluation: {
@@ -65,6 +73,16 @@ function diagnosticActions(targetActionLabel: string, status?: ConnectorTargetAc
     `Grant the required application access grants and effective permissions for ${targetActionLabel} if the target action should be enabled.`,
     "Re-run Gateway onboarding after changing external connector grants or permissions."
   ];
+}
+
+function accessRequestDetailPrompt(fields: string[]): string {
+  const prompts = fields.map((field) => {
+    if (field === "resource/project/site") return "which project, repository, site, or environment you need";
+    if (field === "accessLevel") return "what access level you need: viewer, contributor, write, or project admin";
+    if (field === "businessReason") return "the business reason";
+    return field;
+  });
+  return prompts.join("; ");
 }
 
 export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnosisInput): ServiceNowRuntimeDiagnosis {
@@ -145,7 +163,7 @@ export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnos
   }
 
   if (params.skillId === "servicenow.catalog.item.recommend") {
-    const item = recommendServiceNowCatalogItem(params.message);
+    const item = recommendServiceNowCatalogItemForTarget(params.requestContext?.targetResourceSystem, params.message);
     const selected = item ?? recommendServiceNowCatalogItem("access");
     if (!selected) {
       return {
@@ -165,17 +183,29 @@ export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnos
       };
     }
 
+    const targetLabel = [
+      params.requestContext?.targetResourceSystem,
+      params.requestContext?.targetResourceName ? `(${params.requestContext.targetResourceName})` : ""
+    ].filter(Boolean).join(" ");
+    const missingFields = params.requestContext?.missingFields?.length
+      ? params.requestContext.missingFields
+      : selected.requiredFields;
+    const requestedLevel = params.requestContext?.requestedAccessLevel;
+    const requestContextSummary = targetLabel
+      ? `I can help prepare a ${targetLabel} access request through ServiceNow.`
+      : "I can help prepare this access request through ServiceNow.";
+
     return {
       summary: `Recommended ServiceNow catalog item: ${selected.name}.`,
       probableCause: selected.description,
-      recommendedActions: [`Open ${selected.id} and provide: ${selected.requiredFields.join(", ")}.`],
-      evidence: [{ title: "ServiceNow catalog match", data: { catalogItemId: selected.id, name: selected.name, deepLink: selected.deepLink } }],
+      recommendedActions: [`Open ${selected.id} and provide: ${missingFields.join(", ")}.`],
+      evidence: [{ title: "ServiceNow fulfillment capability match", data: { catalogItemId: selected.id, name: selected.name, deepLink: selected.deepLink, fulfillmentCapability: params.requestContext?.fulfillmentCapability ?? "catalog.item.recommend", targetResourceSystem: params.requestContext?.targetResourceSystem, targetResourceName: params.requestContext?.targetResourceName, requestedAccessLevel: requestedLevel, missingFields } }],
       endUserAnswer: {
-        title: selected.name,
-        summary: `${selected.description} Form ID: ${selected.id}.`,
-        whatWasChecked: "ServiceNow catalog keywords, request type, and required form fields.",
+        title: "Request preparation",
+        summary: `${requestContextSummary} Recommended form: ${selected.name} (${selected.id}).`,
+        whatWasChecked: "ServiceNow fulfillment capabilities, catalog item match, target resource, and required request details.",
         whatWasChanged: "No changes were made. No request was submitted.",
-        nextStep: `Prepare these details: ${selected.requiredFields.join(", ")}. I can help draft the request text.`,
+        nextStep: `Send these details: ${accessRequestDetailPrompt(missingFields)}.${requestedLevel ? ` Requested access level detected: ${requestedLevel}.` : ""}`,
         severity: "low",
         safeToDisplay: true
       }

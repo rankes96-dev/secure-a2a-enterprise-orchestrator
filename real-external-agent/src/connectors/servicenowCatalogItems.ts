@@ -9,12 +9,36 @@ export type ServiceNowCatalogItem = {
 
 export const serviceNowCatalogItems: ServiceNowCatalogItem[] = [
   {
+    id: "CAT-JIRA-ACCESS",
+    name: "Jira Access Request",
+    keywords: ["jira", "jira project", "fin project", "project access"],
+    deepLink: "https://servicenow.example.com/sp?id=sc_cat_item&sys_id=CAT-JIRA-ACCESS",
+    requiredFields: ["Jira site or project", "Requested access level", "Business justification", "Manager approval", "Requested duration"],
+    description: "Prepare a Jira project or site access request for approval."
+  },
+  {
+    id: "CAT-GITHUB-REPO-ACCESS",
+    name: "GitHub Repository Access Request",
+    keywords: ["github", "git hub", "repository", "repo", "billing-api"],
+    deepLink: "https://servicenow.example.com/sp?id=sc_cat_item&sys_id=CAT-GITHUB-REPO-ACCESS",
+    requiredFields: ["Organization and repository", "Requested access level", "Business justification", "Manager or repo owner approval", "Requested duration"],
+    description: "Prepare a GitHub repository access request for owner approval."
+  },
+  {
     id: "CAT-AWS-PROD-ACCESS",
     name: "AWS Access Request",
     keywords: ["aws", "amazon", "cloud", "production access", "prod access", "הרשאה ל-aws", "הרשאה ל aws"],
     deepLink: "https://servicenow.example.com/sp?id=sc_cat_item&sys_id=CAT-AWS-PROD-ACCESS",
     requiredFields: ["AWS account or application", "Requested role", "Business justification", "Manager approval", "Requested duration"],
     description: "Request time-bound AWS account access through the Cloud Access approval flow."
+  },
+  {
+    id: "CAT-SALESFORCE-ACCESS",
+    name: "Salesforce Access Request",
+    keywords: ["salesforce", "crm"],
+    deepLink: "https://servicenow.example.com/sp?id=sc_cat_item&sys_id=CAT-SALESFORCE-ACCESS",
+    requiredFields: ["Salesforce org", "Role or permission set", "Business justification", "Manager approval", "Requested duration"],
+    description: "Prepare a Salesforce access request for application owner approval."
   },
   {
     id: "CAT-DL-REQUEST",
@@ -45,4 +69,16 @@ export const serviceNowCatalogItems: ServiceNowCatalogItem[] = [
 export function recommendServiceNowCatalogItem(message: string): ServiceNowCatalogItem | undefined {
   const normalized = message.toLowerCase();
   return serviceNowCatalogItems.find((item) => item.keywords.some((keyword) => normalized.includes(keyword.toLowerCase())));
+}
+
+export function recommendServiceNowCatalogItemForTarget(targetResourceSystem: string | undefined, message: string): ServiceNowCatalogItem | undefined {
+  if (targetResourceSystem) {
+    const normalizedTarget = targetResourceSystem.toLowerCase();
+    const byTarget = serviceNowCatalogItems.find((item) => item.keywords.some((keyword) => normalizedTarget.includes(keyword.toLowerCase()) || keyword.toLowerCase().includes(normalizedTarget)));
+    if (byTarget) {
+      return byTarget;
+    }
+  }
+
+  return recommendServiceNowCatalogItem(message);
 }

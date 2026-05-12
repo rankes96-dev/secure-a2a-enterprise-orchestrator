@@ -8,6 +8,7 @@ export type ConnectorIntentHint = {
   skillHints: Array<{
     skillId: string;
     label: string;
+    capabilityIds?: string[];
     includeAny: string[];
     excludeAny?: string[];
     reason: string;
@@ -45,7 +46,7 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         skillId: "jira.issue.create",
         label: "Create Jira issues",
         includeAny: ["create jira issue", "create a jira issue", "create issue", "create ticket", "jira issue create", "issue create", "ticket create"],
-        excludeAny: ["fail", "fails", "failing", "403", "permission"],
+        excludeAny: ["fail", "fails", "failing", "403", "permission", "why", "can't", "cannot"],
         reason: "The request asks the connector to create a Jira issue."
       },
       {
@@ -72,6 +73,7 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
       {
         skillId: "servicenow.catalog.item.recommend",
         label: "Recommend ServiceNow catalog item",
+        capabilityIds: ["access.request.prepare", "service.request.prepare", "catalog.item.recommend", "request.fulfillment.prepare"],
         includeAny: ["aws production access", "permission to aws", "need aws", "הרשאה ל-aws", "הרשאה ל aws", "mailing list", "create a mailing list", "תפוצה", "shared mailbox", "mailbox"],
         reason: "The request asks for a ServiceNow catalog item recommendation."
       },
