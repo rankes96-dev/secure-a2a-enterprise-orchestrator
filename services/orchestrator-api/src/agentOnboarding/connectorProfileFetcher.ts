@@ -1,8 +1,8 @@
-import { connectorProfileHash, validateConnectorProfile } from "../connectors/profileValidation";
-import type { ConnectorProfile } from "../connectors/types";
-import type { ExternalAgentDiscovery, ExternalAgentTrustResponse } from "./types";
-import { validateSafeExternalUrl } from "./requestValidation";
-import { fetchJsonWithLimit, maxConnectorProfileJsonBytes } from "./utils";
+import { connectorProfileHash, validateConnectorProfile } from "../connectors/profileValidation.js";
+import type { ConnectorProfile } from "../connectors/types.js";
+import type { ExternalAgentDiscovery, ExternalAgentTrustResponse } from "./types.js";
+import { validateSafeExternalUrl } from "./requestValidation.js";
+import { fetchJsonWithLimit, maxConnectorProfileJsonBytes } from "./utils.js";
 
 export { connectorProfileHash };
 

@@ -1,6 +1,6 @@
 import type { RequestInterpretation, RequestIntentType, RequestScope } from "@a2a/shared";
-import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
-import { callOpenRouterJson } from "./openRouterClient";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
+import { callOpenRouterJson } from "./openRouterClient.js";
 
 const scopes: RequestScope[] = ["enterprise_support", "manual_enterprise_workflow", "out_of_scope", "unknown"];
 const intentTypes: RequestIntentType[] = [

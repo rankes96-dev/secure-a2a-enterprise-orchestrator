@@ -2,6 +2,8 @@
 
 This V1 production demo uses OpenRouter for AI, Upstash Redis for shared state/session/replay storage, Vercel for the browser UI, and Railway for backend services.
 
+Production backend runtime uses compiled JavaScript from `dist`. Local development can use `tsx`, but Railway production start commands must run `node dist/...`.
+
 Do not commit or expose raw JWTs, access tokens, refresh tokens, Authorization headers, client assertions, client secrets, private keys, API keys, cookies, Upstash tokens, or the OpenRouter API key.
 
 ## Architecture
@@ -9,18 +11,42 @@ Do not commit or expose raw JWTs, access tokens, refresh tokens, Authorization h
 - Vercel hosts only `apps/web-ui`.
 - Railway hosts `services/orchestrator-api`.
 - Railway hosts `services/mock-identity-provider`.
-- Railway hosts external connector agents as separate services:
+- Railway hosts external connector agents as separate Railway services:
   - Jira external agent
   - ServiceNow external agent
   - GitHub external agent
 - Upstash Redis is the production state store.
+
+## Build Model
+
+Install dependencies from the repository root:
+
+```bash
+npm install
+```
+
+Production build:
+
+```bash
+npm run build
+```
+
+The root build compiles `@a2a/shared` first, builds the Vercel frontend, then builds every backend package to its own `dist` directory. Runtime dependencies such as `jose`, `dotenv`, and `@a2a/shared` are under `dependencies`; TypeScript, `tsx`, and `@types/*` remain development dependencies.
+
+Local development:
+
+```bash
+npm run dev
+```
+
+The local dev runner builds `@a2a/shared` once, then starts services with `tsx` for fast iteration. Do not use the dev runner as a Railway production start command.
 
 ## Vercel
 
 Build from the repository root:
 
 ```bash
-npm run build -w apps/web-ui
+npm run build:apps
 ```
 
 Output directory:
@@ -44,7 +70,7 @@ Railway service root: repository root.
 Build command:
 
 ```bash
-npm run build -w services/orchestrator-api
+npm run build
 ```
 
 Start command:
@@ -53,7 +79,13 @@ Start command:
 npm run start -w services/orchestrator-api
 ```
 
-Required production env:
+That workspace start script runs:
+
+```bash
+node dist/index.js
+```
+
+Required production env lives in `services/orchestrator-api/.env.production.example` and includes:
 
 ```env
 NODE_ENV=production
@@ -97,7 +129,7 @@ Railway service root: repository root.
 Build command:
 
 ```bash
-npm run build -w services/mock-identity-provider
+npm run build
 ```
 
 Start command:
@@ -106,33 +138,13 @@ Start command:
 npm run start -w services/mock-identity-provider
 ```
 
-Required production env:
+That workspace start script runs:
 
-```env
-NODE_ENV=production
-HOST=0.0.0.0
-PORT=<railway-provided-port>
-A2A_ISSUER=https://<mock-idp>.railway.app
-A2A_TOKEN_TTL_SECONDS=300
-INTERNAL_SERVICE_TOKEN=<shared-internal-service-token>
-
-ORCHESTRATOR_PRIVATE_KEY_JWT_ENABLED=true
-ORCHESTRATOR_PRIVATE_KEY_JWT_AUDIENCE=https://<mock-idp>.railway.app/oauth/token
-ORCHESTRATOR_ALLOWED_AUTH_METHODS=private_key_jwt
-ORCHESTRATOR_PUBLIC_JWK_JSON=<public-jwk-json>
-
-STATE_STORE_DRIVER=upstash
-STATE_STORE_KEY_PREFIX=a2a
-UPSTASH_REDIS_REST_URL=<upstash-rest-url>
-UPSTASH_REDIS_REST_TOKEN=<upstash-rest-token>
-
-MOCK_IDP_ENFORCE_IP_ALLOWLIST=false
-MOCK_IDP_ALLOWED_SOURCE_IPS=
-MOCK_IDP_ALLOWED_SOURCE_CIDRS=
-TRUST_PROXY_HEADERS=false
+```bash
+node dist/index.js
 ```
 
-The Mock IdP receives the orchestrator public JWK only. Do not put the orchestrator private JWK on this service. Keep `/oauth/token` protected by `private_key_jwt`, replay protection, and optional source IP controls.
+Required production env lives in `services/mock-identity-provider/.env.production.example`. The Mock IdP receives `ORCHESTRATOR_PUBLIC_JWK_JSON` only. Do not put the orchestrator private JWK on this service. Keep `/oauth/token` protected by `private_key_jwt`, replay protection, and optional source IP controls.
 
 ## Railway External Connector Agent Services
 
@@ -141,7 +153,7 @@ Deploy three separate Railway services from `real-external-agent`, one per conne
 Build command for each:
 
 ```bash
-npm run build -w real-external-agent
+npm run build
 ```
 
 Start commands:
@@ -152,6 +164,14 @@ npm run start:servicenow -w real-external-agent
 npm run start:github -w real-external-agent
 ```
 
+Those workspace start scripts run compiled JavaScript:
+
+```bash
+node dist/startConnector.js jira
+node dist/startConnector.js servicenow
+node dist/startConnector.js github
+```
+
 Each agent must have a public HTTPS URL on Railway for production onboarding. Do not onboard `localhost` URLs in production. Gateway onboarding must use the public Railway agent URL. Each agent must expose:
 
 - `GET /.well-known/a2a-agent.json`
@@ -160,21 +180,7 @@ Each agent must have a public HTTPS URL on Railway for production onboarding. Do
 - `POST /onboarding/challenge`
 - `POST /a2a/task`
 
-Required production env per agent:
-
-```env
-NODE_ENV=production
-HOST=0.0.0.0
-PORT=<railway-provided-port>
-AGENT_ISSUER=https://<connector-agent>.railway.app
-MOCK_IDP_JWKS_URI=https://<mock-idp>.railway.app/.well-known/jwks.json
-EXPECTED_AUDIENCE=<external-agent-id>
-TRUSTED_GATEWAY_ISSUER=https://<orchestrator>.railway.app
-TRUSTED_GATEWAY_CLIENT_ID=secure-a2a-gateway-client
-TRUSTED_GATEWAY_JWKS_URI=https://<orchestrator>.railway.app/.well-known/jwks.json
-```
-
-Connector identity values:
+Required production env lives in `real-external-agent/.env.production.example`. Connector identity values:
 
 - Jira: `EXTERNAL_CONNECTOR_ID=jira-reference`, `EXTERNAL_AGENT_ID=external-jira-agent`, `EXTERNAL_AGENT_CLIENT_ID=jira-agent-client`
 - ServiceNow: `EXTERNAL_CONNECTOR_ID=servicenow-reference`, `EXTERNAL_AGENT_ID=external-servicenow-agent`, `EXTERNAL_AGENT_CLIENT_ID=servicenow-agent-client`
@@ -186,6 +192,8 @@ Static/local readiness:
 
 ```bash
 npm install
+npm run typecheck
+npm run build
 npm run verify:v1
 npm run verify:deployment-readiness
 npm run verify:demo-readiness

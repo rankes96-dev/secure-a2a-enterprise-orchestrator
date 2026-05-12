@@ -1,5 +1,4 @@
-import type { AgentCardRegistry } from "../../orchestrator-api/src/agentCardRegistry";
-import { sensitiveScopesNeverIssuedByMockIdp } from "./config/oauthApplications";
+import { sensitiveScopesNeverIssuedByMockIdp } from "./config/oauthApplications.js";
 
 export type DiscoveredA2AResourceRegistry = {
   audiences: Set<string>;
@@ -9,7 +8,37 @@ export type DiscoveredA2AResourceRegistry = {
 
 const deniedScopes = new Set<string>(sensitiveScopesNeverIssuedByMockIdp);
 
-const localExternalConnectorResources = [
+const localA2AResources = [
+  {
+    agentId: "end-user-triage-agent",
+    audience: "end-user-triage-agent",
+    scopes: ["enterprise.triage"]
+  },
+  {
+    agentId: "jira-agent",
+    audience: "jira-agent",
+    scopes: ["jira.diagnose"]
+  },
+  {
+    agentId: "github-agent",
+    audience: "github-agent",
+    scopes: ["github.diagnose", "github.rate_limit.read"]
+  },
+  {
+    agentId: "pagerduty-agent",
+    audience: "pagerduty-agent",
+    scopes: ["pagerduty.diagnose"]
+  },
+  {
+    agentId: "security-oauth-agent",
+    audience: "security-oauth-agent",
+    scopes: ["security.scope.compare", "security.token.inspect", "access.permission.grant"]
+  },
+  {
+    agentId: "api-health-agent",
+    audience: "api-health-agent",
+    scopes: ["apihealth.read"]
+  },
   {
     agentId: "external-jira-agent",
     audience: "external-jira-agent",
@@ -37,35 +66,17 @@ function addScope(registry: DiscoveredA2AResourceRegistry, scope: string | undef
   registry.scopeToAgents.set(normalized, [...(registry.scopeToAgents.get(normalized) ?? []), agentId]);
 }
 
-export async function buildDiscoveredA2AResourceRegistry(registrySource: AgentCardRegistry): Promise<DiscoveredA2AResourceRegistry> {
+export function buildDiscoveredA2AResourceRegistry(): DiscoveredA2AResourceRegistry {
   const registry: DiscoveredA2AResourceRegistry = {
     audiences: new Set<string>(),
     scopes: new Set<string>(),
     scopeToAgents: new Map<string, string[]>()
   };
 
-  for (const card of (await registrySource.listAgentCards()).filter((agentCard) => Boolean(agentCard.endpoint))) {
-    const audience = card.auth.audience?.trim();
-    if (audience) {
-      registry.audiences.add(audience);
-    }
-
-    for (const skill of card.skills) {
-      if (skill.requiredScopes?.length) {
-        for (const scope of skill.requiredScopes) {
-          addScope(registry, scope, card.agentId);
-        }
-        continue;
-      }
-
-      addScope(registry, skill.requiredPermission, card.agentId);
-    }
-  }
-
-  for (const connector of localExternalConnectorResources) {
-    registry.audiences.add(connector.audience);
-    for (const scope of connector.scopes) {
-      addScope(registry, scope, connector.agentId);
+  for (const resource of localA2AResources) {
+    registry.audiences.add(resource.audience);
+    for (const scope of resource.scopes) {
+      addScope(registry, scope, resource.agentId);
     }
   }
 

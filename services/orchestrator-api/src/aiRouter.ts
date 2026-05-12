@@ -11,10 +11,10 @@ import type {
   SelectedAgent,
   SkippedAgent
 } from "@a2a/shared";
-import { findAgentSkillsByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard, type AgentCard, type CapabilityMatch } from "./agentCards";
-import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
-import { callOpenRouterJson } from "./openRouterClient";
-import { interpretRequest } from "./requestInterpreter";
+import { findAgentSkillsByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard, type AgentCard, type CapabilityMatch } from "./agentCards.js";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
+import { callOpenRouterJson } from "./openRouterClient.js";
+import { interpretRequest } from "./requestInterpreter.js";
 
 const systems: EnterpriseSystem[] = ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday", "Unknown"];
 const errorCodes: ErrorCode[] = ["401", "403", "404", "429", "500", "502", "503", "504"];

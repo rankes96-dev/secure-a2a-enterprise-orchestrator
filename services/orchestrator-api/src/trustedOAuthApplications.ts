@@ -1,4 +1,4 @@
-import type { ExternalAgentTrustResponse, OAuthApplicationRegistration } from "./agentOnboarding";
+import type { ExternalAgentTrustResponse, OAuthApplicationRegistration } from "./agentOnboarding.js";
 
 export function validateOAuthApplicationBinding(trustResponse: ExternalAgentTrustResponse): {
   valid: boolean;

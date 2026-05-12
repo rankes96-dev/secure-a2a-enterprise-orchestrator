@@ -1,4 +1,4 @@
-import type { StateStore } from "./StateStore";
+import type { StateStore } from "./StateStore.js";
 
 export type UpstashStateStoreOptions = {
   url: string;

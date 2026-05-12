@@ -701,9 +701,9 @@ export interface AgentsHealthResponse {
   };
 }
 
-export * from "./auth/verifyA2AToken";
-export * from "./auth/requireA2AAuth";
-export * from "./state/StateStore";
-export * from "./state/InMemoryStateStore";
-export * from "./state/UpstashStateStore";
-export * from "./state/createStateStore";
+export * from "./auth/verifyA2AToken.js";
+export * from "./auth/requireA2AAuth.js";
+export * from "./state/StateStore.js";
+export * from "./state/InMemoryStateStore.js";
+export * from "./state/UpstashStateStore.js";
+export * from "./state/createStateStore.js";

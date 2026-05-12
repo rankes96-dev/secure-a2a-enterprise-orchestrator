@@ -1,9 +1,9 @@
-import { decideConnectorActions } from "../connectors/decisionEngine";
-import { gatewayMetadata, gatewayPublicIdentity, signGatewayOnboardingChallenge } from "../security/gatewayIdentity";
-import { validateOAuthApplicationBinding } from "../trustedOAuthApplications";
-import { fetchExternalConnectorProfile, verifyConnectorProfileBinding } from "./connectorProfileFetcher";
-import { discoverExternalAgent } from "./discovery";
-import { createChallenge, parseOnboardingRequest, validateOnboardingRequest } from "./requestValidation";
+import { decideConnectorActions } from "../connectors/decisionEngine.js";
+import { gatewayMetadata, gatewayPublicIdentity, signGatewayOnboardingChallenge } from "../security/gatewayIdentity.js";
+import { validateOAuthApplicationBinding } from "../trustedOAuthApplications.js";
+import { fetchExternalConnectorProfile, verifyConnectorProfileBinding } from "./connectorProfileFetcher.js";
+import { discoverExternalAgent } from "./discovery.js";
+import { createChallenge, parseOnboardingRequest, validateOnboardingRequest } from "./requestValidation.js";
 import {
   blockAllDeclaredActions,
   buildResourceRegistration,
@@ -11,10 +11,10 @@ import {
   connectorProfileSummary,
   deriveCapabilitiesFromConnectorDecisions,
   publicTokenEndpointAuthMethod
-} from "./responseMapper";
-import { addTrustedOnboardedAgent } from "./trustedAgentStore";
-import { requestExternalAgentTrustResponse } from "./trustResponseVerifier";
-import type { AgentOnboardingCheck, AgentOnboardingDiscoveryResult, AgentOnboardingValidationResult } from "./types";
+} from "./responseMapper.js";
+import { addTrustedOnboardedAgent } from "./trustedAgentStore.js";
+import { requestExternalAgentTrustResponse } from "./trustResponseVerifier.js";
+import type { AgentOnboardingCheck, AgentOnboardingDiscoveryResult, AgentOnboardingValidationResult } from "./types.js";
 
 function addCheck(checks: AgentOnboardingCheck[], name: string, passed: boolean, detail?: string): void {
   checks.push({ name, status: passed ? "passed" : "failed", ...(detail ? { detail } : {}) });

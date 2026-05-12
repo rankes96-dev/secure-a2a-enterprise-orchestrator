@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { isAllowedLocalReferenceConnectorBaseUrl, localReferenceConnectorBaseUrls } from "../connectors/localReferenceConnectors";
-import type { AgentOnboardingChallenge, AgentOnboardingRequest } from "./types";
-import { cleanString } from "./utils";
+import { isAllowedLocalReferenceConnectorBaseUrl, localReferenceConnectorBaseUrls } from "../connectors/localReferenceConnectors.js";
+import type { AgentOnboardingChallenge, AgentOnboardingRequest } from "./types.js";
+import { cleanString } from "./utils.js";
 
 function normalizeAgentBaseUrl(value: string): string | undefined {
   try {

@@ -3,12 +3,11 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { exportJWK, generateKeyPair, calculateJwkThumbprint, SignJWT, type JWK, type KeyLike } from "jose";
 import type { A2ATokenClaims, A2ATokenResponse } from "@a2a/shared";
-import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
-import { StaticAgentCardRegistry } from "../../orchestrator-api/src/agentCardRegistry";
-import { buildDiscoveredA2AResourceRegistry, type DiscoveredA2AResourceRegistry } from "./agentCardScopeRegistry";
-import { getOAuthApplication, oauthApplications, sensitiveScopesNeverIssuedByMockIdp, type OAuthApplicationRegistration } from "./config/oauthApplications";
-import { authenticateOAuthClient } from "./security/clientAuthentication";
-import { evaluateSourceIpAllowlist } from "./security/sourceIpAllowlist";
+import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
+import { buildDiscoveredA2AResourceRegistry, type DiscoveredA2AResourceRegistry } from "./agentCardScopeRegistry.js";
+import { getOAuthApplication, oauthApplications, sensitiveScopesNeverIssuedByMockIdp, type OAuthApplicationRegistration } from "./config/oauthApplications.js";
+import { authenticateOAuthClient } from "./security/clientAuthentication.js";
+import { evaluateSourceIpAllowlist } from "./security/sourceIpAllowlist.js";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url), quiet: true });
@@ -16,7 +15,6 @@ dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url), q
 const port = Number(process.env.PORT ?? process.env.MOCK_IDENTITY_PROVIDER_PORT ?? 4110);
 const issuer = process.env.A2A_ISSUER ?? "http://localhost:4110";
 const deniedScopes = new Set<string>(sensitiveScopesNeverIssuedByMockIdp);
-const agentCardRegistry = new StaticAgentCardRegistry();
 const demoUserTokenAudience = "secure-a2a-gateway";
 const demoUserTokenTtlSeconds = 900;
 
@@ -360,7 +358,7 @@ function auditTokenAttempt(
 
 async function start(): Promise<void> {
   signingKey = await createSigningKey();
-  resourceRegistry = await buildDiscoveredA2AResourceRegistry(agentCardRegistry);
+  resourceRegistry = buildDiscoveredA2AResourceRegistry();
 
   startJsonServer(port, async (request, response) => {
     if (request.method === "GET" && request.url === "/health") {

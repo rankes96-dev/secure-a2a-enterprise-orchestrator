@@ -1,7 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { gatewayPublicIdentity } from "../security/gatewayIdentity";
-import type { AgentOnboardingChallenge, ExternalAgentDiscovery, ExternalAgentTrustResponse } from "./types";
-import { cleanString, externalStatus, fetchJsonWithLimit, maxOnboardingJsonBytes, record, stringArray } from "./utils";
+import { gatewayPublicIdentity } from "../security/gatewayIdentity.js";
+import type { AgentOnboardingChallenge, ExternalAgentDiscovery, ExternalAgentTrustResponse } from "./types.js";
+import { cleanString, externalStatus, fetchJsonWithLimit, maxOnboardingJsonBytes, record, stringArray } from "./utils.js";
 
 export async function requestExternalAgentTrustResponse(
   challenge: AgentOnboardingChallenge,

@@ -27,12 +27,12 @@ import type {
   UserIdentitySummary
 } from "@a2a/shared";
 import { assertSecureA2AAuthMode, secureA2AAuthRequired } from "@a2a/shared";
-import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
-import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards";
-import { routeWithAI } from "./aiRouter";
-import { getSafeAiConfigSummary } from "./config/aiConfig";
-import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
-import { getA2AAccessToken } from "./security/tokenClient";
+import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
+import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards.js";
+import { routeWithAI } from "./aiRouter.js";
+import { getSafeAiConfigSummary } from "./config/aiConfig.js";
+import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine.js";
+import { getA2AAccessToken } from "./security/tokenClient.js";
 import {
   bearerTokenFromHeaders,
   expectedUserIdentityIssuer,
@@ -40,23 +40,23 @@ import {
   userIdentityJwksUri,
   validateUserIdentityJwt,
   type VerifiedUserIdentity
-} from "./security/userIdentity";
-import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext";
-import { interpretFollowUp } from "./followUpInterpreter";
-import { createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager";
-import { gatewayMetadata, gatewayPublicJwks } from "./security/gatewayIdentity";
-import { buildManualWorkflowAnswer } from "./requestInterpreter";
-import { detectSensitiveAction } from "./sensitiveActionGuard";
-import { discoverAgentOnboarding, listSupportedConnectorTemplates, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding";
-import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting";
-import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime";
-import { requestConnectorActionPlan } from "./connectorActionPlanner";
-import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation";
-import { AuditEvents } from "./audit/auditEvents";
-import { evaluateConnectorPolicy } from "./policy/connectorPolicy";
-import { detectAdversarialIntent } from "./adversarialIntent";
-import { buildExecutionGateStack } from "./executionGateStack";
-import { resolvePendingInteraction } from "./pendingInteractionResolver";
+} from "./security/userIdentity.js";
+import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext.js";
+import { interpretFollowUp } from "./followUpInterpreter.js";
+import { createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager.js";
+import { gatewayMetadata, gatewayPublicJwks } from "./security/gatewayIdentity.js";
+import { buildManualWorkflowAnswer } from "./requestInterpreter.js";
+import { detectSensitiveAction } from "./sensitiveActionGuard.js";
+import { discoverAgentOnboarding, listSupportedConnectorTemplates, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding.js";
+import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting.js";
+import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime.js";
+import { requestConnectorActionPlan } from "./connectorActionPlanner.js";
+import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation.js";
+import { AuditEvents } from "./audit/auditEvents.js";
+import { evaluateConnectorPolicy } from "./policy/connectorPolicy.js";
+import { detectAdversarialIntent } from "./adversarialIntent.js";
+import { buildExecutionGateStack } from "./executionGateStack.js";
+import { resolvePendingInteraction } from "./pendingInteractionResolver.js";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 

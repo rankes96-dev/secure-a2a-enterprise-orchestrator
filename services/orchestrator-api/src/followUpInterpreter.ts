@@ -1,8 +1,8 @@
 import type { FollowUpInterpretation, RequestInterpretation } from "@a2a/shared";
-import { incidentTaxonomy } from "./config/incidentTaxonomy";
-import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
-import type { IncidentContext } from "./incidentContext";
-import { callOpenRouterJson } from "./openRouterClient";
+import { incidentTaxonomy } from "./config/incidentTaxonomy.js";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
+import type { IncidentContext } from "./incidentContext.js";
+import { callOpenRouterJson } from "./openRouterClient.js";
 
 const followUpPrompt = `You are a ServiceNow enterprise support follow-up interpreter.
 You receive:

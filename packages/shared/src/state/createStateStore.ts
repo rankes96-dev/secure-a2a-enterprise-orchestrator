@@ -1,6 +1,6 @@
-import { InMemoryStateStore } from "./InMemoryStateStore";
-import type { StateStore } from "./StateStore";
-import { UpstashStateStore } from "./UpstashStateStore";
+import { InMemoryStateStore } from "./InMemoryStateStore.js";
+import type { StateStore } from "./StateStore.js";
+import { UpstashStateStore } from "./UpstashStateStore.js";
 
 export function createStateStoreFromEnv(): StateStore {
   const driver = process.env.STATE_STORE_DRIVER ?? "memory";

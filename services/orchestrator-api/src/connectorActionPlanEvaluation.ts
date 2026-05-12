@@ -1,5 +1,5 @@
 import type { ConnectorActionPlan, ConnectorActionPlanOption, EvaluatedConnectorActionPlan } from "@a2a/shared";
-import type { TrustedOnboardedAgent } from "./agentOnboarding";
+import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
 
 function missingFrom(required: string[], present: string[]): string[] {
   const presentSet = new Set(present);

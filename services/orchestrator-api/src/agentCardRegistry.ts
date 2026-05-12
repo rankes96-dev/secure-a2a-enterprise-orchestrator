@@ -1,5 +1,5 @@
 import type { AgentName } from "@a2a/shared";
-import { discoverAgentCards, getAgentCard as getDiscoveredAgentCard, getAgentCards, type AgentCard } from "./agentCards";
+import { discoverAgentCards, getAgentCard as getDiscoveredAgentCard, getAgentCards, type AgentCard } from "./agentCards.js";
 
 export type AgentCardRegistry = {
   listAgentCards(): Promise<AgentCard[]>;

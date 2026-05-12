@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import type { A2AAuthValidationResult, A2ATokenClaims } from "../index";
+import type { A2AAuthValidationResult, A2ATokenClaims } from "../index.js";
 
 export type VerifyA2ATokenInput = {
   authorizationHeader?: string | string[];

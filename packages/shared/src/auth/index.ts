@@ -1,2 +1,2 @@
-export * from "./verifyA2AToken";
-export * from "./requireA2AAuth";
+export * from "./verifyA2AToken.js";
+export * from "./requireA2AAuth.js";

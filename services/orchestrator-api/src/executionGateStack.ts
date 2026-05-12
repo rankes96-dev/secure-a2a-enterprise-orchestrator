@@ -1,5 +1,5 @@
 import type { Classification, ConnectorActionPlan, EvaluatedConnectorActionPlan, ExecutionGate, ExecutionGateId, ExecutionGateStack, RequestInterpretation, ResolveResponse, SecurityIntent, SelectedAgent } from "@a2a/shared";
-import type { ConnectorRuntimeResult } from "./connectorRuntime";
+import type { ConnectorRuntimeResult } from "./connectorRuntime.js";
 
 type ConnectorRouting = NonNullable<ResolveResponse["connectorRouting"]>;
 type ConnectorPolicy = NonNullable<ResolveResponse["connectorPolicy"]>;

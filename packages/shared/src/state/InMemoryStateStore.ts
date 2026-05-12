@@ -1,4 +1,4 @@
-import type { StateStore } from "./StateStore";
+import type { StateStore } from "./StateStore.js";
 
 type StateEntry = {
   value: unknown;

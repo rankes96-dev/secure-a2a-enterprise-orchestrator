@@ -1,6 +1,6 @@
-import type { AgentOnboardingRequest, ExternalAgentDiscovery } from "./types";
-import { cleanString, fetchJsonWithLimit, maxDiscoveryJsonBytes, record } from "./utils";
-import { validateSafeExternalUrl } from "./requestValidation";
+import type { AgentOnboardingRequest, ExternalAgentDiscovery } from "./types.js";
+import { cleanString, describeFetchFailure, fetchJsonWithLimit, maxDiscoveryJsonBytes, record } from "./utils.js";
+import { validateSafeExternalUrl } from "./requestValidation.js";
 
 export function validateDiscovery(value: unknown, request: AgentOnboardingRequest): { discovery?: ExternalAgentDiscovery; details: string[] } {
   const details: string[] = [];
@@ -82,7 +82,7 @@ export async function discoverExternalAgent(request: AgentOnboardingRequest): Pr
     return validateDiscovery(body, request);
   } catch (error) {
     return {
-      details: [`external agent discovery failed: ${error instanceof Error ? error.message : "unknown error"}`]
+      details: [`external agent discovery failed: ${describeFetchFailure(discoveryUrl, error)}`]
     };
   }
 }

@@ -1,5 +1,5 @@
-import type { TrustedOnboardedAgent } from "../agentOnboarding/types";
-import { isConnectorRuntimeEndpointAllowed } from "../security/connectorRuntimeSafety";
+import type { TrustedOnboardedAgent } from "../agentOnboarding/types.js";
+import { isConnectorRuntimeEndpointAllowed } from "../security/connectorRuntimeSafety.js";
 
 export type InstalledConnectorLifecycleState =
   | "installed"

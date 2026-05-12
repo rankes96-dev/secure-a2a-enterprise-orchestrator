@@ -1,6 +1,6 @@
 import type { PendingInteraction, PendingInteractionResolution, SecurityIntent } from "@a2a/shared";
-import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
-import { callOpenRouterJson } from "./openRouterClient";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
+import { callOpenRouterJson } from "./openRouterClient.js";
 
 const pendingInteractionPrompt = `You are a Gateway pending interaction resolver.
 You receive:

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
@@ -11,11 +11,19 @@ const services = [
   { name: "pagerduty", args: ["run", "dev", "-w", "services/pagerduty-agent"], env: { PORT: "4103" } },
   { name: "oauth", args: ["run", "dev", "-w", "services/security-oauth-agent"], env: { PORT: "4104" } },
   { name: "health", args: ["run", "dev", "-w", "services/api-health-agent"], env: { PORT: "4105" } },
-  { name: "idp", args: ["run", "dev", "-w", "services/mock-identity-provider"], env: { PORT: "4110" } }
+  { name: "idp", args: ["run", "dev", "-w", "services/mock-identity-provider"], env: { PORT: "4110" } },
+  { name: "external-jira", args: ["run", "dev:jira", "-w", "real-external-agent"] },
+  { name: "external-servicenow", args: ["run", "dev:servicenow", "-w", "real-external-agent"] },
+  { name: "external-github", args: ["run", "dev:github", "-w", "real-external-agent"] }
 ];
 
 const children = new Map();
 let shuttingDown = false;
+
+const sharedBuild = spawnSync(npmCommand, ["run", "build", "-w", "@a2a/shared"], { stdio: "inherit" });
+if (sharedBuild.status !== 0) {
+  process.exit(sharedBuild.status ?? 1);
+}
 
 function prefixStream(name, stream, writer) {
   let buffer = "";

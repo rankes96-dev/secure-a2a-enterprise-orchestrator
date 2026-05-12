@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { A2AAgentResponse, ConnectorRuntimeExecutionType, ConnectorRuntimeOutcome, ConnectorRuntimeSemantics, ConnectorTargetActionStatus, EndUserAnswer } from "@a2a/shared";
-import { getA2AAccessToken, type A2AIssuedTokenMetadata } from "./security/tokenClient";
-import type { VerifiedUserIdentity } from "./security/userIdentity";
-import type { ConnectorRoutingDecision } from "./connectorRouting";
-import { validateTrustedConnectorRuntimeEndpoint } from "./security/connectorRuntimeSafety";
+import { getA2AAccessToken, type A2AIssuedTokenMetadata } from "./security/tokenClient.js";
+import type { VerifiedUserIdentity } from "./security/userIdentity.js";
+import type { ConnectorRoutingDecision } from "./connectorRouting.js";
+import { validateTrustedConnectorRuntimeEndpoint } from "./security/connectorRuntimeSafety.js";
 
 export type ConnectorRuntimeResult = {
   executed: boolean;

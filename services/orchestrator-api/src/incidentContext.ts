@@ -1,5 +1,5 @@
 import type { FollowUpInterpretation, RequestInterpretation } from "@a2a/shared";
-import { incidentTaxonomy } from "./config/incidentTaxonomy";
+import { incidentTaxonomy } from "./config/incidentTaxonomy.js";
 
 export type IncidentContext = {
   targetSystemText?: string;

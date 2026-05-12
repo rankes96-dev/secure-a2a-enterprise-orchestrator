@@ -1,7 +1,7 @@
 import { importJWK, jwtVerify, type JWK } from "jose";
 import type { OAuthClientAuthMethod } from "@a2a/shared";
-import type { OAuthApplicationRegistration } from "../config/oauthApplications";
-import { clientAssertionReplayStore } from "./clientAssertionReplayStore";
+import type { OAuthApplicationRegistration } from "../config/oauthApplications.js";
+import { clientAssertionReplayStore } from "./clientAssertionReplayStore.js";
 
 export type TokenRequestClientAuthFields = {
   client_id?: string;

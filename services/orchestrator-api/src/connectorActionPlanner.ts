@@ -1,6 +1,6 @@
 import type { A2AAgentResponse, ConnectorActionPlan, PlannedActionExecutionType, PlannedActionRiskLevel, PlannedActionSideEffects } from "@a2a/shared";
-import type { TrustedOnboardedAgent } from "./agentOnboarding";
-import { validateTrustedConnectorRuntimeEndpoint } from "./security/connectorRuntimeSafety";
+import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
+import { validateTrustedConnectorRuntimeEndpoint } from "./security/connectorRuntimeSafety.js";
 
 const maxActionPlanJsonBytes = 64 * 1024;
 const forbiddenPlanKeys = new Set(["rawtoken", "authorization", "access_token", "refresh_token", "client_assertion", "private_key", "client_secret", "bearer"]);

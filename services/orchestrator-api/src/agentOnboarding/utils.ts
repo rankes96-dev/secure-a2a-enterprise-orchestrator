@@ -19,6 +19,48 @@ export function externalStatus(value: unknown): "active" | "disabled" | "unknown
   return value === "active" || value === "disabled" ? value : "unknown";
 }
 
+function errorCode(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const code = (value as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function errorAddress(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const address = (value as { address?: unknown }).address;
+  const port = (value as { port?: unknown }).port;
+  if (typeof address !== "string") {
+    return undefined;
+  }
+
+  return typeof port === "number" || typeof port === "string" ? `${address}:${port}` : address;
+}
+
+export function describeFetchFailure(url: string, error: unknown): string {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return `${url} timed out after ${httpTimeoutMs}ms`;
+  }
+
+  if (error instanceof Error) {
+    const cause = (error as Error & { cause?: unknown }).cause;
+    const causeCode = errorCode(cause);
+    const causeAddress = errorAddress(cause);
+    if (causeCode) {
+      return `${url} failed with ${causeCode}${causeAddress ? ` at ${causeAddress}` : ""}`;
+    }
+
+    return `${url} failed: ${error.message}`;
+  }
+
+  return `${url} failed: unknown error`;
+}
+
 export async function fetchJsonWithLimit<T>(url: string, init: RequestInit, maxBytes: number): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), httpTimeoutMs);

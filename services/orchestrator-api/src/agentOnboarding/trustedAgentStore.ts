@@ -1,4 +1,4 @@
-import type { TrustedOnboardedAgent } from "./types";
+import type { TrustedOnboardedAgent } from "./types.js";
 
 // Local demo storage only. Production requires a persistent trusted connector
 // registry with tenant ownership, audit, revocation, last verified timestamp,

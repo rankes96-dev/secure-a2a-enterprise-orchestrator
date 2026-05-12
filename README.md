@@ -213,6 +213,8 @@ npm install
 npm run dev
 ```
 
+Local development uses `tsx` for fast TypeScript iteration. Production builds compile backend services to `dist` and production `start` scripts run `node dist/...`.
+
 Open:
 
 ```text
@@ -230,6 +232,9 @@ Local ports:
 - API Health Agent: `http://localhost:4105`
 - End-user Triage Agent: `http://localhost:4106`
 - Mock Identity Provider: `http://localhost:4110`
+- Real External Jira Connector: `http://localhost:4201`
+- Real External ServiceNow Connector: `http://localhost:4202`
+- Real External GitHub Connector: `http://localhost:4203`
 
 Full secure JWT local mode:
 
@@ -244,7 +249,7 @@ Generate local keys with `npm run generate:orchestrator-client-key`, then copy `
 
 ## AI Routing
 
-Optional AI setup lives in `services/orchestrator-api/.env`. The orchestrator process loads environment values from that file at startup.
+Optional local AI setup can be copied from `services/orchestrator-api/.env.local.example`. The orchestrator process loads environment values from its local `.env` file at startup.
 
 ```env
 OPENROUTER_API_KEY=
@@ -304,7 +309,7 @@ The local `real-external-agent` service can run as three connector instances:
 
 Each connector has its own profile, admin config, skills, application access grants, effective permissions, denied permissions, and runtime diagnosis text. No real Jira, ServiceNow, or GitHub APIs are called.
 
-Start the local demo services, then run one terminal per connector:
+`npm run dev` starts all three real external connector instances with the rest of the local demo services. To run only the connector instances manually, use one terminal per connector:
 
 ```powershell
 cd real-external-agent
@@ -629,6 +634,7 @@ High-level Vercel/Railway shape:
 
 - Vercel hosts only `apps/web-ui`.
 - Railway hosts `services/orchestrator-api`, `services/mock-identity-provider`, and separate `real-external-agent` connector services for Jira, ServiceNow, and GitHub.
+- Railway production uses compiled JavaScript from each workspace `dist` directory, not `tsx`.
 - Set `VITE_ORCHESTRATOR_API_URL` in Vercel to the Railway orchestrator URL.
 - Do not put `OPENROUTER_API_KEY`, Upstash credentials, internal service tokens, client secrets, private JWKs, cookies, or JWT secrets in Vercel.
 - Set `ALLOWED_ORIGINS` on the orchestrator to the Vercel frontend origin.

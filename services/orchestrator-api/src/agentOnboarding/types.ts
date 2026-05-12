@@ -1,6 +1,6 @@
-import type { ConnectorProfile } from "../connectors/types";
-import type { InstalledConnectorLifecycle } from "../connectors/installedConnectorLifecycle";
-import type { gatewayMetadata } from "../security/gatewayIdentity";
+import type { ConnectorProfile } from "../connectors/types.js";
+import type { InstalledConnectorLifecycle } from "../connectors/installedConnectorLifecycle.js";
+import type { gatewayMetadata } from "../security/gatewayIdentity.js";
 
 export type AgentTrustLevel =
   | "untrusted"

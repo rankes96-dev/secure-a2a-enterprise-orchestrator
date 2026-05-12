@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ConnectorActionRequirement, ConnectorProfile, ConnectorValidationTest, ConnectorValidationTestCategory, ConnectorValidationTestOutcome } from "./types";
+import type { ConnectorActionRequirement, ConnectorProfile, ConnectorValidationTest, ConnectorValidationTestCategory, ConnectorValidationTestOutcome } from "./types.js";
 
 const forbiddenSecretPatterns = [
   /client[_-]?secret/i,

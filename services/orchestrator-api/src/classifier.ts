@@ -1,6 +1,6 @@
 import type { Classification, EnterpriseSystem, ErrorCode, IntegrationOperation, IssueType } from "@a2a/shared";
-import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig";
-import { callOpenRouterJson } from "./openRouterClient";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
+import { callOpenRouterJson } from "./openRouterClient.js";
 
 const systems: EnterpriseSystem[] = ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday", "Unknown"];
 const errorCodes: ErrorCode[] = ["401", "403", "404", "429", "500", "502", "503", "504"];

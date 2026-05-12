@@ -1,6 +1,6 @@
-import { actionPermissions, canonicalAction } from "./policies/actionPermissions";
-import { agentPermissions } from "./policies/agentPermissions";
-import { delegationPolicies } from "./policies/delegationPolicies";
+import { actionPermissions, canonicalAction } from "./policies/actionPermissions.js";
+import { agentPermissions } from "./policies/agentPermissions.js";
+import { delegationPolicies } from "./policies/delegationPolicies.js";
 
 export interface PolicyEvaluationInput {
   callerAgentId: string;

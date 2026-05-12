@@ -38,7 +38,9 @@ for (const phrase of [
   "ORCHESTRATOR_PUBLIC_JWK_JSON",
   "Gateway onboarding must use the public Railway agent URL",
   "Select BizApps / IT mode",
-  "Run Connector Test Center"
+  "Run Connector Test Center",
+  "node dist/index.js",
+  "node dist/startConnector.js"
 ]) {
   if (!doc.includes(phrase)) {
     console.error(`fail - deployment readiness doc missing: ${phrase}`);
@@ -52,7 +54,8 @@ for (const forbidden of [
   "WEB_ORIGIN",
   "OpenRouter or other AI provider",
   "OPENROUTER_API_KEY=optional",
-  "Redis on Railway or Upstash"
+  "Redis on Railway or Upstash",
+  "tsx src/index.ts"
 ]) {
   if (doc.includes(forbidden)) {
     console.error(`fail - deployment readiness doc should not include: ${forbidden}`);

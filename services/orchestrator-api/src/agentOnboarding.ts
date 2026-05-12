@@ -1,1 +1,1 @@
-export * from "./agentOnboarding/index";
+export * from "./agentOnboarding/index.js";

@@ -1,4 +1,4 @@
-export * from "./types";
-export { discoverAgentOnboarding, startAgentOnboarding } from "./onboardingService";
-export { listTrustedOnboardedAgents, addTrustedOnboardedAgent } from "./trustedAgentStore";
-export { listSupportedConnectorGuardrails, listSupportedConnectorTemplates } from "../connectors/localReferenceConnectors";
+export * from "./types.js";
+export { discoverAgentOnboarding, startAgentOnboarding } from "./onboardingService.js";
+export { listTrustedOnboardedAgents, addTrustedOnboardedAgent } from "./trustedAgentStore.js";
+export { listSupportedConnectorGuardrails, listSupportedConnectorTemplates } from "../connectors/localReferenceConnectors.js";

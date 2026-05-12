@@ -1,6 +1,6 @@
-import type { TrustedOnboardedAgent } from "./agentOnboarding";
-import { localReferenceConnectorIntentCatalog } from "./connectors/localReferenceConnectorIntentCatalog";
-import { isConnectorRuntimeEndpointAllowed } from "./security/connectorRuntimeSafety";
+import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
+import { localReferenceConnectorIntentCatalog } from "./connectors/localReferenceConnectorIntentCatalog.js";
+import { isConnectorRuntimeEndpointAllowed } from "./security/connectorRuntimeSafety.js";
 
 export type ConnectorRoutingIntent = {
   targetSystem: string;

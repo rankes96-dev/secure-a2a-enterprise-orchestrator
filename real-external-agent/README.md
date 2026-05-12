@@ -109,12 +109,14 @@ EXPECTED_AUDIENCE=external-jira-agent
 
 ## Run
 
+From the repository root, `npm run dev` starts Jira, ServiceNow, and GitHub connector instances alongside the Gateway, web UI, Mock IdP, and local support agents.
+
 ```bash
 npm install
 npm run dev
 ```
 
-The service listens on `http://localhost:4201` by default.
+When started directly from this package, the default service listens on `http://localhost:4201`.
 
 Run the three local reference connectors in separate terminals:
 

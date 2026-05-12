@@ -1,6 +1,6 @@
-import type { ConnectorActionDecision, ConnectorProfile } from "../connectors/types";
-import { deriveInstalledConnectorLifecycle } from "../connectors/installedConnectorLifecycle";
-import type { ExternalAgentDiscovery, ExternalAgentTrustResponse, DerivedCapability, TrustedOnboardedAgent } from "./types";
+import type { ConnectorActionDecision, ConnectorProfile } from "../connectors/types.js";
+import { deriveInstalledConnectorLifecycle } from "../connectors/installedConnectorLifecycle.js";
+import type { ExternalAgentDiscovery, ExternalAgentTrustResponse, DerivedCapability, TrustedOnboardedAgent } from "./types.js";
 
 export type ResourceRegistration = {
   resourceSystem: string;

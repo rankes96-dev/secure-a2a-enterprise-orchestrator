@@ -1,4 +1,4 @@
-import type { ConnectorActionDecision, ConnectorDecisionInput } from "./types";
+import type { ConnectorActionDecision, ConnectorDecisionInput } from "./types.js";
 
 function joinReasons(reasons: string[]): string {
   if (reasons.length === 0) {

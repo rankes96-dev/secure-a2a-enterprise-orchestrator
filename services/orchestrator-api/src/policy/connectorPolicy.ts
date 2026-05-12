@@ -1,4 +1,4 @@
-import type { ConnectorRoutingDecision } from "../connectorRouting";
+import type { ConnectorRoutingDecision } from "../connectorRouting.js";
 
 export type ConnectorPolicyEffect =
   | "allow"
