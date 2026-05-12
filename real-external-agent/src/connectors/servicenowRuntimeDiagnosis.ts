@@ -1,5 +1,8 @@
 import type { ConnectorRuntimeSemantics, ConnectorTargetActionStatus } from "../runtime.js";
 import type { EndUserAnswer } from "./types.js";
+import { recommendServiceNowCatalogItem } from "./servicenowCatalogItems.js";
+import { canReadServiceNowTicket, findServiceNowTicket } from "./servicenowTicketData.js";
+import { findApprovalContext, isApprovalPrompt } from "./servicenowUserAccess.js";
 
 export type ServiceNowRuntimeDiagnosisInput = {
   skillId: string;
@@ -21,6 +24,8 @@ export type ServiceNowRuntimeDiagnosis = {
   probableCause: string;
   recommendedActions: string[];
   endUserAnswer?: EndUserAnswer;
+  evidence?: Array<{ title: string; data: Record<string, unknown> }>;
+  clarifyingQuestions?: string[];
 };
 
 function statusExplanation(status?: ConnectorTargetActionStatus): string {
@@ -63,7 +68,134 @@ function diagnosticActions(targetActionLabel: string, status?: ConnectorTargetAc
 }
 
 export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnosisInput): ServiceNowRuntimeDiagnosis {
+  const roleHints = params.actor?.startsWith("ran@") ? ["it-support"] : params.actor?.startsWith("admin@") ? ["identity-admin"] : params.actor?.startsWith("analyst@") ? ["read-only"] : [];
+
+  if (params.skillId === "servicenow.ticket.status.lookup") {
+    const ticket = findServiceNowTicket(params.message);
+    if (!ticket) {
+      return {
+        summary: "ServiceNow ticket lookup needs a ticket number.",
+        probableCause: "No INC or RITM number was provided in the request.",
+        recommendedActions: ["Ask for the ticket or request number and retry the lookup."],
+        clarifyingQuestions: ["What is the ServiceNow ticket number, for example INC0010245 or RITM0042088?"],
+        endUserAnswer: {
+          title: "Which ticket should I check?",
+          summary: "I can check a ServiceNow ticket status, but I need the ticket number first.",
+          whatWasChecked: "No ticket lookup was performed because no ticket number was provided.",
+          whatWasChanged: "No changes were made.",
+          nextStep: "Send the INC or RITM number.",
+          severity: "info",
+          safeToDisplay: true
+        }
+      };
+    }
+
+    if (!canReadServiceNowTicket(ticket, params.actor, roleHints)) {
+      return {
+        summary: "ServiceNow ticket lookup was denied by record visibility rules.",
+        probableCause: "The ticket is not associated with the actor or allowed groups in the connector mock data.",
+        recommendedActions: ["Ask the requester, watcher, assignee, or support team for access."],
+        evidence: [{ title: "ServiceNow ticket visibility check", data: { ticketNumber: ticket.number, actor: params.actor, status: "blocked" } }],
+        endUserAnswer: {
+          title: "I cannot show that ticket",
+          summary: "I cannot show this ticket because it is not associated with your user or allowed groups.",
+          whatWasChecked: "Ticket visibility was checked for your user.",
+          whatWasChanged: "No changes were made.",
+          nextStep: "Ask the ticket requester or support team to add you as a watcher, or open a support ticket with the ticket number.",
+          severity: "medium",
+          safeToDisplay: true
+        }
+      };
+    }
+
+    return {
+      summary: `${ticket.number} is ${ticket.state}. ${ticket.shortDescription}`,
+      probableCause: ticket.lastUpdate,
+      recommendedActions: [ticket.nextStep],
+      evidence: [{ title: "ServiceNow ticket lookup", data: { ticketNumber: ticket.number, state: ticket.state, assignedGroup: ticket.assignedGroup, actor: params.actor, access: "allowed" } }],
+      endUserAnswer: {
+        title: `${ticket.number} is ${ticket.state}`,
+        summary: `${ticket.shortDescription}. Assigned group: ${ticket.assignedGroup}. Last update: ${ticket.lastUpdate}`,
+        whatWasChecked: "Ticket number, requester/watchers, assigned group, current state, and latest update.",
+        whatWasChanged: "No changes were made.",
+        nextStep: ticket.nextStep,
+        severity: ticket.state.toLowerCase().includes("waiting") ? "medium" : "info",
+        safeToDisplay: true
+      }
+    };
+  }
+
+  if (params.skillId === "servicenow.catalog.item.recommend") {
+    const item = recommendServiceNowCatalogItem(params.message);
+    const selected = item ?? recommendServiceNowCatalogItem("access");
+    if (!selected) {
+      return {
+        summary: "ServiceNow catalog recommendation needs more detail.",
+        probableCause: "No matching catalog item was found.",
+        recommendedActions: ["Ask for the system name and access needed."],
+        clarifyingQuestions: ["Which system or service do you need access to?"],
+        endUserAnswer: {
+          title: "I need one more detail",
+          summary: "I can recommend a ServiceNow catalog item, but I need the system or service name.",
+          whatWasChecked: "Catalog keywords and request type.",
+          whatWasChanged: "No changes were made.",
+          nextStep: "Send the system or service name and the access you need.",
+          severity: "info",
+          safeToDisplay: true
+        }
+      };
+    }
+
+    return {
+      summary: `Recommended ServiceNow catalog item: ${selected.name}.`,
+      probableCause: selected.description,
+      recommendedActions: [`Open ${selected.id} and provide: ${selected.requiredFields.join(", ")}.`],
+      evidence: [{ title: "ServiceNow catalog match", data: { catalogItemId: selected.id, name: selected.name, deepLink: selected.deepLink } }],
+      endUserAnswer: {
+        title: selected.name,
+        summary: `${selected.description} Form ID: ${selected.id}.`,
+        whatWasChecked: "ServiceNow catalog keywords, request type, and required form fields.",
+        whatWasChanged: "No changes were made. No request was submitted.",
+        nextStep: `Prepare these details: ${selected.requiredFields.join(", ")}. I can help draft the request text.`,
+        severity: "low",
+        safeToDisplay: true
+      }
+    };
+  }
+
   if (params.skillId === "servicenow.catalog.request.diagnose") {
+    if (isApprovalPrompt(params.message)) {
+      const approval = findApprovalContext(params.message);
+      const allowedApprover = approval?.approver.toLowerCase() === params.actor?.toLowerCase() || approval?.delegatedTo?.toLowerCase() === params.actor?.toLowerCase();
+      return {
+        summary: approval
+          ? `${approval.requestNumber} approval status checked.`
+          : "ServiceNow approval status needs a RITM number.",
+        probableCause: approval
+          ? approval.blockedReason ?? (allowedApprover ? "The current actor is allowed to approve this request." : "The current actor is not the assigned approver for this request.")
+          : "No RITM number or approval context was found.",
+        recommendedActions: approval
+          ? [allowedApprover ? "Open the approval queue and review the RITM." : "Ask the assigned approver or delegated approver to review the RITM."]
+          : ["Ask for the RITM number."],
+        evidence: approval ? [{ title: "ServiceNow approval check", data: { requestNumber: approval.requestNumber, actor: params.actor, approver: approval.approver, delegatedTo: approval.delegatedTo, actorIsApprover: allowedApprover } }] : undefined,
+        endUserAnswer: {
+          title: approval ? `${approval.requestNumber} is waiting for approval` : "Which RITM should I check?",
+          summary: approval
+            ? allowedApprover
+              ? "You are listed as an approver or delegated approver for this request."
+              : "You are not the assigned approver for this request, so I cannot approve it for you."
+            : "I need the RITM number to check approval status.",
+          whatWasChecked: "Request approval state, assigned approver, and delegation context.",
+          whatWasChanged: "No changes were made. No approval was submitted.",
+          nextStep: approval
+            ? allowedApprover ? "Open your ServiceNow approval queue and review the request." : "Ask the assigned approver to review the request or update the approval delegation."
+            : "Send the RITM number.",
+          severity: "medium",
+          safeToDisplay: true
+        }
+      };
+    }
+
     return {
       summary: "ServiceNow catalog request diagnosis completed.",
       probableCause: diagnosticCause("catalog request update or fulfillment action", params.runtimeSemantics.targetActionStatus),

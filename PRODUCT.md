@@ -12,6 +12,8 @@ BizApps and IT operators install, verify, and test external connector agents bef
 
 Secure A2A Enterprise Orchestrator is a vendor-neutral control plane for onboarding external AI connector agents through zero-trust verification, then governing runtime execution with verified user identity, scoped A2A JWTs, policy decisions, delegation controls, and audit proof. The product should make safe connector execution legible: AI can interpret requests, but the gateway decides what is trusted, approved, blocked, and recorded.
 
+The Gateway is not the domain brain for Jira, ServiceNow, or GitHub. External connector agents own domain-specific answers, forms, status lookups, and runtime behavior; the Gateway owns governance, identity, policy, scoped token issuance, endpoint validation, and audit proof. End user mode should feel like a runtime-ready organization with installed connectors, while BizApps / IT mode demonstrates onboarding and governance from scratch.
+
 ## Brand Personality
 
 Precise, governed, and credible. The interface should feel like operational infrastructure for serious enterprise security work: calm enough to trust, explicit enough to audit, and direct enough to demo without extra narration.

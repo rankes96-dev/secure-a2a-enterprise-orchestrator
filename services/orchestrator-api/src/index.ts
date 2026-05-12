@@ -66,6 +66,26 @@ const orchestratorAgentId = "servicenow-orchestrator-agent";
 const MAX_DELEGATION_DEPTH = 1;
 const a2aAuthMode = assertSecureA2AAuthMode("orchestrator-api");
 const secureAuthRequired = secureA2AAuthRequired();
+const endUserDemoConnectorRequests = [
+  {
+    agentBaseUrl: "http://localhost:4201",
+    expectedAgentId: "external-jira-agent",
+    expectedResourceSystem: "jira",
+    expectedConnectorId: "jira-reference"
+  },
+  {
+    agentBaseUrl: "http://localhost:4202",
+    expectedAgentId: "external-servicenow-agent",
+    expectedResourceSystem: "servicenow",
+    expectedConnectorId: "servicenow-reference"
+  },
+  {
+    agentBaseUrl: "http://localhost:4203",
+    expectedAgentId: "external-github-agent",
+    expectedResourceSystem: "github",
+    expectedConnectorId: "github-reference"
+  }
+] as const;
 
 type RateLimitConfig = {
   name: string;
@@ -713,6 +733,16 @@ function connectorRoutingFinalAnswer(decision: ConnectorRoutingDecision): string
 
 function connectorRuntimeFinalAnswer(decision: ConnectorRoutingDecision, runtime: ConnectorRuntimeResult): string {
   if (runtime.executed && runtime.agentResponse) {
+    const endUserAnswer = runtime.agentResponse.endUserAnswer;
+    if (endUserAnswer?.safeToDisplay) {
+      return [
+        endUserAnswer.title,
+        endUserAnswer.summary,
+        endUserAnswer.whatWasChecked ? `Checked: ${endUserAnswer.whatWasChecked}` : "",
+        endUserAnswer.whatWasChanged ? `Changed: ${endUserAnswer.whatWasChanged}` : "Changed: No changes were made.",
+        `Next step: ${endUserAnswer.nextStep}`
+      ].filter(Boolean).join("\n");
+    }
     const actions = runtime.agentResponse.recommendedActions?.length
       ? ` Recommended actions: ${runtime.agentResponse.recommendedActions.join("; ")}.`
       : "";
@@ -1391,6 +1421,48 @@ function agentCardRegistryKey(request: IncomingMessage, response: ServerResponse
   return undefined;
 }
 
+async function prepareEndUserDemoEnvironment(ownerKey: string): Promise<{
+  ok: boolean;
+  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+  prepared: string[];
+  skipped: string[];
+  errors: string[];
+}> {
+  const existing = listTrustedOnboardedAgents(ownerKey);
+  const prepared: string[] = [];
+  const skipped: string[] = [];
+  const errors: string[] = [];
+
+  for (const connector of endUserDemoConnectorRequests) {
+    const alreadyInstalled = listTrustedOnboardedAgents(ownerKey).some((agent) =>
+      agent.connectorId === connector.expectedConnectorId ||
+      agent.connectorProfile?.connectorId === connector.expectedConnectorId ||
+      agent.resourceSystem === connector.expectedResourceSystem ||
+      agent.connectorProfile?.resourceSystem === connector.expectedResourceSystem
+    );
+    if (alreadyInstalled) {
+      skipped.push(connector.expectedConnectorId);
+      continue;
+    }
+
+    const result = await startAgentOnboarding(ownerKey, connector);
+    if ("error" in result) {
+      errors.push(`${connector.expectedConnectorId}: ${result.details.join(" ")}`);
+      continue;
+    }
+    prepared.push(connector.expectedConnectorId);
+  }
+
+  const installedAgents = listTrustedOnboardedAgents(ownerKey);
+  return {
+    ok: errors.length === 0 && installedAgents.length >= existing.length,
+    installedAgents,
+    prepared,
+    skipped,
+    errors
+  };
+}
+
 function showInternalHealthUrls(): boolean {
   return process.env.SHOW_INTERNAL_HEALTH_URLS === "true";
 }
@@ -1962,7 +2034,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
 
     return finalize({
       conversationId,
-      finalAnswer: "This system is not available here yet. Open a support ticket with the system name, what you need access to, and why you need it.",
+      finalAnswer: "UNAVAILABLE\nOther / not listed is not governed by an installed connector here.\nNo changes were made.\nNext step: open a support ticket with the system name, access needed, and business reason.",
       classification,
       selectedAgents: [],
       skippedAgents: routingDecision.skippedAgents,
@@ -2340,17 +2412,18 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         confidence: "medium",
         reason: "Access request detected, but target system was not specified."
       };
+      const hasInstalledConnectorSystems = installedAgents.length > 0;
       const diagnosis = {
         probableCause: "Connector planning target is unclear",
-        recommendedFix: installedAgents.length
+        recommendedFix: hasInstalledConnectorSystems
           ? "Search installed systems or choose Other / not listed."
           : "No installed systems are available for governed access planning yet. Open a support ticket with details."
       };
       return finalize({
         conversationId,
-        finalAnswer: installedAgents.length
+        finalAnswer: hasInstalledConnectorSystems
           ? "Which system do you need access to? Search installed systems or choose Other / not listed."
-          : "I can help plan an access request, but no installed systems are available for governed access planning yet. Open a support ticket with the system name and access details.",
+          : "UNAVAILABLE\nNo governed systems are connected here yet.\nNo changes were made.\nNext step: open a support ticket with system name, access needed, business reason.",
         classification,
         selectedAgents: [],
         skippedAgents: routingDecision.skippedAgents,
@@ -2369,15 +2442,15 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         securityDecisions: [],
         requestInterpretation: planningInterpretation,
         connectorPlanningTargetResolution: planningTargetResolution,
-        safeTargetSelection: buildSafeTargetSelection(planningTargetResolution.detectedIntentClasses, installedAgents),
-        pendingFollowUp: {
+        safeTargetSelection: hasInstalledConnectorSystems ? buildSafeTargetSelection(planningTargetResolution.detectedIntentClasses, installedAgents) : undefined,
+        pendingFollowUp: hasInstalledConnectorSystems ? {
           type: "connector_planning_target",
           originalMessage: planningFollowUpResolution?.originalMessage ?? effectiveMessage,
           detectedIntentClasses: planningTargetResolution.detectedIntentClasses,
           missingFields: ["targetSystem"],
           createdAt: new Date().toISOString()
-        },
-        pendingInteraction: {
+        } : undefined,
+        pendingInteraction: hasInstalledConnectorSystems ? {
           id: createTaskId(),
           type: "target_selection",
           originalUserRequest: planningFollowUpResolution?.originalMessage ?? effectiveMessage,
@@ -2386,7 +2459,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
             detectedIntentClasses: planningTargetResolution.detectedIntentClasses,
             missingFields: ["targetSystem"]
           }
-        },
+        } : undefined,
         pendingInteractionResolution,
         planningFollowUpResolution,
         executionGateStack: {
@@ -3420,6 +3493,21 @@ async function start(): Promise<void> {
         detail: error instanceof Error ? error.message : "Demo login failed"
       }, request);
     }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/demo/end-user-ready") {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, agentOnboardingRateLimit)) {
+      return;
+    }
+
+    const result = await prepareEndUserDemoEnvironment(registryKey);
+    sendJson(response, result.errors.length ? 503 : 200, result, request);
     return;
   }
 

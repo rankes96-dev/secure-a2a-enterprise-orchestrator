@@ -300,7 +300,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     localConnectorPresets, scenarios, quickScenarios, advancedScenarios, securityTimelineFilters, demoUserOptions,
     cockpitStatusClass, statusDisplayLabel, connectorRoutingStatusLabel, connectorRoutingStatusClass, connectorRuntimeFailureCopy,
     firstSentence, recommendedActionItems, shortHash, JsonBlock, MessageList, safeRawExecutionData, healthClass,
-    endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage
+    endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage, endUserSampleMessage
   } = ctx;
 
   const [targetSearch, setTargetSearch] = useState("");
@@ -430,6 +430,21 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
       proves: "Gateway resumes the previous planning request only after the user names the target system/application.",
       badge: "Planning"
     }
+  ];
+  const endUserPrompts: Scenario[] = [
+    { label: "ServiceNow ticket", message: "What is the status of my ticket INC0010245?", subtitle: "Ticket status", purpose: "Checks a ticket you are allowed to see.", proves: "ServiceNow connector owns ticket lookup.", badge: "ServiceNow" },
+    { label: "AWS access", message: "I need AWS production access", subtitle: "Catalog recommendation", purpose: "Recommends the right ServiceNow catalog item.", proves: "No request is submitted without approval.", badge: "ServiceNow" },
+    { label: "Mailing list", message: "I need to create a mailing list", subtitle: "Catalog recommendation", purpose: "Finds the distribution list request path.", proves: "Connector answers in end-user language.", badge: "ServiceNow" },
+    { label: "Access request status", message: "Where is my AWS access request?", subtitle: "Approval status", purpose: "Checks request and approval status.", proves: "Approval context stays in ServiceNow connector runtime.", badge: "ServiceNow" },
+    { label: "Approval issue", message: "I can't approve a RITM", subtitle: "Approval help", purpose: "Explains approver/delegation context safely.", proves: "No approval is submitted.", badge: "ServiceNow" },
+    { label: "Jira issue", message: "What is the status of FIN-42?", subtitle: "Issue status", purpose: "Checks Jira issue status and next step.", proves: "Jira connector owns issue data.", badge: "Jira" },
+    { label: "Jira project access", message: "I need access to Jira project FIN", subtitle: "Access request", purpose: "Prepares a project access request.", proves: "No permission is granted.", badge: "Jira" },
+    { label: "Jira create help", message: "Why can't I create an issue in FIN?", subtitle: "Create readiness", purpose: "Separates Gateway checks from project-specific checks.", proves: "Proof aligns with the chat answer.", badge: "Jira" },
+    { label: "Jira outage issue", message: "Create a Jira issue in FIN project for this outage", subtitle: "Approval required", purpose: "Shows write readiness without creating an issue.", proves: "No issue is created without approved execution.", badge: "Jira" },
+    { label: "GitHub PR", message: "What is the status of PR 42 in billing-api?", subtitle: "Pull request status", purpose: "Checks PR status, reviews, and blockers.", proves: "GitHub connector owns PR details.", badge: "GitHub" },
+    { label: "GitHub repo access", message: "I need access to the billing-api repo", subtitle: "Access request", purpose: "Prepares repository access request details.", proves: "No repository access is granted.", badge: "GitHub" },
+    { label: "GitHub CI access", message: "Why can't CI read the repository?", subtitle: "CI diagnostic", purpose: "Checks app installation and repo access.", proves: "Connector-specific diagnosis remains outside Gateway core.", badge: "GitHub" },
+    { label: "GitHub rate limit", message: "GitHub repository sync is failing after API rate limit", subtitle: "Rate limit diagnostic", purpose: "Explains repository sync rate-limit status.", proves: "Technical proof remains available.", badge: "GitHub" }
   ];
 
   const diagnosticPrompts = allPromptScenarios.filter((scenario) => {
@@ -1208,8 +1223,8 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
               {isEndUserMode ? (
                 <div className="composer-recommendation end-user-suggestion ready">
                   <span>Try asking:</span>
-                  <button type="button" className="secondary-inline-button compact-button" onClick={() => setMessage(sampleMessage)}>
-                    {sampleMessage}
+                  <button type="button" className="secondary-inline-button compact-button" onClick={() => setMessage(endUserSampleMessage)}>
+                    {endUserSampleMessage}
                   </button>
                 </div>
               ) : (
@@ -1255,14 +1270,17 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
               </div>
             </form>
 
-            {!isEndUserMode ? <details className="scenario-launcher suggested-prompts cockpit-card" aria-label="Suggested prompts">
+            {isEndUserMode ? <details className="scenario-launcher suggested-prompts cockpit-card" aria-label="Suggested prompts">
+              <summary>Suggested prompts</summary>
+              {renderPromptGroup("End-user prompts", endUserPrompts)}
+            </details> : <details className="scenario-launcher suggested-prompts cockpit-card" aria-label="Suggested prompts">
               <summary>Suggested prompts</summary>
               {renderPromptGroup("Diagnostic prompts", diagnosticPrompts)}
               {renderPromptGroup("Planning prompts", planningPrompts)}
               {renderPromptGroup("Blocked action prompts", blockedActionPrompts)}
               {renderPromptGroup("Adversarial prompts", adversarialPrompts)}
               {renderPromptGroup("Unsupported prompts", unsupportedPrompts)}
-            </details> : null}
+            </details>}
 
             {error ? <p className="error cockpit-error">{error}</p> : null}
           </section>

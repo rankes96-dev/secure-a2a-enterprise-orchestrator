@@ -2,6 +2,22 @@ import type { ConnectorProfile, ConnectorSkillRequirement } from "./types.js";
 
 const jiraSkills: ConnectorSkillRequirement[] = [
   {
+    id: "jira.issue.status.lookup",
+    label: "Look up Jira issue status",
+    description: "Return an end-user-safe Jira issue status summary when the actor can browse the issue.",
+    requiredApplicationGrants: ["read:jira-work"],
+    requiredEffectivePermissions: ["browse_projects", "view_issues"],
+    executionType: "inspection_read_only"
+  },
+  {
+    id: "jira.project.access.prepare",
+    label: "Prepare Jira project access request",
+    description: "Prepare a Jira project access request without granting permission.",
+    requiredApplicationGrants: ["read:jira-user"],
+    requiredEffectivePermissions: ["read_project_roles"],
+    executionType: "inspection_read_only"
+  },
+  {
     id: "jira.issue.diagnose_creation_failure",
     label: "Diagnose Jira issue creation failures",
     description: "Inspect project and issue metadata to explain why Jira issue creation is failing.",
@@ -117,6 +133,34 @@ export const jiraReferenceConnector: ConnectorProfile = {
       proves: "Jira diagnostic skills can execute without enabling the target issue creation action.",
       steps: [
         { message: "Jira issue creation fails with 403 when creating issues in FIN project", expectedOutcome: "diagnosed" }
+      ],
+      expectedFinalOutcome: "diagnosed",
+      requiresRuntimeReady: true,
+      referenceOnly: true
+    },
+    {
+      id: "jira.issue.status.lookup.validation",
+      title: "Jira issue status lookup",
+      category: "approved_diagnostic",
+      persona: "end_user",
+      description: "Validates end-user issue status lookup with project browse checks.",
+      proves: "Jira-owned runtime data answers issue status without Gateway hardcoding issue details.",
+      steps: [
+        { message: "What is the status of FIN-42?", expectedOutcome: "diagnosed" }
+      ],
+      expectedFinalOutcome: "diagnosed",
+      requiresRuntimeReady: true,
+      referenceOnly: true
+    },
+    {
+      id: "jira.project.access.prepare.validation",
+      title: "Jira project access request preparation",
+      category: "end_user_planning",
+      persona: "end_user",
+      description: "Validates Jira project access preparation without granting access.",
+      proves: "The connector prepares access guidance and accurately states no permission was changed.",
+      steps: [
+        { message: "I need access to Jira project FIN", expectedOutcome: "diagnosed" }
       ],
       expectedFinalOutcome: "diagnosed",
       requiresRuntimeReady: true,

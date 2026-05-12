@@ -124,7 +124,7 @@ export function DemoGuideTab({ ctx }: { ctx: ScreenContext }) {
     ];
     const demoPath = [
       { label: "Agent Registry", detail: "install a reference connector.", action: goToAgentRegistry },
-      { label: "Run Task", detail: "ask a clear request, or use the ambiguous example: \"I need access to the system\".", action: loadAccessPlanningFlow },
+      { label: "Run Task", detail: "ask a realistic request such as \"What is the status of my ticket INC0010245?\".", action: loadAccessPlanningFlow },
       { label: "Run Task", detail: "if ambiguous, select an installed system.", action: goToRunTask },
       { label: "Run Task", detail: "Gateway returns a safe plan or approved diagnostic.", action: goToRunTask },
       { label: "Connector Test Center", detail: "validate connector-published tests and generic Gateway tests.", action: openConnectorTestCenter },
@@ -132,14 +132,14 @@ export function DemoGuideTab({ ctx }: { ctx: ScreenContext }) {
     ];
     const routingExamples = [
       {
-        title: "Direct route example",
-        prompt: "Jira issue creation fails with 403 in FIN project",
-        outcome: "Gateway routes to Jira diagnostic."
+        title: "End-user example",
+        prompt: "What is the status of PR 42 in billing-api?",
+        outcome: "Gateway routes to the GitHub connector runtime."
       },
       {
-        title: "Clarification example",
-        prompt: "I need access to the system",
-        outcome: "Gateway asks which installed system."
+        title: "Control-plane example",
+        prompt: "Jira issue creation fails with 403 in FIN project",
+        outcome: "Gateway proof separates policy, token, and runtime checks."
       }
     ];
     const progressSteps = [

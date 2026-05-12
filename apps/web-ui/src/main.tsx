@@ -13,6 +13,7 @@ const SecurityTimelineTab = lazy(() => import("./components/security-timeline/Se
 
 const API_URL = import.meta.env.VITE_ORCHESTRATOR_API_URL ?? "http://localhost:4000";
 const sampleMessage = "Jira issue creation fails with 403 when creating issues in FIN project";
+const endUserSampleMessage = "What is the status of my ticket INC0010245?";
 
 type Scenario = {
   label: string;
@@ -2128,6 +2129,9 @@ function App() {
       setEndUserAutoLoginAttempted(true);
       void loginDemoUser({ silent: true });
     }
+    if (isUserAuthenticated) {
+      void prepareEndUserDemoEnvironment();
+    }
   }, [persona, activeTab, isUserAuthenticated, isIdentityLoading, endUserAutoLoginAttempted]);
 
   useEffect(() => {
@@ -2379,6 +2383,28 @@ function App() {
     setZeroTrustError("");
     setZeroTrustCopyMessage("");
     setConnectionWizardCollapsedAfterSuccess(false);
+  }
+
+  async function prepareEndUserDemoEnvironment() {
+    try {
+      await ensureSession();
+      const response = await fetch(`${API_URL}/demo/end-user-ready`, {
+        method: "POST",
+        credentials: "include"
+      });
+      if (response.ok) {
+        const body = await response.json() as { installedAgents?: TrustedOnboardedAgent[] };
+        if (body.installedAgents) {
+          setZeroTrustOnboardedAgents(body.installedAgents);
+        } else {
+          await loadZeroTrustOnboardedAgents();
+        }
+        await loadSupportedConnectorGuardrails();
+      }
+    } catch {
+      // End-user mode still works for security and handoff flows if local connector
+      // agents are not running; the chat will explain unavailable connectors.
+    }
   }
 
   function selectPersonaMode(nextPersona: PersonaMode) {
@@ -2665,7 +2691,7 @@ function App() {
     localConnectorPresets, scenarios, quickScenarios, advancedScenarios, securityTimelineFilters, demoUserOptions,
     cockpitStatusClass, statusDisplayLabel, connectorRoutingStatusLabel, connectorRoutingStatusClass, connectorRuntimeFailureCopy,
     firstSentence, recommendedActionItems, shortHash, JsonBlock, MessageList, safeRawExecutionData, healthClass,
-    endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage
+    endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage, endUserSampleMessage
   };
 
   function navigateToTab(tabId: ActiveTab) {

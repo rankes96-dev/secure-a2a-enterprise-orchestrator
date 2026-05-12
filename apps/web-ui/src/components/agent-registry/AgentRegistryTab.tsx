@@ -855,7 +855,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
                   </div>
                   <details className="wizard-technical-details">
                     <summary>Template details</summary>
-                    <div className="registry-agent-metadata">
+                    <div className="registry-agent-metadata template-details">
                       {metadataUnavailable ? <div><span>Metadata</span><strong>Metadata unavailable</strong></div> : null}
                       <div><span>Template ID</span><strong>{template.connectorId}</strong></div>
                       <div><span>Resource system</span><strong>{template.resourceSystem}</strong></div>

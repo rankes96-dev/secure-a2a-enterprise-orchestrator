@@ -2,6 +2,22 @@ import type { ConnectorProfile, ConnectorSkillRequirement } from "./types.js";
 
 const githubSkills: ConnectorSkillRequirement[] = [
   {
+    id: "github.pull_request.status.lookup",
+    label: "Look up GitHub pull request status",
+    description: "Return an end-user-safe pull request status summary when the actor can access the repository.",
+    requiredApplicationGrants: ["repo.pull_requests.read"],
+    requiredEffectivePermissions: ["installation:repo_access", "repo:pull_requests:read"],
+    executionType: "inspection_read_only"
+  },
+  {
+    id: "github.repository.access.prepare",
+    label: "Prepare GitHub repository access request",
+    description: "Prepare a repository access request without granting access.",
+    requiredApplicationGrants: ["repo.metadata.read"],
+    requiredEffectivePermissions: ["installation:repo_access", "repo:metadata:read"],
+    executionType: "inspection_read_only"
+  },
+  {
     id: "github.repository.rate_limit.diagnose",
     label: "Diagnose GitHub repository API rate limit",
     description: "Inspect repository metadata and installation context that affect GitHub API rate limits.",
@@ -147,6 +163,34 @@ export const githubReferenceConnector: ConnectorProfile = {
       proves: "GitHub pull request access diagnostics execute without write or administration access.",
       steps: [
         { message: "GitHub pull request checks cannot read the repository", expectedOutcome: "diagnosed" }
+      ],
+      expectedFinalOutcome: "diagnosed",
+      requiresRuntimeReady: true,
+      referenceOnly: true
+    },
+    {
+      id: "github.pull_request.status.lookup.validation",
+      title: "GitHub pull request status lookup",
+      category: "approved_diagnostic",
+      persona: "end_user",
+      description: "Validates end-user pull request status lookup with repository visibility checks.",
+      proves: "GitHub-owned runtime data answers PR status without Gateway hardcoding repository details.",
+      steps: [
+        { message: "What is the status of PR 42 in billing-api?", expectedOutcome: "diagnosed" }
+      ],
+      expectedFinalOutcome: "diagnosed",
+      requiresRuntimeReady: true,
+      referenceOnly: true
+    },
+    {
+      id: "github.repository.access.prepare.validation",
+      title: "GitHub repository access request preparation",
+      category: "end_user_planning",
+      persona: "end_user",
+      description: "Validates repository access request preparation without granting access.",
+      proves: "The connector prepares access guidance and accurately states no repository access was granted.",
+      steps: [
+        { message: "I need access to the billing-api repo", expectedOutcome: "diagnosed" }
       ],
       expectedFinalOutcome: "diagnosed",
       requiresRuntimeReady: true,

@@ -19,8 +19,22 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
     connectorId: "jira-reference",
     resourceSystem: "jira",
     displayName: "Jira Cloud Reference Connector",
-    systemTerms: ["jira"],
+    systemTerms: ["jira", "fin-", "jira-", "fin project"],
     skillHints: [
+      {
+        skillId: "jira.issue.status.lookup",
+        label: "Look up Jira issue status",
+        includeAny: ["status of", "show me", "what is the status", "fin-", "jira-"],
+        excludeAny: ["create", "access to project", "can't see", "cannot see"],
+        reason: "The request asks for Jira issue status."
+      },
+      {
+        skillId: "jira.project.access.prepare",
+        label: "Prepare Jira project access request",
+        includeAny: ["access to jira project", "access to fin project", "can't see the fin project", "cannot see the fin project", "need access to fin", "jira project fin"],
+        excludeAny: ["create issue", "status"],
+        reason: "The request asks to prepare Jira project access."
+      },
       {
         skillId: "jira.permission.inspect",
         label: "Inspect Jira permissions",
@@ -46,8 +60,21 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
     connectorId: "servicenow-reference",
     resourceSystem: "servicenow",
     displayName: "ServiceNow Reference Connector",
-    systemTerms: ["servicenow", "incident", "catalog item", "requested item", "ritm", "change request"],
+    systemTerms: ["servicenow", "service now", "incident", "catalog item", "requested item", "ritm", "change request", "inc", "ticket", "aws", "mailing list", "תפוצה", "הרשאה"],
     skillHints: [
+      {
+        skillId: "servicenow.ticket.status.lookup",
+        label: "Look up ServiceNow ticket status",
+        includeAny: ["status of my ticket", "ticket", "inc", "ritm", "סטטוס"],
+        excludeAny: ["create a mailing list", "aws production access", "need aws", "permission to aws"],
+        reason: "The request asks for ServiceNow ticket or request status."
+      },
+      {
+        skillId: "servicenow.catalog.item.recommend",
+        label: "Recommend ServiceNow catalog item",
+        includeAny: ["aws production access", "permission to aws", "need aws", "הרשאה ל-aws", "הרשאה ל aws", "mailing list", "create a mailing list", "תפוצה", "shared mailbox", "mailbox"],
+        reason: "The request asks for a ServiceNow catalog item recommendation."
+      },
       {
         skillId: "servicenow.catalog.request.diagnose",
         label: "Diagnose ServiceNow catalog request failure",
@@ -72,8 +99,20 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
     connectorId: "github-reference",
     resourceSystem: "github",
     displayName: "GitHub Reference Connector",
-    systemTerms: ["github", "repository", "repo", "pull request", "branch", "rate limit"],
+    systemTerms: ["github", "git hub", "repository", "repo", "pull request", "branch", "rate limit", "billing-api", "pr "],
     skillHints: [
+      {
+        skillId: "github.pull_request.status.lookup",
+        label: "Look up GitHub pull request status",
+        includeAny: ["status of pr", "pull request status", "pr 42", "why is my pr blocked"],
+        reason: "The request asks for GitHub pull request status."
+      },
+      {
+        skillId: "github.repository.access.prepare",
+        label: "Prepare GitHub repository access request",
+        includeAny: ["access to the billing-api repo", "access to billing-api", "write access to billing-api", "can't access the repository", "cannot access the repository"],
+        reason: "The request asks to prepare GitHub repository access."
+      },
       {
         skillId: "github.pull_request.access.diagnose",
         label: "Diagnose GitHub pull request access",

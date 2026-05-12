@@ -14,6 +14,10 @@ Each customer organization starts with zero installed connectors. The Gateway sh
 
 Successful onboarding creates an **Installed Connector**: a trusted external agent with a verified connector profile, trusted runtime endpoint metadata, approved/blocked skills, and external configuration hash. Jira, ServiceNow, and GitHub are local reference templates for this demo only. A **Custom Connector SDK** is planned so organizations and vendors can build their own connector templates through the Secure A2A connector contract.
 
+The Gateway is connector-generic: it owns governance, identity, policy, scoped token issuance, runtime endpoint validation, and audit proof. External connector agents own domain-specific answers, forms, ticket/status lookup, repository and issue data, and connector runtime behavior.
+
+End user mode starts from a runtime-ready demo organization with Jira, ServiceNow, and GitHub connectors prepared for natural-language support requests. BizApps / IT mode still demonstrates the control plane path from zero installed connectors through onboarding, proof, and testing.
+
 ## Connector Catalog vs Installed Connectors
 
 Connector Catalog:
@@ -337,6 +341,8 @@ Legacy built-in/local mock agents remain available for internal demo support, bu
 ## Connector Runtime Execution
 
 Onboarding approves or blocks skills before runtime. When an approved skill is selected, the Gateway runtime executor generically issues a scoped A2A JWT for that skill, calls the trusted allowlisted connector runtime endpoint from onboarding, sanitizes the response, and returns the external connector's diagnosis, evidence, and trace. System-specific diagnosis stays inside the external connector runtime.
+
+The local ServiceNow, Jira, and GitHub external agents include small connector-owned mock datasets for end-user flows such as ticket status, catalog item recommendation, Jira issue status, project access preparation, pull request status, and repository access preparation. These responses are deterministic and always state when no write action was executed.
 
 Raw access tokens, Authorization headers, client assertions, private keys, and secrets are never returned to the UI. Blocked skills are never executed. Supported but not-onboarded connectors are never executed. Unsupported systems are never executed.
 

@@ -31,8 +31,8 @@ for (const phrase of [
   "routes to the matching installed connector",
   "If the request is unclear",
   "asks a simple follow-up",
-  "Direct route example",
-  "Clarification example"
+  "End-user example",
+  "Control-plane example"
 ]) {
   requireIncludes(demoGuide, phrase, "Demo Guide");
 }

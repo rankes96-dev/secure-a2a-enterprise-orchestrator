@@ -201,4 +201,5 @@ export type ExtractedScreenContext = Record<string, unknown> & {
   MessageList: MessageListComponent;
   safeRawExecutionData: (response: ResolveResponse) => unknown;
   sampleMessage: string;
+  endUserSampleMessage: string;
 };

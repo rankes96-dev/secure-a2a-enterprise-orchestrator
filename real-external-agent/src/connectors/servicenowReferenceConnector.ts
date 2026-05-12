@@ -2,6 +2,22 @@ import type { ConnectorProfile, ConnectorSkillRequirement } from "./types.js";
 
 const serviceNowSkills: ConnectorSkillRequirement[] = [
   {
+    id: "servicenow.ticket.status.lookup",
+    label: "Look up ServiceNow ticket status",
+    description: "Return an end-user-safe status summary for an incident or request item the actor is allowed to view.",
+    requiredApplicationGrants: ["incident.read", "catalog.read"],
+    requiredEffectivePermissions: ["role:itil", "table:incident:read", "table:sc_req_item:read"],
+    executionType: "inspection_read_only"
+  },
+  {
+    id: "servicenow.catalog.item.recommend",
+    label: "Recommend ServiceNow catalog item",
+    description: "Recommend the right catalog item for access, mailbox, distribution list, or generic requests without submitting it.",
+    requiredApplicationGrants: ["catalog.read"],
+    requiredEffectivePermissions: ["table:sc_req_item:read"],
+    executionType: "inspection_read_only"
+  },
+  {
     id: "servicenow.incident.assignment.diagnose",
     label: "Diagnose ServiceNow incident assignment failure",
     description: "Inspect incident assignment metadata, roles, and ACLs that affect assignment routing.",
@@ -142,6 +158,34 @@ export const serviceNowReferenceConnector: ConnectorProfile = {
       proves: "ServiceNow catalog request diagnostics can execute without enabling fulfillment or approval changes.",
       steps: [
         { message: "ServiceNow catalog request is stuck", expectedOutcome: "diagnosed" }
+      ],
+      expectedFinalOutcome: "diagnosed",
+      requiresRuntimeReady: true,
+      referenceOnly: true
+    },
+    {
+      id: "servicenow.ticket.status.lookup.validation",
+      title: "ServiceNow ticket status lookup",
+      category: "approved_diagnostic",
+      persona: "end_user",
+      description: "Validates end-user ticket status lookup with actor-aware visibility.",
+      proves: "ServiceNow-owned runtime data answers ticket questions without Gateway hardcoding domain details.",
+      steps: [
+        { message: "What is the status of my ticket INC0010245?", expectedOutcome: "diagnosed" }
+      ],
+      expectedFinalOutcome: "diagnosed",
+      requiresRuntimeReady: true,
+      referenceOnly: true
+    },
+    {
+      id: "servicenow.catalog.item.recommend.validation",
+      title: "ServiceNow catalog recommendation",
+      category: "end_user_planning",
+      persona: "end_user",
+      description: "Validates catalog item recommendation without submitting a request.",
+      proves: "The connector can recommend a form while accurately saying no request was submitted.",
+      steps: [
+        { message: "I need AWS production access", expectedOutcome: "diagnosed" }
       ],
       expectedFinalOutcome: "diagnosed",
       requiresRuntimeReady: true,

@@ -1,5 +1,7 @@
 import type { ConnectorRuntimeSemantics, ConnectorTargetActionStatus } from "../runtime.js";
 import type { EndUserAnswer } from "./types.js";
+import { canAccessGitHubRepository, findGitHubRepository, requestedGitHubAccessLevel } from "./githubRepoData.js";
+import { findGitHubPullRequest } from "./githubPullRequestData.js";
 
 export type GitHubRuntimeDiagnosisInput = {
   skillId: string;
@@ -21,6 +23,8 @@ export type GitHubRuntimeDiagnosis = {
   probableCause: string;
   recommendedActions: string[];
   endUserAnswer?: EndUserAnswer;
+  evidence?: Array<{ title: string; data: Record<string, unknown> }>;
+  clarifyingQuestions?: string[];
 };
 
 function statusExplanation(status?: ConnectorTargetActionStatus): string {
@@ -63,7 +67,129 @@ function diagnosticActions(targetActionLabel: string, status?: ConnectorTargetAc
 }
 
 export function buildGitHubRuntimeDiagnosis(params: GitHubRuntimeDiagnosisInput): GitHubRuntimeDiagnosis {
+  const roleHints = params.actor?.startsWith("ran@") ? ["it-support"] : params.actor?.startsWith("analyst@") ? ["read-only"] : params.actor?.startsWith("admin@") ? ["identity-admin"] : [];
+
+  if (params.skillId === "github.pull_request.status.lookup") {
+    const pr = findGitHubPullRequest(params.message);
+    const repo = pr ? findGitHubRepository(pr.repo) : findGitHubRepository(params.message);
+    if (!pr || !repo) {
+      return {
+        summary: "GitHub pull request lookup needs a repository and PR number.",
+        probableCause: "The request did not include enough pull request context.",
+        recommendedActions: ["Ask for the repository name and PR number."],
+        clarifyingQuestions: ["Which repository and pull request number should I check?"],
+        endUserAnswer: {
+          title: "Which pull request should I check?",
+          summary: "I need the repository name and PR number to check pull request status.",
+          whatWasChecked: "No pull request lookup was performed because the target was incomplete.",
+          whatWasChanged: "No changes were made.",
+          nextStep: "Send a repository and PR number, for example billing-api PR 42.",
+          severity: "info",
+          safeToDisplay: true
+        }
+      };
+    }
+
+    if (!canAccessGitHubRepository(repo, params.actor, roleHints)) {
+      return {
+        summary: "GitHub pull request lookup was denied by repository visibility rules.",
+        probableCause: "The repository is not associated with the actor or allowed groups in the connector mock data.",
+        recommendedActions: ["Ask the repository owner for access or open a support ticket with the repository name."],
+        evidence: [{ title: "GitHub repository visibility check", data: { repo: repo.name, actor: params.actor, status: "blocked" } }],
+        endUserAnswer: {
+          title: "I cannot show that pull request",
+          summary: "I cannot show this pull request because the repository is not associated with your user or allowed groups.",
+          whatWasChecked: "Repository visibility and pull request access were checked.",
+          whatWasChanged: "No changes were made.",
+          nextStep: "Ask the repository owner to grant access, or open a support ticket with the repository name.",
+          severity: "medium",
+          safeToDisplay: true
+        }
+      };
+    }
+
+    return {
+      summary: `${repo.name} PR ${pr.number} is ${pr.status}. ${pr.checks}`,
+      probableCause: pr.blockers.length ? pr.blockers.join("; ") : "No blocking checks or reviews are recorded.",
+      recommendedActions: [pr.nextStep],
+      evidence: [{ title: "GitHub pull request lookup", data: { repo: repo.name, pr: pr.number, status: pr.status, checks: pr.checks, reviewers: pr.reviewers, access: "allowed" } }],
+      endUserAnswer: {
+        title: `${repo.name} PR ${pr.number}: ${pr.status}`,
+        summary: `${pr.title}. Checks: ${pr.checks}. Reviewers: ${pr.reviewers.join(", ")}.`,
+        whatWasChecked: "Repository access, pull request status, checks, reviewers, and blockers.",
+        whatWasChanged: "No changes were made.",
+        nextStep: pr.nextStep,
+        severity: pr.blockers.length ? "medium" : "info",
+        safeToDisplay: true
+      }
+    };
+  }
+
+  if (params.skillId === "github.repository.access.prepare") {
+    const repo = findGitHubRepository(params.message);
+    const level = requestedGitHubAccessLevel(params.message);
+    if (!repo || !level) {
+      return {
+        summary: "GitHub repository access request needs more detail.",
+        probableCause: "The request did not include a clear repository or access level.",
+        recommendedActions: ["Ask for repository name, read/write/admin level, business justification, and duration."],
+        clarifyingQuestions: [
+          repo ? "What access level do you need: read, write, or admin?" : "Which repository do you need access to?",
+          "What is the business justification and expected duration?"
+        ],
+        endUserAnswer: {
+          title: "I can prepare the repository access request",
+          summary: "I need the repository name and access level first.",
+          whatWasChecked: "Repository access request requirements were checked.",
+          whatWasChanged: "No changes were made.",
+          nextStep: "Send the repository name and access level: read, write, or admin.",
+          severity: "info",
+          safeToDisplay: true
+        }
+      };
+    }
+
+    return {
+      summary: `Prepared GitHub ${repo.name} ${level} access request guidance.`,
+      probableCause: "This is an access request preparation flow, not an access grant.",
+      recommendedActions: [`Use ${repo.accessRequestUrl} and include business justification and duration.`],
+      evidence: [{ title: "GitHub repository access request", data: { repo: repo.name, requestedAccessLevel: level, ownerTeam: repo.ownerTeam } }],
+      endUserAnswer: {
+        title: `${repo.name} access request`,
+        summary: `Request ${level} access from ${repo.ownerTeam}. Repository visibility: ${repo.visibility}.`,
+        whatWasChecked: "Repository owner, visibility, access request path, and requested level.",
+        whatWasChanged: "No changes were made. No repository access was granted.",
+        nextStep: "Prepare the business justification, requested duration, and access level before submitting the request.",
+        severity: level === "admin" ? "medium" : "low",
+        safeToDisplay: true
+      }
+    };
+  }
+
   if (params.skillId === "github.repository.permission.inspect") {
+    const repo = findGitHubRepository(params.message);
+    if (repo) {
+      return {
+        summary: `GitHub repository permission inspection completed for ${repo.name}.`,
+        probableCause: repo.appInstallationStatus ?? "Repository access depends on GitHub App installation scope and repository permissions.",
+        recommendedActions: [
+          "Check GitHub App installation access for the repository.",
+          "Verify repository metadata and contents permissions.",
+          "Ask the repository owner to approve any access change."
+        ],
+        evidence: [{ title: "GitHub repository permission inspection", data: { repo: repo.name, ownerTeam: repo.ownerTeam, appInstallationStatus: repo.appInstallationStatus } }],
+        endUserAnswer: {
+          title: `I checked ${repo.name} access`,
+          summary: repo.appInstallationStatus ?? "The repository may not be available to the connected GitHub app or current access configuration.",
+          whatWasChecked: "Repository visibility, app installation access, metadata access, and owner team.",
+          whatWasChanged: "No changes were made.",
+          nextStep: "Ask the repository owner to review GitHub App installation access and requested permissions.",
+          severity: "medium",
+          safeToDisplay: true
+        }
+      };
+    }
+
     return {
       summary: "GitHub repository permission inspection completed.",
       probableCause: "The failure is consistent with GitHub App installation scope, repository selection, or missing repository metadata permissions.",
@@ -107,14 +233,17 @@ export function buildGitHubRuntimeDiagnosis(params: GitHubRuntimeDiagnosisInput)
 
   return {
     summary: "GitHub repository rate-limit diagnosis completed.",
-    probableCause: diagnosticCause("repository sync or mutation operation", params.runtimeSemantics.targetActionStatus),
+    probableCause: findGitHubRepository(params.message)?.rateLimitStatus ?? diagnosticCause("repository sync or mutation operation", params.runtimeSemantics.targetActionStatus),
     recommendedActions: diagnosticActions(
       params.runtimeSemantics.targetActionLabel ?? "Sync GitHub repository",
       params.runtimeSemantics.targetActionStatus
     ),
+    evidence: findGitHubRepository(params.message)
+      ? [{ title: "GitHub repository sync evidence", data: { repo: findGitHubRepository(params.message)?.name, rateLimitStatus: findGitHubRepository(params.message)?.rateLimitStatus, appInstallationStatus: findGitHubRepository(params.message)?.appInstallationStatus } }]
+      : undefined,
     endUserAnswer: {
       title: "I found a GitHub API capacity issue",
-      summary: "Repository sync appears to be affected by API rate limits or repository access configuration.",
+      summary: findGitHubRepository(params.message)?.rateLimitStatus ?? "Repository sync appears to be affected by API rate limits or repository access configuration.",
       whatWasChecked: "Repository access, installation context, and rate-limit related signals were checked.",
       whatWasChanged: "No changes were made.",
       nextStep: "Retry after the rate-limit window resets or ask the repository owner to review app access.",

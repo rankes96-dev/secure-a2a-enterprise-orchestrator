@@ -226,7 +226,7 @@ export function deriveTargetActionStatus(params: {
 
 function runtimeOutcomeFor(executionType: ConnectorRuntimeExecutionType): ConnectorRuntimeOutcome {
   if (executionType === "write_action") {
-    return "executed";
+    return "diagnosed";
   }
   if (executionType === "unsupported") {
     return "unsupported";
@@ -299,7 +299,7 @@ export function safeDiagnosis(params: {
     targetActionId: params.skill.diagnosesActionId,
     targetActionLabel: params.skill.diagnosesActionLabel,
     targetActionStatus,
-    writeActionAttempted: params.skill.executionType === "write_action",
+    writeActionAttempted: false,
     diagnosticOnly: params.skill.executionType === "diagnostic_read_only" || params.skill.executionType === "inspection_read_only"
   };
   const diagnosisInput = {
@@ -327,6 +327,7 @@ export function safeDiagnosis(params: {
     probableCause: diagnosis.probableCause,
     recommendedActions: diagnosis.recommendedActions,
     endUserAnswer: diagnosis.endUserAnswer,
+    clarifyingQuestions: "clarifyingQuestions" in diagnosis ? diagnosis.clarifyingQuestions : undefined,
     runtimeSemantics,
     evidence: [
       {
@@ -347,7 +348,8 @@ export function safeDiagnosis(params: {
       {
         title: "Runtime semantics",
         data: runtimeSemantics
-      }
+      },
+      ...("evidence" in diagnosis && Array.isArray(diagnosis.evidence) ? diagnosis.evidence : [])
     ],
     trace: [
       {

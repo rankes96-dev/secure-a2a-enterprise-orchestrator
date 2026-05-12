@@ -3666,6 +3666,28 @@ pre {
   overflow-wrap: anywhere;
 }
 
+.template-details {
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+}
+
+.template-details > div {
+  grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+.template-details span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.template-details strong {
+  line-height: 1.45;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
 .raw-agent-card-json {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -3931,6 +3953,7 @@ pre {
   .registry-summary-grid,
   .registry-agent-row,
   .registry-agent-metadata,
+  .template-details,
   .trust-card-grid,
   .security-timeline-summary,
   .timeline-metadata-grid,
@@ -3938,6 +3961,10 @@ pre {
   .cockpit-status-strip,
   .gateway-response-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .template-details > div {
+    grid-template-columns: 1fr;
   }
 
   .cockpit-side {
@@ -4247,6 +4274,10 @@ pre {
 
   .registry-agent-metadata {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .template-details {
+    grid-template-columns: 1fr;
   }
 
   .zero-trust-form,
