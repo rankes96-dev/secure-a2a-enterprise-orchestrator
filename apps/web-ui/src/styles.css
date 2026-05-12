@@ -1783,8 +1783,17 @@ select:focus {
 
 .connector-preset-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  gap: 14px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: visible;
+  align-items: start;
+}
+
+.connector-preset-grid > * {
+  min-width: 0;
 }
 
 .agent-registry-anchor-nav {
@@ -1851,10 +1860,18 @@ select:focus {
   justify-content: space-between;
   gap: 8px;
   align-items: flex-start;
+  min-width: 0;
+}
+
+.connector-card-heading strong {
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .connector-template-badge {
+  flex: 0 0 auto;
   width: fit-content;
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 3px 7px;
@@ -1888,7 +1905,24 @@ select:focus {
 .installed-connector-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.connector-card-actions .scenario-run,
+.connector-card-actions .secondary-button,
+.connector-card-actions .compact-button {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 34px;
+  border-radius: 8px;
+  justify-content: center;
+  text-align: center;
+  white-space: normal;
 }
 
 .installed-connector-details {
@@ -1943,6 +1977,9 @@ select:focus {
   display: grid;
   gap: 5px;
   min-width: 0;
+  max-width: 100%;
+  align-content: start;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
@@ -6292,7 +6329,7 @@ summary:focus-visible,
 
 .agent-registry-summary-bar {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
 }
 
@@ -6345,17 +6382,21 @@ summary:focus-visible,
 
 .connector-template-facts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px;
 }
 
 .connector-template-facts span {
+  min-width: 0;
+  min-height: 0;
   border: 1px solid var(--border-soft);
   border-radius: 9px;
-  padding: 8px;
+  padding: 6px 8px;
   background: var(--surface-soft);
   font-size: 12px;
   font-weight: 800;
+  line-height: 1.3;
+  overflow-wrap: break-word;
 }
 
 .runtime-endpoint-chip code,

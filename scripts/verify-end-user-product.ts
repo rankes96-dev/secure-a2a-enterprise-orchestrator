@@ -269,6 +269,10 @@ assert(styles.includes(".template-details {\n  grid-template-columns: 1fr;"), "T
 assert(!styles.includes(".template-details {\n  grid-template-columns: repeat(5"), "Template details must not use five narrow columns");
 assert(!styles.includes(".template-details strong {\n  line-height: 1.45;\n  overflow-wrap: break-word;\n  word-break: break-all;"), "Template details should not force break-all wrapping");
 assert(!styles.includes("registry-agent-metadata,\n  .template-details,\n  .trust-card-grid"), "Responsive registry metadata grid must not force template details back into narrow columns");
+assert(styles.includes("grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));"), "Connector Catalog should use a responsive non-overflow card grid");
+assert(!styles.includes(".connector-preset-grid {\n  display: grid;\n  grid-template-columns: repeat(3"), "Connector Catalog must not use a fixed three-column grid");
+assert(styles.includes(".connector-card-actions .scenario-run") && styles.includes("width: auto;"), "Connector card actions should remain normal buttons instead of stretched circles");
+assert(styles.includes(".connector-template-facts span") && styles.includes("min-height: 0;"), "Connector template summary facts should stay compact");
 
 if (failed) {
   process.exitCode = 1;

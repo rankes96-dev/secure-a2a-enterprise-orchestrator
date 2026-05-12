@@ -323,6 +323,83 @@ if (!registryHeadingSpacingBlock.includes("margin-bottom: 8px")) {
   failed = true;
 }
 
+const connectorCatalogBlocks = [...styles.matchAll(/\.connector-preset-grid\s*\{[\s\S]*?\}/g)].map((match) => match[0]);
+if (connectorCatalogBlocks.length === 0) {
+  console.error("fail - Connector Catalog grid styles are missing");
+  failed = true;
+}
+for (const block of connectorCatalogBlocks) {
+  if (/grid-template-columns:\s*repeat\((3|4),\s*minmax\(0,\s*1fr\)\)/.test(block)) {
+    console.error("fail - Connector Catalog must not use a fixed 3/4-column grid that can overflow");
+    failed = true;
+  }
+  if (/overflow-x:\s*auto/.test(block)) {
+    console.error("fail - Connector Catalog should not render as a clipped horizontal carousel");
+    failed = true;
+  }
+}
+
+const connectorCatalogBlock = connectorCatalogBlocks.at(0) ?? "";
+for (const phrase of [
+  "grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr))",
+  "max-width: 100%",
+  "min-width: 0",
+  "align-items: start"
+]) {
+  if (!connectorCatalogBlock.includes(phrase)) {
+    console.error(`fail - Connector Catalog needs responsive non-overflow grid styling: ${phrase}`);
+    failed = true;
+  }
+}
+
+const connectorCardBlock = styles.match(/\.connector-preset-card\s*\{[\s\S]*?\}/)?.[0] ?? "";
+for (const phrase of ["min-width: 0", "max-width: 100%", "overflow: hidden"]) {
+  if (!connectorCardBlock.includes(phrase)) {
+    console.error(`fail - Connector template cards must be bounded inside the catalog grid: ${phrase}`);
+    failed = true;
+  }
+}
+
+const connectorActionButtonBlock = styles.match(/\.connector-card-actions\s+\.scenario-run,[\s\S]*?\.connector-card-actions\s+\.compact-button\s*\{[\s\S]*?\}/)?.[0] ?? "";
+for (const phrase of ["width: auto", "height: auto", "flex: 0 1 auto", "border-radius: 8px", "white-space: normal"]) {
+  if (!connectorActionButtonBlock.includes(phrase)) {
+    console.error(`fail - Connector card actions should remain normal responsive buttons: ${phrase}`);
+    failed = true;
+  }
+}
+if (/^\s*width:\s*100%/m.test(connectorActionButtonBlock) || /aspect-ratio:\s*1/.test(connectorActionButtonBlock)) {
+  console.error("fail - Connector card actions must not use full-width or square/circle button sizing");
+  failed = true;
+}
+
+const connectorFactsBlock = styles.match(/\.connector-template-facts\s*\{[\s\S]*?\}/)?.[0] ?? "";
+const connectorFactItemBlock = styles.match(/\.connector-template-facts\s+span\s*\{[\s\S]*?\}/)?.[0] ?? "";
+if (!connectorFactsBlock.includes("repeat(auto-fit, minmax(180px, 1fr))")) {
+  console.error("fail - Connector template summary facts should use a compact responsive layout");
+  failed = true;
+}
+for (const phrase of ["min-height: 0", "padding: 6px 8px", "line-height: 1.3", "overflow-wrap: break-word"]) {
+  if (!connectorFactItemBlock.includes(phrase)) {
+    console.error(`fail - Connector template summary facts should be compact and readable: ${phrase}`);
+    failed = true;
+  }
+}
+
+const templateDetailsBlock = styles.match(/\.template-details\s*\{[\s\S]*?\}/)?.[0] ?? "";
+const templateDetailsRowBlock = styles.match(/\.template-details\s+>\s+div\s*\{[\s\S]*?\}/)?.[0] ?? "";
+if (!templateDetailsBlock.includes("grid-template-columns: 1fr")) {
+  console.error("fail - Template details should render as full-width key-value rows");
+  failed = true;
+}
+if (!templateDetailsRowBlock.includes("minmax(150px, 190px) minmax(0, 1fr)")) {
+  console.error("fail - Template details rows should use readable label/value columns");
+  failed = true;
+}
+if (/word-break:\s*break-all/.test(templateDetailsBlock) || /word-break:\s*break-all/.test(templateDetailsRowBlock)) {
+  console.error("fail - Template details must not force break-all wrapping");
+  failed = true;
+}
+
 const topbarBlocks = [...styles.matchAll(/\.topbar\s*\{[\s\S]*?\}/g)].map((match) => match[0]);
 if (topbarBlocks.some((block) => /position:\s*(sticky|fixed)/.test(block))) {
   console.error("fail - .topbar must not be sticky or fixed");
