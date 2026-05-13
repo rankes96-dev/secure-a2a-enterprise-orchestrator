@@ -36,9 +36,19 @@ const adversarialPatterns: Array<{ pattern: RegExp; category: NonNullable<Securi
     reason: "The request attempts to bypass Gateway governance or authorization."
   },
   {
+    pattern: /\b(ignore|disregard)\s+(all\s+)?(policies|policy|governance|authorization|authz|approvals?)\b/i,
+    category: "policy_bypass_attempt",
+    reason: "The request attempts to ignore Gateway governance, policy, or approval controls."
+  },
+  {
     pattern: /\b(use|grant|assume)\s+(admin|administrator|root|superuser)\s+permissions?\b/i,
     category: "privilege_escalation_attempt",
     reason: "The request attempts to obtain privileges from prompt text instead of configured grants and permissions."
+  },
+  {
+    pattern: /\b(grant|give|make)\s+(me|us|this\s+user|the\s+user)?\s*(?:[\w.-]+\s+)?(admin|administrator|root|superuser)(?:\s+access|\s+role|\s+permission|\s+permissions)?\b/i,
+    category: "privilege_escalation_attempt",
+    reason: "The request attempts to grant administrative privileges without a governed approval flow."
   },
   {
     pattern: /\bpretend\s+(the\s+)?(connector|agent|gateway|policy|skill|action)\s+(is\s+)?(approved|allowed|trusted|enabled)\b/i,

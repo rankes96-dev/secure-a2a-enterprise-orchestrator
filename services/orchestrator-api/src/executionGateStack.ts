@@ -1,4 +1,4 @@
-import type { Classification, ConnectorActionPlan, EvaluatedConnectorActionPlan, ExecutionGate, ExecutionGateId, ExecutionGateStack, RequestInterpretation, ResolveResponse, SecurityIntent, SelectedAgent } from "@a2a/shared";
+import type { Classification, ConnectorActionPlan, EvaluatedConnectorActionPlan, ExecutionGate, ExecutionGateId, ExecutionGateStack, RequestInterpretation, ResolveResponse, SecurityDecision, SecurityIntent, SelectedAgent } from "@a2a/shared";
 import type { ConnectorRuntimeResult } from "./connectorRuntime.js";
 
 type ConnectorRouting = NonNullable<ResolveResponse["connectorRouting"]>;
@@ -13,6 +13,7 @@ export type BuildExecutionGateStackParams = {
   connectorActionPlan?: ConnectorActionPlan;
   evaluatedActionPlan?: EvaluatedConnectorActionPlan;
   selectedAgents?: SelectedAgent[];
+  securityDecision?: SecurityDecision;
   resolutionStatus: ResolveResponse["resolutionStatus"];
   classification: Classification;
 };
@@ -27,6 +28,11 @@ function gate(params: ExecutionGate): ExecutionGate {
 
 function finalOutcome(params: BuildExecutionGateStackParams): ExecutionGateStack["finalOutcome"] {
   if (params.securityIntent?.detected) {
+    return "blocked_at_gateway";
+  }
+
+  const securityStopped = params.securityDecision?.decision === "Blocked" || params.securityDecision?.decision === "NeedsApproval";
+  if (securityStopped) {
     return "blocked_at_gateway";
   }
 
@@ -109,6 +115,7 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
   const outcome = finalOutcome(params);
   const stopped = stoppedAt(params, outcome);
   const gatewayBlocked = stopped === "gateway_governance";
+  const securityStopped = params.securityDecision?.decision === "Blocked" || params.securityDecision?.decision === "NeedsApproval";
   const oauthBlocked = stopped === "oauth_scope";
   const serviceAccountBlocked = stopped === "service_account_permission";
   const accessBoundaryBlocked = oauthBlocked || serviceAccountBlocked;
@@ -132,11 +139,15 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
   const gatewayGate = gate({
     id: "gateway_governance",
     label: "Gateway Governance",
-    status: (params.connectorActionPlan || routing?.status === "connector_skill_approved" || accessBoundaryBlocked) && !params.securityIntent?.detected ? "passed" : "blocked",
+    status: (params.connectorActionPlan || routing?.status === "connector_skill_approved" || accessBoundaryBlocked) && !params.securityIntent?.detected && !securityStopped ? "passed" : "blocked",
     reason: params.connectorActionPlan
       ? "Gateway requested a side-effect-free connector action plan."
       : params.securityIntent?.detected
       ? "Gateway blocked the request because prompt text cannot grant scopes, permissions, Gateway approval, or raw token access."
+      : params.securityDecision?.decision === "NeedsApproval"
+      ? "Gateway stopped the request because this action requires governed approval."
+      : params.securityDecision?.decision === "Blocked"
+      ? params.securityDecision.reason
       : accessBoundaryBlocked
         ? "Gateway evaluated the request and stopped it at the access boundary shown below."
         : routing?.reason ?? (params.resolutionStatus === "unsupported" ? "No supported connector route was available." : "No connector-specific route was approved."),

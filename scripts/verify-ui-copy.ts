@@ -184,6 +184,7 @@ for (const phrase of [
   "isSafeEndUserAnswer",
   "containsForbiddenSecretMarker",
   "connectorEndUserAnswer",
+  "connectorRuntimeSucceeded",
   "renderEndUserAnswer",
   "connectorRuntimeFailed",
   "buildRuntimeFailureAnswer",
@@ -193,6 +194,8 @@ for (const phrase of [
   "buildConnectorUnavailableAnswer",
   "safeToDisplay !== true",
   "responseExecutedWriteOrAdmin",
+  "response.connectorRuntime?.executed === true",
+  "response.connectorRuntime.agentResponse !== undefined",
   "unsafeChangeClaims",
   "raw token",
   "user was added",
@@ -319,8 +322,8 @@ if (supportAnswerBuilder.indexOf("if (requestIsOutOfEnterpriseScope(response))")
   failed = true;
 }
 
-if (supportAnswerBuilder.indexOf("if (requestIsOutOfEnterpriseScope(response))") > supportAnswerBuilder.indexOf("const safeConnectorAnswer = connectorEndUserAnswer(response)")) {
-  console.error("fail - out-of-scope handling must take priority over connector endUserAnswer");
+if (supportAnswerBuilder.indexOf("const safeConnectorAnswer = connectorEndUserAnswer(response)") > supportAnswerBuilder.indexOf("if (requestIsOutOfEnterpriseScope(response))")) {
+  console.error("fail - successful connector endUserAnswer must take priority over out-of-scope fallback");
   failed = true;
 }
 
@@ -329,13 +332,13 @@ if (supportAnswerBuilder.indexOf("if (connectorRuntimeFailed(response))") > supp
   failed = true;
 }
 
-if (supportAnswerBuilder.indexOf("if (connectorUnavailableForEndUser(response))") > supportAnswerBuilder.indexOf("const safeConnectorAnswer = connectorEndUserAnswer(response)")) {
-  console.error("fail - connector unavailable handling must take priority over connector endUserAnswer");
+if (supportAnswerBuilder.indexOf("if (connectorUnavailableForEndUser(response))") > supportAnswerBuilder.indexOf('if (outcome === "DIAGNOSED"')) {
+  console.error("fail - connector unavailable handling must take priority over generic diagnostic fallback");
   failed = true;
 }
 
-if (supportAnswerBuilder.indexOf("if (connectorUnavailableForEndUser(response))") > supportAnswerBuilder.indexOf('if (outcome === "DIAGNOSED"')) {
-  console.error("fail - connector unavailable handling must take priority over generic diagnostic fallback");
+if (!outOfScopeDetector.includes("connectorRuntimeSucceeded(response)")) {
+  console.error("fail - out-of-scope detection must not override successful connector runtime answers");
   failed = true;
 }
 

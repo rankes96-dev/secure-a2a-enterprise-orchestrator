@@ -693,7 +693,17 @@ function connectorRuntimeFailed(response: ResolveResponse): boolean {
   );
 }
 
+function connectorRuntimeSucceeded(response: ResolveResponse): boolean {
+  return response.connectorRouting?.status === "connector_skill_approved" &&
+    response.connectorRuntime?.executed === true &&
+    response.connectorRuntime.agentResponse !== undefined;
+}
+
 function requestIsOutOfEnterpriseScope(response: ResolveResponse): boolean {
+  if (connectorRuntimeSucceeded(response)) {
+    return false;
+  }
+
   const classificationSupportMode = (response.classification as { supportMode?: string }).supportMode;
   const scopeEvidence = [
     response.routingReasoningSummary,
@@ -808,6 +818,19 @@ function buildEndUserSupportAnswer(response: ResolveResponse): string {
   const nextStep = supportNextStep(response);
   const targetStatus = response.connectorRuntime?.agentResponse?.runtimeSemantics?.targetActionStatus;
 
+  if (response.securityDecision?.decision === "NeedsApproval") {
+    return [
+      "NEEDS APPROVAL",
+      response.securityDecision.reason,
+      "",
+      "No changes were made.",
+      "No access was granted.",
+      "",
+      "Next step:",
+      "Open an approved access request or contact IT with the details."
+    ].join("\n");
+  }
+
   if (response.securityIntent?.detected) {
     return [
       "BLOCKED",
@@ -852,17 +875,17 @@ function buildEndUserSupportAnswer(response: ResolveResponse): string {
     return buildRuntimeFailureAnswer(response);
   }
 
+  const safeConnectorAnswer = connectorEndUserAnswer(response);
+  if (safeConnectorAnswer) {
+    return renderEndUserAnswer(outcome, safeConnectorAnswer, response);
+  }
+
   if (requestIsOutOfEnterpriseScope(response)) {
     return buildOutOfScopeAnswer(response);
   }
 
   if (connectorUnavailableForEndUser(response)) {
     return buildConnectorUnavailableAnswer(response);
-  }
-
-  const safeConnectorAnswer = connectorEndUserAnswer(response);
-  if (safeConnectorAnswer) {
-    return renderEndUserAnswer(outcome, safeConnectorAnswer, response);
   }
 
   if (outcome === "PLANNED" || response.connectorActionPlan) {

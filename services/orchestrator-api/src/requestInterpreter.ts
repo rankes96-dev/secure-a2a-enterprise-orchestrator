@@ -170,6 +170,12 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
   const sensitiveVerbs = includesAny(lower, ["show", "print", "reveal", "dump", "decode", "inspect", "expose", "exfiltrate", "raw"]);
   const sensitiveObjects = includesAny(lower, ["oauth", "jwt", "bearer", "authorization header", "api key", "client secret", "password", "private key", "session cookie", "credential", "secret", "token"]);
   const sensitiveSecurity = sensitiveVerbs && sensitiveObjects;
+  const connectorRecordLookup = /\b(?:what is the status|status|show me|show)\b/i.test(message) &&
+    (
+      /\b[A-Z][A-Z0-9]+-\d+\b/i.test(message) ||
+      /\b(?:INC|RITM|REQ)\d+\b/i.test(message) ||
+      /\b(?:PR|pull request)\s*#?\d+\b/i.test(message)
+    );
   const failure = includesAny(lower, ["error", "fails", "failed", "failure", "401", "403", "429", "500", "timeout", "access denied", "cannot login", "can't login", "sync", "webhook", "alert", "incident"]);
 
   if (clearOutOfScope) {
@@ -259,6 +265,25 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
       requiresApproval: false,
       confidence: "high",
       reason: "The user requested a sensitive security action.",
+      interpretationSource: "fallback"
+    };
+  }
+
+  if (connectorRecordLookup) {
+    return {
+      scope: "enterprise_support",
+      intentType: "incident_diagnosis",
+      requestedCapability: "unknown",
+      targetSystemText: /\b(?:PR|pull request)\s*#?\d+\b/i.test(message)
+        ? "GitHub"
+        : /\b(?:INC|RITM|REQ)\d+\b/i.test(message)
+          ? "ServiceNow"
+          : "Jira",
+      targetResourceType: "record",
+      requestedActionText: "look up enterprise record status",
+      requiresApproval: false,
+      confidence: "high",
+      reason: "The user is asking to look up the status of a supported enterprise connector record.",
       interpretationSource: "fallback"
     };
   }

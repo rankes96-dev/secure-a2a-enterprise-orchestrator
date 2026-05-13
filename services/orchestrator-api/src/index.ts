@@ -638,7 +638,7 @@ function buildFinalAnswer(params: {
   const approvalDecision = params.securityDecisions?.find((decision) => decision.decision === "NeedsApproval");
 
   if (approvalDecision) {
-    return `Needs approval: ${approvalDecision.reason}`;
+    return `NEEDS APPROVAL\n${approvalDecision.reason}\nNo changes were made. No access was granted. No request was submitted.`;
   }
 
   const needsMoreInfo = params.agentResponses.find((response) => response.status === "needs_more_info");
@@ -1621,6 +1621,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         connectorActionPlan: responseWithIdentity.connectorActionPlan,
         evaluatedActionPlan: responseWithIdentity.evaluatedActionPlan,
         selectedAgents: responseWithIdentity.selectedAgents,
+        securityDecision: responseWithIdentity.securityDecision,
         resolutionStatus: responseWithIdentity.resolutionStatus,
         classification: responseWithIdentity.classification
       })
@@ -1636,7 +1637,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     };
 
     return finalize({
-      finalAnswer: "Blocked by Gateway governance: The request attempted to bypass governance or access protected runtime data. Prompt text cannot grant scopes, permissions, Gateway approval, or raw token access.",
+      finalAnswer: "BLOCKED\nThe request attempted to bypass governance or obtain protected access from prompt text. Admin access requires governed approval.\nNo changes were made. No access was granted. No request was submitted.",
       classification,
       selectedAgents: [],
       skippedAgents: routingDecision.skippedAgents,
