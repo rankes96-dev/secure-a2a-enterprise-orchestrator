@@ -166,10 +166,10 @@ async function onboardConnector(connector: ConnectorFixture): Promise<void> {
   logOk(`onboarded ${connector.label} reference connector`);
 }
 
-async function resolveMessage(message: string): Promise<Record<string, unknown>> {
+async function resolveMessage(message: string, conversationId?: string): Promise<Record<string, unknown>> {
   const { response, body } = await request("/resolve", {
     method: "POST",
-    body: JSON.stringify({ message })
+    body: JSON.stringify({ message, conversationId })
   });
   requireStatus(response, body, 200, `resolve ${message}`);
   assertNoSecretMarkers(body);
@@ -315,6 +315,31 @@ async function main(): Promise<void> {
     throw new Error(`ServiceNow ticket status should stay on ServiceNow ticket lookup: ${JSON.stringify(route)}`);
   }
   logOk("ServiceNow ticket status still routes to ticket lookup");
+
+  result = await resolveMessage("what is the status of INC0010213");
+  route = expectConnectorStatus(result, "connector_skill_approved", "ServiceNow first ticket follow-up setup");
+  if (route.connectorId !== "servicenow-reference" || route.skillId !== "servicenow.ticket.status.lookup") {
+    throw new Error(`ServiceNow first ticket lookup should use ticket status lookup: ${JSON.stringify(route)}`);
+  }
+  const conversationId = typeof result.conversationId === "string" ? result.conversationId : undefined;
+  const firstFinalAnswer = typeof result.finalAnswer === "string" ? result.finalAnswer : "";
+  if (!conversationId || !firstFinalAnswer.includes("INC0010213")) {
+    throw new Error(`ServiceNow first ticket lookup should return INC0010213 with a conversation id: ${JSON.stringify(result.finalAnswer)}`);
+  }
+
+  result = await resolveMessage("what is the status of INC0010244", conversationId);
+  route = expectConnectorStatus(result, "connector_skill_approved", "ServiceNow explicit ticket follow-up");
+  if (route.connectorId !== "servicenow-reference" || route.skillId !== "servicenow.ticket.status.lookup") {
+    throw new Error(`ServiceNow explicit ticket follow-up should use ticket status lookup: ${JSON.stringify(route)}`);
+  }
+  const secondFinalAnswer = typeof result.finalAnswer === "string" ? result.finalAnswer : "";
+  if (!secondFinalAnswer.includes("INC0010244") || !/not found/i.test(secondFinalAnswer)) {
+    throw new Error(`ServiceNow explicit ticket follow-up should report INC0010244 not found: ${JSON.stringify(result.finalAnswer)}`);
+  }
+  if (secondFinalAnswer.includes("INC0010213")) {
+    throw new Error(`ServiceNow explicit ticket follow-up final answer reused prior ticket: ${JSON.stringify(result.finalAnswer)}`);
+  }
+  logOk("ServiceNow explicit ticket in follow-up overrides previous ticket context");
 
   result = await resolveMessage("The warehouse robot arm calibration failed");
   route = expectConnectorStatus(result, "unsupported", "unsupported warehouse request");

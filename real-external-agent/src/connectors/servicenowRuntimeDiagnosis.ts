@@ -14,6 +14,7 @@ export type ServiceNowRuntimeDiagnosisInput = {
     targetResourceName?: string;
     requestedAccessLevel?: string;
     fulfillmentCapability?: string;
+    currentUserMessage?: string;
     missingFields?: string[];
   };
   requiredApplicationGrants: string[];
@@ -89,7 +90,7 @@ export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnos
   const roleHints = params.actor?.startsWith("ran@") ? ["it-support"] : params.actor?.startsWith("admin@") ? ["identity-admin"] : params.actor?.startsWith("analyst@") ? ["read-only"] : [];
 
   if (params.skillId === "servicenow.ticket.status.lookup") {
-    const requestedTicketNumber = extractServiceNowTicketNumber(params.message);
+    const requestedTicketNumber = extractServiceNowTicketNumber(params.requestContext?.currentUserMessage ?? "") ?? extractServiceNowTicketNumber(params.message);
     if (!requestedTicketNumber) {
       return {
         summary: "ServiceNow ticket lookup needs a ticket number.",

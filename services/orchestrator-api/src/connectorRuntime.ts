@@ -203,6 +203,7 @@ function runtimeErrorFromBody(value: unknown): { error: string; errorMessage?: s
 
 export async function executeApprovedConnectorSkill(params: {
   message: string;
+  currentUserMessage?: string;
   conversationId: string;
   connectorRoute: ConnectorRoutingDecision;
   actor?: VerifiedUserIdentity;
@@ -290,6 +291,7 @@ export async function executeApprovedConnectorSkill(params: {
           requestedAccessLevel: params.connectorRoute.requestedAccessLevel,
           fulfillmentCapability: params.connectorRoute.fulfillmentCapability,
           missingFields: params.connectorRoute.missingFields,
+          currentUserMessage: params.currentUserMessage,
           runtimeMode: "external_connector_runtime",
           actor: params.actor
             ? {

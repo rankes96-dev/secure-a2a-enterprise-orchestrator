@@ -73,6 +73,28 @@ const serviceNowExactTicketText = JSON.stringify(serviceNowExactTicket);
 assert(serviceNowExactTicketText.includes("INC0010213"), "ServiceNow exact lookup should answer about INC0010213");
 assert(!serviceNowExactTicketText.includes("INC0010245"), "ServiceNow exact lookup must not fall back to INC0010245");
 
+const serviceNowCurrentMessageTicket = buildServiceNowRuntimeDiagnosis({
+  skillId: "servicenow.ticket.status.lookup",
+  message: [
+    "Previous enterprise support issue:",
+    "what is the status of INC0010213",
+    "",
+    "User follow-up:",
+    "what is the status of INC0010244"
+  ].join("\n"),
+  actor: "ran@company.com",
+  requestContext: {
+    currentUserMessage: "what is the status of INC0010244"
+  },
+  requiredApplicationGrants: [],
+  requiredEffectivePermissions: [],
+  connectorAccessEvaluation: approvedAccess,
+  runtimeSemantics: baseRuntime
+});
+const serviceNowCurrentMessageTicketText = JSON.stringify(serviceNowCurrentMessageTicket);
+assert(serviceNowCurrentMessageTicketText.includes("INC0010244"), "ServiceNow current user message ticket should win over previous context");
+assert(!serviceNowCurrentMessageTicketText.includes("INC0010213 is Assigned"), "ServiceNow current user message lookup must not answer with the previous ticket");
+
 const serviceNowMissingExactTicket = buildServiceNowRuntimeDiagnosis({
   skillId: "servicenow.ticket.status.lookup",
   message: "what is the status of REQ0099999",

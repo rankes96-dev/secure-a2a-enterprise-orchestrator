@@ -72,7 +72,9 @@ export const serviceNowTickets: ServiceNowTicket[] = [
 ];
 
 export function extractServiceNowTicketNumber(message: string): string | undefined {
-  return message.match(/\b(?:INC|RITM|REQ)\d+\b/i)?.[0]?.toUpperCase();
+  const followUpSegment = message.match(/(?:^|\n)User follow-up:\s*([\s\S]*?)(?:\n\s*\n|$)/i)?.[1];
+  const text = followUpSegment ?? message;
+  return text.match(/\b(?:INC|RITM|REQ)\d+\b/i)?.[0]?.toUpperCase();
 }
 
 export function findServiceNowTicketByNumber(ticketNumber: string): ServiceNowTicket | undefined {

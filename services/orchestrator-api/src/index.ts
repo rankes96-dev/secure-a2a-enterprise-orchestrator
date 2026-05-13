@@ -2587,6 +2587,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     const connectorRuntime = connectorRouting.status === "connector_skill_approved"
       ? await executeApprovedConnectorSkill({
           message: effectiveMessage,
+          currentUserMessage: requestBody.message,
           conversationId,
           connectorRoute: connectorRouting,
           actor: verifiedUser

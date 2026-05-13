@@ -70,6 +70,7 @@ export type ConnectorRuntimeTask = {
     requestedAccessLevel?: unknown;
     fulfillmentCapability?: unknown;
     missingFields?: unknown;
+    currentUserMessage?: unknown;
     actor?: {
       email?: unknown;
       roles?: unknown;
@@ -318,6 +319,7 @@ export function safeDiagnosis(params: {
       targetResourceName: typeof params.task.context?.targetResourceName === "string" ? params.task.context.targetResourceName : undefined,
       requestedAccessLevel: typeof params.task.context?.requestedAccessLevel === "string" ? params.task.context.requestedAccessLevel : undefined,
       fulfillmentCapability: typeof params.task.context?.fulfillmentCapability === "string" ? params.task.context.fulfillmentCapability : undefined,
+      currentUserMessage: typeof params.task.context?.currentUserMessage === "string" ? params.task.context.currentUserMessage : undefined,
       missingFields: Array.isArray(params.task.context?.missingFields)
         ? params.task.context.missingFields.filter((item): item is string => typeof item === "string")
         : undefined
