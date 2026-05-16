@@ -198,6 +198,8 @@ Required production env lives in `real-external-agent/.env.production.example`. 
 - ServiceNow: `EXTERNAL_CONNECTOR_ID=servicenow-reference`, `EXTERNAL_AGENT_ID=external-servicenow-agent`, `EXTERNAL_AGENT_CLIENT_ID=servicenow-agent-client`
 - GitHub: `EXTERNAL_CONNECTOR_ID=github-reference`, `EXTERNAL_AGENT_ID=external-github-agent`, `EXTERNAL_AGENT_CLIENT_ID=github-agent-client`
 
+Railway provides `PORT`; do not set `EXTERNAL_AGENT_PORT` in Railway production. The connector preset ports `4201`, `4202`, and `4203` are local-only defaults for running multiple connector instances on one developer machine.
+
 The external connector admin console is local-only by default. In Railway production, keep:
 
 ```env

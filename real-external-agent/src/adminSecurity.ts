@@ -34,6 +34,10 @@ function tokenMatches(provided: string, expected: string): boolean {
   return providedBuffer.length === expectedBuffer.length && timingSafeEqual(providedBuffer, expectedBuffer);
 }
 
+export function shouldAdvertiseAdminConsole(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.NODE_ENV !== "production" || env.EXTERNAL_AGENT_ADMIN_ENABLED === "true";
+}
+
 export function evaluateAdminAccess(
   url: string | undefined,
   headers: IncomingHttpHeaders,

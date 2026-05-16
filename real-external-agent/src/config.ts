@@ -4,7 +4,7 @@ export function env(name: string, fallback: string): string {
 }
 
 export function port(): number {
-  const parsed = Number(process.env.EXTERNAL_AGENT_PORT ?? process.env.PORT ?? 4201);
+  const parsed = Number(process.env.PORT ?? process.env.EXTERNAL_AGENT_PORT ?? 4201);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 4201;
 }
 

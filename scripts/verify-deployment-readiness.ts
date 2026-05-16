@@ -1,5 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { evaluateAdminAccess } from "../real-external-agent/src/adminSecurity.js";
+import { applyConnectorPreset } from "../real-external-agent/src/connectorPresetEnv.js";
+import { port } from "../real-external-agent/src/config.js";
+import { discoveryDocument } from "../real-external-agent/src/discoveryDocument.js";
 
 const deploymentPath = "docs/deployment.md";
 const orchestratorProductionEnvPath = "services/orchestrator-api/.env.production.example";
@@ -69,6 +72,8 @@ for (const phrase of [
   "no path, query, or fragment",
   "GET /.well-known/a2a-connector-profile.json",
   "The external connector admin console is local-only by default.",
+  "Railway provides `PORT`; do not set `EXTERNAL_AGENT_PORT` in Railway production.",
+  "The connector preset ports `4201`, `4202`, and `4203` are local-only defaults for",
   "EXTERNAL_AGENT_ADMIN_ENABLED=false",
   "EXTERNAL_AGENT_ADMIN_TOKEN=<long-random-admin-token-if-enabled>",
   "requires `EXTERNAL_AGENT_ADMIN_TOKEN`",
@@ -162,6 +167,58 @@ assertAdminDecision(
   evaluateAdminAccess("/admin/config", { "x-internal-service-token": "expected-admin-token" }, productionAdminEnabledEnv),
   "ok"
 );
+
+function withProcessEnv<T>(nextEnv: NodeJS.ProcessEnv, action: () => T): T {
+  const previousEnv = process.env;
+  process.env = nextEnv;
+  try {
+    return action();
+  } finally {
+    process.env = previousEnv;
+  }
+}
+
+withProcessEnv({ NODE_ENV: "production", PORT: "12345" }, () => {
+  applyConnectorPreset("jira");
+  if (process.env.EXTERNAL_AGENT_PORT !== undefined) {
+    console.error("fail - connector preset should not set EXTERNAL_AGENT_PORT when Railway PORT is defined");
+    failed = true;
+  }
+  if (port() !== 12345) {
+    console.error("fail - Railway PORT should win over connector preset port");
+    failed = true;
+  }
+});
+
+for (const [preset, expectedPort] of [
+  ["jira", 4201],
+  ["servicenow", 4202],
+  ["github", 4203]
+] as const) {
+  withProcessEnv({}, () => {
+    applyConnectorPreset(preset);
+    if (port() !== expectedPort) {
+      console.error(`fail - local ${preset} connector preset should resolve port ${expectedPort}`);
+      failed = true;
+    }
+  });
+}
+
+withProcessEnv({ NODE_ENV: "production", PORT: "12345", EXTERNAL_AGENT_ADMIN_ENABLED: "false" }, () => {
+  const discovery = discoveryDocument();
+  if ("adminConsoleUrl" in discovery) {
+    console.error("fail - production discovery should not advertise adminConsoleUrl when admin is disabled");
+    failed = true;
+  }
+});
+
+withProcessEnv({ NODE_ENV: "production", PORT: "12345", EXTERNAL_AGENT_ADMIN_ENABLED: "true" }, () => {
+  const discovery = discoveryDocument();
+  if (!("adminConsoleUrl" in discovery)) {
+    console.error("fail - production discovery should advertise adminConsoleUrl when admin is enabled");
+    failed = true;
+  }
+});
 
 for (const publicConnectorEndpoint of [
   "/health",

@@ -1,7 +1,6 @@
 import { createServer } from "node:http";
-import { agentId, agentIssuer, clientId, expectedAudience, port, tokenEndpointAuthMethod } from "./config.js";
+import { agentId, agentIssuer, clientId, port } from "./config.js";
 import {
-  adminAgentMetadata,
   publicAdminConfig,
   resetDemoConfig,
   saveCapabilityDeclaration,
@@ -12,41 +11,12 @@ import {
 import { adminPageHtml } from "./adminPage.js";
 import { evaluateAdminAccess } from "./adminSecurity.js";
 import { getConnectorProfile, listSupportedConnectors, publicConnectorProfile } from "./connectorProfile.js";
+import { discoveryDocument } from "./discoveryDocument.js";
 import { bearerToken, readJsonBody, sendJson } from "./http.js";
 import { createSignedTrustResponse, OnboardingError, type OnboardingRequest } from "./onboarding.js";
 import { publicJwks } from "./keys.js";
 import { runtimeSkillRequirement, safeDiagnosis, validateRuntimeToken, validateRuntimeTrustedConfig, type ConnectorRuntimeTask } from "./runtime.js";
 import { buildConnectorActionPlan } from "./connectors/actionPlanning.js";
-
-function discoveryDocument() {
-  const issuer = agentIssuer();
-  const agent = adminAgentMetadata();
-  return {
-    agentId,
-    issuer,
-    resourceSystem: agent.resourceSystem,
-    connectorId: agent.connectorId,
-    connectorDisplayName: agent.connectorDisplayName,
-    connectorProfileUrl: agent.connectorProfileUrl,
-    externalConfigHash: agent.externalConfigHash,
-    supportedConnectorProfileUrl: `${issuer}/.well-known/a2a-supported-connectors.json`,
-    trustAdapter: agent.trustAdapter,
-    jwksUri: `${issuer}/.well-known/jwks.json`,
-    onboardingEndpoint: `${issuer}/onboarding/challenge`,
-    runtimeEndpoint: `${issuer}/a2a/task`,
-    adminConsoleUrl: `${issuer}/admin`,
-    auth: {
-      type: "oauth2_client_credentials_jwt",
-      audience: expectedAudience(),
-      tokenEndpointAuthMethod
-    },
-    connectionRequirements: {
-      requiresGatewayRegistration: true,
-      requiresOAuthApplication: true,
-      requiresServicePrincipal: true
-    }
-  };
-}
 
 function sendHtml(response: Parameters<typeof sendJson>[0], status: number, body: string): void {
   response.writeHead(status, {

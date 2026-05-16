@@ -128,6 +128,8 @@ npm run dev:github
 
 These scripts bind Jira to `4201`, ServiceNow to `4202`, and GitHub to `4203`.
 
+In Railway production, use Railway's provided `PORT`. The preset ports `4201`, `4202`, and `4203` are local-only defaults and are ignored when `PORT` is already set.
+
 ## Verify
 
 In another terminal:
