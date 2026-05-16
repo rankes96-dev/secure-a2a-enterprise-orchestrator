@@ -354,6 +354,10 @@ async function fetchAgentCard(staticCard: AgentCard): Promise<AgentCard> {
   throw lastError instanceof Error ? lastError : new Error("Unknown discovery error");
 }
 
+function showLegacyInternalAgentDiscoveryWarnings(): boolean {
+  return process.env.NODE_ENV !== "production" || process.env.SHOW_LEGACY_INTERNAL_AGENT_DISCOVERY_WARNINGS === "true";
+}
+
 export async function discoverAgentCards(): Promise<AgentCard[]> {
   const discoveredCards = await Promise.all(
     staticAgentCards.map(async (staticCard) => {
@@ -363,7 +367,9 @@ export async function discoverAgentCards(): Promise<AgentCard[]> {
         return card;
       } catch (error) {
         const detail = error instanceof Error ? error.message : "Unknown discovery error";
-        console.warn(`[agent-cards] discovery failed for ${staticCard.agentId}; using static fallback: ${detail}`);
+        if (showLegacyInternalAgentDiscoveryWarnings()) {
+          console.warn(`[agent-cards] discovery failed for ${staticCard.agentId}; using static fallback: ${detail}`);
+        }
         return staticCard;
       }
     })

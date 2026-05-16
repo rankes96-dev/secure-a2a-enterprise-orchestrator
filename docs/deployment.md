@@ -1,6 +1,8 @@
 # Deployment Readiness
 
-This V1 production demo uses OpenRouter for AI, Upstash Redis for shared state/session/replay storage, Vercel for the browser UI, and Railway for backend services.
+This V1 production demo uses OpenRouter for AI, Upstash Redis for replay/security state, Vercel for the browser UI, and Railway for backend services.
+
+Browser sessions are in-memory in V1. Persistent browser session storage is a V2 item.
 
 Production backend runtime uses compiled JavaScript from `dist`. Local development can use `tsx`, but Railway production start commands must run `node dist/...`.
 
@@ -17,7 +19,7 @@ Production services:
   - Jira external agent
   - ServiceNow external agent
   - GitHub external agent
-- Upstash Redis is the production state store.
+- Upstash Redis is the production replay and security state store.
 - OpenRouter is the production AI provider.
 
 Legacy internal mock agents are local-development helpers only and are not deployed in the V1 production connector-first setup.
@@ -97,6 +99,9 @@ NODE_ENV=production
 HOST=0.0.0.0
 PORT=<railway-provided-port>
 ALLOWED_ORIGINS=https://<vercel-app>.vercel.app
+GATEWAY_ISSUER=https://<orchestrator>.railway.app
+ORCHESTRATOR_PUBLIC_URL=https://<orchestrator>.railway.app
+CONNECTOR_RUNTIME_ALLOWED_ORIGINS=https://<jira-agent>.railway.app,https://<servicenow-agent>.railway.app,https://<github-agent>.railway.app
 
 OPENROUTER_API_KEY=<server-side-openrouter-key>
 OPENROUTER_MODEL=openai/gpt-4o-mini
@@ -111,6 +116,7 @@ SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_SAMESITE=None
 TRUST_PROXY_HEADERS=false
 SHOW_INTERNAL_HEALTH_URLS=false
+SHOW_LEGACY_INTERNAL_AGENT_DISCOVERY_WARNINGS=false
 INTERNAL_SERVICE_TOKEN=<shared-internal-service-token>
 
 A2A_AUTH_MODE=oauth2_client_credentials_jwt
@@ -125,7 +131,7 @@ ORCHESTRATOR_PRIVATE_JWK_JSON=<private-jwk-json>
 ORCHESTRATOR_ALLOWED_AUTH_METHODS=private_key_jwt
 ```
 
-Use `ALLOWED_ORIGINS` for the browser origin. Use `STATE_STORE_DRIVER=upstash` with `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+Use `ALLOWED_ORIGINS` for the browser origin. Set at least one of `GATEWAY_ISSUER` or `ORCHESTRATOR_PUBLIC_URL` to the orchestrator's real public HTTPS Railway URL; this value is published in Gateway metadata, used for the Gateway JWKS URI, and signs onboarding challenges as the issuer. `CONNECTOR_RUNTIME_ALLOWED_ORIGINS` must contain the public origins for the external connector runtime services. These entries are origins only, with scheme and host and no path, query, or fragment. Use `STATE_STORE_DRIVER=upstash` with `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for replay and security state, not browser sessions.
 
 ## Railway Mock IdP Service
 
