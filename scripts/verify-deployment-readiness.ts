@@ -3,6 +3,7 @@ import { evaluateAdminAccess } from "../real-external-agent/src/adminSecurity.js
 import { applyConnectorPreset } from "../real-external-agent/src/connectorPresetEnv.js";
 import { port } from "../real-external-agent/src/config.js";
 import { discoveryDocument } from "../real-external-agent/src/discoveryDocument.js";
+import { evaluateInternalDebugAccess } from "../services/mock-identity-provider/src/security/internalDebugAccess.js";
 
 const deploymentPath = "docs/deployment.md";
 const orchestratorProductionEnvPath = "services/orchestrator-api/.env.production.example";
@@ -70,6 +71,10 @@ for (const phrase of [
   "onboarding challenges as the issuer",
   "origins only",
   "no path, query, or fragment",
+  "Mock IdP debug endpoints are local-only or protected by `x-internal-service-token` in production.",
+  "Railway service root: repository root.",
+  "Do not set Railway Root Directory to `real-external-agent`",
+  "The `real-external-agent` package is selected through the workspace command, not Railway root directory.",
   "GET /.well-known/a2a-connector-profile.json",
   "The external connector admin console is local-only by default.",
   "Railway provides `PORT`; do not set `EXTERNAL_AGENT_PORT` in Railway production.",
@@ -167,6 +172,51 @@ assertAdminDecision(
 assertAdminDecision(
   "production admin x-internal-service-token",
   evaluateAdminAccess("/admin/config", { "x-internal-service-token": "expected-admin-token" }, productionAdminEnabledEnv),
+  "ok"
+);
+
+function assertInternalDebugDecision(
+  label: string,
+  decision: ReturnType<typeof evaluateInternalDebugAccess>,
+  expected: "ok" | 401 | 403 | 404
+): void {
+  if (expected === "ok") {
+    if (!decision.ok) {
+      console.error(`fail - ${label} should allow access`);
+      failed = true;
+    }
+    return;
+  }
+
+  if (decision.ok || decision.status !== expected) {
+    console.error(`fail - ${label} should return ${expected}`);
+    failed = true;
+  }
+}
+
+assertInternalDebugDecision(
+  "local Mock IdP debug endpoint",
+  evaluateInternalDebugAccess("/debug/oauth-applications", {}, { NODE_ENV: "development" }),
+  "ok"
+);
+assertInternalDebugDecision(
+  "production Mock IdP debug endpoint without configured token",
+  evaluateInternalDebugAccess("/debug/oauth-applications", {}, { NODE_ENV: "production" }),
+  404
+);
+assertInternalDebugDecision(
+  "production Mock IdP debug endpoint missing token",
+  evaluateInternalDebugAccess("/debug/oauth-applications", {}, { NODE_ENV: "production", INTERNAL_SERVICE_TOKEN: "expected-token" }),
+  401
+);
+assertInternalDebugDecision(
+  "production Mock IdP debug endpoint invalid token",
+  evaluateInternalDebugAccess("/debug/oauth-applications", { "x-internal-service-token": "wrong-token" }, { NODE_ENV: "production", INTERNAL_SERVICE_TOKEN: "expected-token" }),
+  403
+);
+assertInternalDebugDecision(
+  "production Mock IdP debug endpoint valid token",
+  evaluateInternalDebugAccess("/debug/oauth-applications", { "x-internal-service-token": "expected-token" }, { NODE_ENV: "production", INTERNAL_SERVICE_TOKEN: "expected-token" }),
   "ok"
 );
 

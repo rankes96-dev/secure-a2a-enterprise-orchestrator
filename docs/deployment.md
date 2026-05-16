@@ -155,11 +155,13 @@ That workspace start script runs:
 node dist/index.js
 ```
 
-Required production env lives in `services/mock-identity-provider/.env.production.example`. The Mock IdP receives `ORCHESTRATOR_PUBLIC_JWK_JSON` only. Do not put the orchestrator private JWK on this service. Keep `/oauth/token` protected by `private_key_jwt`, replay protection, and optional source IP controls.
+Required production env lives in `services/mock-identity-provider/.env.production.example`. The Mock IdP receives `ORCHESTRATOR_PUBLIC_JWK_JSON` only. Do not put the orchestrator private JWK on this service. Keep `/oauth/token` protected by `private_key_jwt`, replay protection, and optional source IP controls. Mock IdP debug endpoints are local-only or protected by `x-internal-service-token` in production.
 
 ## Railway External Connector Agent Services
 
-Deploy three separate Railway services from `real-external-agent`, one per connector.
+Deploy three separate Railway services for `real-external-agent`, one per connector.
+
+Railway service root: repository root. Do not set Railway Root Directory to `real-external-agent` when using workspace start commands such as `npm run start:jira -w real-external-agent`. The `real-external-agent` package is selected through the workspace command, not Railway root directory.
 
 Build command for each:
 
