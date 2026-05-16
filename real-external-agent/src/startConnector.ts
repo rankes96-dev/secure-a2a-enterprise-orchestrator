@@ -6,6 +6,11 @@ if (!isConnectorPresetName(presetName)) {
   process.exit(1);
 }
 
-applyConnectorPreset(presetName);
+try {
+  applyConnectorPreset(presetName);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "Connector preset/environment mismatch");
+  process.exit(1);
+}
 
 await import("./index.js");

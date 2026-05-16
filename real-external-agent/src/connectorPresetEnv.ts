@@ -21,11 +21,37 @@ export const connectorPresets = {
 
 export type ConnectorPresetName = keyof typeof connectorPresets;
 
+const connectorIdentityEnvKeys = [
+  "EXTERNAL_CONNECTOR_ID",
+  "EXTERNAL_AGENT_ID",
+  "EXTERNAL_AGENT_CLIENT_ID"
+] as const;
+
 export function isConnectorPresetName(value: string | undefined): value is ConnectorPresetName {
   return value === "jira" || value === "servicenow" || value === "github";
 }
 
+export function connectorPresetEnvConflicts(presetName: ConnectorPresetName, env: NodeJS.ProcessEnv = process.env): string[] {
+  if (env.NODE_ENV !== "production") {
+    return [];
+  }
+
+  const preset = connectorPresets[presetName];
+  return connectorIdentityEnvKeys.flatMap((key) => {
+    const actual = env[key];
+    const expected = preset[key];
+    return actual !== undefined && actual !== expected
+      ? [`${key}=${actual} does not match ${presetName} preset value ${expected}`]
+      : [];
+  });
+}
+
 export function applyConnectorPreset(presetName: ConnectorPresetName, env: NodeJS.ProcessEnv = process.env): void {
+  const conflicts = connectorPresetEnvConflicts(presetName, env);
+  if (conflicts.length) {
+    throw new Error(`Connector preset/environment mismatch:\n${conflicts.map((conflict) => `- ${conflict}`).join("\n")}`);
+  }
+
   for (const [key, value] of Object.entries(connectorPresets[presetName])) {
     if (key === "EXTERNAL_AGENT_PORT" && env.PORT !== undefined) {
       continue;

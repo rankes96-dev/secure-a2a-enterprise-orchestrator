@@ -100,7 +100,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
     const resultCheckStatus = (name: string) => zeroTrustResult?.checks.find((check) => check.name === name)?.status;
     const checkStatus = (name: string) => resultCheckStatus(name) ?? discoveryCheckStatus(name);
     const activeStepIndex = wizardSteps.findIndex((step) => step.id === connectionWizardStep);
-    const adminConsoleUrl = zeroTrustDiscovery?.discovery.adminConsoleUrl ?? "http://localhost:4201/admin";
+    const adminConsoleUrl = zeroTrustDiscovery?.discovery.adminConsoleUrl;
     const availableConnectorTemplates = supportedConnectorGuardrails.filter((connector) => connector.status === "available");
     const resourceSystemOptions = [...new Map<string, ConnectorTemplate>(availableConnectorTemplates.map((connector) => [connector.resourceSystem, connector])).values()];
     const currentStepIndex = activeStepIndex >= 0 ? activeStepIndex : 0;
@@ -184,6 +184,11 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
     const renderDecisionValues = (label: string, values?: string[]) => values?.length ? (
       <small>{label}: {values.join(", ")}</small>
     ) : null;
+    const renderAdminConsoleAccess = () => adminConsoleUrl ? (
+      <a className="secondary-button compact-button external-console-link" href={adminConsoleUrl} target="_blank" rel="noreferrer">Open external agent admin console</a>
+    ) : (
+      <p className="muted-note">Admin console is not advertised by this connector. In production, external connector admin endpoints are disabled unless explicitly token-protected.</p>
+    );
     const renderCapabilityList = (items: ConnectorAction[], emptyLabel: string) => (
       <div className="capability-list">
         {items.length ? items.map((item) => (
@@ -292,7 +297,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
                   <div><small>Gateway JWKS URI</small><strong>{gatewayRegistration.jwksUri}</strong></div>
                   <div><small>Onboarding method</small><strong>{gatewayRegistration.onboardingMethod}</strong></div>
                 </div>
-                <a className="secondary-button compact-button external-console-link" href={adminConsoleUrl} target="_blank" rel="noreferrer">Open external agent admin console</a>
+                {renderAdminConsoleAccess()}
               </>
             ) : (
               <>
@@ -304,7 +309,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
                   <button type="button" className="secondary-button compact-button" onClick={() => void copyGatewayRegistrationJson(gatewayRegistration)}>Copy JSON</button>
                   {zeroTrustCopyMessage ? <small>{zeroTrustCopyMessage}</small> : null}
                 </details>
-                <a className="secondary-button compact-button external-console-link" href={adminConsoleUrl} target="_blank" rel="noreferrer">Open external agent admin console</a>
+                {renderAdminConsoleAccess()}
               </>
             )}
             <div className="wizard-action-row">

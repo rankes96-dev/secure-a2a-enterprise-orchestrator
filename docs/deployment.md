@@ -200,6 +200,8 @@ Required production env lives in `real-external-agent/.env.production.example`. 
 
 Railway provides `PORT`; do not set `EXTERNAL_AGENT_PORT` in Railway production. The connector preset ports `4201`, `4202`, and `4203` are local-only defaults for running multiple connector instances on one developer machine.
 
+The connector-specific start command and EXTERNAL_* connector identity env values must match. The service fails fast in production if they do not.
+
 The external connector admin console is local-only by default. In Railway production, keep:
 
 ```env

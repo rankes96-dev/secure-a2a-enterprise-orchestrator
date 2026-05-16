@@ -74,6 +74,8 @@ for (const phrase of [
   "The external connector admin console is local-only by default.",
   "Railway provides `PORT`; do not set `EXTERNAL_AGENT_PORT` in Railway production.",
   "The connector preset ports `4201`, `4202`, and `4203` are local-only defaults for",
+  "The connector-specific start command and EXTERNAL_* connector identity env values must match.",
+  "The service fails fast in production if they do not.",
   "EXTERNAL_AGENT_ADMIN_ENABLED=false",
   "EXTERNAL_AGENT_ADMIN_TOKEN=<long-random-admin-token-if-enabled>",
   "requires `EXTERNAL_AGENT_ADMIN_TOKEN`",
@@ -186,6 +188,48 @@ withProcessEnv({ NODE_ENV: "production", PORT: "12345" }, () => {
   }
   if (port() !== 12345) {
     console.error("fail - Railway PORT should win over connector preset port");
+    failed = true;
+  }
+});
+
+withProcessEnv({
+  NODE_ENV: "production",
+  EXTERNAL_CONNECTOR_ID: "jira-reference",
+  EXTERNAL_AGENT_ID: "external-jira-agent",
+  EXTERNAL_AGENT_CLIENT_ID: "jira-agent-client"
+}, () => {
+  try {
+    applyConnectorPreset("servicenow");
+    console.error("fail - production connector preset mismatch should fail fast");
+    failed = true;
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("Connector preset/environment mismatch")) {
+      console.error("fail - production connector preset mismatch should return a clear error");
+      failed = true;
+    }
+  }
+});
+
+withProcessEnv({
+  NODE_ENV: "production",
+  PORT: "12345",
+  EXTERNAL_AGENT_PORT: "4202",
+  EXTERNAL_CONNECTOR_ID: "servicenow-reference",
+  EXTERNAL_AGENT_ID: "external-servicenow-agent",
+  EXTERNAL_AGENT_CLIENT_ID: "servicenow-agent-client"
+}, () => {
+  try {
+    applyConnectorPreset("servicenow");
+  } catch {
+    console.error("fail - production matching explicit connector identity should pass");
+    failed = true;
+  }
+  if (process.env.EXTERNAL_AGENT_PORT !== "4202") {
+    console.error("fail - connector preset should preserve explicit EXTERNAL_AGENT_PORT");
+    failed = true;
+  }
+  if (port() !== 12345) {
+    console.error("fail - production PORT should still win over EXTERNAL_AGENT_PORT");
     failed = true;
   }
 });

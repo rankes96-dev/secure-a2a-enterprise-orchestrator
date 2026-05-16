@@ -45,6 +45,28 @@ for (const componentName of ["DemoGuideTab", "RunTaskTab", "AgentRegistryTab", "
   }
 }
 
+const agentRegistryTabPath = "apps/web-ui/src/components/agent-registry/AgentRegistryTab.tsx";
+const agentRegistryTab = readFileSync(agentRegistryTabPath, "utf8");
+for (const forbiddenAdminFallback of [
+  "?? \"http://localhost:4201/admin\"",
+  "?? 'http://localhost:4201/admin'",
+  "|| \"http://localhost:4201/admin\"",
+  "|| 'http://localhost:4201/admin'"
+]) {
+  if (agentRegistryTab.includes(forbiddenAdminFallback)) {
+    console.error(`fail - Agent Registry must not hardcode localhost admin fallback: ${forbiddenAdminFallback}`);
+    failed = true;
+  }
+}
+if (!agentRegistryTab.includes("const adminConsoleUrl = zeroTrustDiscovery?.discovery.adminConsoleUrl;")) {
+  console.error("fail - Agent Registry admin console URL should come directly from discovery");
+  failed = true;
+}
+if (!agentRegistryTab.includes("adminConsoleUrl ?") || !agentRegistryTab.includes("Admin console is not advertised by this connector.")) {
+  console.error("fail - Agent Registry admin console link should be conditional on discovery adminConsoleUrl with a muted fallback note");
+  failed = true;
+}
+
 function componentFiles(path: string): string[] {
   return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
     const fullPath = join(path, entry.name);
