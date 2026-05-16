@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
+import { evaluateAdminAccess } from "../real-external-agent/src/adminSecurity.js";
 
 const deploymentPath = "docs/deployment.md";
 const orchestratorProductionEnvPath = "services/orchestrator-api/.env.production.example";
+const realExternalAgentProductionEnvPath = "real-external-agent/.env.production.example";
 let failed = false;
 
 if (!existsSync(deploymentPath)) {
@@ -14,8 +16,14 @@ if (!existsSync(orchestratorProductionEnvPath)) {
   process.exit(1);
 }
 
+if (!existsSync(realExternalAgentProductionEnvPath)) {
+  console.error("fail - real external agent production environment template should exist");
+  process.exit(1);
+}
+
 const doc = readFileSync(deploymentPath, "utf8");
 const orchestratorProductionEnv = readFileSync(orchestratorProductionEnvPath, "utf8");
+const realExternalAgentProductionEnv = readFileSync(realExternalAgentProductionEnvPath, "utf8");
 
 function hasEnvAssignment(content: string, name: string): boolean {
   return new RegExp(`^${name}=\\S+`, "m").test(content);
@@ -59,6 +67,14 @@ for (const phrase of [
   "onboarding challenges as the issuer",
   "origins only",
   "no path, query, or fragment",
+  "GET /.well-known/a2a-connector-profile.json",
+  "The external connector admin console is local-only by default.",
+  "EXTERNAL_AGENT_ADMIN_ENABLED=false",
+  "EXTERNAL_AGENT_ADMIN_TOKEN=<long-random-admin-token-if-enabled>",
+  "requires `EXTERNAL_AGENT_ADMIN_TOKEN`",
+  "x-admin-token",
+  "x-internal-service-token",
+  "Do not enable public unauthenticated admin endpoints in Railway.",
   "INTERNAL_SERVICE_TOKEN",
   "ORCHESTRATOR_PRIVATE_JWK_JSON",
   "ORCHESTRATOR_PUBLIC_JWK_JSON",
@@ -87,6 +103,80 @@ if (!hasEnvAssignment(orchestratorProductionEnv, "CONNECTOR_RUNTIME_ALLOWED_ORIG
 if (!orchestratorProductionEnv.includes("CONNECTOR_RUNTIME_ALLOWED_ORIGINS=https://<jira-agent>.railway.app,https://<servicenow-agent>.railway.app,https://<github-agent>.railway.app")) {
   console.error("fail - orchestrator production env should include Railway external connector runtime origins");
   failed = true;
+}
+
+if (!realExternalAgentProductionEnv.includes("EXTERNAL_AGENT_ADMIN_ENABLED=false")) {
+  console.error("fail - real external agent production env should disable admin endpoints by default");
+  failed = true;
+}
+
+if (!hasEnvAssignment(realExternalAgentProductionEnv, "EXTERNAL_AGENT_ADMIN_TOKEN")) {
+  console.error("fail - real external agent production env should include EXTERNAL_AGENT_ADMIN_TOKEN");
+  failed = true;
+}
+
+function assertAdminDecision(
+  label: string,
+  decision: ReturnType<typeof evaluateAdminAccess>,
+  expected: "ok" | 401 | 403 | 404
+): void {
+  if (expected === "ok") {
+    if (!decision.ok) {
+      console.error(`fail - ${label} should allow access`);
+      failed = true;
+    }
+    return;
+  }
+
+  if (decision.ok || decision.status !== expected) {
+    console.error(`fail - ${label} should return ${expected}`);
+    failed = true;
+  }
+}
+
+const productionAdminDisabledEnv: NodeJS.ProcessEnv = {
+  NODE_ENV: "production",
+  EXTERNAL_AGENT_ADMIN_ENABLED: "false"
+};
+const productionAdminEnabledEnv: NodeJS.ProcessEnv = {
+  NODE_ENV: "production",
+  EXTERNAL_AGENT_ADMIN_ENABLED: "true",
+  EXTERNAL_AGENT_ADMIN_TOKEN: "expected-admin-token"
+};
+
+assertAdminDecision("production /admin default", evaluateAdminAccess("/admin", {}, productionAdminDisabledEnv), 404);
+assertAdminDecision("production /admin/config default", evaluateAdminAccess("/admin/config", {}, productionAdminDisabledEnv), 404);
+assertAdminDecision("production admin missing token", evaluateAdminAccess("/admin/config", {}, productionAdminEnabledEnv), 401);
+assertAdminDecision(
+  "production admin invalid token",
+  evaluateAdminAccess("/admin/config", { "x-admin-token": "wrong-token" }, productionAdminEnabledEnv),
+  403
+);
+assertAdminDecision(
+  "production admin x-admin-token",
+  evaluateAdminAccess("/admin/config", { "x-admin-token": "expected-admin-token" }, productionAdminEnabledEnv),
+  "ok"
+);
+assertAdminDecision(
+  "production admin x-internal-service-token",
+  evaluateAdminAccess("/admin/config", { "x-internal-service-token": "expected-admin-token" }, productionAdminEnabledEnv),
+  "ok"
+);
+
+for (const publicConnectorEndpoint of [
+  "/health",
+  "/.well-known/a2a-agent.json",
+  "/.well-known/a2a-supported-connectors.json",
+  "/.well-known/a2a-connector-profile.json",
+  "/.well-known/jwks.json",
+  "/onboarding/challenge",
+  "/a2a/task"
+]) {
+  assertAdminDecision(
+    `production public connector endpoint ${publicConnectorEndpoint}`,
+    evaluateAdminAccess(publicConnectorEndpoint, {}, productionAdminDisabledEnv),
+    "ok"
+  );
 }
 
 for (const forbidden of [

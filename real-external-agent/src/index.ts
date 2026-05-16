@@ -10,6 +10,7 @@ import {
   saveTrustedGateway
 } from "./adminConfig.js";
 import { adminPageHtml } from "./adminPage.js";
+import { evaluateAdminAccess } from "./adminSecurity.js";
 import { getConnectorProfile, listSupportedConnectors, publicConnectorProfile } from "./connectorProfile.js";
 import { bearerToken, readJsonBody, sendJson } from "./http.js";
 import { createSignedTrustResponse, OnboardingError, type OnboardingRequest } from "./onboarding.js";
@@ -68,6 +69,12 @@ const server = createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/health") {
       sendJson(response, 200, { ok: true, agentId });
+      return;
+    }
+
+    const adminAccess = evaluateAdminAccess(request.url, request.headers);
+    if (!adminAccess.ok) {
+      sendJson(response, adminAccess.status, adminAccess.body);
       return;
     }
 

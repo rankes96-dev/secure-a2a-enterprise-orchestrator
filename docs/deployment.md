@@ -187,6 +187,7 @@ Each agent must have a public HTTPS URL on Railway for production onboarding. Do
 
 - `GET /.well-known/a2a-agent.json`
 - `GET /.well-known/a2a-supported-connectors.json`
+- `GET /.well-known/a2a-connector-profile.json`
 - `GET /.well-known/jwks.json`
 - `POST /onboarding/challenge`
 - `POST /a2a/task`
@@ -196,6 +197,15 @@ Required production env lives in `real-external-agent/.env.production.example`. 
 - Jira: `EXTERNAL_CONNECTOR_ID=jira-reference`, `EXTERNAL_AGENT_ID=external-jira-agent`, `EXTERNAL_AGENT_CLIENT_ID=jira-agent-client`
 - ServiceNow: `EXTERNAL_CONNECTOR_ID=servicenow-reference`, `EXTERNAL_AGENT_ID=external-servicenow-agent`, `EXTERNAL_AGENT_CLIENT_ID=servicenow-agent-client`
 - GitHub: `EXTERNAL_CONNECTOR_ID=github-reference`, `EXTERNAL_AGENT_ID=external-github-agent`, `EXTERNAL_AGENT_CLIENT_ID=github-agent-client`
+
+The external connector admin console is local-only by default. In Railway production, keep:
+
+```env
+EXTERNAL_AGENT_ADMIN_ENABLED=false
+EXTERNAL_AGENT_ADMIN_TOKEN=<long-random-admin-token-if-enabled>
+```
+
+With `NODE_ENV=production`, `/admin` and `/admin/*` return 404 unless `EXTERNAL_AGENT_ADMIN_ENABLED=true`. If production admin access is explicitly enabled, every `/admin` and `/admin/*` endpoint requires `EXTERNAL_AGENT_ADMIN_TOKEN` in either `x-admin-token` or `x-internal-service-token`. Do not enable public unauthenticated admin endpoints in Railway.
 
 ## Verification
 
