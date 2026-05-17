@@ -127,6 +127,21 @@ function verifyDemoUserTokenGuard(): void {
   assert(orchestrator.includes("const demoLoginRateLimit") && orchestrator.includes("DEMO_LOGIN_RATE_LIMIT_MAX_REQUESTS"), "orchestrator should define a dedicated demo-login rate limit");
   assert(demoLoginHandler.includes("allowByRateLimit(request, response, demoLoginRateLimit)"), "demo login should apply rate limiting before token minting");
   assert(orchestrator.includes('error: "rate_limit_exceeded"'), "demo login rate limit should return a safe rate_limit_exceeded error");
+
+  const requestDemoToken = orchestrator.slice(orchestrator.indexOf("async function requestDemoUserToken"), orchestrator.indexOf("async function checkAgentHealth"));
+  for (const term of [
+    "const demoUserTokenTimeoutMs = 5_000",
+    "new AbortController()",
+    "setTimeout(() => controller.abort(), demoUserTokenTimeoutMs)",
+    'redirect: "error"',
+    "signal: controller.signal",
+    "catch",
+    'throw new Error("demo_user_token_failed")',
+    "finally",
+    "clearTimeout(timeout)"
+  ]) {
+    assert((term === "const demoUserTokenTimeoutMs = 5_000" ? orchestrator : requestDemoToken).includes(term), `requestDemoUserToken missing outbound-call safety term: ${term}`);
+  }
   logOk("production demo user token guard and mediated browser login verified");
 }
 

@@ -66,6 +66,7 @@ const orchestratorAgentId = "servicenow-orchestrator-agent";
 const MAX_DELEGATION_DEPTH = 1;
 const a2aAuthMode = assertSecureA2AAuthMode("orchestrator-api");
 const secureAuthRequired = secureA2AAuthRequired();
+const demoUserTokenTimeoutMs = 5_000;
 const endUserDemoConnectorRequests = [
   {
     agentBaseUrl: "http://localhost:4201",
@@ -1276,12 +1277,24 @@ async function requestDemoUserToken(email: string): Promise<{ accessToken: strin
     throw new Error("internal_service_token_not_configured");
   }
 
-  const response = await fetch(mockIdentityProviderDemoUserTokenUrl(), {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ email })
-  });
-  const body = await response.json() as { accessToken?: unknown; error?: unknown };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), demoUserTokenTimeoutMs);
+  let response: Response;
+  let body: { accessToken?: unknown; error?: unknown };
+  try {
+    response = await fetch(mockIdentityProviderDemoUserTokenUrl(), {
+      method: "POST",
+      redirect: "error",
+      signal: controller.signal,
+      headers,
+      body: JSON.stringify({ email })
+    });
+    body = await response.json() as { accessToken?: unknown; error?: unknown };
+  } catch {
+    throw new Error("demo_user_token_failed");
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new Error(typeof body.error === "string" ? body.error : "demo_user_token_failed");
