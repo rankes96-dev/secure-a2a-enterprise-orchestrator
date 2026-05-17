@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type {
   A2AAgentResponse,
@@ -11,27 +11,52 @@ import type {
   AgentTraceEntry,
   AgentsHealthResponse,
   Classification,
+  ConnectorPlanningTargetResolution,
   ExecutionTraceStep,
   FollowUpInterpretation,
+  PendingFollowUpContext,
+  PendingInteraction,
+  PendingInteractionResolution,
+  PlanningFollowUpResolution,
   ResolveRequest,
   ResolveResponse,
   RequestInterpretation,
+  SafeTargetSelection,
   SecurityDecision,
-  SelectedAgent
+  SelectedAgent,
+  UserIdentitySummary
 } from "@a2a/shared";
 import { assertSecureA2AAuthMode, secureA2AAuthRequired } from "@a2a/shared";
-import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
-import { combineAgentCards, discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards";
-import { routeWithAI } from "./aiRouter";
-import { getAiConfig } from "./config/aiConfig";
-import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine";
-import { getA2AAccessToken } from "./security/tokenClient";
-import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext";
-import { interpretFollowUp } from "./followUpInterpreter";
-import { createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager";
-import { buildManualWorkflowAnswer } from "./requestInterpreter";
-import { detectSensitiveAction } from "./sensitiveActionGuard";
-import { addDemoAgentCard, buildDemoAgentCard, deleteDemoAgentCard, listDemoAgentCards, validateDemoAgentCard, validateDemoAgentInput, type DemoAgentCardInput } from "./demoAgentCards";
+import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
+import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards.js";
+import { routeWithAI } from "./aiRouter.js";
+import { getSafeAiConfigSummary } from "./config/aiConfig.js";
+import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine.js";
+import { getA2AAccessToken } from "./security/tokenClient.js";
+import {
+  bearerTokenFromHeaders,
+  expectedUserIdentityIssuer,
+  publicUserIdentity,
+  userIdentityJwksUri,
+  validateUserIdentityJwt,
+  type VerifiedUserIdentity
+} from "./security/userIdentity.js";
+import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext.js";
+import { interpretFollowUp } from "./followUpInterpreter.js";
+import { cleanupExpiredSessions, createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager.js";
+import { gatewayMetadata, gatewayPublicJwks } from "./security/gatewayIdentity.js";
+import { buildManualWorkflowAnswer } from "./requestInterpreter.js";
+import { detectSensitiveAction } from "./sensitiveActionGuard.js";
+import { discoverAgentOnboarding, listSupportedConnectorTemplates, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding.js";
+import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting.js";
+import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime.js";
+import { requestConnectorActionPlan } from "./connectorActionPlanner.js";
+import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation.js";
+import { AuditEvents } from "./audit/auditEvents.js";
+import { evaluateConnectorPolicy } from "./policy/connectorPolicy.js";
+import { detectAdversarialIntent } from "./adversarialIntent.js";
+import { buildExecutionGateStack } from "./executionGateStack.js";
+import { resolvePendingInteraction } from "./pendingInteractionResolver.js";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -41,11 +66,34 @@ const orchestratorAgentId = "servicenow-orchestrator-agent";
 const MAX_DELEGATION_DEPTH = 1;
 const a2aAuthMode = assertSecureA2AAuthMode("orchestrator-api");
 const secureAuthRequired = secureA2AAuthRequired();
+const demoUserTokenTimeoutMs = 5_000;
+const endUserDemoConnectorRequests = [
+  {
+    agentBaseUrl: "http://localhost:4201",
+    expectedAgentId: "external-jira-agent",
+    expectedResourceSystem: "jira",
+    expectedConnectorId: "jira-reference"
+  },
+  {
+    agentBaseUrl: "http://localhost:4202",
+    expectedAgentId: "external-servicenow-agent",
+    expectedResourceSystem: "servicenow",
+    expectedConnectorId: "servicenow-reference"
+  },
+  {
+    agentBaseUrl: "http://localhost:4203",
+    expectedAgentId: "external-github-agent",
+    expectedResourceSystem: "github",
+    expectedConnectorId: "github-reference"
+  }
+] as const;
 
 type RateLimitConfig = {
   name: string;
   windowMs: number;
   maxRequests: number;
+  preferSessionToken?: boolean;
+  error?: string;
 };
 
 const resolveRateLimit: RateLimitConfig = {
@@ -58,10 +106,17 @@ const sessionRateLimit: RateLimitConfig = {
   windowMs: Number(process.env.SESSION_RATE_LIMIT_WINDOW_MS ?? 60_000),
   maxRequests: Number(process.env.SESSION_RATE_LIMIT_MAX_REQUESTS ?? 20)
 };
-const demoAgentRateLimit: RateLimitConfig = {
-  name: "demo-agent",
-  windowMs: Number(process.env.DEMO_AGENT_RATE_LIMIT_WINDOW_MS ?? 60_000),
-  maxRequests: Number(process.env.DEMO_AGENT_RATE_LIMIT_MAX_REQUESTS ?? 20)
+const demoLoginRateLimit: RateLimitConfig = {
+  name: "demo-login",
+  windowMs: Number(process.env.DEMO_LOGIN_RATE_LIMIT_WINDOW_MS ?? process.env.SESSION_RATE_LIMIT_WINDOW_MS ?? 60_000),
+  maxRequests: Number(process.env.DEMO_LOGIN_RATE_LIMIT_MAX_REQUESTS ?? 10),
+  preferSessionToken: true,
+  error: "rate_limit_exceeded"
+};
+const agentOnboardingRateLimit: RateLimitConfig = {
+  name: "agent-onboarding",
+  windowMs: Number(process.env.AGENT_ONBOARDING_RATE_LIMIT_WINDOW_MS ?? 60_000),
+  maxRequests: Number(process.env.AGENT_ONBOARDING_RATE_LIMIT_MAX_REQUESTS ?? 20)
 };
 const healthRateLimit: RateLimitConfig = {
   name: "health",
@@ -82,9 +137,12 @@ type ConversationState = {
   lastIncidentContext?: IncidentContext;
   lastSelectedAgents?: SelectedAgent[];
   lastResolutionStatus?: "resolved" | "needs_more_info" | "unsupported";
+  pendingFollowUp?: PendingFollowUpContext;
+  pendingInteraction?: PendingInteraction;
 };
 
 const conversations = new Map<string, ConversationState>();
+const userIdentitiesBySession = new Map<string, VerifiedUserIdentity>();
 
 function clientIp(request: { headers: Record<string, string | string[] | undefined>; socket: { remoteAddress?: string } }): string {
   if (process.env.TRUST_PROXY_HEADERS !== "true") {
@@ -98,7 +156,8 @@ function clientIp(request: { headers: Record<string, string | string[] | undefin
 
 function allowByRateLimit(request: Parameters<typeof clientIp>[0], response: Parameters<typeof sendJson>[0], config: RateLimitConfig = resolveRateLimit): boolean {
   const now = Date.now();
-  const key = `${config.name}:${clientIp(request)}`;
+  const sessionKey = config.preferSessionToken ? getSessionToken(request as IncomingMessage) : undefined;
+  const key = `${config.name}:${sessionKey ? `session:${sessionKey}` : `ip:${clientIp(request)}`}`;
   const bucket = rateLimitBuckets.get(key);
 
   if (!bucket || bucket.resetAt <= now) {
@@ -107,7 +166,7 @@ function allowByRateLimit(request: Parameters<typeof clientIp>[0], response: Par
   }
 
   if (bucket.count >= config.maxRequests) {
-    sendJson(response, 429, { error: "Too many requests" });
+    sendJson(response, 429, { error: config.error ?? "Too many requests" });
     return false;
   }
 
@@ -115,18 +174,68 @@ function allowByRateLimit(request: Parameters<typeof clientIp>[0], response: Par
   return true;
 }
 
+function clientApiKey(request: IncomingMessage): string | undefined {
+  const value = request.headers["x-api-key"];
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function hasValidClientApiKey(request: IncomingMessage): boolean {
   const expected = process.env.ORCHESTRATOR_API_KEY;
-  return Boolean(expected && request.headers["x-api-key"] === expected);
+  return Boolean(expected && clientApiKey(request) === expected);
 }
 
 function requireClientAccess(request: IncomingMessage, response: ServerResponse): boolean {
+  cleanupExpiredUserIdentities();
   if (hasValidSession(request) || hasValidClientApiKey(request)) {
     return true;
   }
 
   sendJson(response, 401, { error: "Unauthorized" });
   return false;
+}
+
+function tokenAuthMethod(): "private_key_jwt" | "client_secret_post" | "unknown" {
+  const configured = process.env.ORCHESTRATOR_TOKEN_AUTH_METHOD;
+  if (configured === "private_key_jwt" || configured === "client_secret_post") {
+    return configured;
+  }
+
+  if (process.env.ORCHESTRATOR_PRIVATE_JWK_JSON) {
+    return "private_key_jwt";
+  }
+
+  return "client_secret_post";
+}
+
+function safeTokenAuthMethodLabel(): "private-key-jwt" | "client-secret-post" | "unknown" {
+  const method = tokenAuthMethod();
+  if (method === "private_key_jwt") {
+    return "private-key-jwt";
+  }
+
+  if (method === "client_secret_post") {
+    return "client-secret-post";
+  }
+
+  return "unknown";
+}
+
+function privateKeyJwtReplayProtectionStatus(): "configured" | "unknown" {
+  return tokenAuthMethod() === "private_key_jwt" || process.env.ORCHESTRATOR_PRIVATE_KEY_JWT_ENABLED === "true"
+    ? "configured"
+    : "unknown";
+}
+
+function ipAllowlistStatus(): "configured" | "disabled" | "unknown" {
+  if (process.env.MOCK_IDP_ENFORCE_IP_ALLOWLIST === "true") {
+    return process.env.MOCK_IDP_ALLOWED_SOURCE_IPS?.trim() ? "configured" : "unknown";
+  }
+
+  if (process.env.MOCK_IDP_ENFORCE_IP_ALLOWLIST === "false" || process.env.MOCK_IDP_ENFORCE_IP_ALLOWLIST === undefined) {
+    return "disabled";
+  }
+
+  return "unknown";
 }
 
 function trace(action: string, detail: string): AgentTraceEntry {
@@ -182,6 +291,38 @@ function updateConversationState(state: ConversationState, response: ResolveResp
   }
   state.lastSelectedAgents = response.selectedAgents;
   state.lastResolutionStatus = response.resolutionStatus;
+  if (response.pendingInteraction) {
+    state.pendingInteraction = response.pendingInteraction;
+  } else if (
+    response.pendingInteractionResolution?.relation === "confirm" ||
+    response.pendingInteractionResolution?.relation === "cancel" ||
+    response.pendingInteractionResolution?.relation === "provide_missing_target" ||
+    response.pendingInteractionResolution?.relation === "unrelated_new_request" ||
+    response.pendingInteractionResolution?.relation === "adversarial_attempt"
+  ) {
+    state.pendingInteraction = undefined;
+  }
+  if (response.connectorPlanningTargetResolution?.strategy === "needs_clarification") {
+    state.pendingFollowUp = {
+      type: "connector_planning_target",
+      originalMessage: response.pendingFollowUp?.originalMessage ?? lastUserMessageBeforeLatest(state) ?? "",
+      detectedIntentClasses: response.connectorPlanningTargetResolution.detectedIntentClasses,
+      missingFields: ["targetSystem"],
+      createdAt: response.pendingFollowUp?.createdAt ?? new Date().toISOString()
+    };
+    state.pendingInteraction = response.pendingInteraction ?? {
+      id: createTaskId(),
+      type: "target_selection",
+      originalUserRequest: response.pendingFollowUp?.originalMessage ?? lastUserMessageBeforeLatest(state) ?? "",
+      createdAt: response.pendingFollowUp?.createdAt ?? new Date().toISOString(),
+      context: {
+        detectedIntentClasses: response.connectorPlanningTargetResolution.detectedIntentClasses,
+        missingFields: ["targetSystem"]
+      }
+    };
+  } else if (state.pendingFollowUp?.type === "connector_planning_target" && response.pendingInteraction?.type !== "target_selection") {
+    state.pendingFollowUp = undefined;
+  }
 
   if (response.resolutionStatus === "needs_more_info" || response.a2aResponses?.some((item) => item.status === "needs_more_info")) {
     state.needsMoreInfoCount += 1;
@@ -224,6 +365,218 @@ function buildEffectiveMessageForRouting(state: ConversationState, currentMessag
     "",
     "Interpret the follow-up as additional context for the previous issue. Do not treat it as a new standalone request."
   ].join("\n");
+}
+
+function explicitPlanningTargetMention(message: string, installedAgents: ReturnType<typeof listTrustedOnboardedAgents>): boolean {
+  const normalized = message.toLowerCase();
+  return installedAgents
+    .some((agent) => {
+      const connectorId = agent.connectorId ?? agent.connectorProfile?.connectorId ?? "";
+      const resourceSystem = agent.resourceSystem ?? agent.connectorProfile?.resourceSystem ?? "";
+      const displayName = agent.connectorProfile?.displayName ?? "";
+      const explicitTerms = [
+        connectorId,
+        connectorId.replace("-reference", ""),
+        resourceSystem,
+        displayName
+      ].map((term) => term.toLowerCase()).filter(Boolean);
+      return explicitTerms.some((term) => normalized.includes(term));
+    });
+}
+
+function planningSupported(agent: ReturnType<typeof listTrustedOnboardedAgents>[number]): boolean {
+  return agent.connectorProfile?.planning?.supported === true;
+}
+
+function targetSystemLabel(resourceSystem: string): string {
+  const normalized = resourceSystem.toLowerCase();
+  if (normalized === "jira") return "Jira";
+  if (normalized === "servicenow") return "ServiceNow";
+  if (normalized === "github") return "GitHub";
+  return resourceSystem;
+}
+
+function targetSystemDescription(resourceSystem: string): string {
+  const normalized = resourceSystem.toLowerCase();
+  if (normalized === "jira") return "Projects, issues, and Jira permissions";
+  if (normalized === "servicenow") return "Incidents, catalog requests, and ITSM access";
+  if (normalized === "github") return "Repositories, pull requests, and DevOps access";
+  return "Governed access requests for this system";
+}
+
+function knownTargetSystemFromMessage(message: string): { value: string; label: string } | undefined {
+  const normalized = message.toLowerCase();
+  if (/\bjira\b/.test(normalized)) return { value: "jira", label: "Jira" };
+  if (/\bservice\s*now\b|\bservicenow\b/.test(normalized)) return { value: "servicenow", label: "ServiceNow" };
+  if (/\bgithub\b|\bgit\s*hub\b/.test(normalized)) return { value: "github", label: "GitHub" };
+  return undefined;
+}
+
+function normalizePlanningTargetAnswer(message: string): string {
+  return message
+    .trim()
+    .replace(/^use\s+/i, "")
+    .replace(/^it'?s\s+/i, "")
+    .replace(/^it\s+is\s+/i, "")
+    .replace(/^for\s+/i, "")
+    .replace(/^the\s+system\s+is\s+/i, "")
+    .replace(/\s+for\s+(?:the\s+)?previous\s+access\s+request$/i, "")
+    .replace(/[,:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isPreviousAccessRequestTargetSelection(message: string): boolean {
+  return /\bprevious access request\b/i.test(message);
+}
+
+function resolvedPlanningMessage(originalMessage: string, normalizedAnswer: string): string {
+  if (/\bproject\b/i.test(normalizedAnswer)) {
+    return `I need access to ${normalizedAnswer}`;
+  }
+
+  if (/\bproject\b/i.test(originalMessage)) {
+    return originalMessage.replace(/\b(?:a|the)\s+project\b/i, `${normalizedAnswer} project`);
+  }
+
+  if (/\bsystem\b/i.test(originalMessage)) {
+    return originalMessage.replace(/\b(?:a|the)\s+system\b/i, normalizedAnswer);
+  }
+
+  return `${originalMessage} in ${normalizedAnswer}`;
+}
+
+function buildPlanningFollowUpResolution(params: {
+  state: ConversationState;
+  currentMessage: string;
+  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+}): PlanningFollowUpResolution | undefined {
+  const pending = params.state.pendingFollowUp;
+  if (pending?.type !== "connector_planning_target") {
+    return undefined;
+  }
+
+  const originalMessage = pending.originalMessage;
+  const followUpAnswer = params.currentMessage.trim();
+  const normalizedAnswer = normalizePlanningTargetAnswer(followUpAnswer);
+  const hasExplicitTarget = explicitPlanningTargetMention(followUpAnswer, params.installedAgents);
+  const isUiTargetSelection = isPreviousAccessRequestTargetSelection(followUpAnswer);
+  const resolvedMessage = hasExplicitTarget
+    ? !isUiTargetSelection && isConnectorAccessPlanningRequest(followUpAnswer)
+      ? followUpAnswer
+      : resolvedPlanningMessage(originalMessage, normalizedAnswer)
+    : [
+        originalMessage,
+        `Follow-up answer: ${followUpAnswer}`
+      ].join("\n");
+
+  return {
+    type: "connector_planning_target",
+    originalMessage,
+    followUpAnswer,
+    resolvedMessage
+  };
+}
+
+function isOtherTargetSelection(message: string): boolean {
+  return /\b(other|not listed|another system|unsupported system)\b/i.test(message);
+}
+
+function buildSafeTargetSelection(intentClasses: string[], installedAgents: ReturnType<typeof listTrustedOnboardedAgents>): SafeTargetSelection {
+  const seenSystems = new Set<string>();
+  const installedOptions = installedAgents
+    .map((agent) => agent.resourceSystem ?? agent.connectorProfile?.resourceSystem)
+    .filter((resourceSystem): resourceSystem is string => Boolean(resourceSystem))
+    .filter((resourceSystem) => {
+      const normalized = resourceSystem.toLowerCase();
+      if (seenSystems.has(normalized)) {
+        return false;
+      }
+      seenSystems.add(normalized);
+      return true;
+    })
+    .map((resourceSystem) => ({
+      id: resourceSystem.toLowerCase(),
+      label: targetSystemLabel(resourceSystem),
+      value: resourceSystem.toLowerCase(),
+      description: targetSystemDescription(resourceSystem),
+      kind: "supported_system" as const
+    }));
+
+  return {
+    intent: intentClasses.includes("permission_request") ? "permission_request" : "access_request",
+    reason: installedOptions.length
+      ? "Access-planning intent detected, but target system was not specified."
+      : "No installed systems are available for governed access planning yet.",
+    question: "Which system do you need access to?",
+    searchPlaceholder: "Search installed systems...",
+    options: [
+      ...installedOptions,
+      {
+        id: "other",
+        label: "Other / not listed",
+        value: "other",
+        description: installedOptions.length
+          ? "Open a support ticket for another system"
+          : "Open a support ticket with the system name and access details",
+        kind: "other"
+      }
+    ]
+  };
+}
+
+function safePlannedOption(evaluatedActionPlan?: ResolveResponse["evaluatedActionPlan"]): NonNullable<ResolveResponse["evaluatedActionPlan"]>["options"][number] | undefined {
+  if (!evaluatedActionPlan?.options.length) {
+    return undefined;
+  }
+
+  const recommendedOptionId = evaluatedActionPlan.recommendedOptionDecision?.optionId ?? evaluatedActionPlan.plan.recommendedOptionId;
+  const candidates = [
+    ...(recommendedOptionId ? evaluatedActionPlan.options.filter((item) => item.option.actionId === recommendedOptionId) : []),
+    ...evaluatedActionPlan.options
+  ];
+
+  return candidates.find((item) =>
+    item.decision === "allowed" &&
+    item.option.sideEffects === "none" &&
+    (item.option.executionType === "inspection_read_only" || item.option.executionType === "diagnostic_read_only")
+  );
+}
+
+function buildPlannedSafeActionPendingInteraction(params: {
+  originalUserRequest: string;
+  evaluatedActionPlan: NonNullable<ResolveResponse["evaluatedActionPlan"]>;
+}): PendingInteraction | undefined {
+  const option = safePlannedOption(params.evaluatedActionPlan);
+  if (!option) {
+    return undefined;
+  }
+
+  return {
+    id: createTaskId(),
+    type: "planned_safe_action",
+    originalUserRequest: params.originalUserRequest,
+    createdAt: new Date().toISOString(),
+    context: {
+      planId: params.evaluatedActionPlan.plan.planId,
+      connectorId: params.evaluatedActionPlan.plan.connectorId,
+      resourceSystem: params.evaluatedActionPlan.plan.resourceSystem,
+      recommendedActionId: option.option.actionId,
+      recommendedActionLabel: option.option.label,
+      decision: "allowed",
+      executionType: option.option.executionType,
+      sideEffects: option.option.sideEffects
+    }
+  };
+}
+
+function pendingString(context: Record<string, unknown>, key: string): string | undefined {
+  const value = context[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function contextlessContinuationRequest(message: string): boolean {
+  return /(?:👍|✅|👌)|\b(ok(?:ay)?|yes|confirm|continue|proceed|do it|go ahead)\b/i.test(message);
 }
 
 function buildDiagnosis(agentResponses: A2AAgentResponse[]): ResolveResponse["diagnosis"] {
@@ -297,7 +650,7 @@ function buildFinalAnswer(params: {
   const approvalDecision = params.securityDecisions?.find((decision) => decision.decision === "NeedsApproval");
 
   if (approvalDecision) {
-    return `Needs approval: ${approvalDecision.reason}`;
+    return `NEEDS APPROVAL\n${approvalDecision.reason}\nNo changes were made. No access was granted. No request was submitted.`;
   }
 
   const needsMoreInfo = params.agentResponses.find((response) => response.status === "needs_more_info");
@@ -349,6 +702,281 @@ function buildFinalAnswer(params: {
   return `${primary.summary}${primary.probableCause ? ` Probable cause: ${sentence(primary.probableCause)}` : ""}${actions}${supporting ? ` Supporting findings: ${supporting}` : ""}`;
 }
 
+function connectorRoutingStatusLabel(status: ConnectorRoutingDecision["status"]): string {
+  const labels: Record<ConnectorRoutingDecision["status"], string> = {
+    connector_skill_approved: "Connector skill approved",
+    connector_skill_blocked: "Connector skill blocked",
+    connector_skill_not_declared: "Connector skill not enabled",
+    connector_skill_not_enabled: "Connector skill not enabled",
+    connector_not_onboarded: "Connector template supported, but no agent installed",
+    unsupported: "Unsupported request",
+    needs_more_info: "Needs more information"
+  };
+
+  return labels[status];
+}
+
+function connectorRoutingFinalAnswer(decision: ConnectorRoutingDecision): string {
+  const target = decision.targetSystem ? `${decision.targetSystem} ` : "";
+  const skill = decision.skillLabel ?? decision.skillId ?? "requested skill/action";
+
+  if (decision.status === "connector_skill_approved") {
+    if (decision.runtimeMode === "metadata_only") {
+      return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is approved by the onboarded connector profile, but runtime execution was skipped because no trusted allowlisted runtime endpoint is available. ${decision.recommendedNextStep}`;
+    }
+
+    return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is approved by the onboarded connector profile. Runtime execution is available only for allowlisted external connector runtimes.`;
+  }
+
+  if (decision.status === "connector_skill_blocked") {
+    return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is blocked. ${decision.reason} ${decision.recommendedNextStep}`;
+  }
+
+  if (decision.status === "connector_skill_not_declared" || decision.status === "connector_skill_not_enabled") {
+    return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is known to the connector but is not enabled for this onboarded external agent. ${decision.reason} ${decision.recommendedNextStep}`;
+  }
+
+  if (decision.status === "connector_not_onboarded") {
+    return `${connectorRoutingStatusLabel(decision.status)}: ${decision.reason} ${decision.recommendedNextStep}`;
+  }
+
+  if (decision.status === "unsupported") {
+    return `Unsupported request: no connector template or profile exists for the requested system or action. ${decision.recommendedNextStep}`;
+  }
+
+  return `${connectorRoutingStatusLabel(decision.status)}: ${decision.reason} ${decision.recommendedNextStep}`;
+}
+
+function connectorRuntimeFinalAnswer(decision: ConnectorRoutingDecision, runtime: ConnectorRuntimeResult): string {
+  if (runtime.executed && runtime.agentResponse) {
+    const endUserAnswer = runtime.agentResponse.endUserAnswer;
+    if (endUserAnswer?.safeToDisplay) {
+      return [
+        endUserAnswer.title,
+        endUserAnswer.summary,
+        endUserAnswer.whatWasChecked ? `Checked: ${endUserAnswer.whatWasChecked}` : "",
+        endUserAnswer.whatWasChanged ? `Changed: ${endUserAnswer.whatWasChanged}` : "Changed: No changes were made.",
+        `Next step: ${endUserAnswer.nextStep}`
+      ].filter(Boolean).join("\n");
+    }
+    const actions = runtime.agentResponse.recommendedActions?.length
+      ? ` Recommended actions: ${runtime.agentResponse.recommendedActions.join("; ")}.`
+      : "";
+    return `${runtime.agentResponse.summary}${runtime.agentResponse.probableCause ? ` Probable cause: ${sentence(runtime.agentResponse.probableCause)}` : ""}${actions}`;
+  }
+
+  if (runtime.runtimeMode === "external_runtime_failed") {
+    if (runtime.error === "connector_configuration_changed") {
+      return `Connector configuration changed after onboarding. ${runtime.errorMessage ?? "Re-run Gateway onboarding to refresh trusted connector attestation."}`;
+    }
+    if (runtime.error === "skill_not_currently_approved") {
+      return `Connector runtime refused execution because the skill is no longer approved by current connector configuration. ${runtime.errorMessage ?? decision.recommendedNextStep}`;
+    }
+    return `Connector runtime execution failed safely for ${decision.skillLabel ?? decision.skillId ?? "the approved skill"}. ${runtime.errorMessage ?? runtime.error ?? "External connector runtime failed."}`;
+  }
+
+  return connectorRoutingFinalAnswer(decision);
+}
+
+function connectorRoutingDiagnosis(decision: ConnectorRoutingDecision): ResolveResponse["diagnosis"] {
+  if (decision.status === "connector_skill_approved") {
+    if (decision.runtimeMode === "metadata_only") {
+      return {
+        probableCause: "Connector profile approved the skill, but runtime was metadata-only",
+        recommendedFix: "Use the connector metadata guidance or re-run onboarding after configuring a trusted allowlisted runtime endpoint."
+      };
+    }
+
+    return {
+      probableCause: "Connector profile and action decision are available",
+      recommendedFix: "Use the connector-backed diagnosis flow."
+    };
+  }
+
+  if (decision.status === "connector_skill_blocked") {
+    return {
+      probableCause: "The onboarded connector profile blocks the requested action",
+      recommendedFix: decision.recommendedNextStep
+    };
+  }
+
+  if (decision.status === "connector_skill_not_declared" || decision.status === "connector_skill_not_enabled") {
+    return {
+      probableCause: "The connector exists, but the requested skill is not enabled on the onboarded external agent",
+      recommendedFix: decision.recommendedNextStep
+    };
+  }
+
+  if (decision.status === "connector_not_onboarded") {
+    return {
+      probableCause: "Supported connector is not onboarded",
+      recommendedFix: decision.recommendedNextStep
+    };
+  }
+
+  if (decision.status === "unsupported") {
+    return {
+      probableCause: "No supported connector profile matches this request",
+      recommendedFix: decision.recommendedNextStep
+    };
+  }
+
+  return {
+    probableCause: "More connector routing detail is needed",
+    recommendedFix: decision.recommendedNextStep
+  };
+}
+
+function connectorRuntimeDiagnosis(decision: ConnectorRoutingDecision, runtime: ConnectorRuntimeResult): ResolveResponse["diagnosis"] {
+  if (runtime.executed && runtime.agentResponse) {
+    return {
+      probableCause: runtime.agentResponse.probableCause ?? runtime.agentResponse.summary,
+      recommendedFix: runtime.agentResponse.recommendedActions?.join("; ") ?? "Review the external connector runtime response."
+    };
+  }
+
+  if (runtime.runtimeMode === "external_runtime_failed") {
+    if (runtime.error === "connector_configuration_changed") {
+      return {
+        probableCause: "External connector configuration changed after Gateway onboarding",
+        recommendedFix: "Re-run Gateway onboarding to refresh the trusted connector attestation before runtime execution."
+      };
+    }
+    if (runtime.error === "skill_not_currently_approved") {
+      return {
+        probableCause: "The external connector runtime refused execution because the skill is no longer approved by current configuration",
+        recommendedFix: "Enable the skill and required access in the external admin console, then re-run Gateway onboarding."
+      };
+    }
+    return {
+      probableCause: "Approved connector runtime execution failed",
+      recommendedFix: "Retry after confirming the local external agent, Mock IdP, and scoped A2A JWT configuration are running."
+    };
+  }
+
+  return connectorRoutingDiagnosis(decision);
+}
+
+function connectorRoutingResolutionStatus(decision: ConnectorRoutingDecision): ResolveResponse["resolutionStatus"] {
+  if (decision.status === "connector_skill_approved" || decision.status === "connector_skill_blocked" || decision.status === "connector_skill_not_declared" || decision.status === "connector_skill_not_enabled") {
+    return "resolved";
+  }
+
+  if (decision.status === "needs_more_info") {
+    return "needs_more_info";
+  }
+
+  return "unsupported";
+}
+
+function isConnectorAccessPlanningRequest(message: string): boolean {
+  return /\b(i need access to|need access|cannot access|can't access|permission|grant access|add me|role request|access request)\b/i.test(message);
+}
+
+function planningConnectorTarget(params: {
+  message: string;
+  connectorRoute?: ConnectorRoutingDecision;
+  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+}): ConnectorPlanningTargetResolution {
+  const { message, connectorRoute, installedAgents } = params;
+  const normalized = message.toLowerCase();
+  const planningAgents = installedAgents.filter((agent) => agent.connectorProfile?.planning?.supported === true);
+  const intentClasses = detectedPlanningIntentClasses(message);
+
+  if (!planningAgents.length) {
+    return {
+      strategy: "not_supported",
+      detectedIntentClasses: intentClasses,
+      reason: "No installed connector advertises safe action planning support."
+    };
+  }
+
+  const explicitMatch = planningAgents.find((agent) => {
+    const connectorId = agent.connectorId ?? agent.connectorProfile?.connectorId ?? "";
+    const resourceSystem = agent.resourceSystem ?? agent.connectorProfile?.resourceSystem ?? "";
+    const displayName = agent.connectorProfile?.displayName ?? "";
+    const explicitTerms = [
+      connectorId,
+      connectorId.replace("-reference", ""),
+      resourceSystem,
+      displayName
+    ].map((term) => term.toLowerCase()).filter(Boolean);
+    return explicitTerms.some((term) => normalized.includes(term));
+  });
+
+  if (explicitMatch) {
+    const connectorId = explicitMatch.connectorId ?? explicitMatch.connectorProfile?.connectorId;
+    const resourceSystem = explicitMatch.resourceSystem ?? explicitMatch.connectorProfile?.resourceSystem;
+    return {
+      strategy: "explicit_connector_mention",
+      detectedIntentClasses: intentClasses,
+      selectedConnectorId: connectorId,
+      selectedResourceSystem: resourceSystem,
+      reason: "The user explicitly mentioned the target connector or resource system."
+    };
+  }
+
+  const routedTarget = [
+    connectorRoute?.connectorId,
+    connectorRoute?.resourceSystem,
+    connectorRoute?.targetSystem
+  ].map((term) => term?.toLowerCase()).filter((term): term is string => Boolean(term));
+  const routedMatch = routedTarget.length
+    ? planningAgents.find((agent) => {
+        const connectorId = agent.connectorId ?? agent.connectorProfile?.connectorId ?? "";
+        const resourceSystem = agent.resourceSystem ?? agent.connectorProfile?.resourceSystem ?? "";
+        const displayName = agent.connectorProfile?.displayName ?? "";
+        const terms = [connectorId, connectorId.replace("-reference", ""), resourceSystem, displayName]
+          .map((term) => term.toLowerCase())
+          .filter(Boolean);
+        return routedTarget.some((target) => terms.includes(target));
+      })
+    : undefined;
+
+  if (routedMatch) {
+    const supportedIntentClasses = routedMatch.connectorProfile?.planning?.supportedIntentClasses ?? [];
+    const hasSupportedIntent = intentClasses.some((intentClass) => supportedIntentClasses.includes(intentClass));
+    const connectorId = routedMatch.connectorId ?? routedMatch.connectorProfile?.connectorId;
+    const resourceSystem = routedMatch.resourceSystem ?? routedMatch.connectorProfile?.resourceSystem;
+    return {
+      strategy: hasSupportedIntent ? "supported_intent_class_match" : "ai_routing_target_match",
+      detectedIntentClasses: intentClasses,
+      selectedConnectorId: connectorId,
+      selectedResourceSystem: resourceSystem,
+      reason: hasSupportedIntent
+        ? "The target system was clear and the connector supports the detected planning intent class."
+        : "Routing detected a clear target system that matched an installed planning connector."
+    };
+  }
+
+  return {
+    strategy: "needs_clarification",
+    detectedIntentClasses: intentClasses,
+    reason: "The user did not specify the target system/application."
+  };
+}
+
+function detectedPlanningIntentClasses(message: string): string[] {
+  const normalized = message.toLowerCase();
+  return [
+    /\b(access|cannot access|can't access|grant access|access request)\b/.test(normalized) ? "access_request" : undefined,
+    /\b(permission|permissions)\b/.test(normalized) ? "permission_request" : undefined,
+    /\b(role|roles)\b/.test(normalized) ? "role_request" : undefined,
+    /\b(project|projects)\b/.test(normalized) ? "project_access" : undefined
+  ].filter((item): item is string => Boolean(item));
+}
+
+function isConnectorPlanningCandidate(params: {
+  message: string;
+  connectorRoute?: ConnectorRoutingDecision;
+  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+}): boolean {
+  if (params.connectorRoute?.fulfillmentCapability) {
+    return false;
+  }
+  return isConnectorAccessPlanningRequest(params.message);
+}
+
 function primarySecurityDecision(decisions: SecurityDecision[]): SecurityDecision | undefined {
   return (
     decisions.find((decision) => decision.decision === "Blocked") ??
@@ -393,6 +1021,7 @@ function createA2ATask(params: {
   requestedByAgent?: string;
   delegationContext?: Record<string, unknown>;
   authMode?: A2ATask["context"]["authMode"];
+  actor?: VerifiedUserIdentity;
   cards?: AgentCard[];
 }): A2ATask {
   const card = getAgentCard(params.toAgent, params.cards);
@@ -426,7 +1055,14 @@ function createA2ATask(params: {
         scope: params.requestedScope,
         tokenIssued: false
       },
-      delegationContext: params.delegationContext
+      delegationContext: params.delegationContext,
+      actor: params.actor
+        ? {
+            email: params.actor.email,
+            name: params.actor.name,
+            roles: [...params.actor.roles]
+          }
+        : undefined
       // TODO: replace mock_internal_token with OAuth 2.0 Client Credentials, JWT access tokens,
       // audience/issuer/scope/JWKS validation, and optional mTLS or DPoP.
     }
@@ -474,14 +1110,14 @@ async function prepareA2ARequestAuth(params: {
   }
 
   const isDelegatedToken = Boolean(params.delegatedBy) || (params.delegationDepth ?? 0) > 0;
-  const requestAction = isDelegatedToken ? "request_delegated_a2a_access_token" : "request_a2a_access_token";
-  const attachAction = isDelegatedToken ? "attach_delegated_a2a_bearer_token" : "attach_a2a_bearer_token";
+  const requestAction = isDelegatedToken ? "request_delegated_a2a_scoped_token" : "request_a2a_scoped_token";
+  const attachAction = isDelegatedToken ? "attach_delegated_a2a_scoped_token_metadata" : "attach_a2a_scoped_token_metadata";
   const requestDetail = isDelegatedToken
     ? `Requested delegated scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope} delegated by ${params.delegatedBy ?? "unknown"} at depth ${params.delegationDepth ?? 0}`
     : `Requested scoped JWT for audience ${params.targetAudience} and scope ${params.requestedScope}`;
   const attachDetail = isDelegatedToken
-    ? "Attached delegated Bearer token metadata to A2A request; raw token not logged"
-    : "Attached Bearer token metadata to A2A request; raw token not logged";
+    ? "Attached delegated scoped token metadata to A2A request; raw token not logged"
+    : "Attached scoped token metadata to A2A request; raw token not logged";
 
   params.executionSteps.push({
     ...executionStep("orchestrator", requestAction, requestDetail),
@@ -507,7 +1143,9 @@ async function prepareA2ARequestAuth(params: {
     delegatedBy: params.delegatedBy,
     delegationDepth: params.delegationDepth,
     parentTaskId: params.parentTaskId,
-    requestedByAgent: params.requestedByAgent
+    requestedByAgent: params.requestedByAgent,
+    actor: params.task.context.actor?.email,
+    actorRoles: params.task.context.actor?.roles
   });
   params.task.context.authMode = "oauth2_client_credentials_jwt";
   params.task.context.auth = {
@@ -568,57 +1206,105 @@ function mockIdentityProviderHealthUrl(): string {
   return url.toString();
 }
 
-function mockIdentityProviderDemoRegistrationUrl(): string {
+function mockIdentityProviderDemoUserTokenUrl(): string {
   const url = new URL(process.env.A2A_IDP_URL ?? "http://localhost:4110");
-  url.pathname = "/internal/demo-agent-registrations";
+  url.pathname = "/demo/user-token";
   url.search = "";
   url.hash = "";
   return url.toString();
 }
 
-function demoAgentAllowedScopes(card: AgentCard): string[] {
-  return [...new Set(card.skills.flatMap((skill) => skill.requiredScopes ?? (skill.requiredPermission ? [skill.requiredPermission] : [])).filter(Boolean))];
+function safeTrustUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    const internalHost =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname.endsWith(".internal") ||
+      hostname.endsWith(".railway.internal") ||
+      /^10\./.test(hostname) ||
+      /^192\.168\./.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+
+    return internalHost ? `${url.pathname}${url.search}` : url.toString();
+  } catch {
+    return "unknown";
+  }
 }
 
-async function registerDemoAgentWithMockIdp(card: AgentCard): Promise<string | undefined> {
-  if (!isDemoAgentCard(card)) {
-    return undefined;
-  }
+function buildTrustStatus(sessionToken?: string) {
+  const userIdentity = publicUserIdentity(currentUserIdentity(sessionToken));
 
-  const internalToken = process.env.INTERNAL_SERVICE_TOKEN;
-  if (!internalToken) {
-    return "Mock IdP demo registration skipped because INTERNAL_SERVICE_TOKEN is not configured.";
-  }
-
-  const allowedScopes = demoAgentAllowedScopes(card);
-  if (!card.auth.audience || allowedScopes.length === 0) {
-    return "Mock IdP demo registration skipped because generated audience or scope metadata is missing.";
-  }
-
-  try {
-    const response = await fetch(mockIdentityProviderDemoRegistrationUrl(), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-internal-service-token": internalToken
-      },
-      body: JSON.stringify({
-        agentId: card.agentId,
-        audience: card.auth.audience,
-        allowedScopes,
-        ttlSeconds: 3600
-      })
-    });
-
-    if (!response.ok) {
-      return `Mock IdP demo registration failed with ${response.status}.`;
+  return {
+    userIdentity: {
+      ...userIdentity,
+      rawTokenExposed: false
+    },
+    gatewayIdentity: {
+      agentId: orchestratorAgentId,
+      a2aAuthMode,
+      secureAuthRequired,
+      tokenAuthMethod: safeTokenAuthMethodLabel(),
+      actorPropagationEnabled: true
+    },
+    mockIdp: {
+      issuer: expectedUserIdentityIssuer(),
+      jwksUri: safeTrustUrl(userIdentityJwksUri()),
+      tokenEndpoint: "/oauth/token",
+      userTokenEndpoint: "/demo/user-token",
+      rawKeysExposed: false
+    },
+    securityControls: {
+      rawTokensDisplayed: false,
+      agentOnboardingFetchesExternalUrls: false,
+      externalAgentsExecutable: false,
+      agentCardSecretsRejected: true,
+      userIdentityRequiredForResolve: true,
+      privateKeyJwtReplayProtection: privateKeyJwtReplayProtectionStatus(),
+      ipAllowlist: ipAllowlistStatus()
     }
+  };
+}
 
-    return undefined;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "unknown error";
-    return `Mock IdP demo registration failed: ${detail}`;
+async function requestDemoUserToken(email: string): Promise<{ accessToken: string }> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const internalToken = process.env.INTERNAL_SERVICE_TOKEN?.trim();
+  if (internalToken) {
+    headers["x-internal-service-token"] = internalToken;
+  } else if (process.env.NODE_ENV === "production") {
+    throw new Error("internal_service_token_not_configured");
   }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), demoUserTokenTimeoutMs);
+  let response: Response;
+  let body: { accessToken?: unknown; error?: unknown };
+  try {
+    response = await fetch(mockIdentityProviderDemoUserTokenUrl(), {
+      method: "POST",
+      redirect: "error",
+      signal: controller.signal,
+      headers,
+      body: JSON.stringify({ email })
+    });
+    body = await response.json() as { accessToken?: unknown; error?: unknown };
+  } catch {
+    throw new Error("demo_user_token_failed");
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    throw new Error(typeof body.error === "string" ? body.error : "demo_user_token_failed");
+  }
+
+  if (typeof body.accessToken !== "string" || !body.accessToken) {
+    throw new Error("demo_user_token_missing");
+  }
+
+  return { accessToken: body.accessToken };
 }
 
 async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>[number]): Promise<AgentHealthCheck> {
@@ -741,149 +1427,8 @@ async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
   }
 }
 
-function isDemoAgentCard(card: AgentCard | undefined): boolean {
-  return Boolean(card?.endpoint.startsWith("session://demo-agent/"));
-}
-
-function createDemoAgentResponse(card: AgentCard, skill?: AgentCardSkill): A2AAgentResponse {
-  return {
-    agentId: card.agentId,
-    status: "diagnosed",
-    summary: "Demo agent selected from session Agent Card.",
-    probableCause: "This demo agent advertised the requested capability through its Agent Card.",
-    recommendedActions: [
-      "Replace this demo response with a vendor-owned agent endpoint in production."
-    ],
-    evidence: [
-      {
-        title: "Session Agent Card capability match",
-        data: {
-          agentId: card.agentId,
-          capability: skill?.capabilities?.[0],
-          requiredScopes: skill?.requiredScopes ?? [],
-          riskLevel: skill?.riskLevel ?? "low",
-          supportingCapabilities: skill?.supportingCapabilities ?? []
-        }
-      }
-    ],
-    trace: [
-      {
-        agent: card.agentId,
-        action: "demo_agent_card_selected",
-        detail: "Returned safe mock response for a session-scoped demo Agent Card.",
-        timestamp: new Date().toISOString()
-      }
-    ]
-  };
-}
-
-function createDemoAgentJwtBlockedResponse(params: {
-  card: AgentCard;
-  requestedScope?: string;
-  validationReason?: string;
-}): A2AAgentResponse {
-  return {
-    agentId: params.card.agentId,
-    status: "blocked",
-    summary: "Session demo agent was selected, but secure JWT issuance failed.",
-    probableCause: "The Mock IdP did not allow the generated audience/scope or the demo agent was not registered.",
-    recommendedActions: [
-      "Verify the demo Agent Card was registered with the Mock IdP.",
-      "Verify INTERNAL_SERVICE_TOKEN matches between orchestrator and Mock IdP.",
-      "Retry after refreshing the session demo agent."
-    ],
-    evidence: [
-      {
-        title: "Session demo agent JWT issuance failed",
-        data: {
-          agentId: params.card.agentId,
-          audience: params.card.auth.audience,
-          requestedScope: params.requestedScope,
-          tokenIssued: false,
-          validationReason: params.validationReason
-        }
-      }
-    ],
-    trace: [
-      {
-        agent: "orchestrator",
-        action: "SESSION_DEMO_EXECUTION_BLOCKED",
-        detail: "Blocked session demo agent mock execution because scoped JWT issuance failed.",
-        timestamp: new Date().toISOString()
-      }
-    ]
-  };
-}
-
-function demoInputFromRequestBody(value: unknown): DemoAgentCardInput {
-  const record = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
-  const firstSkill = Array.isArray(record.skills) && typeof record.skills[0] === "object" && record.skills[0] !== null
-    ? record.skills[0] as Record<string, unknown>
-    : undefined;
-
-  return {
-    system: typeof record.system === "string"
-      ? record.system
-      : Array.isArray(record.systems) && typeof record.systems[0] === "string"
-        ? record.systems[0]
-        : "",
-    agentSlug: typeof record.agentSlug === "string" ? record.agentSlug : undefined,
-    agentId: typeof record.agentId === "string" ? record.agentId : undefined,
-    agentName: typeof record.agentName === "string" ? record.agentName : typeof record.name === "string" ? record.name : undefined,
-    description: typeof record.description === "string" ? record.description : undefined,
-    diagnosisGoal: typeof record.diagnosisGoal === "string"
-      ? record.diagnosisGoal
-      : typeof record.purposeText === "string"
-        ? record.purposeText
-        : typeof firstSkill?.name === "string"
-          ? firstSkill.name
-          : undefined,
-    purposeText: typeof record.purposeText === "string" ? record.purposeText : undefined,
-    capability: typeof record.capability === "string"
-      ? record.capability
-      : Array.isArray(firstSkill?.capabilities) && typeof firstSkill.capabilities[0] === "string"
-        ? firstSkill.capabilities[0]
-        : undefined,
-    requiredScope: typeof record.requiredScope === "string"
-      ? record.requiredScope
-      : Array.isArray(firstSkill?.requiredScopes) && typeof firstSkill.requiredScopes[0] === "string"
-        ? firstSkill.requiredScopes[0]
-        : undefined,
-    riskLevel: record.riskLevel === "low" || record.riskLevel === "medium" || record.riskLevel === "high" || record.riskLevel === "sensitive"
-      ? record.riskLevel
-      : firstSkill?.riskLevel === "low" || firstSkill?.riskLevel === "medium" || firstSkill?.riskLevel === "high" || firstSkill?.riskLevel === "sensitive"
-        ? firstSkill.riskLevel
-        : undefined,
-    resourceTypes: Array.isArray(record.resourceTypes)
-      ? record.resourceTypes.filter((item): item is string => typeof item === "string")
-      : typeof record.resourceTypes === "string"
-        ? record.resourceTypes.split(",")
-        : firstSkill?.scope && typeof firstSkill.scope === "object" && Array.isArray((firstSkill.scope as { resourceTypes?: unknown }).resourceTypes)
-          ? ((firstSkill.scope as { resourceTypes?: unknown[] }).resourceTypes ?? []).filter((item): item is string => typeof item === "string")
-          : undefined,
-    examples: Array.isArray(record.examples)
-      ? record.examples.filter((item): item is string => typeof item === "string")
-      : typeof record.examples === "string"
-        ? record.examples.split(",")
-        : Array.isArray(firstSkill?.examples)
-          ? firstSkill.examples.filter((item): item is string => typeof item === "string")
-          : undefined,
-    supportingCapabilities: Array.isArray(record.supportingCapabilities)
-      ? record.supportingCapabilities.filter((item): item is string => typeof item === "string")
-      : typeof record.supportingCapabilities === "string"
-        ? record.supportingCapabilities.split(",")
-        : Array.isArray(firstSkill?.supportingCapabilities)
-          ? firstSkill.supportingCapabilities.filter((item): item is string => typeof item === "string")
-          : undefined,
-    supportingHelpOptions: Array.isArray(record.supportingHelpOptions)
-      ? record.supportingHelpOptions.filter((item): item is string => typeof item === "string")
-      : typeof record.supportingHelpOptions === "string"
-        ? record.supportingHelpOptions.split(",")
-        : undefined
-  };
-}
-
 function requireSessionToken(request: IncomingMessage, response: ServerResponse): string | undefined {
+  cleanupExpiredUserIdentities();
   const token = getSessionToken(request);
   if (!token) {
     sendJson(response, 401, { error: "Session required" }, request);
@@ -892,16 +1437,89 @@ function requireSessionToken(request: IncomingMessage, response: ServerResponse)
   return token;
 }
 
-function remainingActiveAgentIds(sessionToken?: string): string[] {
-  return [
-    ...getExecutableAgentCards().map((card) => card.agentId),
-    ...(sessionToken ? listDemoAgentCards(sessionToken).map((card) => card.agentId) : [])
-  ].sort();
+function currentUserIdentity(sessionToken?: string): VerifiedUserIdentity | undefined {
+  cleanupExpiredUserIdentities();
+  return sessionToken ? userIdentitiesBySession.get(sessionToken) : undefined;
 }
 
-function maxDemoAgentsPerSession(): number {
-  const parsed = Number(process.env.MAX_DEMO_AGENTS_PER_SESSION ?? 5);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 5;
+function cleanupExpiredUserIdentities(): void {
+  for (const expiredSessionToken of cleanupExpiredSessions()) {
+    userIdentitiesBySession.delete(expiredSessionToken);
+  }
+}
+
+function safeUserIdentity(sessionToken?: string): UserIdentitySummary {
+  const identity = currentUserIdentity(sessionToken);
+  return identity
+    ? {
+        authenticated: true,
+        email: identity.email,
+        name: identity.name,
+        roles: [...identity.roles]
+      }
+    : { authenticated: false };
+}
+
+function canExecuteConnectorRuntime(decision: ConnectorRoutingDecision): boolean {
+  return decision.status === "connector_skill_approved" &&
+    decision.runtimeMode === "external_runtime_available";
+}
+
+function agentCardRegistryKey(request: IncomingMessage, response: ServerResponse): string | undefined {
+  const sessionToken = getSessionToken(request);
+  if (sessionToken) {
+    return sessionToken;
+  }
+
+  const apiKey = clientApiKey(request);
+  if (apiKey && process.env.ORCHESTRATOR_API_KEY && apiKey === process.env.ORCHESTRATOR_API_KEY) {
+    return `api:${createHash("sha256").update(apiKey).digest("hex")}`;
+  }
+
+  sendJson(response, 401, { error: "Unauthorized" }, request);
+  return undefined;
+}
+
+async function prepareEndUserDemoEnvironment(ownerKey: string): Promise<{
+  ok: boolean;
+  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+  prepared: string[];
+  skipped: string[];
+  errors: string[];
+}> {
+  const existing = listTrustedOnboardedAgents(ownerKey);
+  const prepared: string[] = [];
+  const skipped: string[] = [];
+  const errors: string[] = [];
+
+  for (const connector of endUserDemoConnectorRequests) {
+    const alreadyInstalled = listTrustedOnboardedAgents(ownerKey).some((agent) =>
+      agent.connectorId === connector.expectedConnectorId ||
+      agent.connectorProfile?.connectorId === connector.expectedConnectorId ||
+      agent.resourceSystem === connector.expectedResourceSystem ||
+      agent.connectorProfile?.resourceSystem === connector.expectedResourceSystem
+    );
+    if (alreadyInstalled) {
+      skipped.push(connector.expectedConnectorId);
+      continue;
+    }
+
+    const result = await startAgentOnboarding(ownerKey, connector);
+    if ("error" in result) {
+      errors.push(`${connector.expectedConnectorId}: ${result.details.join(" ")}`);
+      continue;
+    }
+    prepared.push(connector.expectedConnectorId);
+  }
+
+  const installedAgents = listTrustedOnboardedAgents(ownerKey);
+  return {
+    ok: errors.length === 0 && installedAgents.length >= existing.length,
+    installedAgents,
+    prepared,
+    skipped,
+    errors
+  };
 }
 
 function showInternalHealthUrls(): boolean {
@@ -909,10 +1527,6 @@ function showInternalHealthUrls(): boolean {
 }
 
 function healthEndpointType(endpoint: string): AgentHealthCheck["endpointType"] {
-  if (endpoint.startsWith("session://demo-agent/")) {
-    return "session";
-  }
-
   try {
     const parsed = new URL(endpoint);
     const hostname = parsed.hostname.toLowerCase();
@@ -942,40 +1556,9 @@ function healthEndpointMetadata(endpoint: string): Pick<AgentHealthCheck, "endpo
   };
 }
 
-function deleteRuntimeDemoAgent(agentId: string, sessionToken?: string): { ok: true; deleted: boolean } | { ok: false; status: number; error: string } {
-  if (agentId === orchestratorAgentId) {
-    return { ok: false, status: 403, error: "cannot_delete_orchestrator" };
-  }
-
-  const sessionCards = sessionToken ? listDemoAgentCards(sessionToken) : [];
-  const sessionKnown = sessionCards.some((card) => card.agentId === agentId);
-  if (sessionKnown && sessionToken) {
-    deleteDemoAgentCard(sessionToken, agentId);
-    return { ok: true, deleted: true };
-  }
-
-  return { ok: false, status: 404, error: "session_demo_agent_not_found" };
-}
-
-async function checkSessionDemoAgentHealth(card: AgentCard): Promise<AgentHealthCheck> {
-  return {
-    agentId: card.agentId,
-    ...healthEndpointMetadata(card.endpoint),
-    status: "ok",
-    latencyMs: 0,
-    checkedAt: new Date().toISOString(),
-    details: {
-      healthEndpoint: "/health",
-      agentCardAvailable: true
-    }
-  };
-}
-
-async function buildAgentsHealthResponse(sessionToken?: string): Promise<AgentsHealthResponse> {
-  const sessionDemoCards = sessionToken ? listDemoAgentCards(sessionToken) : [];
+async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
   const agents = await Promise.all([
     ...getExecutableAgentCards().map((card) => checkAgentHealth(card)),
-    ...sessionDemoCards.map((card) => checkSessionDemoAgentHealth(card)),
     checkMockIdentityProviderHealth()
   ]);
 
@@ -999,8 +1582,19 @@ async function buildAgentsHealthResponse(sessionToken?: string): Promise<AgentsH
 
 async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string): Promise<ResolveResponse> {
   const conversationState = getOrCreateConversationState(requestBody.conversationId);
-  const requestAgentCards = combineAgentCards(getExecutableAgentCards(), sessionToken ? listDemoAgentCards(sessionToken) : []);
+  const verifiedUser = currentUserIdentity(sessionToken);
+  const responseUserIdentity = safeUserIdentity(sessionToken);
+  const requestAgentCards = getExecutableAgentCards();
+  const installedAgents = sessionToken ? listTrustedOnboardedAgents(sessionToken) : [];
   appendConversationMessage(conversationState, "user", requestBody.message);
+  const earlySecurityIntent = detectAdversarialIntent(requestBody.message);
+  const pendingInteractionResolution = conversationState.pendingInteraction
+    ? await resolvePendingInteraction({
+        pendingInteraction: conversationState.pendingInteraction,
+        userMessage: requestBody.message,
+        securityIntent: earlySecurityIntent
+      })
+    : undefined;
   const followUp = await interpretFollowUp({
     currentMessage: requestBody.message,
     previousUserMessage: lastUserMessageBeforeLatest(conversationState),
@@ -1008,7 +1602,12 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     previousInterpretation: conversationState.lastRequestInterpretation,
     previousIncidentContext: conversationState.lastIncidentContext
   });
-  const effectiveMessage = buildEffectiveMessageForRouting(conversationState, requestBody.message, followUp);
+  const planningFollowUpResolution = buildPlanningFollowUpResolution({
+    state: conversationState,
+    currentMessage: requestBody.message,
+    installedAgents
+  });
+  const effectiveMessage = planningFollowUpResolution?.resolvedMessage ?? buildEffectiveMessageForRouting(conversationState, requestBody.message, followUp);
   const routingDecision = await routeWithAI(effectiveMessage, { agentCards: requestAgentCards });
   const classification = routingDecision.classification;
   const conversationId = conversationState.conversationId;
@@ -1041,16 +1640,1024 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     `${effectiveMessage}\n${requestBody.message}\n${conversationState.lastRequestInterpretation?.requestedActionText ?? ""}\n${conversationState.lastIncidentContext?.errorText ?? ""}`,
     incidentInterpretation ?? routingDecision.requestInterpretation
   );
-  const finalize = (response: ResolveResponse): ResolveResponse => {
-    const finalResponse = {
+  const securityIntent = detectAdversarialIntent(
+    `${requestBody.message}\n${effectiveMessage}\n${incidentInterpretation?.requestedActionText ?? routingDecision.requestInterpretation?.requestedActionText ?? ""}`
+  );
+  const effectiveSecurityIntent = earlySecurityIntent.detected ? earlySecurityIntent : securityIntent;
+  const connectorRouting = routeConnectorRequest(
+    effectiveMessage,
+    installedAgents
+  );
+  const finalize = (response: Omit<ResolveResponse, "userIdentity">): ResolveResponse => {
+    const userIdentityTrace = verifiedUser
+      ? [
+          executionStep(
+            "orchestrator",
+            "user_identity_verified",
+            `Verified user ${verifiedUser.email} via Mock IdP User JWT; actor context attached to gateway session.`
+          )
+        ]
+      : [];
+    const responseWithIdentity = {
       ...response,
       conversationId,
+      userIdentity: responseUserIdentity,
+      executionTrace: [...userIdentityTrace, ...response.executionTrace],
       followUpInterpretation: response.followUpInterpretation ?? followUp,
       incidentContext: response.incidentContext ?? mergedIncidentContext
+    };
+    const finalResponse: ResolveResponse = {
+      ...responseWithIdentity,
+      executionGateStack: response.executionGateStack ?? buildExecutionGateStack({
+        requestInterpretation: responseWithIdentity.requestInterpretation,
+        securityIntent: responseWithIdentity.securityIntent,
+        connectorRouting: responseWithIdentity.connectorRouting,
+        connectorPolicy: responseWithIdentity.connectorPolicy,
+        connectorRuntime: responseWithIdentity.connectorRuntime,
+        connectorActionPlan: responseWithIdentity.connectorActionPlan,
+        evaluatedActionPlan: responseWithIdentity.evaluatedActionPlan,
+        selectedAgents: responseWithIdentity.selectedAgents,
+        securityDecision: responseWithIdentity.securityDecision,
+        resolutionStatus: responseWithIdentity.resolutionStatus,
+        classification: responseWithIdentity.classification
+      })
     };
     updateConversationState(conversationState, finalResponse, mergedIncidentContext);
     return finalResponse;
   };
+
+  if (effectiveSecurityIntent.detected || pendingInteractionResolution?.relation === "adversarial_attempt" || pendingInteractionResolution?.securityConcern) {
+    const diagnosis = {
+      probableCause: "Adversarial governance bypass request blocked",
+      recommendedFix: "Use normal approved requests. Prompt text cannot grant scopes, permissions, Gateway approval, or raw token access."
+    };
+
+    return finalize({
+      finalAnswer: "BLOCKED\nThe request attempted to bypass governance or obtain protected access from prompt text. Admin access requires governed approval.\nNo changes were made. No access was granted. No request was submitted.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: effectiveSecurityIntent.reason,
+      resolutionStatus: "resolved",
+      evidence: [],
+      agentTrace: [
+        trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
+        {
+          ...trace("ADVERSARIAL_INTENT_DETECTED", effectiveSecurityIntent.reason),
+          decision: "Blocked"
+        },
+        {
+          ...trace("GATEWAY_GOVERNANCE_BLOCKED", "Prompt text cannot grant scopes, permissions, Gateway approval, or raw token access."),
+          decision: "Blocked"
+        }
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        ...(routingDecision.requestInterpretation
+          ? [
+              executionStep(
+                "orchestrator",
+                "interpret_request",
+                `${routingDecision.requestInterpretation.scope} / ${routingDecision.requestInterpretation.intentType}: ${routingDecision.requestInterpretation.reason}`
+              )
+            ]
+          : []),
+        executionStep("orchestrator", "detect_adversarial_intent", effectiveSecurityIntent.reason),
+        executionStep("orchestrator", "block_at_gateway_governance", "Did not issue OAuth token or invoke runtime for adversarial prompt."),
+        executionStep("orchestrator", "skip_runtime_execution", "Runtime was not executed because Gateway governance blocked the request.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      securityIntent: effectiveSecurityIntent,
+      pendingInteractionResolution,
+      planningFollowUpResolution,
+      followUpInterpretation: followUp,
+      incidentContext: mergedIncidentContext,
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis,
+      conversationId
+    });
+  }
+
+  if (
+    conversationState.pendingInteraction?.type === "target_selection" &&
+    (pendingInteractionResolution?.relation === "ask_question" || pendingInteractionResolution?.relation === "unclear")
+  ) {
+    const safeTargetSelection = buildSafeTargetSelection(
+      conversationState.pendingFollowUp?.detectedIntentClasses ?? detectedPlanningIntentClasses(effectiveMessage),
+      installedAgents
+    );
+    const optionLabels = safeTargetSelection.options.map((option) => option.label).join(", ");
+    const diagnosis = {
+      probableCause: "Pending target selection was not resolved",
+      recommendedFix: "Choose one of the installed systems or Other / not listed."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: `NEEDS MORE INFO\nChoose a target system for the previous access request. Available options: ${optionLabels}.`,
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "User asked about target options instead of selecting a target.",
+      resolutionStatus: "needs_more_info",
+      evidence: [],
+      agentTrace: [
+        trace("target_selection_preserved", pendingInteractionResolution.reason)
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "preserve_pending_target_selection", "Provided available target options without clearing pending target selection.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      safeTargetSelection,
+      pendingInteraction: conversationState.pendingInteraction,
+      pendingInteractionResolution,
+      planningFollowUpResolution,
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "needs_more_info",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "Pending target-selection response did not contain a target."
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "blocked",
+            reason: "Gateway preserved the pending interaction and did not guess a connector target."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "No connector was selected."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "No connector was selected."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "Runtime was not executed."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  if (conversationState.pendingInteraction?.type === "planned_safe_action" && pendingInteractionResolution?.relation === "confirm") {
+    const pending = conversationState.pendingInteraction;
+    const connectorId = pendingString(pending.context, "connectorId");
+    const resourceSystem = pendingString(pending.context, "resourceSystem");
+    const actionId = pendingString(pending.context, "recommendedActionId");
+    const actionLabel = pendingString(pending.context, "recommendedActionLabel") ?? actionId ?? "safe check";
+    const executionType = pendingString(pending.context, "executionType");
+    const sideEffects = pendingString(pending.context, "sideEffects");
+    const decision = pendingString(pending.context, "decision");
+    const trustedAgentStillInstalled = installedAgents.some((agent) =>
+      Boolean(connectorId && (agent.connectorId === connectorId || agent.connectorProfile?.connectorId === connectorId)) ||
+      Boolean(resourceSystem && (agent.resourceSystem === resourceSystem || agent.connectorProfile?.resourceSystem === resourceSystem))
+    );
+    const stillSafe = decision === "allowed" &&
+      sideEffects === "none" &&
+      (executionType === "inspection_read_only" || executionType === "diagnostic_read_only") &&
+      trustedAgentStillInstalled;
+    const diagnosis = {
+      probableCause: stillSafe ? "Pending safe action confirmed" : "Pending safe action is no longer valid",
+      recommendedFix: stillSafe
+        ? "This V1 demo stops at the approved plan for this request."
+        : "Start a new request so the Gateway can re-evaluate the connector plan."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: stillSafe
+        ? "CHECK READY\nI can continue with the safe check, but this V1 demo currently stops at the approved plan for this request.\nNo changes were made."
+        : "NEEDS MORE INFO\nThe previous safe check is no longer available. Please describe the request again.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "Resolved user response against pending planned safe action.",
+      resolutionStatus: "needs_more_info",
+      evidence: [
+        {
+          agent: orchestratorAgentId,
+          title: "Pending safe action",
+          data: {
+            pendingInteractionId: pending.id,
+            connectorId,
+            resourceSystem,
+            actionId,
+            actionLabel,
+            decision,
+            executionType,
+            sideEffects,
+            trustedAgentStillInstalled,
+            runtimeExecuted: false,
+            reason: stillSafe
+              ? "No runtime implementation for planned action in V1."
+              : "Pending action failed Gateway re-validation."
+          }
+        }
+      ],
+      agentTrace: [
+        trace("pending_interaction_resolved", pendingInteractionResolution.reason),
+        trace("planned_safe_action_revalidated", stillSafe ? "Pending safe check remains allowed and read-only/diagnostic." : "Pending safe check failed validation.")
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "resolve_pending_interaction", pendingInteractionResolution.reason),
+        executionStep("orchestrator", "revalidate_pending_safe_action", stillSafe ? "Decision allowed, execution type read-only/diagnostic, side effects none." : "Pending action did not satisfy safe execution constraints."),
+        executionStep("orchestrator", "skip_runtime_execution", "No runtime implementation for planned action in V1; no write/admin action was executed.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: {
+        ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+        scope: "enterprise_support",
+        intentType: "access_request",
+        requestedActionText: actionLabel,
+        confidence: "medium",
+        reason: "User confirmed the pending safe check."
+      },
+      pendingInteractionResolution,
+      executionGateStack: {
+        stoppedAt: "runtime_execution",
+        finalOutcome: "planned",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "User response confirmed the pending safe check.",
+            evidence: {
+              pendingInteractionId: pending.id,
+              relation: pendingInteractionResolution.relation
+            }
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: stillSafe ? "passed" : "blocked",
+            reason: stillSafe
+              ? "Gateway re-validated the pending action as allowed and read-only/diagnostic."
+              : "Gateway rejected the pending action because it no longer met safe constraints.",
+            evidence: {
+              actionId,
+              decision,
+              executionType,
+              sideEffects
+            }
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "No runtime token was issued for the V1 planned action confirmation."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "No runtime execution occurred; the planned action remains an approved plan."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "No runtime implementation for planned action in V1. No write/action operation was executed."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  if (conversationState.pendingInteraction && pendingInteractionResolution?.relation === "cancel") {
+    const diagnosis = {
+      probableCause: "Pending interaction cancelled by user",
+      recommendedFix: "No action was taken."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: "CANCELLED\nNo problem. I will not run the check.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "User cancelled the pending interaction.",
+      resolutionStatus: "resolved",
+      evidence: [],
+      agentTrace: [
+        trace("pending_interaction_cancelled", pendingInteractionResolution.reason)
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "cancel_pending_interaction", "Cleared pending interaction without runtime execution.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      pendingInteractionResolution,
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "needs_more_info",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "User cancelled the pending interaction."
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "not_evaluated",
+            reason: "Gateway took no action after cancellation."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "No token was issued."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "No connector permissions were evaluated."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "Runtime was not executed."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  if (conversationState.pendingInteraction?.type === "planned_safe_action" && pendingInteractionResolution?.relation === "unclear") {
+    const diagnosis = {
+      probableCause: "Pending safe check needs confirmation",
+      recommendedFix: "Confirm whether the Gateway should continue with the safe check."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: "NEEDS MORE INFO\nDo you want me to continue with the safe check?",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "Pending interaction answer was unclear.",
+      resolutionStatus: "needs_more_info",
+      evidence: [],
+      agentTrace: [
+        trace("pending_interaction_unclear", pendingInteractionResolution.reason)
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "ask_pending_interaction_confirmation", "Asked for confirmation before continuing with the safe check.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      pendingInteraction: conversationState.pendingInteraction,
+      pendingInteractionResolution,
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "needs_more_info",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "Pending safe-check response was unclear."
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "not_evaluated",
+            reason: "Gateway asked for confirmation before taking any action."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "No token was issued."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "No connector permissions were evaluated."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "Runtime was not executed."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  if (!conversationState.pendingInteraction && contextlessContinuationRequest(requestBody.message)) {
+    const diagnosis = {
+      probableCause: "No pending safe check is active",
+      recommendedFix: "Describe the request you want the Gateway to check."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: "NEEDS MORE INFO\nI do not have a pending check to continue. Tell me what you want access to or what you want me to check.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "Continuation phrase received without pending interaction context.",
+      resolutionStatus: "needs_more_info",
+      evidence: [],
+      agentTrace: [
+        trace("pending_interaction_missing", "Did not continue because no pending interaction is active.")
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "ask_for_request_context", "Continuation phrase requires a pending interaction.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: {
+        ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+        scope: "enterprise_support",
+        intentType: "unknown",
+        confidence: "low",
+        reason: "The message appears to confirm a prior action, but no pending interaction is active."
+      },
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "needs_more_info",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "Continuation response detected without pending interaction context."
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "blocked",
+            reason: "Gateway did not execute anything without an active pending interaction."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "No connector was selected."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "No connector was selected."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "Runtime was not executed."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  if (planningFollowUpResolution && isOtherTargetSelection(requestBody.message)) {
+    const diagnosis = {
+      probableCause: "Target system is not currently available in the Gateway",
+      recommendedFix: "Open support ticket with details."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: "UNAVAILABLE\nOther / not listed is not governed by an installed connector here.\nNo changes were made.\nNext step: open a support ticket with the system name, access needed, and business reason.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "User selected Other / not listed for a pending access-planning target.",
+      resolutionStatus: "unsupported",
+      evidence: [],
+      agentTrace: [
+        trace("connector_planning_other_target", "User selected Other / not listed. Did not request connector action plan.")
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "support_ticket_handoff", "Unsupported target selected. No connector plan or runtime execution requested.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: {
+        ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+        scope: "manual_enterprise_workflow",
+        intentType: "manual_service_request",
+        requestedActionText: "support ticket handoff",
+        confidence: "medium",
+        reason: "User selected Other / not listed for the access request target."
+      },
+      connectorPlanningTargetResolution: {
+        strategy: "not_supported",
+        detectedIntentClasses: conversationState.pendingFollowUp?.detectedIntentClasses ?? detectedPlanningIntentClasses(effectiveMessage),
+        reason: "User selected Other / not listed."
+      },
+      pendingInteractionResolution,
+      planningFollowUpResolution,
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "unsupported",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "User selected Other / not listed for the pending access-planning target.",
+            evidence: {
+              intent: "access request",
+              targetSystem: "other"
+            }
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "blocked",
+            reason: "Gateway did not select a connector for an unsupported or unlisted system."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "Gateway did not select a connector."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "Gateway did not select a connector."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "No connector plan or runtime execution was requested."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  const selectedKnownTarget = planningFollowUpResolution ? knownTargetSystemFromMessage(requestBody.message) : undefined;
+  if (planningFollowUpResolution && selectedKnownTarget) {
+    const selectedInstalledAgent = installedAgents.find((agent) => {
+      const resourceSystem = (agent.resourceSystem ?? agent.connectorProfile?.resourceSystem ?? "").toLowerCase();
+      return resourceSystem === selectedKnownTarget.value;
+    });
+    if (!selectedInstalledAgent || !planningSupported(selectedInstalledAgent)) {
+      const systemName = selectedKnownTarget.label;
+      const availableButNoPlanning = Boolean(selectedInstalledAgent);
+      const diagnosis = {
+        probableCause: availableButNoPlanning
+          ? `${systemName} safe access planning is not available in V1`
+          : `${systemName} is not currently available in the Gateway`,
+        recommendedFix: "Open support ticket with details."
+      };
+
+      return finalize({
+        conversationId,
+        finalAnswer: availableButNoPlanning
+          ? `${systemName} is available here, but safe access planning is not available for this system yet. Open a support ticket or use an available diagnostic flow.`
+          : `${systemName} is not available here yet. Open a support ticket with the system name, what you need access to, and why you need it.`,
+        classification,
+        selectedAgents: [],
+        skippedAgents: routingDecision.skippedAgents,
+        routingSource: routingDecision.routingSource,
+        routingConfidence: routingDecision.routingConfidence,
+        routingReasoningSummary: `${systemName} was selected for a pending access-planning request, but it is not available for safe planning.`,
+        resolutionStatus: "unsupported",
+        evidence: [],
+        agentTrace: [
+          trace("connector_planning_target_unavailable", `${systemName} was not sent to plan-only runtime.`)
+        ],
+        executionTrace: [
+          executionStep("user", "submit_issue", requestBody.message),
+          executionStep("orchestrator", "support_ticket_handoff", "Selected system was not available for safe planning. No connector plan or runtime execution requested.")
+        ],
+        securityDecisions: [],
+        requestInterpretation: {
+          ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+          scope: "manual_enterprise_workflow",
+          intentType: "manual_service_request",
+          targetSystemText: systemName,
+          requestedActionText: "support ticket handoff",
+          confidence: "medium",
+          reason: `${systemName} was selected, but safe access planning cannot proceed for this system.`
+        },
+        connectorPlanningTargetResolution: {
+          strategy: "not_supported",
+          detectedIntentClasses: conversationState.pendingFollowUp?.detectedIntentClasses ?? detectedPlanningIntentClasses(effectiveMessage),
+          reason: `${systemName} is not available for safe access planning.`
+        },
+        pendingInteractionResolution,
+        planningFollowUpResolution,
+        executionGateStack: {
+          stoppedAt: "gateway_governance",
+          finalOutcome: "unsupported",
+          gates: [
+            {
+              id: "ai_interpretation",
+              label: "AI Interpretation",
+              status: "passed",
+              reason: `${systemName} selected for the pending access-planning target.`,
+              evidence: {
+                intent: "access request",
+                targetSystem: selectedKnownTarget.value
+              }
+            },
+            {
+              id: "gateway_governance",
+              label: "Gateway Governance",
+              status: "blocked",
+              reason: "Gateway did not request a plan for a system that is not available for safe access planning."
+            },
+            {
+              id: "oauth_scope",
+              label: "OAuth Scope Gate",
+              status: "not_evaluated",
+              reason: "Gateway did not select a planning-capable connector."
+            },
+            {
+              id: "service_account_permission",
+              label: "Service Account Permission Gate",
+              status: "not_evaluated",
+              reason: "Gateway did not select a planning-capable connector."
+            },
+            {
+              id: "runtime_execution",
+              label: "Runtime Execution",
+              status: "not_evaluated",
+              reason: "No connector plan or runtime execution was requested."
+            }
+          ]
+        },
+        a2aTasks: [],
+        a2aResponses: [],
+        diagnosis
+      });
+    }
+  }
+
+  if (!planningFollowUpResolution && isPreviousAccessRequestTargetSelection(requestBody.message)) {
+    const diagnosis = {
+      probableCause: "No previous access request is active",
+      recommendedFix: "Describe the access request, including the system or application and the object you need access to."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: "I can help plan an access request, but I need the original access request first. Tell me which system or application you need access to and what object you need.",
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "Received a target-selection follow-up phrase without pending planning context.",
+      resolutionStatus: "needs_more_info",
+      evidence: [],
+      agentTrace: [
+        trace("connector_planning_follow_up_without_context", "Did not execute planning because no pending access request context was active.")
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "ask_for_original_access_request", "Target selection phrase requires pending planning context.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: {
+        ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+        scope: "enterprise_support",
+        intentType: "access_request",
+        requestedActionText: "access request",
+        confidence: "low",
+        reason: "The message refers to a previous access request, but no pending planning context exists."
+      },
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "needs_more_info",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "Target-selection follow-up detected without active planning context.",
+            evidence: {
+              targetSystem: "not selected",
+              requestedAction: "access request follow-up"
+            }
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "blocked",
+            reason: "Gateway did not select a connector without the original access request context."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "Gateway did not select a connector."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "Gateway did not select a connector."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "No connector plan or runtime execution was requested."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
+    });
+  }
+
+  if (isConnectorPlanningCandidate({ message: effectiveMessage, connectorRoute: connectorRouting, installedAgents })) {
+    const planningTargetResolution = planningConnectorTarget({
+      message: effectiveMessage,
+      connectorRoute: connectorRouting,
+      installedAgents
+    });
+    const planTarget = planningTargetResolution.selectedConnectorId && planningTargetResolution.selectedResourceSystem
+      ? {
+          connectorId: planningTargetResolution.selectedConnectorId,
+          resourceSystem: planningTargetResolution.selectedResourceSystem
+        }
+      : undefined;
+    const onboardedAgent = planTarget
+      ? installedAgents.find((agent) =>
+          agent.connectorId === planTarget.connectorId ||
+          agent.connectorProfile?.connectorId === planTarget.connectorId ||
+          agent.resourceSystem === planTarget.resourceSystem ||
+          agent.connectorProfile?.resourceSystem === planTarget.resourceSystem
+        )
+      : undefined;
+
+    if (onboardedAgent) {
+      try {
+        const { agentResponse, actionPlan } = await requestConnectorActionPlan({
+          message: effectiveMessage,
+          conversationId,
+          onboardedAgent
+        });
+        if (actionPlan) {
+          const evaluatedActionPlan = evaluateConnectorActionPlan(actionPlan, onboardedAgent);
+          const pendingInteraction = buildPlannedSafeActionPendingInteraction({
+            originalUserRequest: planningFollowUpResolution?.originalMessage ?? requestBody.message,
+            evaluatedActionPlan
+          });
+          const finalAnswer = "PLANNED: The Gateway asked the connector for a side-effect-free action plan. No write action was attempted. The connector recommends starting with read-only inspection.";
+          const diagnosis = {
+            probableCause: "Connector action planning completed without side effects",
+            recommendedFix: actionPlan.recommendedNextStep
+          };
+
+          return finalize({
+            conversationId,
+            finalAnswer,
+            classification,
+            selectedAgents: [],
+            skippedAgents: routingDecision.skippedAgents,
+            routingSource: "rules_fallback",
+            routingConfidence: routingDecision.routingConfidence,
+            routingReasoningSummary: "Detected access-planning request and requested a safe connector action plan.",
+            resolutionStatus: "needs_more_info",
+            evidence: [
+              {
+                agent: orchestratorAgentId,
+                title: "Connector Action Plan",
+                data: {
+                  connectorId: actionPlan.connectorId,
+                  resourceSystem: actionPlan.resourceSystem,
+                  planId: actionPlan.planId,
+                  mode: actionPlan.mode,
+                  sideEffectsAllowed: actionPlan.sideEffectsAllowed,
+                  options: evaluatedActionPlan.options.map((item) => ({
+                    actionId: item.option.actionId,
+                    decision: item.decision,
+                    blockedAt: item.blockedAt,
+                    missingApplicationGrants: item.missingApplicationGrants,
+                    missingEffectivePermissions: item.missingEffectivePermissions,
+                    deniedEffectivePermissions: item.deniedEffectivePermissions
+                  }))
+                }
+              }
+            ],
+            agentTrace: [
+              trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
+              trace("connector_action_plan_requested", "Gateway requested a side-effect-free connector action plan."),
+              ...(agentResponse.trace ?? []).map((entry) => ({
+                ...trace(entry.action, entry.detail),
+                agent: entry.agent,
+                toAgent: onboardedAgent.connectorId,
+                timestamp: entry.timestamp
+              }))
+            ],
+            executionTrace: [
+              executionStep("user", "submit_issue", requestBody.message),
+              ...(routingDecision.requestInterpretation
+                ? [
+                    executionStep(
+                      "orchestrator",
+                      "interpret_request",
+                      `${routingDecision.requestInterpretation.scope} / ${routingDecision.requestInterpretation.intentType}: ${routingDecision.requestInterpretation.reason}`
+                    )
+                  ]
+                : []),
+              executionStep("orchestrator", "request_connector_action_plan", "Requested plan_only connector action plan with sideEffectsAllowed=none."),
+              executionStep("orchestrator", "evaluate_connector_action_plan", "Gateway evaluated planned options against governance, grants, and permissions."),
+              executionStep("orchestrator", "skip_runtime_execution", "No write action was attempted during connector planning.")
+            ],
+            securityDecisions: [],
+            requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+            connectorPlanningTargetResolution: planningTargetResolution,
+            pendingInteraction,
+            pendingInteractionResolution,
+            planningFollowUpResolution,
+            connectorActionPlan: actionPlan,
+            evaluatedActionPlan,
+            a2aTasks: [],
+            a2aResponses: [agentResponse],
+            diagnosis
+          });
+        }
+      } catch (error) {
+        console.warn(`[connector-plan] ${error instanceof Error ? error.message : "failed"}`);
+      }
+    } else if (planningTargetResolution.strategy === "needs_clarification" || planningTargetResolution.strategy === "not_supported") {
+      const planningInterpretation: RequestInterpretation = {
+        ...(incidentInterpretation ?? routingDecision.requestInterpretation),
+        scope: "enterprise_support",
+        intentType: planningTargetResolution.detectedIntentClasses.includes("permission_request") ? "permission_change" : "access_request",
+        requestedActionText: planningTargetResolution.detectedIntentClasses.includes("permission_request") ? "permission request" : "access request",
+        confidence: "medium",
+        reason: "Access request detected, but target system was not specified."
+      };
+      const hasInstalledConnectorSystems = installedAgents.length > 0;
+      const diagnosis = {
+        probableCause: "Connector planning target is unclear",
+        recommendedFix: hasInstalledConnectorSystems
+          ? "Search installed systems or choose Other / not listed."
+          : "No installed systems are available for governed access planning yet. Open a support ticket with details."
+      };
+      const safeTargetOptions = hasInstalledConnectorSystems
+        ? buildSafeTargetSelection(planningTargetResolution.detectedIntentClasses, installedAgents)
+        : undefined;
+      return finalize({
+        conversationId,
+        finalAnswer: hasInstalledConnectorSystems
+          ? "Which system do you need access to? Search installed systems or choose Other / not listed."
+          : "UNAVAILABLE\nNo governed systems are connected here yet.\nNo changes were made.\nNext step: open a support ticket with system name, access needed, business reason.",
+        classification,
+        selectedAgents: [],
+        skippedAgents: routingDecision.skippedAgents,
+        routingSource: routingDecision.routingSource,
+        routingConfidence: routingDecision.routingConfidence,
+        routingReasoningSummary: "Access-planning request detected, but target connector was unclear.",
+        resolutionStatus: "needs_more_info",
+        evidence: [],
+        agentTrace: [
+          trace("connector_planning_needs_target", "Asked user to clarify target system before requesting connector action plan.")
+        ],
+        executionTrace: [
+          executionStep("user", "submit_issue", requestBody.message),
+          executionStep("orchestrator", "ask_for_connector_planning_target", "Did not guess connector target for planning request.")
+        ],
+        securityDecisions: [],
+        requestInterpretation: planningInterpretation,
+        connectorPlanningTargetResolution: planningTargetResolution,
+        safeTargetSelection: hasInstalledConnectorSystems ? buildSafeTargetSelection(planningTargetResolution.detectedIntentClasses, installedAgents) : undefined,
+        pendingFollowUp: hasInstalledConnectorSystems ? {
+          type: "connector_planning_target",
+          originalMessage: planningFollowUpResolution?.originalMessage ?? effectiveMessage,
+          detectedIntentClasses: planningTargetResolution.detectedIntentClasses,
+          missingFields: ["targetSystem"],
+          createdAt: new Date().toISOString()
+        } : undefined,
+        pendingInteraction: hasInstalledConnectorSystems ? {
+          id: createTaskId(),
+          type: "target_selection",
+          originalUserRequest: planningFollowUpResolution?.originalMessage ?? effectiveMessage,
+          createdAt: new Date().toISOString(),
+          context: {
+            detectedIntentClasses: planningTargetResolution.detectedIntentClasses,
+            missingFields: ["targetSystem"],
+            targetOptions: (safeTargetOptions?.options ?? []).map((option) => ({
+              id: option.id,
+              label: option.label,
+              value: option.value,
+              kind: option.kind
+            }))
+          }
+        } : undefined,
+        pendingInteractionResolution,
+        planningFollowUpResolution,
+        executionGateStack: {
+          stoppedAt: "gateway_governance",
+          finalOutcome: "needs_more_info",
+          gates: [
+            {
+              id: "ai_interpretation",
+              label: "AI Interpretation",
+              status: "passed",
+              reason: "Access-planning intent detected, but target system is unclear.",
+              evidence: {
+                intent: planningInterpretation.requestedActionText,
+                targetSystem: "not specified",
+                detectedIntentClasses: planningTargetResolution.detectedIntentClasses
+              }
+            },
+            {
+              id: "gateway_governance",
+              label: "Gateway Governance",
+              status: "blocked",
+              reason: "Gateway did not select a connector without target system confirmation."
+            },
+            {
+              id: "oauth_scope",
+              label: "OAuth Scope Gate",
+              status: "not_evaluated",
+              reason: "Gateway did not select a connector."
+            },
+            {
+              id: "service_account_permission",
+              label: "Service Account Permission Gate",
+              status: "not_evaluated",
+              reason: "Gateway did not select a connector."
+            },
+            {
+              id: "runtime_execution",
+              label: "Runtime Execution",
+              status: "not_evaluated",
+              reason: "No connector plan or runtime execution was requested."
+            }
+          ]
+        },
+        a2aTasks: [],
+        a2aResponses: [],
+        diagnosis
+      });
+    }
+  }
 
   if (sensitiveAction.isSensitive && sensitiveAction.requestedAction) {
     const policyDecision = evaluateSecurityPolicy({
@@ -1117,6 +2724,156 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       a2aResponses: [],
       diagnosis,
       conversationId
+    });
+  }
+
+  if (connectorRouting.status !== "needs_more_info") {
+    const connectorStatus = connectorRoutingStatusLabel(connectorRouting.status);
+    const connectorPolicy = evaluateConnectorPolicy({ connectorRouteStatus: connectorRouting.status });
+    const runtimeExecutable = canExecuteConnectorRuntime(connectorRouting);
+    const connectorRuntime = runtimeExecutable
+      ? await executeApprovedConnectorSkill({
+          message: effectiveMessage,
+          currentUserMessage: requestBody.message,
+          conversationId,
+          connectorRoute: connectorRouting,
+          actor: verifiedUser
+        })
+      : undefined;
+    const runtimeAgentResponse = connectorRuntime?.agentResponse;
+    const diagnosis = connectorRuntime ? connectorRuntimeDiagnosis(connectorRouting, connectorRuntime) : connectorRoutingDiagnosis(connectorRouting);
+    const connectorEvidence: AgentEvidence[] = [
+      {
+        agent: orchestratorAgentId,
+        title: "Connector route decision",
+        data: {
+          status: connectorRouting.status,
+          targetSystem: connectorRouting.targetSystem,
+          connectorId: connectorRouting.connectorId,
+          skillId: connectorRouting.skillId,
+          skillLabel: connectorRouting.skillLabel,
+          reason: connectorRouting.reason,
+          recommendedNextStep: connectorRouting.recommendedNextStep,
+          runtimeMode: connectorRouting.runtimeMode,
+          runtimeExecution: runtimeExecutable ? "external_runtime_available" : "not_executed",
+          policy: connectorPolicy
+        }
+      }
+    ];
+    const runtimeEvidence: AgentEvidence[] = runtimeAgentResponse?.evidence?.map((item) => ({
+      agent: runtimeAgentResponse.agentId as AgentName,
+      title: item.title,
+      data: item.data as Record<string, unknown>
+    })) ?? [];
+    const skippedAgents = requestAgentCards.map((card) => ({
+      agentId: card.agentId,
+      reason: "Connector-first routing handled this request; legacy internal demo agents were not invoked."
+    }));
+    const runtimeTrace = runtimeAgentResponse?.trace?.map((entry) => ({
+      ...trace(entry.action, entry.detail),
+      agent: entry.agent,
+      toAgent: connectorRouting.connectorId,
+      skillId: connectorRouting.skillId,
+      timestamp: entry.timestamp
+    })) ?? [];
+    const runtimeExecutionTrace = connectorRuntime
+      ? [
+          executionStep(
+            "orchestrator",
+            connectorRuntime.tokenMetadata?.tokenIssued ? AuditEvents.CONNECTOR_RUNTIME_TOKEN_ISSUED : AuditEvents.CONNECTOR_RUNTIME_TOKEN_REQUESTED,
+            connectorRuntime.tokenMetadata?.tokenIssued
+              ? `Scoped A2A JWT issued for audience=${connectorRuntime.tokenMetadata.audience} scope=${connectorRuntime.tokenMetadata.scope}; raw token hidden.`
+              : "Requested scoped A2A JWT for connector runtime; raw token hidden."
+          ),
+          executionStep(
+            "orchestrator",
+            AuditEvents.CONNECTOR_RUNTIME_CALL_STARTED,
+            connectorRuntime.executed
+              ? `Called allowlisted external connector runtime for ${connectorRouting.skillId}.`
+              : `External connector runtime was not executed: ${connectorRuntime.error ?? "unknown failure"}.`
+          ),
+          executionStep(
+            "orchestrator",
+            connectorRuntime.executed
+              ? AuditEvents.CONNECTOR_RUNTIME_CALL_SUCCEEDED
+              : connectorRuntime.error === "connector_configuration_changed"
+                ? AuditEvents.CONNECTOR_RUNTIME_CONFIG_STALE
+                : AuditEvents.CONNECTOR_RUNTIME_CALL_FAILED,
+            connectorRuntime.executed
+              ? `${runtimeAgentResponse?.agentId ?? "external connector"} returned ${runtimeAgentResponse?.status ?? "unknown"}.`
+              : "External connector runtime failed safely without falling back to a mock diagnosis."
+          )
+        ]
+      : [];
+    const metadataOnlyExecutionTrace = connectorRouting.status === "connector_skill_approved" && connectorRouting.runtimeMode === "metadata_only"
+      ? [
+          executionStep(
+            "orchestrator",
+            "skip_connector_runtime_execution",
+            "Approved connector route is metadata-only; no trusted allowlisted runtime endpoint was available and no runtime token was issued."
+          )
+        ]
+      : [];
+    const a2aResponses = runtimeAgentResponse ? [runtimeAgentResponse] : [];
+
+    return finalize({
+      conversationId,
+      finalAnswer: connectorRuntime ? connectorRuntimeFinalAnswer(connectorRouting, connectorRuntime) : connectorRoutingFinalAnswer(connectorRouting),
+      classification,
+      selectedAgents: [],
+      skippedAgents,
+      routingSource: "rules_fallback",
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: connectorRouting.reason,
+      resolutionStatus: connectorRoutingResolutionStatus(connectorRouting),
+      evidence: [...connectorEvidence, ...runtimeEvidence],
+      agentTrace: [
+        trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
+        {
+          ...trace("connector_intent_detected", connectorRouting.reason),
+          toAgent: connectorRouting.connectorId,
+          skillId: connectorRouting.skillId,
+          decision: connectorRouting.status === "connector_skill_approved" ? "Allowed" : connectorRouting.status === "connector_skill_blocked" || connectorRouting.status === "connector_skill_not_declared" || connectorRouting.status === "connector_skill_not_enabled" ? "Blocked" : "NeedsMoreContext"
+        },
+        {
+          ...trace("connector_route_decision", `${connectorStatus}: ${connectorRouting.recommendedNextStep}`),
+          toAgent: connectorRouting.connectorId,
+          skillId: connectorRouting.skillId,
+          decision: connectorRouting.status === "connector_skill_approved" ? "Allowed" : connectorRouting.status === "connector_skill_blocked" || connectorRouting.status === "connector_skill_not_declared" || connectorRouting.status === "connector_skill_not_enabled" ? "Blocked" : "NeedsMoreContext"
+        },
+        ...runtimeTrace
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        ...(routingDecision.requestInterpretation
+          ? [
+              executionStep(
+                "orchestrator",
+                "interpret_request",
+                `${routingDecision.requestInterpretation.scope} / ${routingDecision.requestInterpretation.intentType}: ${routingDecision.requestInterpretation.reason}`
+              )
+            ]
+          : []),
+        executionStep("orchestrator", "route_connector_intent", `${connectorRouting.targetSystem ?? "unknown"} / ${connectorRouting.connectorId ?? "no connector"} / ${connectorRouting.skillId ?? "no skill"}`),
+        executionStep("orchestrator", "evaluate_onboarded_connector", `${connectorStatus}: ${connectorRouting.reason}`),
+        ...runtimeExecutionTrace,
+        ...metadataOnlyExecutionTrace,
+        executionStep(
+          "orchestrator",
+          connectorRuntime?.executed ? "return_connector_runtime_response" : runtimeExecutable ? "return_connector_runtime_failure" : "return_connector_guidance",
+          connectorRouting.recommendedNextStep
+        )
+      ],
+      securityDecisions: [],
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      followUpInterpretation: followUp,
+      incidentContext: mergedIncidentContext,
+      connectorRouting,
+      connectorPolicy,
+      connectorRuntime,
+      a2aTasks: [],
+      a2aResponses,
+      diagnosis
     });
   }
 
@@ -1507,8 +3264,9 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         delegationDepth: nextDepth,
         parentTaskId: parentTask.taskId,
         requestedByAgent: fromAgent,
-            delegationContext: delegation.context,
-            cards: requestAgentCards
+        delegationContext: delegation.context,
+        actor: verifiedUser,
+        cards: requestAgentCards
       });
       a2aTasks.push(delegatedTask);
 
@@ -1580,9 +3338,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     const requestedAction = requestedActionForSkill(skillMetadata);
     let taskSecurityDecision: SecurityDecision | undefined;
 
-    if (isDemoAgentCard(card)) {
-      orchestratorTrace.push(trace("DEMO_AGENT_POLICY_SKIPPED", `Session demo agent ${agent.agentId} is executed as a local mock response only.`));
-    } else if (requestedAction) {
+    if (requestedAction) {
       const policyDecision = evaluateSecurityPolicy({
         callerAgentId: orchestratorAgentId,
         targetAgentId: agent.agentId,
@@ -1639,68 +3395,9 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       securityDecision: taskSecurityDecision,
       requestedScope,
       cards: requestAgentCards,
-      authMode: isDemoAgentCard(card) ? a2aAuthMode : undefined
+      actor: verifiedUser
     });
     a2aTasks.push(a2aTask);
-
-    if (isDemoAgentCard(card)) {
-      const registrationWarning = await registerDemoAgentWithMockIdp(card);
-      if (registrationWarning) {
-        orchestratorTrace.push(trace("SESSION_DEMO_IDP_REGISTRATION_WARNING", registrationWarning));
-      }
-
-      if (a2aAuthMode === "oauth2_client_credentials_jwt") {
-        try {
-          await prepareA2ARequestAuth({
-            task: a2aTask,
-            targetAudience: card.auth.audience,
-            requestedScope,
-            executionSteps: delegationExecutionSteps,
-            traceEntries: orchestratorTrace,
-            cards: requestAgentCards
-          });
-          a2aTask.context.auth = {
-            ...a2aTask.context.auth,
-            authMode: "oauth2_client_credentials_jwt",
-            validationReason: "Scoped JWT was issued from the generated Agent Card metadata. This demo uses a mock runtime, so no live external service validated the token."
-          };
-          orchestratorTrace.push(trace("SESSION_DEMO_TOKEN_METADATA_RECEIVED", "Session demo agent mock runtime received token metadata; raw token not exposed."));
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : "Unknown token issuance failure";
-          const validationReason = `Scoped JWT issuance failed for the session demo agent: ${detail}`;
-          a2aTask.context.auth = {
-            ...a2aTask.context.auth,
-            authMode: a2aAuthMode,
-            audience: card.auth.audience,
-            scope: requestedScope,
-            tokenIssued: false,
-            validationReason
-          };
-          orchestratorTrace.push(trace("SESSION_DEMO_JWT_ISSUANCE_FAILED", `Session demo agent token issuance failed for audience ${card.auth.audience} and scope ${requestedScope ?? "none"}. Raw token not exposed.`));
-          orchestratorTrace.push(trace("SESSION_DEMO_EXECUTION_BLOCKED", "Blocked session demo agent mock execution because scoped JWT issuance failed."));
-          a2aResponses.push(createDemoAgentJwtBlockedResponse({
-            card,
-            requestedScope,
-            validationReason
-          }));
-          continue;
-        }
-      } else {
-        a2aTask.context.auth = {
-          ...a2aTask.context.auth,
-          authMode: a2aAuthMode,
-          audience: card.auth.audience,
-          scope: requestedScope,
-          tokenIssued: false,
-          validationReason: "Session demo agent used mock internal auth mode; no live external service validated a token."
-        };
-        orchestratorTrace.push(trace("SESSION_DEMO_JWT_DOCUMENTED", `Session demo agent uses audience ${card.auth.audience} and scope ${requestedScope ?? "none"}; raw token not exposed.`));
-      }
-
-      a2aResponses.push(createDemoAgentResponse(card, skillMetadata));
-      orchestratorTrace.push(trace("DEMO_AGENT_EXECUTED", `Returned safe mock response for ${agent.agentId}; no user-defined endpoint was fetched.`));
-      continue;
-    }
 
     const executableCard = card;
     try {
@@ -1830,10 +3527,22 @@ async function start(): Promise<void> {
   }
 
   startJsonServer(port, async (request, response) => {
+  cleanupExpiredUserIdentities();
+
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, {
       ok: true
     });
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/.well-known/a2a-gateway.json") {
+    sendJson(response, 200, gatewayMetadata());
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/.well-known/jwks.json") {
+    sendJson(response, 200, await gatewayPublicJwks());
     return;
   }
 
@@ -1846,32 +3555,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    sendJson(response, 200, await buildAgentsHealthResponse(getSessionToken(request)));
-    return;
-  }
-
-  if (request.method === "DELETE" && request.url?.startsWith("/agents/")) {
-    if (!requireClientAccess(request, response)) {
-      return;
-    }
-
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
-      return;
-    }
-
-    const sessionToken = getSessionToken(request);
-    const agentId = decodeURIComponent(request.url.slice("/agents/".length));
-    const result = deleteRuntimeDemoAgent(agentId, sessionToken);
-    if (!result.ok) {
-      sendJson(response, result.status, { error: result.error, agentId }, request);
-      return;
-    }
-
-    sendJson(response, 200, {
-      deleted: true,
-      agentId,
-      remainingAgents: remainingActiveAgentIds(sessionToken)
-    }, request);
+    sendJson(response, 200, await buildAgentsHealthResponse());
     return;
   }
 
@@ -1880,12 +3564,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    const aiConfig = getAiConfig();
-    sendJson(response, 200, {
-      provider: aiConfig.provider,
-      model: aiConfig.model,
-      hasApiKey: aiConfig.hasApiKey
-    });
+    sendJson(response, 200, getSafeAiConfigSummary());
     return;
   }
 
@@ -1911,96 +3590,187 @@ async function start(): Promise<void> {
     return;
   }
 
-  if (request.method === "GET" && request.url === "/demo-agent-cards") {
+  if (request.method === "GET" && request.url === "/identity/session") {
     const sessionToken = requireSessionToken(request, response);
     if (!sessionToken) {
       return;
     }
 
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
-      return;
-    }
-
-    sendJson(response, 200, { agentCards: listDemoAgentCards(sessionToken) }, request);
+    sendJson(response, 200, publicUserIdentity(currentUserIdentity(sessionToken)), request);
     return;
   }
 
-  if (request.method === "POST" && request.url === "/demo-agent-cards/generate") {
-    const sessionToken = requireSessionToken(request, response);
-    if (!sessionToken) {
+  if (request.method === "GET" && request.url === "/identity/trust-status") {
+    if (!requireClientAccess(request, response)) {
       return;
     }
 
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
-      return;
-    }
-
-    const input = demoInputFromRequestBody(await readJsonBody<unknown>(request));
-    const inputErrors = validateDemoAgentInput(input);
-    if (inputErrors.length > 0) {
-      sendJson(response, 400, { error: "invalid_demo_agent_input", details: inputErrors }, request);
-      return;
-    }
-
-    const agentCard = buildDemoAgentCard(input);
-    sendJson(response, 200, { agentCard, warnings: validateDemoAgentCard(agentCard) }, request);
+    sendJson(response, 200, buildTrustStatus(getSessionToken(request)), request);
     return;
   }
 
-  if (request.method === "POST" && request.url === "/demo-agent-cards") {
+  if (request.method === "POST" && request.url === "/identity/session") {
     const sessionToken = requireSessionToken(request, response);
     if (!sessionToken) {
       return;
     }
 
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+    const token = bearerTokenFromHeaders(request.headers);
+    if (!token) {
+      sendJson(response, 401, { error: "missing_user_identity_bearer_token" }, request);
       return;
     }
 
-    const input = demoInputFromRequestBody(await readJsonBody<unknown>(request));
-    const inputErrors = validateDemoAgentInput(input);
-    if (inputErrors.length > 0) {
-      sendJson(response, 400, { error: "invalid_demo_agent_input", details: inputErrors }, request);
+    try {
+      const identity = await validateUserIdentityJwt(token);
+      userIdentitiesBySession.set(sessionToken, identity);
+      sendJson(response, 200, publicUserIdentity(identity), request);
+    } catch (error) {
+      sendJson(response, 401, {
+        error: "invalid_user_identity_token",
+        detail: error instanceof Error ? error.message : "User identity validation failed"
+      }, request);
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/identity/demo-login") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
       return;
     }
 
-    const builtAgentCard = buildDemoAgentCard(input);
-    const existingCards = listDemoAgentCards(sessionToken);
-    const replacingExistingCard = existingCards.some((card) => card.agentId === builtAgentCard.agentId);
-    const limit = maxDemoAgentsPerSession();
-    if (!replacingExistingCard && existingCards.length >= limit) {
-      sendJson(response, 400, { error: "demo_agent_limit_reached", limit }, request);
+    if (!allowByRateLimit(request, response, demoLoginRateLimit)) {
       return;
     }
 
-    const warnings = validateDemoAgentCard(builtAgentCard);
-    const registrationWarning = await registerDemoAgentWithMockIdp(builtAgentCard);
-    if (registrationWarning) {
-      warnings.push(registrationWarning);
+    const body = await readJsonBody<{ email?: unknown }>(request);
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    if (!email) {
+      sendJson(response, 400, { error: "invalid_demo_user_email" }, request);
+      return;
     }
-    const agentCard = addDemoAgentCard(sessionToken, builtAgentCard);
+
+    try {
+      const { accessToken } = await requestDemoUserToken(email);
+      const identity = await validateUserIdentityJwt(accessToken);
+      userIdentitiesBySession.set(sessionToken, identity);
+      sendJson(response, 200, publicUserIdentity(identity), request);
+    } catch (error) {
+      sendJson(response, 400, {
+        error: "demo_login_failed",
+        detail: error instanceof Error ? error.message : "Demo login failed"
+      }, request);
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/demo/end-user-ready") {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, agentOnboardingRateLimit)) {
+      return;
+    }
+
+    const result = await prepareEndUserDemoEnvironment(registryKey);
+    sendJson(response, result.errors.length ? 503 : 200, result, request);
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/identity/logout") {
+    const sessionToken = requireSessionToken(request, response);
+    if (!sessionToken) {
+      return;
+    }
+
+    userIdentitiesBySession.delete(sessionToken);
+    sendJson(response, 200, publicUserIdentity(undefined), request);
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/agent-onboarding") {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, agentOnboardingRateLimit)) {
+      return;
+    }
+
+    sendJson(response, 200, { agents: listTrustedOnboardedAgents(registryKey) }, request);
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/agent-onboarding/supported-connectors") {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
+      return;
+    }
+
+    const installedAgents = listTrustedOnboardedAgents(registryKey);
+    const connectorTemplates = listSupportedConnectorTemplates().map((template) => {
+      const installedCount = installedAgents.filter((agent) =>
+        agent.connectorId === template.connectorId ||
+          agent.connectorProfile?.connectorId === template.connectorId ||
+          agent.resourceSystem === template.resourceSystem ||
+          agent.connectorProfile?.resourceSystem === template.resourceSystem
+      ).length;
+      return {
+        ...template,
+        installed: installedCount > 0,
+        installedCount
+      };
+    });
+
     sendJson(response, 200, {
-      agentCard,
-      agentCards: listDemoAgentCards(sessionToken),
-      warnings
+      connectorTemplates,
+      connectors: connectorTemplates
     }, request);
     return;
   }
 
-  if (request.method === "DELETE" && request.url?.startsWith("/demo-agent-cards/")) {
-    const sessionToken = requireSessionToken(request, response);
-    if (!sessionToken) {
+  if (request.method === "POST" && request.url === "/agent-onboarding/discover") {
+    if (!agentCardRegistryKey(request, response)) {
       return;
     }
 
-    if (!allowByRateLimit(request, response, demoAgentRateLimit)) {
+    if (!allowByRateLimit(request, response, agentOnboardingRateLimit)) {
       return;
     }
 
-    const agentId = decodeURIComponent(request.url.slice("/demo-agent-cards/".length));
+    const result = await discoverAgentOnboarding(await readJsonBody<unknown>(request));
+    if (!result.discovered) {
+      sendJson(response, 400, result, request);
+      return;
+    }
+
+    sendJson(response, 200, result, request);
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/agent-onboarding/start") {
+    const registryKey = agentCardRegistryKey(request, response);
+    if (!registryKey) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, agentOnboardingRateLimit)) {
+      return;
+    }
+
+    const result = await startAgentOnboarding(registryKey, await readJsonBody<unknown>(request));
+    if ("error" in result) {
+      sendJson(response, 400, result, request);
+      return;
+    }
+
     sendJson(response, 200, {
-      deleted: deleteDemoAgentCard(sessionToken, agentId),
-      agentCards: listDemoAgentCards(sessionToken)
+      ...result,
+      trustedAgents: listTrustedOnboardedAgents(registryKey)
     }, request);
     return;
   }
@@ -2010,7 +3780,16 @@ async function start(): Promise<void> {
     return;
   }
 
-  if (!requireClientAccess(request, response)) {
+  const sessionToken = requireSessionToken(request, response);
+  if (!sessionToken) {
+    return;
+  }
+
+  if (!currentUserIdentity(sessionToken)) {
+    sendJson(response, 401, {
+      error: "user_identity_required",
+      message: "Login as a demo user before running secure A2A tasks."
+    }, request);
     return;
   }
 
@@ -2025,7 +3804,7 @@ async function start(): Promise<void> {
     return;
   }
 
-  sendJson(response, 200, await resolveIssue(requestBody, getSessionToken(request)));
+  sendJson(response, 200, await resolveIssue(requestBody, sessionToken));
   });
 }
 

@@ -1,6 +1,6 @@
 import type { IncomingMessage } from "node:http";
-import type { A2AAgentResponse, A2AAuthMode, A2ATask, AgentTask } from "../index";
-import { verifyA2AToken } from "./verifyA2AToken";
+import type { A2AAgentResponse, A2AAuthMode, A2ATask, AgentTask } from "../index.js";
+import { verifyA2AToken } from "./verifyA2AToken.js";
 
 export type RequireA2AAuthInput = {
   request: IncomingMessage;

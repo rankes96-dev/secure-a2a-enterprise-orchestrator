@@ -1,9 +1,8 @@
-import { OpenRouter } from "@openrouter/sdk";
-import OpenAI from "openai";
 import type { FollowUpInterpretation, RequestInterpretation } from "@a2a/shared";
-import { incidentTaxonomy } from "./config/incidentTaxonomy";
-import { getAiConfig } from "./config/aiConfig";
-import type { IncidentContext } from "./incidentContext";
+import { incidentTaxonomy } from "./config/incidentTaxonomy.js";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
+import type { IncidentContext } from "./incidentContext.js";
+import { callOpenRouterJson } from "./openRouterClient.js";
 
 const followUpPrompt = `You are a ServiceNow enterprise support follow-up interpreter.
 You receive:
@@ -164,38 +163,16 @@ function fallbackInterpretFollowUp(params: {
   };
 }
 
-async function callOpenRouter(input: unknown, apiKey: string, model: string): Promise<string | undefined> {
-  const openRouter = new OpenRouter({ apiKey });
-  const result = await openRouter.chat.send({
-    chatRequest: {
-      model,
-      messages: [
-        { role: "system", content: followUpPrompt },
-        { role: "user", content: JSON.stringify(input) }
-      ],
-      responseFormat: { type: "json_object" },
-      stream: false,
-      temperature: 0
-    }
-  });
-
-  const content = result.choices[0]?.message.content;
-  return typeof content === "string" ? content : undefined;
-}
-
-async function callOpenAi(input: unknown, apiKey: string, model: string): Promise<string | undefined> {
-  const client = new OpenAI({ apiKey });
-  const result = await client.chat.completions.create({
+async function callOpenRouter(input: unknown, apiKey: string, baseURL: string, model: string): Promise<string | undefined> {
+  return callOpenRouterJson({
+    apiKey,
+    baseURL,
     model,
-    response_format: { type: "json_object" },
     messages: [
       { role: "system", content: followUpPrompt },
       { role: "user", content: JSON.stringify(input) }
-    ],
-    temperature: 0
+    ]
   });
-
-  return result.choices[0]?.message.content ?? undefined;
 }
 
 export async function interpretFollowUp(params: {
@@ -215,8 +192,9 @@ export async function interpretFollowUp(params: {
   console.info(`[follow-up-interpreter] provider=${aiConfig.provider} model=${aiConfig.model} hasKey=${aiConfig.hasApiKey}`);
 
   if (!aiConfig.apiKey?.trim()) {
-    console.info("[follow-up-interpreter] fallback used reason=AI API key is not configured");
-    return fallbackInterpretFollowUp({ ...params, reason: "AI API key is not configured; deterministic follow-up fallback was used." });
+    const summary = getSafeAiConfigSummary();
+    console.info(`[follow-up-interpreter] fallback used reason=OpenRouter API key is not configured expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
+    return fallbackInterpretFollowUp({ ...params, reason: "OpenRouter API key is not configured; deterministic follow-up fallback was used." });
   }
 
   try {
@@ -227,10 +205,7 @@ export async function interpretFollowUp(params: {
       previousInterpretation: params.previousInterpretation,
       previousIncidentContext: params.previousIncidentContext
     };
-    const content =
-      aiConfig.provider === "openrouter"
-        ? await callOpenRouter(input, aiConfig.apiKey, aiConfig.model)
-        : await callOpenAi(input, aiConfig.apiKey, aiConfig.model);
+    const content = await callOpenRouter(input, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model);
 
     if (!content) {
       console.info("[follow-up-interpreter] fallback used reason=AI returned empty content");

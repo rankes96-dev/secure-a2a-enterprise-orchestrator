@@ -1,5 +1,3 @@
-import { OpenRouter } from "@openrouter/sdk";
-import OpenAI from "openai";
 import type {
   AgentName,
   Classification,
@@ -13,9 +11,10 @@ import type {
   SelectedAgent,
   SkippedAgent
 } from "@a2a/shared";
-import { findAgentSkillsByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard, type AgentCard, type CapabilityMatch } from "./agentCards";
-import { getAiConfig } from "./config/aiConfig";
-import { interpretRequest } from "./requestInterpreter";
+import { findAgentSkillsByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard, type AgentCard, type CapabilityMatch } from "./agentCards.js";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
+import { callOpenRouterJson } from "./openRouterClient.js";
+import { interpretRequest } from "./requestInterpreter.js";
 
 const systems: EnterpriseSystem[] = ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday", "Unknown"];
 const errorCodes: ErrorCode[] = ["401", "403", "404", "429", "500", "502", "503", "504"];
@@ -39,7 +38,7 @@ const operations: IntegrationOperation[] = [
 ];
 const reporterTypes: ReporterType[] = ["end_user", "it_engineer", "unknown"];
 
-const routerPrompt = `You are a ServiceNow-style AI Orchestrator Agent.
+const routerPrompt = `You are the Secure Agent Orchestration Gateway route planner.
 You are a secondary route planner. Primary routing is capability-based and already attempted.
 
 Rules:
@@ -335,46 +334,6 @@ function chooseEnterpriseTriageRoute(interpretation: RequestInterpretation, cont
   };
 }
 
-function chooseDemoAgentTextRoute(message: string, interpretation: RequestInterpretation, context: RoutingContext = {}): CapabilityRouteSelection {
-  const lowerMessage = message.toLowerCase();
-  const demoMatches = getExecutableAgentCards(cardsForContext(context))
-    .filter((card) => card.endpoint.startsWith("session://demo-agent/"))
-    .flatMap((agent) => agent.skills.map((skill) => ({ agent, skill })))
-    .filter(({ agent, skill }) => {
-      const systemMatched = agent.systems.some((system) => lowerMessage.includes(system.toLowerCase()));
-      const targetMatched = agent.systems.some((system) => interpretation.targetSystemText?.toLowerCase().includes(system.toLowerCase()));
-      const capabilityMatched = (skill.capabilities ?? []).some((capability) =>
-        lowerMessage.includes(capability.toLowerCase()) ||
-        capability.split(/[._-]+/).filter((part) => part.length > 3).some((part) => lowerMessage.includes(part.toLowerCase()))
-      );
-      return (systemMatched || targetMatched) && capabilityMatched;
-    })
-    .map(({ agent, skill }) => ({
-      agent,
-      skill,
-      score: 80 + (skill.priority ?? 0),
-      reason: "session demo Agent Card matched system and capability text"
-    }))
-    .sort((left, right) => right.score - left.score || left.agent.agentId.localeCompare(right.agent.agentId));
-
-  const match = demoMatches[0];
-  if (!match) {
-    return { selectedAgents: [] };
-  }
-
-  return {
-    selectedAgents: [
-      select(match.agent.agentId, "primary", match.skill.id, `Matched session demo Agent Card skill ${match.skill.id}. ${match.reason}.`, {
-        matchedCapability: match.skill.capabilities?.[0],
-        matchScore: match.score,
-        owner: match.skill.owner,
-        targetSystemText: interpretation.targetSystemText
-      })
-    ],
-    candidates: [candidateSummary(match)]
-  };
-}
-
 export function selectBestCapabilityRoute(interpretation: RequestInterpretation, context: RoutingContext = {}): CapabilityRouteSelection {
   return chooseCapabilityMatches(interpretation, context);
 }
@@ -474,21 +433,6 @@ export function routeWithRules(
     };
   }
 
-  const demoTextRoute = selectedAgents.length === 0 ? chooseDemoAgentTextRoute(message, interpretation, context) : { selectedAgents: [] };
-
-  if (demoTextRoute.selectedAgents.length > 0) {
-    return {
-      classification,
-      selectedAgents: demoTextRoute.selectedAgents,
-      skippedAgents: completeSkippedAgents(demoTextRoute.selectedAgents, [], context),
-      routingSource: "rules_fallback",
-      routingConfidence: "medium",
-      routingReasoningSummary: "Matched a session-scoped demo Agent Card by system and capability text.",
-      resolutionStatus: "resolved",
-      requestInterpretation: interpretation
-    };
-  }
-
   const triageRoute = selectedAgents.length === 0 ? chooseEnterpriseTriageRoute(interpretation, context) : { selectedAgents: [] };
 
   if (triageRoute.selectedAgents.length > 0) {
@@ -529,7 +473,7 @@ export function routeWithRules(
   };
 }
 
-function normalizeClassification(value: unknown, fallback: Classification, aiProvider: "openrouter" | "openai", aiModel: string): Classification {
+function normalizeClassification(value: unknown, fallback: Classification, aiProvider: "openrouter", aiModel: string): Classification {
   const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 
   return {
@@ -562,7 +506,7 @@ function parseAgentList(value: unknown): SelectedAgent[] {
     }));
 }
 
-function normalizeRoutingDecision(value: unknown, fallback: RoutingDecision, aiProvider: "openrouter" | "openai", aiModel: string, context: RoutingContext = {}): RoutingDecision {
+function normalizeRoutingDecision(value: unknown, fallback: RoutingDecision, aiProvider: "openrouter", aiModel: string, context: RoutingContext = {}): RoutingDecision {
   const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   const classification = normalizeClassification(record.classification, fallback.classification, aiProvider, aiModel);
   const selectedAgents = parseAgentList(record.selectedAgents);
@@ -642,37 +586,11 @@ function validateRoutingDecision(decision: RoutingDecision, fallback: RoutingDec
   };
 }
 
-async function callOpenRouter(message: string, interpretation: RequestInterpretation, apiKey: string, model: string, context: RoutingContext = {}): Promise<string | undefined> {
-  const openRouter = new OpenRouter({ apiKey });
-  const result = await openRouter.chat.send({
-    chatRequest: {
-      model,
-      messages: [
-        { role: "system", content: routerPrompt },
-        {
-          role: "user",
-          content: JSON.stringify({
-            message,
-            requestInterpretation: interpretation,
-            agentCards: getExecutableAgentCards(cardsForContext(context))
-          })
-        }
-      ],
-      responseFormat: { type: "json_object" },
-      stream: false,
-      temperature: 0
-    }
-  });
-
-  const content = result.choices[0]?.message.content;
-  return typeof content === "string" ? content : undefined;
-}
-
-async function callOpenAi(message: string, interpretation: RequestInterpretation, apiKey: string, model: string, context: RoutingContext = {}): Promise<string | undefined> {
-  const client = new OpenAI({ apiKey });
-  const completion = await client.chat.completions.create({
+async function callOpenRouter(message: string, interpretation: RequestInterpretation, apiKey: string, baseURL: string, model: string, context: RoutingContext = {}): Promise<string | undefined> {
+  return callOpenRouterJson({
+    apiKey,
+    baseURL,
     model,
-    response_format: { type: "json_object" },
     messages: [
       { role: "system", content: routerPrompt },
       {
@@ -683,11 +601,8 @@ async function callOpenAi(message: string, interpretation: RequestInterpretation
           agentCards: getExecutableAgentCards(cardsForContext(context))
         })
       }
-    ],
-    temperature: 0
+    ]
   });
-
-  return completion.choices[0]?.message.content ?? undefined;
 }
 
 export async function routeWithAI(message: string, context: RoutingContext = {}): Promise<RoutingDecision> {
@@ -712,16 +627,14 @@ export async function routeWithAI(message: string, context: RoutingContext = {})
   console.info(`[router] provider=${aiConfig.provider} model=${aiConfig.model} hasKey=${aiConfig.hasApiKey}`);
 
   if (!aiConfig.apiKey?.trim()) {
-    console.info(`[router] ${aiConfig.provider} key is not configured; using capability routing fallback`);
+    const summary = getSafeAiConfigSummary();
+    console.info(`[router] fallback used reason=OpenRouter API key is not configured expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
     return fallback;
   }
 
   try {
     console.info("[router] calling secondary AI router");
-    const content =
-      aiConfig.provider === "openrouter"
-        ? await callOpenRouter(message, requestInterpretation, aiConfig.apiKey, aiConfig.model, context)
-        : await callOpenAi(message, requestInterpretation, aiConfig.apiKey, aiConfig.model, context);
+    const content = await callOpenRouter(message, requestInterpretation, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model, context);
 
     if (!content) {
       console.warn("[router] secondary AI router returned empty content; using capability fallback");

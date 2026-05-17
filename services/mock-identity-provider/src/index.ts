@@ -3,12 +3,12 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { exportJWK, generateKeyPair, calculateJwkThumbprint, SignJWT, type JWK, type KeyLike } from "jose";
 import type { A2ATokenClaims, A2ATokenResponse } from "@a2a/shared";
-import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
-import { StaticAgentCardRegistry } from "../../orchestrator-api/src/agentCardRegistry";
-import { buildDiscoveredA2AResourceRegistry, type DiscoveredA2AResourceRegistry } from "./agentCardScopeRegistry";
-import { getOAuthApplication, oauthApplications, sensitiveScopesNeverIssuedByMockIdp, type OAuthApplicationRegistration } from "./config/oauthApplications";
-import { authenticateOAuthClient } from "./security/clientAuthentication";
-import { evaluateSourceIpAllowlist } from "./security/sourceIpAllowlist";
+import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
+import { buildDiscoveredA2AResourceRegistry, type DiscoveredA2AResourceRegistry } from "./agentCardScopeRegistry.js";
+import { getOAuthApplication, oauthApplications, sensitiveScopesNeverIssuedByMockIdp, type OAuthApplicationRegistration } from "./config/oauthApplications.js";
+import { authenticateOAuthClient } from "./security/clientAuthentication.js";
+import { evaluateDemoUserTokenAccess, evaluateInternalDebugAccess } from "./security/internalDebugAccess.js";
+import { evaluateSourceIpAllowlist } from "./security/sourceIpAllowlist.js";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url), quiet: true });
@@ -16,7 +16,20 @@ dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url), q
 const port = Number(process.env.PORT ?? process.env.MOCK_IDENTITY_PROVIDER_PORT ?? 4110);
 const issuer = process.env.A2A_ISSUER ?? "http://localhost:4110";
 const deniedScopes = new Set<string>(sensitiveScopesNeverIssuedByMockIdp);
-const agentCardRegistry = new StaticAgentCardRegistry();
+const demoUserTokenAudience = "secure-a2a-gateway";
+const demoUserTokenTtlSeconds = 900;
+
+type DemoUserProfile = {
+  email: string;
+  name: string;
+  roles: string[];
+};
+
+const demoUserProfiles = new Map<string, DemoUserProfile>([
+  ["ran@company.com", { email: "ran@company.com", name: "Ran Keselman", roles: ["it-support"] }],
+  ["analyst@company.com", { email: "analyst@company.com", name: "Security Analyst", roles: ["read-only"] }],
+  ["admin@company.com", { email: "admin@company.com", name: "Identity Admin", roles: ["identity-admin"] }]
+]);
 
 type TokenRequest = {
   grant_type?: string;
@@ -30,6 +43,8 @@ type TokenRequest = {
   delegation_depth?: number;
   parent_task_id?: string;
   requested_by_agent?: string;
+  actor?: string;
+  actor_roles?: string[];
 };
 
 type SigningKey = {
@@ -38,17 +53,14 @@ type SigningKey = {
   kid: string;
 };
 
-type DemoAgentRegistration = {
-  agentId: string;
-  audience: string;
-  allowedScopes: Set<string>;
-  expiresAtEpochSeconds: number;
+type DemoUserTokenRequest = {
+  email?: unknown;
+  name?: unknown;
+  roles?: unknown;
 };
 
 let signingKey: SigningKey;
 let resourceRegistry: DiscoveredA2AResourceRegistry;
-const demoAgentRegistrations = new Map<string, DemoAgentRegistration>();
-const unsafeDemoScopePattern = /(?:admin|write|delete|grant|rotate|disable|token|secret|credential)/i;
 
 async function createSigningKey(): Promise<SigningKey> {
   // This is a local demo key. Production would use persisted signing keys and rotation.
@@ -71,90 +83,75 @@ function parseScopes(scope: string): string[] {
   return scope.split(/\s+/).map((item) => item.trim()).filter(Boolean);
 }
 
-function cleanupExpiredDemoRegistrations(): void {
-  const now = Math.floor(Date.now() / 1000);
-  for (const [audience, registration] of demoAgentRegistrations.entries()) {
-    if (registration.expiresAtEpochSeconds <= now) {
-      demoAgentRegistrations.delete(audience);
+function validateDemoUserTokenRequest(value: DemoUserTokenRequest): { ok: true; profile: DemoUserProfile } | { ok: false; error: string } {
+  const email = typeof value.email === "string" ? value.email.trim().toLowerCase() : "";
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "invalid_demo_user_email" };
+  }
+
+  const profile = demoUserProfiles.get(email);
+  if (!profile) {
+    return { ok: false, error: "demo_user_not_allowed" };
+  }
+
+  if (value.name !== undefined && typeof value.name !== "string") {
+    return { ok: false, error: "invalid_demo_user_name" };
+  }
+
+  if (value.roles !== undefined) {
+    if (!Array.isArray(value.roles) || value.roles.some((role) => typeof role !== "string")) {
+      return { ok: false, error: "invalid_demo_user_roles" };
+    }
+
+    const allowedRoles = new Set(profile.roles);
+    const requestedRoles = value.roles.map((role) => role.trim()).filter(Boolean);
+    if (requestedRoles.some((role) => !allowedRoles.has(role))) {
+      return { ok: false, error: "demo_user_role_not_allowed" };
     }
   }
+
+  return { ok: true, profile };
 }
 
-function demoRegistrationFor(audience: string): DemoAgentRegistration | undefined {
-  cleanupExpiredDemoRegistrations();
-  return demoAgentRegistrations.get(audience);
-}
+async function issueDemoUserToken(profile: DemoUserProfile): Promise<{ accessToken: string; expiresIn: number; tokenType: "Bearer"; user: DemoUserProfile }> {
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = now + demoUserTokenTtlSeconds;
+  const subject = `user:${profile.email}`;
+  const accessToken = await new SignJWT({
+    email: profile.email,
+    name: profile.name,
+    roles: profile.roles,
+    token_use: "user_identity"
+  })
+    .setProtectedHeader({ alg: "RS256", kid: signingKey.kid, typ: "JWT" })
+    .setIssuer(issuer)
+    .setAudience(demoUserTokenAudience)
+    .setSubject(subject)
+    .setIssuedAt(now)
+    .setExpirationTime(expiresAt)
+    .setJti(randomUUID())
+    .sign(signingKey.privateKey);
 
-function demoRegistrationAllows(audience: string, scopes: string[]): boolean {
-  const registration = demoRegistrationFor(audience);
-  return Boolean(registration && scopes.every((scope) => registration.allowedScopes.has(scope)));
-}
-
-function validateDemoRegistrationBody(value: unknown): { ok: true; registration: DemoAgentRegistration } | { ok: false; status: number; error: string } {
-  const body = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
-  const agentId = typeof body.agentId === "string" ? body.agentId.trim() : "";
-  const audience = typeof body.audience === "string" ? body.audience.trim() : "";
-  const allowedScopes = Array.isArray(body.allowedScopes)
-    ? body.allowedScopes.filter((scope): scope is string => typeof scope === "string").map((scope) => scope.trim()).filter(Boolean)
-    : [];
-  const requestedTtlSeconds = typeof body.ttlSeconds === "number" && Number.isFinite(body.ttlSeconds)
-    ? Math.floor(body.ttlSeconds)
-    : 3600;
-
-  if (!agentId.startsWith("demo-")) {
-    return { ok: false, status: 400, error: "invalid_demo_agent_id" };
-  }
-
-  if (audience !== agentId) {
-    return { ok: false, status: 400, error: "invalid_demo_audience" };
-  }
-
-  if (allowedScopes.length === 0) {
-    return { ok: false, status: 400, error: "missing_allowed_scopes" };
-  }
-
-  const unsafeScope = allowedScopes.find((scope) => unsafeDemoScopePattern.test(scope));
-  if (unsafeScope) {
-    return { ok: false, status: 400, error: `unsafe_demo_scope: ${unsafeScope}` };
-  }
-
-  const ttlSeconds = Math.max(1, Math.min(requestedTtlSeconds, 3600));
   return {
-    ok: true,
-    registration: {
-      agentId,
-      audience,
-      allowedScopes: new Set(allowedScopes),
-      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + ttlSeconds
+    accessToken,
+    expiresIn: demoUserTokenTtlSeconds,
+    tokenType: "Bearer",
+    user: {
+      email: profile.email,
+      name: profile.name,
+      roles: [...profile.roles]
     }
   };
 }
 
-async function handleDemoAgentRegistration(request: IncomingMessage, response: ServerResponse): Promise<void> {
-  const expectedToken = process.env.INTERNAL_SERVICE_TOKEN;
-  if (!expectedToken || request.headers["x-internal-service-token"] !== expectedToken) {
-    sendJson(response, expectedToken ? 401 : 503, { error: expectedToken ? "unauthorized" : "internal_service_token_not_configured" }, request);
-    return;
-  }
-
-  const validation = validateDemoRegistrationBody(await readJsonBody<unknown>(request));
+async function handleDemoUserToken(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const validation = validateDemoUserTokenRequest(await readJsonBody<DemoUserTokenRequest>(request));
   if (!validation.ok) {
-    sendJson(response, validation.status, { error: validation.error }, request);
+    sendJson(response, 400, { error: validation.error }, request);
     return;
   }
 
-  cleanupExpiredDemoRegistrations();
-  demoAgentRegistrations.set(validation.registration.audience, validation.registration);
-  console.log(
-    `[mock-idp] demo_agent_registered timestamp=${new Date().toISOString()} agentId=${validation.registration.agentId} audience=${validation.registration.audience} scopes=${[...validation.registration.allowedScopes].join(" ")} expiresAt=${validation.registration.expiresAtEpochSeconds}`
-  );
-  sendJson(response, 200, {
-    ok: true,
-    agentId: validation.registration.agentId,
-    audience: validation.registration.audience,
-    allowedScopes: [...validation.registration.allowedScopes],
-    expiresAtEpochSeconds: validation.registration.expiresAtEpochSeconds
-  }, request);
+  sendJson(response, 200, await issueDemoUserToken(validation.profile), request);
 }
 
 type TokenValidationResult =
@@ -195,18 +192,13 @@ async function validateTokenRequest(body: TokenRequest): Promise<TokenValidation
   }
 
   const isStaticAudience = resourceRegistry.audiences.has(body.audience);
-  const isDemoAudience = body.audience.startsWith("demo-");
-  if (!isStaticAudience && !demoRegistrationFor(body.audience)) {
+  if (!isStaticAudience) {
     return { ok: false, status: 403, error: `audience_not_allowed: ${body.audience}`, authMethod: clientAuth.authMethod };
   }
 
   const denied = scopes.find((scope) => deniedScopes.has(scope));
   if (denied) {
     return { ok: false, status: 403, error: `scope_denied: ${denied}`, authMethod: clientAuth.authMethod };
-  }
-
-  if (isDemoAudience && !demoRegistrationAllows(body.audience, scopes)) {
-    return { ok: false, status: 403, error: "demo_scope_not_allowed", authMethod: clientAuth.authMethod };
   }
 
   const unsupported = isStaticAudience ? scopes.find((scope) => !resourceRegistry.scopes.has(scope)) : undefined;
@@ -227,6 +219,14 @@ function validateDelegationContext(body: TokenRequest): { ok: true } | { ok: fal
   }
 
   if (body.requested_by_agent !== undefined && typeof body.requested_by_agent !== "string") {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
+  if (body.actor !== undefined && typeof body.actor !== "string") {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
+  if (body.actor_roles !== undefined && (!Array.isArray(body.actor_roles) || body.actor_roles.some((role) => typeof role !== "string"))) {
     return { ok: false, status: 400, error: "invalid_delegation_context" };
   }
 
@@ -252,7 +252,7 @@ function validateDelegationContext(body: TokenRequest): { ok: true } | { ok: fal
 }
 
 async function issueToken(
-  body: Required<Pick<TokenRequest, "client_id" | "audience" | "scope">> & Pick<TokenRequest, "delegated_by" | "delegation_depth" | "parent_task_id" | "requested_by_agent">,
+  body: Required<Pick<TokenRequest, "client_id" | "audience" | "scope">> & Pick<TokenRequest, "delegated_by" | "delegation_depth" | "parent_task_id" | "requested_by_agent" | "actor" | "actor_roles">,
   scopes: string[],
   tokenTtlSeconds: number
 ): Promise<A2ATokenResponse> {
@@ -284,6 +284,14 @@ async function issueToken(
 
   if (body.requested_by_agent) {
     claims.requested_by_agent = body.requested_by_agent;
+  }
+
+  if (body.actor) {
+    claims.actor = body.actor;
+  }
+
+  if (body.actor_roles) {
+    claims.actor_roles = body.actor_roles;
   }
 
   const accessToken = await new SignJWT({ ...claims })
@@ -326,7 +334,9 @@ async function handleToken(request: IncomingMessage, response: ServerResponse, s
         delegated_by: body.delegated_by,
         delegation_depth: body.delegation_depth,
         parent_task_id: body.parent_task_id,
-        requested_by_agent: body.requested_by_agent
+        requested_by_agent: body.requested_by_agent,
+        actor: body.actor,
+        actor_roles: body.actor_roles
       },
       validation.scopes,
       validation.application.tokenTtlSeconds ?? Number(process.env.A2A_TOKEN_TTL_SECONDS ?? 300)
@@ -349,7 +359,7 @@ function auditTokenAttempt(
 
 async function start(): Promise<void> {
   signingKey = await createSigningKey();
-  resourceRegistry = await buildDiscoveredA2AResourceRegistry(agentCardRegistry);
+  resourceRegistry = buildDiscoveredA2AResourceRegistry();
 
   startJsonServer(port, async (request, response) => {
     if (request.method === "GET" && request.url === "/health") {
@@ -363,6 +373,12 @@ async function start(): Promise<void> {
     }
 
     if (request.method === "GET" && request.url === "/debug/oauth-applications") {
+      const debugAccess = evaluateInternalDebugAccess(request.url, request.headers);
+      if (!debugAccess.ok) {
+        sendJson(response, debugAccess.status, debugAccess.body, request);
+        return;
+      }
+
       sendJson(
         response,
         200,
@@ -399,8 +415,14 @@ async function start(): Promise<void> {
       return;
     }
 
-    if (request.method === "POST" && request.url === "/internal/demo-agent-registrations") {
-      await handleDemoAgentRegistration(request, response);
+    if (request.method === "POST" && request.url === "/demo/user-token") {
+      const demoAccess = evaluateDemoUserTokenAccess(request.url, request.headers);
+      if (!demoAccess.ok) {
+        sendJson(response, demoAccess.status, demoAccess.body, request);
+        return;
+      }
+
+      await handleDemoUserToken(request, response);
       return;
     }
 

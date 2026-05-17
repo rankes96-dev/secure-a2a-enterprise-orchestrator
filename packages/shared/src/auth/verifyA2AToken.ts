@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import type { A2AAuthValidationResult, A2ATokenClaims } from "../index";
+import type { A2AAuthValidationResult, A2ATokenClaims } from "../index.js";
 
 export type VerifyA2ATokenInput = {
   authorizationHeader?: string | string[];
@@ -55,6 +55,7 @@ function claimsFromPayload(payload: Record<string, unknown>): A2ATokenClaims | u
     jti: payload.jti,
     client_id: payload.client_id,
     actor: payload.actor,
+    actor_roles: toStringArray(payload.actor_roles),
     delegated_by: payload.delegated_by,
     delegation_depth: payload.delegation_depth,
     parent_task_id: payload.parent_task_id,
@@ -85,6 +86,7 @@ function claimsFromPayload(payload: Record<string, unknown>): A2ATokenClaims | u
     jti: claims.jti,
     client_id: claims.client_id,
     actor: typeof claims.actor === "string" ? claims.actor : undefined,
+    actor_roles: claims.actor_roles,
     delegated_by: typeof claims.delegated_by === "string" ? claims.delegated_by : undefined,
     delegation_depth: typeof claims.delegation_depth === "number" ? claims.delegation_depth : undefined,
     parent_task_id: typeof claims.parent_task_id === "string" ? claims.parent_task_id : undefined,

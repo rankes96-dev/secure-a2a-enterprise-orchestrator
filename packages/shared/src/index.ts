@@ -56,6 +56,19 @@ export type RequestScopeContext = {
   detectedTopic?: string;
 };
 
+export type AdversarialIntent =
+  | "prompt_injection_attempt"
+  | "token_exfiltration_attempt"
+  | "policy_bypass_attempt"
+  | "privilege_escalation_attempt"
+  | "false_authority_attempt";
+
+export type SecurityIntent = {
+  detected: boolean;
+  category?: AdversarialIntent;
+  reason: string;
+};
+
 export type RequestInterpretation = {
   scope: RequestScope;
   intentType: RequestIntentType;
@@ -68,7 +81,7 @@ export type RequestInterpretation = {
   confidence: "low" | "medium" | "high";
   reason: string;
   interpretationSource?: "ai" | "fallback";
-  aiProvider?: "openrouter" | "openai";
+  aiProvider?: "openrouter";
   aiModel?: string;
 };
 
@@ -84,7 +97,7 @@ export type FollowUpInterpretation = {
   shouldPreservePreviousTargetSystem?: boolean;
   shouldPreservePreviousAction?: boolean;
   interpretationSource?: "ai" | "fallback";
-  aiProvider?: "openrouter" | "openai";
+  aiProvider?: "openrouter";
   aiModel?: string;
 };
 
@@ -96,7 +109,7 @@ export interface Classification {
   confidence: "low" | "medium" | "high";
   reasoningSummary: string;
   classificationSource: "ai" | "rules_fallback";
-  aiProvider?: "openrouter" | "openai";
+  aiProvider?: "openrouter";
   aiModel?: string;
   reporterType: ReporterType;
   supportMode: SupportMode;
@@ -193,6 +206,10 @@ export type OAuthClientAuthMethod =
   | "client_secret_post"
   | "private_key_jwt";
 
+export type PublicOAuthClientAuthMethod =
+  | "client-secret-post"
+  | "private-key-jwt";
+
 export type A2ATokenClaims = {
   iss: string;
   sub: string;
@@ -204,6 +221,7 @@ export type A2ATokenClaims = {
   jti: string;
   client_id: string;
   actor?: string;
+  actor_roles?: string[];
   delegated_by?: string;
   delegation_depth?: number;
   parent_task_id?: string;
@@ -236,7 +254,16 @@ export type A2ATaskAuthMetadata = {
   delegationDepth?: number;
   parentTaskId?: string;
   requestedByAgent?: string;
-  tokenAuthMethod?: OAuthClientAuthMethod;
+  actor?: string;
+  actorRoles?: string[];
+  tokenAuthMethod?: OAuthClientAuthMethod | PublicOAuthClientAuthMethod;
+};
+
+export type UserIdentitySummary = {
+  authenticated: boolean;
+  email?: string;
+  name?: string;
+  roles?: string[];
 };
 
 export interface A2ATask {
@@ -264,15 +291,37 @@ export interface A2ATask {
     authMode?: A2AAuthMode;
     auth?: A2ATaskAuthMetadata;
     delegationContext?: Record<string, unknown>;
+    actor?: {
+      email: string;
+      name?: string;
+      roles: string[];
+    };
   };
 }
 
+export type EndUserAnswerSeverity =
+  | "info"
+  | "low"
+  | "medium"
+  | "high";
+
+export type EndUserAnswer = {
+  title: string;
+  summary: string;
+  whatWasChecked?: string;
+  whatWasChanged?: string;
+  nextStep: string;
+  severity?: EndUserAnswerSeverity;
+  safeToDisplay: true;
+};
+
 export interface A2AAgentResponse {
   agentId: string;
-  status: "diagnosed" | "needs_more_info" | "blocked" | "unsupported" | "error";
+  status: "diagnosed" | "completed" | "needs_more_info" | "blocked" | "unsupported" | "error";
   summary: string;
   probableCause?: string;
   recommendedActions?: string[];
+  endUserAnswer?: EndUserAnswer;
   clarifyingQuestions?: string[];
   requestedDelegations?: Array<{
     targetAgentId: AgentId;
@@ -284,6 +333,8 @@ export interface A2AAgentResponse {
     title: string;
     data: unknown;
   }>;
+  actionPlan?: ConnectorActionPlan;
+  runtimeSemantics?: ConnectorRuntimeSemantics;
   trace?: Array<{
     agent: string;
     action: string;
@@ -291,6 +342,235 @@ export interface A2AAgentResponse {
     timestamp: string;
   }>;
 }
+
+export type ConnectorRuntimeExecutionType =
+  | "diagnostic_read_only"
+  | "write_action"
+  | "inspection_read_only"
+  | "unsupported";
+
+export type ConnectorRuntimeOutcome =
+  | "diagnosed"
+  | "executed"
+  | "blocked"
+  | "needs_more_info"
+  | "unsupported"
+  | "error";
+
+export type ConnectorTargetActionStatus =
+  | "ready"
+  | "not_enabled"
+  | "missing_application_grants"
+  | "missing_effective_permissions"
+  | "explicitly_denied"
+  | "unknown";
+
+export type ConnectorRuntimeSemantics = {
+  executionType: ConnectorRuntimeExecutionType;
+  outcome: ConnectorRuntimeOutcome;
+  executedSkillId: string;
+  targetActionId?: string;
+  targetActionLabel?: string;
+  targetActionStatus?: ConnectorTargetActionStatus;
+  writeActionAttempted: boolean;
+  diagnosticOnly: boolean;
+};
+
+export type ConnectorPlanMode = "plan_only";
+
+export type PlannedActionExecutionType =
+  | "inspection_read_only"
+  | "diagnostic_read_only"
+  | "write_action"
+  | "admin_action"
+  | "unsupported";
+
+export type PlannedActionRiskLevel =
+  | "low"
+  | "medium"
+  | "high"
+  | "critical";
+
+export type PlannedActionSideEffects =
+  | "none"
+  | "reads_data"
+  | "modifies_state"
+  | "admin_change"
+  | "cross_system";
+
+export type ConnectorActionPlanOption = {
+  actionId: string;
+  label: string;
+  description: string;
+  executionType: PlannedActionExecutionType;
+  riskLevel: PlannedActionRiskLevel;
+  sideEffects: PlannedActionSideEffects;
+  requiredApplicationGrants: string[];
+  requiredEffectivePermissions: string[];
+  requiresApproval?: boolean;
+  targetObjectTypes?: string[];
+  missingInputs?: string[];
+};
+
+export type ConnectorActionPlan = {
+  planId: string;
+  connectorId: string;
+  resourceSystem: string;
+  interpretedIntent: string;
+  userRequest: string;
+  mode: ConnectorPlanMode;
+  safeToDisplay: true;
+  sideEffectsAllowed: "none";
+  missingInputs: string[];
+  options: ConnectorActionPlanOption[];
+  recommendedOptionId?: string;
+  recommendedNextStep: string;
+};
+
+export type EvaluatedConnectorActionPlan = {
+  plan: ConnectorActionPlan;
+  options: Array<{
+    option: ConnectorActionPlanOption;
+    decision: "allowed" | "blocked" | "needs_approval";
+    blockedAt?: "gateway_governance" | "oauth_scope" | "service_account_permission";
+    reason: string;
+    missingApplicationGrants: string[];
+    missingEffectivePermissions: string[];
+    deniedEffectivePermissions: string[];
+  }>;
+  recommendedOptionDecision?: {
+    optionId: string;
+    decision: "allowed" | "blocked" | "needs_approval";
+    blockedAt?: "gateway_governance" | "oauth_scope" | "service_account_permission";
+    reason: string;
+  };
+};
+
+export type ConnectorPlanningTargetStrategy =
+  | "explicit_connector_mention"
+  | "ai_routing_target_match"
+  | "supported_intent_class_match"
+  | "needs_clarification"
+  | "not_supported";
+
+export type ConnectorPlanningTargetResolution = {
+  strategy: ConnectorPlanningTargetStrategy;
+  detectedIntentClasses: string[];
+  selectedConnectorId?: string;
+  selectedResourceSystem?: string;
+  reason: string;
+};
+
+export type PendingFollowUpContext = {
+  type: "connector_planning_target";
+  originalMessage: string;
+  detectedIntentClasses: string[];
+  missingFields: Array<"targetSystem">;
+  createdAt: string;
+};
+
+export type PlanningFollowUpResolution = {
+  type: "connector_planning_target";
+  originalMessage: string;
+  followUpAnswer: string;
+  resolvedMessage: string;
+};
+
+export type PendingInteractionType =
+  | "target_selection"
+  | "missing_input"
+  | "planned_safe_action"
+  | "approval_required_action"
+  | "support_ticket_handoff";
+
+export type PendingInteraction = {
+  id: string;
+  type: PendingInteractionType;
+  originalUserRequest: string;
+  createdAt: string;
+  expiresAt?: string;
+  context: Record<string, unknown>;
+};
+
+export type PendingInteractionRelation =
+  | "confirm"
+  | "cancel"
+  | "provide_missing_target"
+  | "provide_missing_input"
+  | "modify_request"
+  | "ask_question"
+  | "unrelated_new_request"
+  | "adversarial_attempt"
+  | "unclear";
+
+export type PendingInteractionResolution = {
+  relation: PendingInteractionRelation;
+  confidence: "high" | "medium" | "low";
+  normalizedUserIntent: string;
+  extractedValues?: Record<string, string>;
+  requiresNewRouting: boolean;
+  securityConcern: boolean;
+  reason: string;
+};
+
+export type SafeTargetSelectionSystemOption = {
+  id: string;
+  label: string;
+  value: string;
+  description?: string;
+  kind: "supported_system" | "other";
+};
+
+export type SafeTargetSelection = {
+  intent: string;
+  reason: string;
+  question: string;
+  searchPlaceholder: string;
+  options: SafeTargetSelectionSystemOption[];
+  technicalOptions?: unknown[];
+};
+
+export type ExecutionGateId =
+  | "ai_interpretation"
+  | "gateway_governance"
+  | "oauth_scope"
+  | "service_account_permission"
+  | "runtime_execution";
+
+export type ExecutionGateStatus =
+  | "passed"
+  | "blocked"
+  | "not_evaluated"
+  | "executed"
+  | "diagnosed"
+  | "failed";
+
+export type ExecutionGate = {
+  id: ExecutionGateId;
+  label: string;
+  status: ExecutionGateStatus;
+  reason: string;
+  required?: string[];
+  present?: string[];
+  missing?: string[];
+  denied?: string[];
+  evidence?: Record<string, unknown>;
+};
+
+export type ExecutionGateStack = {
+  stoppedAt?: ExecutionGateId;
+  finalOutcome:
+    | "planned"
+    | "diagnosed"
+    | "executed"
+    | "blocked_at_gateway"
+    | "blocked_at_oauth_scope"
+    | "blocked_at_service_account_permission"
+    | "runtime_failed"
+    | "unsupported"
+    | "needs_more_info";
+  gates: ExecutionGate[];
+};
 
 export interface ResolveRequest {
   message: string;
@@ -313,6 +593,67 @@ export interface ResolveResponse {
   securityDecision?: SecurityDecision;
   securityDecisions?: SecurityDecision[];
   requestInterpretation?: RequestInterpretation;
+  securityIntent?: SecurityIntent;
+  executionGateStack?: ExecutionGateStack;
+  connectorActionPlan?: ConnectorActionPlan;
+  evaluatedActionPlan?: EvaluatedConnectorActionPlan;
+  connectorPlanningTargetResolution?: ConnectorPlanningTargetResolution;
+  pendingFollowUp?: PendingFollowUpContext;
+  pendingInteraction?: PendingInteraction;
+  pendingInteractionResolution?: PendingInteractionResolution;
+  planningFollowUpResolution?: PlanningFollowUpResolution;
+  safeTargetSelection?: SafeTargetSelection;
+  connectorRouting?: {
+    status: string;
+    targetSystem?: string;
+    connectorId?: string;
+    resourceSystem?: string;
+    skillId?: string;
+    skillLabel?: string;
+    intentClass?: string;
+    targetResourceSystem?: string;
+    targetResourceName?: string;
+    requestedAccessLevel?: string;
+    fulfillmentCapability?: string;
+    missingFields?: string[];
+    runtimeEndpoint?: string;
+    trustedRuntimeEndpoint?: string;
+    audience?: string;
+    externalConfigHash?: string;
+    connectorProfileHash?: string;
+    requiredApplicationGrants?: string[];
+    requiredEffectivePermissions?: string[];
+    missingApplicationGrants?: string[];
+    missingEffectivePermissions?: string[];
+    deniedEffectivePermissions?: string[];
+    runtimeMode?: "external_runtime_available" | "metadata_only" | "not_available";
+    reason: string;
+    recommendedNextStep: string;
+  };
+  connectorPolicy?: {
+    effect: "allow" | "block" | "needs_approval";
+    reason: string;
+    matchedRuleIds: string[];
+  };
+  connectorRuntime?: {
+    executed: boolean;
+    runtimeMode: "external_runtime" | "external_runtime_failed" | "metadata_only";
+    connectorId?: string;
+    resourceSystem?: string;
+    skillId?: string;
+    runtimeEndpoint?: string;
+    tokenMetadata?: {
+      tokenIssued: boolean;
+      audience: string;
+      scope: string;
+      actor?: string;
+      actorRoles?: string[];
+      rawToken: "hidden";
+    };
+    agentResponse?: A2AAgentResponse;
+    error?: string;
+    errorMessage?: string;
+  };
   followUpInterpretation?: FollowUpInterpretation;
   incidentContext?: {
     targetSystemText?: string;
@@ -324,6 +665,7 @@ export interface ResolveResponse {
     confidence: "low" | "medium" | "high";
     hasMinimumDetails: boolean;
   };
+  userIdentity: UserIdentitySummary;
   a2aTasks?: A2ATask[];
   a2aResponses?: A2AAgentResponse[];
   diagnosis: {
@@ -365,9 +707,10 @@ export interface AgentsHealthResponse {
   };
 }
 
-export * from "./auth/verifyA2AToken";
-export * from "./auth/requireA2AAuth";
-export * from "./state/StateStore";
-export * from "./state/InMemoryStateStore";
-export * from "./state/UpstashStateStore";
-export * from "./state/createStateStore";
+export * from "./auth/verifyA2AToken.js";
+export * from "./auth/requireA2AAuth.js";
+export * from "./a2aResourceRegistry.js";
+export * from "./state/StateStore.js";
+export * from "./state/InMemoryStateStore.js";
+export * from "./state/UpstashStateStore.js";
+export * from "./state/createStateStore.js";

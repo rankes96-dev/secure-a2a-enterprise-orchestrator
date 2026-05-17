@@ -1,7 +1,6 @@
-import { OpenRouter } from "@openrouter/sdk";
-import OpenAI from "openai";
 import type { RequestInterpretation, RequestIntentType, RequestScope } from "@a2a/shared";
-import { getAiConfig } from "./config/aiConfig";
+import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
+import { callOpenRouterJson } from "./openRouterClient.js";
 
 const scopes: RequestScope[] = ["enterprise_support", "manual_enterprise_workflow", "out_of_scope", "unknown"];
 const intentTypes: RequestIntentType[] = [
@@ -15,7 +14,7 @@ const intentTypes: RequestIntentType[] = [
   "unknown"
 ];
 const interpretationSources = ["ai", "fallback"] as const;
-const aiProviders = ["openrouter", "openai"] as const;
+const aiProviders = ["openrouter"] as const;
 
 const interpreterPrompt = `You are a ServiceNow enterprise request interpreter.
 Classify the user's request before agent routing.
@@ -171,6 +170,12 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
   const sensitiveVerbs = includesAny(lower, ["show", "print", "reveal", "dump", "decode", "inspect", "expose", "exfiltrate", "raw"]);
   const sensitiveObjects = includesAny(lower, ["oauth", "jwt", "bearer", "authorization header", "api key", "client secret", "password", "private key", "session cookie", "credential", "secret", "token"]);
   const sensitiveSecurity = sensitiveVerbs && sensitiveObjects;
+  const connectorRecordLookup = /\b(?:what is the status|status|show me|show)\b/i.test(message) &&
+    (
+      /\b[A-Z][A-Z0-9]+-\d+\b/i.test(message) ||
+      /\b(?:INC|RITM|REQ)\d+\b/i.test(message) ||
+      /\b(?:PR|pull request)\s*#?\d+\b/i.test(message)
+    );
   const failure = includesAny(lower, ["error", "fails", "failed", "failure", "401", "403", "429", "500", "timeout", "access denied", "cannot login", "can't login", "sync", "webhook", "alert", "incident"]);
 
   if (clearOutOfScope) {
@@ -264,6 +269,25 @@ export function fallbackInterpretRequest(message: string, reason = "Deterministi
     };
   }
 
+  if (connectorRecordLookup) {
+    return {
+      scope: "enterprise_support",
+      intentType: "incident_diagnosis",
+      requestedCapability: "unknown",
+      targetSystemText: /\b(?:PR|pull request)\s*#?\d+\b/i.test(message)
+        ? "GitHub"
+        : /\b(?:INC|RITM|REQ)\d+\b/i.test(message)
+          ? "ServiceNow"
+          : "Jira",
+      targetResourceType: "record",
+      requestedActionText: "look up enterprise record status",
+      requiresApproval: false,
+      confidence: "high",
+      reason: "The user is asking to look up the status of a supported enterprise connector record.",
+      interpretationSource: "fallback"
+    };
+  }
+
   if (failure) {
     return {
       scope: "enterprise_support",
@@ -308,38 +332,16 @@ function normalizeInterpretation(value: unknown, fallback: RequestInterpretation
   };
 }
 
-async function callOpenRouter(message: string, apiKey: string, model: string): Promise<string | undefined> {
-  const openRouter = new OpenRouter({ apiKey });
-  const result = await openRouter.chat.send({
-    chatRequest: {
-      model,
-      messages: [
-        { role: "system", content: interpreterPrompt },
-        { role: "user", content: JSON.stringify({ message }) }
-      ],
-      responseFormat: { type: "json_object" },
-      stream: false,
-      temperature: 0
-    }
-  });
-
-  const content = result.choices[0]?.message.content;
-  return typeof content === "string" ? content : undefined;
-}
-
-async function callOpenAi(message: string, apiKey: string, model: string): Promise<string | undefined> {
-  const client = new OpenAI({ apiKey });
-  const completion = await client.chat.completions.create({
+async function callOpenRouter(message: string, apiKey: string, baseURL: string, model: string): Promise<string | undefined> {
+  return callOpenRouterJson({
+    apiKey,
+    baseURL,
     model,
-    response_format: { type: "json_object" },
     messages: [
       { role: "system", content: interpreterPrompt },
       { role: "user", content: JSON.stringify({ message }) }
-    ],
-    temperature: 0
+    ]
   });
-
-  return completion.choices[0]?.message.content ?? undefined;
 }
 
 export async function interpretRequest(message: string): Promise<RequestInterpretation> {
@@ -348,15 +350,14 @@ export async function interpretRequest(message: string): Promise<RequestInterpre
   console.info(`[request-interpreter] provider=${aiConfig.provider} model=${aiConfig.model} hasKey=${aiConfig.hasApiKey}`);
 
   if (!aiConfig.apiKey?.trim()) {
-    return fallbackInterpretRequest(message, "AI API key is not configured; deterministic fallback was used.");
+    const summary = getSafeAiConfigSummary();
+    console.info(`[request-interpreter] fallback used reason=OpenRouter API key is not configured expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
+    return fallbackInterpretRequest(message, "OpenRouter API key is not configured; deterministic fallback was used.");
   }
 
   try {
     console.info(`[request-interpreter] calling ${aiConfig.provider} model=${aiConfig.model}`);
-    const content =
-      aiConfig.provider === "openrouter"
-        ? await callOpenRouter(message, aiConfig.apiKey, aiConfig.model)
-        : await callOpenAi(message, aiConfig.apiKey, aiConfig.model);
+    const content = await callOpenRouter(message, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model);
 
     if (!content) {
       return fallbackInterpretRequest(message, "AI request interpretation returned no content; deterministic fallback was used.");

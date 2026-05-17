@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
 import { assertSecureA2AAuthMode, formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
-import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/src/http";
+import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
 

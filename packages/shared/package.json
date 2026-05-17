@@ -3,10 +3,21 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./http": {
+      "types": "./src/http.ts",
+      "default": "./dist/http.js"
+    }
+  },
   "scripts": {
-    "build": "tsc --noEmit",
+    "clean": "node ../../scripts/clean-dist.mjs",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
