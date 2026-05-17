@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { buildA2AResourceRegistry, referenceA2AResources } from "../packages/shared/src/a2aResourceRegistry";
+import { requestConnectorActionPlan } from "../services/orchestrator-api/src/connectorActionPlanner";
 import { decideConnectorRoute } from "../services/orchestrator-api/src/connectorRouting";
 import { buildExecutionGateStack } from "../services/orchestrator-api/src/executionGateStack";
 import { cleanupExpiredSessions, createSessionCookie } from "../services/orchestrator-api/src/security/sessionManager";
@@ -121,7 +122,89 @@ function verifyDemoUserTokenGuard(): void {
   assert(orchestrator.includes('"x-internal-service-token"'), "orchestrator should call Mock IdP demo minting with internal token when configured");
   assert(!webUi.includes("INTERNAL_SERVICE_TOKEN"), "frontend must not reference INTERNAL_SERVICE_TOKEN");
   assert(webUi.includes("/identity/demo-login"), "frontend should call orchestrator-mediated demo login");
+
+  const demoLoginHandler = orchestrator.slice(orchestrator.indexOf('request.url === "/identity/demo-login"'));
+  assert(orchestrator.includes("const demoLoginRateLimit") && orchestrator.includes("DEMO_LOGIN_RATE_LIMIT_MAX_REQUESTS"), "orchestrator should define a dedicated demo-login rate limit");
+  assert(demoLoginHandler.includes("allowByRateLimit(request, response, demoLoginRateLimit)"), "demo login should apply rate limiting before token minting");
+  assert(orchestrator.includes('error: "rate_limit_exceeded"'), "demo login rate limit should return a safe rate_limit_exceeded error");
   logOk("production demo user token guard and mediated browser login verified");
+}
+
+function verifyConnectorFetchTimeoutStatic(): void {
+  const planner = read("services/orchestrator-api/src/connectorActionPlanner.ts");
+  for (const term of [
+    "const connectorActionPlanTimeoutMs = 5_000",
+    "new AbortController()",
+    "setTimeout(() => controller.abort(), connectorActionPlanTimeoutMs)",
+    'redirect: "error"',
+    "signal: controller.signal",
+    "finally",
+    "clearTimeout(timeout)"
+  ]) {
+    assert(planner.includes(term), `connector action planner missing timeout/redirect safety term: ${term}`);
+  }
+
+  const runtime = read("services/orchestrator-api/src/connectorRuntime.ts");
+  const timeoutIndex = runtime.indexOf("const timeout = setTimeout(() => controller.abort(), connectorRuntimeTimeoutMs)");
+  const finallyIndex = runtime.indexOf("finally", timeoutIndex);
+  const clearIndex = runtime.indexOf("clearTimeout(timeout)", finallyIndex);
+  assert(timeoutIndex >= 0 && finallyIndex > timeoutIndex && clearIndex > finallyIndex, "connector runtime timeout must be cleared in a finally-safe path");
+  logOk("connector action-plan and runtime fetch timeout safety verified statically");
+}
+
+async function verifyConnectorActionPlanTimeoutFailure(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const previousAllowedOrigins = process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS;
+  let sawRedirectError = false;
+  let sawSignal = false;
+  let clearCalled = false;
+
+  process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS = "http://localhost:4201";
+  globalThis.setTimeout = ((handler: TimerHandler, _timeout?: number, ...args: unknown[]) =>
+    originalSetTimeout(handler, 0, ...args)) as typeof globalThis.setTimeout;
+  globalThis.clearTimeout = ((id: Parameters<typeof clearTimeout>[0]) => {
+    clearCalled = true;
+    return originalClearTimeout(id);
+  }) as typeof globalThis.clearTimeout;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    sawRedirectError = init?.redirect === "error";
+    sawSignal = init?.signal instanceof AbortSignal;
+    return await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")), { once: true });
+    });
+  }) as typeof fetch;
+
+  try {
+    await requestConnectorActionPlan({
+      message: "I need access to the system",
+      conversationId: "verify-timeout",
+      onboardedAgent: trustedAgent({
+        agentId: "external-jira-agent",
+        connectorId: "jira-reference",
+        resourceSystem: "jira",
+        runtimeEndpoint: "http://localhost:4201/a2a/task"
+      })
+    });
+    fail("stalled connector action-plan fetch should fail safely after abort");
+  } catch (error) {
+    assert(error instanceof Error && error.message === "external connector action plan request failed", `timeout failure should be safe: ${String(error)}`);
+    assert(sawRedirectError, "action-plan fetch should reject redirects");
+    assert(sawSignal, "action-plan fetch should pass AbortController signal");
+    assert(clearCalled, "action-plan timeout should be cleared after abort failure");
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    if (previousAllowedOrigins === undefined) {
+      delete process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS;
+    } else {
+      process.env.CONNECTOR_RUNTIME_ALLOWED_ORIGINS = previousAllowedOrigins;
+    }
+  }
+
+  logOk("stalled connector action-plan request fails safely on bounded timeout");
 }
 
 function verifyMetadataOnlyGateStack(): void {
@@ -268,6 +351,8 @@ function verifyTargetSelectionFallback(): void {
 
 async function main(): Promise<void> {
   verifyDemoUserTokenGuard();
+  verifyConnectorFetchTimeoutStatic();
+  await verifyConnectorActionPlanTimeoutFailure();
   verifyMetadataOnlyGateStack();
   verifyStagedConnectorMatching();
   verifyA2AResourceRegistry();

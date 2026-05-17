@@ -91,6 +91,8 @@ type RateLimitConfig = {
   name: string;
   windowMs: number;
   maxRequests: number;
+  preferSessionToken?: boolean;
+  error?: string;
 };
 
 const resolveRateLimit: RateLimitConfig = {
@@ -102,6 +104,13 @@ const sessionRateLimit: RateLimitConfig = {
   name: "session",
   windowMs: Number(process.env.SESSION_RATE_LIMIT_WINDOW_MS ?? 60_000),
   maxRequests: Number(process.env.SESSION_RATE_LIMIT_MAX_REQUESTS ?? 20)
+};
+const demoLoginRateLimit: RateLimitConfig = {
+  name: "demo-login",
+  windowMs: Number(process.env.DEMO_LOGIN_RATE_LIMIT_WINDOW_MS ?? process.env.SESSION_RATE_LIMIT_WINDOW_MS ?? 60_000),
+  maxRequests: Number(process.env.DEMO_LOGIN_RATE_LIMIT_MAX_REQUESTS ?? 10),
+  preferSessionToken: true,
+  error: "rate_limit_exceeded"
 };
 const agentOnboardingRateLimit: RateLimitConfig = {
   name: "agent-onboarding",
@@ -146,7 +155,8 @@ function clientIp(request: { headers: Record<string, string | string[] | undefin
 
 function allowByRateLimit(request: Parameters<typeof clientIp>[0], response: Parameters<typeof sendJson>[0], config: RateLimitConfig = resolveRateLimit): boolean {
   const now = Date.now();
-  const key = `${config.name}:${clientIp(request)}`;
+  const sessionKey = config.preferSessionToken ? getSessionToken(request as IncomingMessage) : undefined;
+  const key = `${config.name}:${sessionKey ? `session:${sessionKey}` : `ip:${clientIp(request)}`}`;
   const bucket = rateLimitBuckets.get(key);
 
   if (!bucket || bucket.resetAt <= now) {
@@ -155,7 +165,7 @@ function allowByRateLimit(request: Parameters<typeof clientIp>[0], response: Par
   }
 
   if (bucket.count >= config.maxRequests) {
-    sendJson(response, 429, { error: "Too many requests" });
+    sendJson(response, 429, { error: config.error ?? "Too many requests" });
     return false;
   }
 
@@ -3614,6 +3624,10 @@ async function start(): Promise<void> {
   if (request.method === "POST" && request.url === "/identity/demo-login") {
     const sessionToken = requireSessionToken(request, response);
     if (!sessionToken) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, demoLoginRateLimit)) {
       return;
     }
 

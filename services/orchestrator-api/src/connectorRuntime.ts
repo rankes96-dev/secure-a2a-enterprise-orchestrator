@@ -268,47 +268,51 @@ export async function executeApprovedConnectorSkill(params: {
     const taskId = randomUUID();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), connectorRuntimeTimeoutMs);
-    const runtimeResponse = await fetch(endpoint.url, {
-      method: "POST",
-      redirect: "error",
-      signal: controller.signal,
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${issued.accessToken}`
-      },
-      body: JSON.stringify({
-        taskId,
-        conversationId: params.conversationId,
-        connectorId: params.connectorRoute.connectorId,
-        resourceSystem: params.connectorRoute.resourceSystem,
-        skillId: params.connectorRoute.skillId,
-        message: params.message,
-        context: {
-          targetSystem: params.connectorRoute.targetSystem,
-          intentClass: params.connectorRoute.intentClass,
-          targetResourceSystem: params.connectorRoute.targetResourceSystem,
-          targetResourceName: params.connectorRoute.targetResourceName,
-          requestedAccessLevel: params.connectorRoute.requestedAccessLevel,
-          fulfillmentCapability: params.connectorRoute.fulfillmentCapability,
-          missingFields: params.connectorRoute.missingFields,
-          currentUserMessage: params.currentUserMessage,
-          runtimeMode: "external_connector_runtime",
-          actor: params.actor
-            ? {
-                email: params.actor.email,
-                roles: [...params.actor.roles]
-              }
-            : undefined
+    let runtimeResponse: Response;
+    let body: unknown;
+    try {
+      runtimeResponse = await fetch(endpoint.url, {
+        method: "POST",
+        redirect: "error",
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${issued.accessToken}`
         },
-        trustedContext: {
-          externalConfigHash: params.connectorRoute.externalConfigHash,
-          connectorProfileHash: params.connectorRoute.connectorProfileHash
-        }
-      })
-    });
-    clearTimeout(timeout);
-
-    const body = await readJsonWithLimit(runtimeResponse);
+        body: JSON.stringify({
+          taskId,
+          conversationId: params.conversationId,
+          connectorId: params.connectorRoute.connectorId,
+          resourceSystem: params.connectorRoute.resourceSystem,
+          skillId: params.connectorRoute.skillId,
+          message: params.message,
+          context: {
+            targetSystem: params.connectorRoute.targetSystem,
+            intentClass: params.connectorRoute.intentClass,
+            targetResourceSystem: params.connectorRoute.targetResourceSystem,
+            targetResourceName: params.connectorRoute.targetResourceName,
+            requestedAccessLevel: params.connectorRoute.requestedAccessLevel,
+            fulfillmentCapability: params.connectorRoute.fulfillmentCapability,
+            missingFields: params.connectorRoute.missingFields,
+            currentUserMessage: params.currentUserMessage,
+            runtimeMode: "external_connector_runtime",
+            actor: params.actor
+              ? {
+                  email: params.actor.email,
+                  roles: [...params.actor.roles]
+                }
+              : undefined
+          },
+          trustedContext: {
+            externalConfigHash: params.connectorRoute.externalConfigHash,
+            connectorProfileHash: params.connectorRoute.connectorProfileHash
+          }
+        })
+      });
+      body = await readJsonWithLimit(runtimeResponse);
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!runtimeResponse.ok) {
       return {

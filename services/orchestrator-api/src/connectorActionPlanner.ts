@@ -3,6 +3,7 @@ import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
 import { validateTrustedConnectorRuntimeEndpoint } from "./security/connectorRuntimeSafety.js";
 
 const maxActionPlanJsonBytes = 64 * 1024;
+const connectorActionPlanTimeoutMs = 5_000;
 const forbiddenPlanKeys = new Set(["rawtoken", "authorization", "access_token", "refresh_token", "client_assertion", "private_key", "client_secret", "bearer"]);
 
 function sanitizePlanValue(value: unknown): unknown {
@@ -135,26 +136,37 @@ export async function requestConnectorActionPlan(params: {
     throw new Error(endpoint.error);
   }
 
-  const response = await fetch(endpoint.url, {
-    method: "POST",
-    redirect: "error",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      mode: "plan_only",
-      runtimeMode: "connector_plan_only",
-      allowedSideEffects: "none",
-      conversationId: params.conversationId,
-      connectorId: params.onboardedAgent.connectorId,
-      resourceSystem: params.onboardedAgent.resourceSystem,
-      message: params.message,
-      trustedContext: {
-        externalConfigHash: params.onboardedAgent.externalConfigHash,
-        connectorProfileHash: params.onboardedAgent.connectorProfileHash
-      }
-    })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), connectorActionPlanTimeoutMs);
+  let response: Response;
+  let body: unknown;
+  try {
+    response = await fetch(endpoint.url, {
+      method: "POST",
+      redirect: "error",
+      signal: controller.signal,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "plan_only",
+        runtimeMode: "connector_plan_only",
+        allowedSideEffects: "none",
+        conversationId: params.conversationId,
+        connectorId: params.onboardedAgent.connectorId,
+        resourceSystem: params.onboardedAgent.resourceSystem,
+        message: params.message,
+        trustedContext: {
+          externalConfigHash: params.onboardedAgent.externalConfigHash,
+          connectorProfileHash: params.onboardedAgent.connectorProfileHash
+        }
+      })
+    });
+    body = await readJsonWithLimit(response);
+  } catch {
+    throw new Error("external connector action plan request failed");
+  } finally {
+    clearTimeout(timeout);
+  }
 
-  const body = await readJsonWithLimit(response);
   if (!response.ok) {
     throw new Error("external connector action plan request failed");
   }
