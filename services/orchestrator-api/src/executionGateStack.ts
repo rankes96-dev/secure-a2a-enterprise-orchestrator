@@ -69,6 +69,10 @@ function finalOutcome(params: BuildExecutionGateStackParams): ExecutionGateStack
     return "blocked_at_gateway";
   }
 
+  if (routing?.status === "connector_skill_approved" && routing.runtimeMode === "metadata_only" && !params.connectorRuntime) {
+    return "planned";
+  }
+
   const runtime = params.connectorRuntime;
   if (runtime?.executed) {
     return runtime.agentResponse?.runtimeSemantics?.outcome === "diagnosed" || runtime.agentResponse?.status === "diagnosed"
@@ -107,6 +111,7 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
   const routing = params.connectorRouting;
   const runtime = params.connectorRuntime;
   const semantics = runtime?.agentResponse?.runtimeSemantics;
+  const metadataOnly = routing?.status === "connector_skill_approved" && routing.runtimeMode === "metadata_only" && !runtime;
   const requiredGrants = compact(routing?.requiredApplicationGrants);
   const requiredPermissions = compact(routing?.requiredEffectivePermissions);
   const missingGrants = compact(routing?.missingApplicationGrants);
@@ -168,6 +173,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       ? "not_evaluated"
       : params.connectorActionPlan
         ? "not_evaluated"
+      : metadataOnly
+        ? "not_evaluated"
       : oauthBlocked
         ? "blocked"
         : routing?.status === "connector_skill_approved" || serviceAccountBlocked || runtime?.tokenMetadata?.tokenIssued
@@ -177,6 +184,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       ? "Gateway stopped the request before token issuance."
       : params.connectorActionPlan
         ? "No write/runtime scope issued. Plan-only mode allowed no side effects."
+      : metadataOnly
+        ? "No runtime token was issued because the connector route is metadata-only; the runtime endpoint is unavailable, untrusted, or not allowlisted."
       : oauthBlocked
         ? "Required OAuth application grants are missing."
       : routing?.status === "connector_skill_approved" || serviceAccountBlocked || runtime?.tokenMetadata?.tokenIssued
@@ -200,6 +209,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       ? "not_evaluated"
       : params.connectorActionPlan
         ? "not_evaluated"
+      : metadataOnly
+        ? "not_evaluated"
       : serviceAccountBlocked
         ? "blocked"
         : routing?.status === "connector_skill_approved"
@@ -209,6 +220,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       ? "Stopped before this layer."
       : params.connectorActionPlan
         ? "Permissions are evaluated against proposed plan options, not runtime execution."
+      : metadataOnly
+        ? "Runtime service-account permission evaluation was skipped because this approved route is metadata-only."
       : serviceAccountBlocked
         ? "Required service-account permissions are missing or explicitly denied."
         : routing?.status === "connector_skill_approved"
@@ -227,6 +240,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       ? "not_evaluated"
       : params.connectorActionPlan
         ? "not_evaluated"
+      : metadataOnly
+        ? "not_evaluated"
       : runtime?.executed
         ? semantics?.outcome === "diagnosed" || runtime.agentResponse?.status === "diagnosed" ? "diagnosed" : "executed"
         : runtime
@@ -236,6 +251,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       ? "Runtime not executed. Stopped before this layer."
       : params.connectorActionPlan
         ? "Connector returned a side-effect-free action plan only. No runtime write/action operation was executed."
+      : metadataOnly
+        ? "Runtime was not executed because the approved connector route is metadata-only; no trusted allowlisted runtime endpoint was available."
       : runtime?.executed
         ? semantics?.outcome === "diagnosed" || runtime.agentResponse?.status === "diagnosed"
           ? "Read-only diagnostic runtime executed. No target write/action operation was attempted."

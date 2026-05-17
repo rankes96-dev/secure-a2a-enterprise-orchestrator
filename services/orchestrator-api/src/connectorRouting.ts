@@ -167,15 +167,57 @@ function fulfillmentSkillFor(intent: ConnectorRoutingIntent, onboardedAgents: Tr
   return candidates
     .map((candidate) => ({
       ...candidate,
-      onboarded: onboardedAgents.find((agent) =>
-        agent.connectorProfile?.connectorId === candidate.connector.connectorId ||
-          agent.connectorId === candidate.connector.connectorId ||
-          agent.connectorDecisionSource === candidate.connector.connectorId ||
-          agent.resourceSystem === candidate.connector.resourceSystem ||
-          agent.connectorProfile?.resourceSystem === candidate.connector.resourceSystem
-      )
+      onboarded: selectOnboardedConnectorAgent(candidate.connector, onboardedAgents)
     }))
     .find((candidate) => candidate.onboarded);
+}
+
+type SupportedConnectorIdentity = {
+  connectorId: string;
+  resourceSystem: string;
+  displayName?: string;
+};
+
+function exactConnectorIdMatch(agent: TrustedOnboardedAgent, connectorId: string): boolean {
+  return agent.connectorProfile?.connectorId === connectorId ||
+    agent.connectorId === connectorId ||
+    agent.connectorDecisionSource === connectorId;
+}
+
+function resourceSystemMatch(agent: TrustedOnboardedAgent, resourceSystem: string): boolean {
+  return agent.resourceSystem === resourceSystem ||
+    agent.connectorProfile?.resourceSystem === resourceSystem;
+}
+
+function uniqueAgents(agents: TrustedOnboardedAgent[]): TrustedOnboardedAgent[] {
+  const seen = new Set<string>();
+  return agents.filter((agent) => {
+    const key = `${agent.agentId}:${agent.connectorId ?? agent.connectorProfile?.connectorId ?? ""}:${agent.audience}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function selectOnboardedConnectorAgent(supported: SupportedConnectorIdentity, onboardedAgents: TrustedOnboardedAgent[]): TrustedOnboardedAgent | undefined {
+  const exactMatches = uniqueAgents(onboardedAgents.filter((agent) => exactConnectorIdMatch(agent, supported.connectorId)));
+  if (exactMatches.length > 0) {
+    return exactMatches[0];
+  }
+
+  const resourceMatches = uniqueAgents(onboardedAgents.filter((agent) => resourceSystemMatch(agent, supported.resourceSystem)));
+  return resourceMatches.length === 1 ? resourceMatches[0] : undefined;
+}
+
+function ambiguousResourceSystemMatch(supported: SupportedConnectorIdentity, onboardedAgents: TrustedOnboardedAgent[]): boolean {
+  const exactMatches = uniqueAgents(onboardedAgents.filter((agent) => exactConnectorIdMatch(agent, supported.connectorId)));
+  if (exactMatches.length > 0) {
+    return false;
+  }
+
+  return uniqueAgents(onboardedAgents.filter((agent) => resourceSystemMatch(agent, supported.resourceSystem))).length > 1;
 }
 
 export function inferConnectorRoutingIntent(message: string): ConnectorRoutingIntent {
@@ -277,13 +319,19 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     };
   }
 
-  const onboarded = onboardedAgents.find((agent) =>
-    agent.connectorProfile?.connectorId === supported.connectorId ||
-    agent.connectorId === supported.connectorId ||
-    agent.connectorDecisionSource === supported.connectorId ||
-    agent.resourceSystem === supported.resourceSystem ||
-    agent.connectorProfile?.resourceSystem === supported.resourceSystem
-  );
+  if (ambiguousResourceSystemMatch(supported, onboardedAgents)) {
+    return {
+      status: "needs_more_info",
+      targetSystem: supported.resourceSystem,
+      resourceSystem: supported.resourceSystem,
+      connectorId: supported.connectorId,
+      skillId: intent.requestedSkillId,
+      reason: `Multiple trusted connector agents are installed for ${supported.resourceSystem}, but none exactly matches connectorId ${supported.connectorId}.`,
+      recommendedNextStep: "Choose the connector template or re-run onboarding for the intended connector before runtime execution."
+    };
+  }
+
+  const onboarded = selectOnboardedConnectorAgent(supported, onboardedAgents);
 
   if (!onboarded) {
     return {

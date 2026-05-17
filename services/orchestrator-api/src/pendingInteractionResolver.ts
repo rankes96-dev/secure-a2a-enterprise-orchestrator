@@ -78,6 +78,61 @@ function normalizeResolution(value: unknown, fallback: PendingInteractionResolut
   };
 }
 
+function targetOptionTerms(pendingInteraction: PendingInteraction): string[] {
+  const options = pendingInteraction.context.targetOptions;
+  if (!Array.isArray(options)) {
+    return [];
+  }
+
+  return options
+    .flatMap((option) => {
+      if (typeof option !== "object" || option === null || Array.isArray(option)) {
+        return [];
+      }
+
+      const record = option as Record<string, unknown>;
+      return [record.id, record.label, record.value]
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean);
+    });
+}
+
+function looksQuestionLike(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return normalized.endsWith("?") ||
+    /^(what|which|why|how|can you|could you|would you|do you|are there|show me|list|explain)\b/.test(normalized) ||
+    /\b(options|available|explain|why do you need|what systems|which systems)\b/.test(normalized);
+}
+
+function looksUnrelatedOrUnsafeTargetAnswer(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return /\b(raw token|bearer|authorization header|client secret|private key|api key|cookie|internal service token|bypass|ignore policy|admin permissions)\b/.test(normalized) ||
+    normalized.split(/\s+/).length > 8;
+}
+
+export function looksLikeTargetSelectionAnswer(pendingInteraction: PendingInteraction, message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized || looksQuestionLike(message) || looksUnrelatedOrUnsafeTargetAnswer(message)) {
+    return false;
+  }
+
+  if (/\b(other|not listed|another system|unsupported system)\b/.test(normalized)) {
+    return true;
+  }
+
+  const optionTerms = targetOptionTerms(pendingInteraction);
+  if (optionTerms.some((term) => normalized === term || normalized === `use ${term}` || normalized === `${term} for the previous access request`)) {
+    return true;
+  }
+
+  if (/\b(jira|github|git hub|servicenow|service now)\b/.test(normalized)) {
+    return true;
+  }
+
+  return /^[a-z0-9][a-z0-9 ._-]{1,48}$/i.test(message.trim()) && !/\b(please|help|need|want|request|access|permission)\b/i.test(message);
+}
+
 function fallbackResolvePendingInteraction(params: {
   pendingInteraction: PendingInteraction;
   userMessage: string;
@@ -110,7 +165,18 @@ function fallbackResolvePendingInteraction(params: {
     };
   }
 
-  if (params.pendingInteraction.type === "target_selection" && hasText) {
+  if (params.pendingInteraction.type === "target_selection" && hasText && looksQuestionLike(message)) {
+    return {
+      relation: "ask_question",
+      confidence: "high",
+      normalizedUserIntent: message,
+      requiresNewRouting: false,
+      securityConcern: false,
+      reason: params.reason ?? "Deterministic fallback preserved target selection because the user asked a question instead of choosing a target."
+    };
+  }
+
+  if (params.pendingInteraction.type === "target_selection" && hasText && looksLikeTargetSelectionAnswer(params.pendingInteraction, message)) {
     return {
       relation: "provide_missing_target",
       confidence: "medium",

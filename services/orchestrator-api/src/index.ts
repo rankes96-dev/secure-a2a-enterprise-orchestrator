@@ -43,7 +43,7 @@ import {
 } from "./security/userIdentity.js";
 import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext.js";
 import { interpretFollowUp } from "./followUpInterpreter.js";
-import { createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager.js";
+import { cleanupExpiredSessions, createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager.js";
 import { gatewayMetadata, gatewayPublicJwks } from "./security/gatewayIdentity.js";
 import { buildManualWorkflowAnswer } from "./requestInterpreter.js";
 import { detectSensitiveAction } from "./sensitiveActionGuard.js";
@@ -174,6 +174,7 @@ function hasValidClientApiKey(request: IncomingMessage): boolean {
 }
 
 function requireClientAccess(request: IncomingMessage, response: ServerResponse): boolean {
+  cleanupExpiredUserIdentities();
   if (hasValidSession(request) || hasValidClientApiKey(request)) {
     return true;
   }
@@ -308,7 +309,7 @@ function updateConversationState(state: ConversationState, response: ResolveResp
         missingFields: ["targetSystem"]
       }
     };
-  } else if (state.pendingFollowUp?.type === "connector_planning_target") {
+  } else if (state.pendingFollowUp?.type === "connector_planning_target" && response.pendingInteraction?.type !== "target_selection") {
     state.pendingFollowUp = undefined;
   }
 
@@ -709,6 +710,10 @@ function connectorRoutingFinalAnswer(decision: ConnectorRoutingDecision): string
   const skill = decision.skillLabel ?? decision.skillId ?? "requested skill/action";
 
   if (decision.status === "connector_skill_approved") {
+    if (decision.runtimeMode === "metadata_only") {
+      return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is approved by the onboarded connector profile, but runtime execution was skipped because no trusted allowlisted runtime endpoint is available. ${decision.recommendedNextStep}`;
+    }
+
     return `${connectorRoutingStatusLabel(decision.status)}: ${target}${skill} is approved by the onboarded connector profile. Runtime execution is available only for allowlisted external connector runtimes.`;
   }
 
@@ -764,9 +769,16 @@ function connectorRuntimeFinalAnswer(decision: ConnectorRoutingDecision, runtime
 
 function connectorRoutingDiagnosis(decision: ConnectorRoutingDecision): ResolveResponse["diagnosis"] {
   if (decision.status === "connector_skill_approved") {
+    if (decision.runtimeMode === "metadata_only") {
+      return {
+        probableCause: "Connector profile approved the skill, but runtime was metadata-only",
+        recommendedFix: "Use the connector metadata guidance or re-run onboarding after configuring a trusted allowlisted runtime endpoint."
+      };
+    }
+
     return {
       probableCause: "Connector profile and action decision are available",
-      recommendedFix: "Use the connector-backed diagnosis flow. Runtime execution is intentionally metadata-only until external runtime JWT validation is enabled."
+      recommendedFix: "Use the connector-backed diagnosis flow."
     };
   }
 
@@ -1246,9 +1258,17 @@ function buildTrustStatus(sessionToken?: string) {
 }
 
 async function requestDemoUserToken(email: string): Promise<{ accessToken: string }> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const internalToken = process.env.INTERNAL_SERVICE_TOKEN?.trim();
+  if (internalToken) {
+    headers["x-internal-service-token"] = internalToken;
+  } else if (process.env.NODE_ENV === "production") {
+    throw new Error("internal_service_token_not_configured");
+  }
+
   const response = await fetch(mockIdentityProviderDemoUserTokenUrl(), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: JSON.stringify({ email })
   });
   const body = await response.json() as { accessToken?: unknown; error?: unknown };
@@ -1385,6 +1405,7 @@ async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
 }
 
 function requireSessionToken(request: IncomingMessage, response: ServerResponse): string | undefined {
+  cleanupExpiredUserIdentities();
   const token = getSessionToken(request);
   if (!token) {
     sendJson(response, 401, { error: "Session required" }, request);
@@ -1394,7 +1415,14 @@ function requireSessionToken(request: IncomingMessage, response: ServerResponse)
 }
 
 function currentUserIdentity(sessionToken?: string): VerifiedUserIdentity | undefined {
+  cleanupExpiredUserIdentities();
   return sessionToken ? userIdentitiesBySession.get(sessionToken) : undefined;
+}
+
+function cleanupExpiredUserIdentities(): void {
+  for (const expiredSessionToken of cleanupExpiredSessions()) {
+    userIdentitiesBySession.delete(expiredSessionToken);
+  }
 }
 
 function safeUserIdentity(sessionToken?: string): UserIdentitySummary {
@@ -1407,6 +1435,11 @@ function safeUserIdentity(sessionToken?: string): UserIdentitySummary {
         roles: [...identity.roles]
       }
     : { authenticated: false };
+}
+
+function canExecuteConnectorRuntime(decision: ConnectorRoutingDecision): boolean {
+  return decision.status === "connector_skill_approved" &&
+    decision.runtimeMode === "external_runtime_available";
 }
 
 function agentCardRegistryKey(request: IncomingMessage, response: ServerResponse): string | undefined {
@@ -1683,6 +1716,86 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       a2aResponses: [],
       diagnosis,
       conversationId
+    });
+  }
+
+  if (
+    conversationState.pendingInteraction?.type === "target_selection" &&
+    (pendingInteractionResolution?.relation === "ask_question" || pendingInteractionResolution?.relation === "unclear")
+  ) {
+    const safeTargetSelection = buildSafeTargetSelection(
+      conversationState.pendingFollowUp?.detectedIntentClasses ?? detectedPlanningIntentClasses(effectiveMessage),
+      installedAgents
+    );
+    const optionLabels = safeTargetSelection.options.map((option) => option.label).join(", ");
+    const diagnosis = {
+      probableCause: "Pending target selection was not resolved",
+      recommendedFix: "Choose one of the installed systems or Other / not listed."
+    };
+
+    return finalize({
+      conversationId,
+      finalAnswer: `NEEDS MORE INFO\nChoose a target system for the previous access request. Available options: ${optionLabels}.`,
+      classification,
+      selectedAgents: [],
+      skippedAgents: routingDecision.skippedAgents,
+      routingSource: routingDecision.routingSource,
+      routingConfidence: routingDecision.routingConfidence,
+      routingReasoningSummary: "User asked about target options instead of selecting a target.",
+      resolutionStatus: "needs_more_info",
+      evidence: [],
+      agentTrace: [
+        trace("target_selection_preserved", pendingInteractionResolution.reason)
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "preserve_pending_target_selection", "Provided available target options without clearing pending target selection.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      safeTargetSelection,
+      pendingInteraction: conversationState.pendingInteraction,
+      pendingInteractionResolution,
+      planningFollowUpResolution,
+      executionGateStack: {
+        stoppedAt: "gateway_governance",
+        finalOutcome: "needs_more_info",
+        gates: [
+          {
+            id: "ai_interpretation",
+            label: "AI Interpretation",
+            status: "passed",
+            reason: "Pending target-selection response did not contain a target."
+          },
+          {
+            id: "gateway_governance",
+            label: "Gateway Governance",
+            status: "blocked",
+            reason: "Gateway preserved the pending interaction and did not guess a connector target."
+          },
+          {
+            id: "oauth_scope",
+            label: "OAuth Scope Gate",
+            status: "not_evaluated",
+            reason: "No connector was selected."
+          },
+          {
+            id: "service_account_permission",
+            label: "Service Account Permission Gate",
+            status: "not_evaluated",
+            reason: "No connector was selected."
+          },
+          {
+            id: "runtime_execution",
+            label: "Runtime Execution",
+            status: "not_evaluated",
+            reason: "Runtime was not executed."
+          }
+        ]
+      },
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis
     });
   }
 
@@ -2423,6 +2536,9 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           ? "Search installed systems or choose Other / not listed."
           : "No installed systems are available for governed access planning yet. Open a support ticket with details."
       };
+      const safeTargetOptions = hasInstalledConnectorSystems
+        ? buildSafeTargetSelection(planningTargetResolution.detectedIntentClasses, installedAgents)
+        : undefined;
       return finalize({
         conversationId,
         finalAnswer: hasInstalledConnectorSystems
@@ -2461,7 +2577,13 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           createdAt: new Date().toISOString(),
           context: {
             detectedIntentClasses: planningTargetResolution.detectedIntentClasses,
-            missingFields: ["targetSystem"]
+            missingFields: ["targetSystem"],
+            targetOptions: (safeTargetOptions?.options ?? []).map((option) => ({
+              id: option.id,
+              label: option.label,
+              value: option.value,
+              kind: option.kind
+            }))
           }
         } : undefined,
         pendingInteractionResolution,
@@ -2585,7 +2707,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
   if (connectorRouting.status !== "needs_more_info") {
     const connectorStatus = connectorRoutingStatusLabel(connectorRouting.status);
     const connectorPolicy = evaluateConnectorPolicy({ connectorRouteStatus: connectorRouting.status });
-    const connectorRuntime = connectorRouting.status === "connector_skill_approved"
+    const runtimeExecutable = canExecuteConnectorRuntime(connectorRouting);
+    const connectorRuntime = runtimeExecutable
       ? await executeApprovedConnectorSkill({
           message: effectiveMessage,
           currentUserMessage: requestBody.message,
@@ -2608,6 +2731,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           skillLabel: connectorRouting.skillLabel,
           reason: connectorRouting.reason,
           recommendedNextStep: connectorRouting.recommendedNextStep,
+          runtimeMode: connectorRouting.runtimeMode,
+          runtimeExecution: runtimeExecutable ? "external_runtime_available" : "not_executed",
           policy: connectorPolicy
         }
       }
@@ -2657,6 +2782,15 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           )
         ]
       : [];
+    const metadataOnlyExecutionTrace = connectorRouting.status === "connector_skill_approved" && connectorRouting.runtimeMode === "metadata_only"
+      ? [
+          executionStep(
+            "orchestrator",
+            "skip_connector_runtime_execution",
+            "Approved connector route is metadata-only; no trusted allowlisted runtime endpoint was available and no runtime token was issued."
+          )
+        ]
+      : [];
     const a2aResponses = runtimeAgentResponse ? [runtimeAgentResponse] : [];
 
     return finalize({
@@ -2700,9 +2834,10 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         executionStep("orchestrator", "route_connector_intent", `${connectorRouting.targetSystem ?? "unknown"} / ${connectorRouting.connectorId ?? "no connector"} / ${connectorRouting.skillId ?? "no skill"}`),
         executionStep("orchestrator", "evaluate_onboarded_connector", `${connectorStatus}: ${connectorRouting.reason}`),
         ...runtimeExecutionTrace,
+        ...metadataOnlyExecutionTrace,
         executionStep(
           "orchestrator",
-          connectorRuntime?.executed ? "return_connector_runtime_response" : connectorRouting.status === "connector_skill_approved" ? "return_connector_runtime_failure" : "return_connector_guidance",
+          connectorRuntime?.executed ? "return_connector_runtime_response" : runtimeExecutable ? "return_connector_runtime_failure" : "return_connector_guidance",
           connectorRouting.recommendedNextStep
         )
       ],
@@ -3369,6 +3504,8 @@ async function start(): Promise<void> {
   }
 
   startJsonServer(port, async (request, response) => {
+  cleanupExpiredUserIdentities();
+
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, {
       ok: true

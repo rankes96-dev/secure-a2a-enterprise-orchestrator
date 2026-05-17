@@ -7,7 +7,7 @@ import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 import { buildDiscoveredA2AResourceRegistry, type DiscoveredA2AResourceRegistry } from "./agentCardScopeRegistry.js";
 import { getOAuthApplication, oauthApplications, sensitiveScopesNeverIssuedByMockIdp, type OAuthApplicationRegistration } from "./config/oauthApplications.js";
 import { authenticateOAuthClient } from "./security/clientAuthentication.js";
-import { evaluateInternalDebugAccess } from "./security/internalDebugAccess.js";
+import { evaluateDemoUserTokenAccess, evaluateInternalDebugAccess } from "./security/internalDebugAccess.js";
 import { evaluateSourceIpAllowlist } from "./security/sourceIpAllowlist.js";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
@@ -416,6 +416,12 @@ async function start(): Promise<void> {
     }
 
     if (request.method === "POST" && request.url === "/demo/user-token") {
+      const demoAccess = evaluateDemoUserTokenAccess(request.url, request.headers);
+      if (!demoAccess.ok) {
+        sendJson(response, demoAccess.status, demoAccess.body, request);
+        return;
+      }
+
       await handleDemoUserToken(request, response);
       return;
     }

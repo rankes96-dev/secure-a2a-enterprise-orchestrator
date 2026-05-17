@@ -20,14 +20,18 @@ function sameSite(): string {
   return process.env.SESSION_COOKIE_SAMESITE ?? "Lax";
 }
 
-function cleanupExpiredSessions(): void {
+export function cleanupExpiredSessions(): string[] {
   const now = Date.now();
+  const expiredTokens: string[] = [];
 
   for (const [token, session] of sessions.entries()) {
     if (session.expiresAt <= now) {
       sessions.delete(token);
+      expiredTokens.push(token);
     }
   }
+
+  return expiredTokens;
 }
 
 function sessionTokenFromRequest(request: IncomingMessage): string | undefined {
@@ -66,7 +70,6 @@ export function createSessionCookie(): string {
 }
 
 export function getSessionToken(request: IncomingMessage): string | undefined {
-  cleanupExpiredSessions();
   const token = sessionTokenFromRequest(request);
 
   if (!token) {
