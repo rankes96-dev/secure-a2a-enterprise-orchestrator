@@ -35,12 +35,10 @@ import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/pol
 import { getA2AAccessToken } from "./security/tokenClient.js";
 import {
   bearerTokenFromHeaders,
-  expectedUserIdentityIssuer,
-  publicUserIdentity,
-  userIdentityJwksUri,
-  validateUserIdentityJwt,
   type VerifiedUserIdentity
 } from "./security/userIdentity.js";
+import { getIdentityProvider } from "./identity/identityConfig.js";
+import { publicIdentitySession } from "./identity/userIdentityMapper.js";
 import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext.js";
 import { interpretFollowUp } from "./followUpInterpreter.js";
 import { cleanupExpiredSessions, createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager.js";
@@ -66,6 +64,7 @@ const orchestratorAgentId = "servicenow-orchestrator-agent";
 const MAX_DELEGATION_DEPTH = 1;
 const a2aAuthMode = assertSecureA2AAuthMode("orchestrator-api");
 const secureAuthRequired = secureA2AAuthRequired();
+const userIdentityProvider = getIdentityProvider();
 const demoUserTokenTimeoutMs = 5_000;
 const endUserDemoConnectorRequests = [
   {
@@ -1214,6 +1213,14 @@ function mockIdentityProviderDemoUserTokenUrl(): string {
   return url.toString();
 }
 
+function mockIdentityProviderIssuer(): string {
+  return process.env.A2A_ISSUER ?? (process.env.A2A_IDP_URL ?? "http://localhost:4110");
+}
+
+function mockIdentityProviderJwksUri(): string {
+  return process.env.A2A_JWKS_URI ?? `${process.env.A2A_IDP_URL ?? "http://localhost:4110"}/.well-known/jwks.json`;
+}
+
 function safeTrustUrl(value: string): string {
   try {
     const url = new URL(value);
@@ -1235,11 +1242,18 @@ function safeTrustUrl(value: string): string {
 }
 
 function buildTrustStatus(sessionToken?: string) {
-  const userIdentity = publicUserIdentity(currentUserIdentity(sessionToken));
+  const userIdentity = publicIdentitySession(userIdentityProvider, currentUserIdentity(sessionToken));
 
   return {
     userIdentity: {
       ...userIdentity,
+      rawTokenExposed: false
+    },
+    userIdentityProvider: {
+      provider: userIdentityProvider.name,
+      issuer: userIdentityProvider.issuer,
+      audience: userIdentityProvider.audience,
+      jwksUri: safeTrustUrl(userIdentityProvider.jwksUri),
       rawTokenExposed: false
     },
     gatewayIdentity: {
@@ -1250,8 +1264,8 @@ function buildTrustStatus(sessionToken?: string) {
       actorPropagationEnabled: true
     },
     mockIdp: {
-      issuer: expectedUserIdentityIssuer(),
-      jwksUri: safeTrustUrl(userIdentityJwksUri()),
+      issuer: mockIdentityProviderIssuer(),
+      jwksUri: safeTrustUrl(mockIdentityProviderJwksUri()),
       tokenEndpoint: "/oauth/token",
       userTokenEndpoint: "/demo/user-token",
       rawKeysExposed: false
@@ -1449,15 +1463,7 @@ function cleanupExpiredUserIdentities(): void {
 }
 
 function safeUserIdentity(sessionToken?: string): UserIdentitySummary {
-  const identity = currentUserIdentity(sessionToken);
-  return identity
-    ? {
-        authenticated: true,
-        email: identity.email,
-        name: identity.name,
-        roles: [...identity.roles]
-      }
-    : { authenticated: false };
+  return userIdentityProvider.publicIdentity(currentUserIdentity(sessionToken));
 }
 
 function canExecuteConnectorRuntime(decision: ConnectorRoutingDecision): boolean {
@@ -3596,7 +3602,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    sendJson(response, 200, publicUserIdentity(currentUserIdentity(sessionToken)), request);
+    sendJson(response, 200, publicIdentitySession(userIdentityProvider, currentUserIdentity(sessionToken)), request);
     return;
   }
 
@@ -3622,9 +3628,9 @@ async function start(): Promise<void> {
     }
 
     try {
-      const identity = await validateUserIdentityJwt(token);
+      const identity = await userIdentityProvider.validateBearerToken(token);
       userIdentitiesBySession.set(sessionToken, identity);
-      sendJson(response, 200, publicUserIdentity(identity), request);
+      sendJson(response, 200, publicIdentitySession(userIdentityProvider, identity), request);
     } catch (error) {
       sendJson(response, 401, {
         error: "invalid_user_identity_token",
@@ -3651,11 +3657,16 @@ async function start(): Promise<void> {
       return;
     }
 
+    if (userIdentityProvider.name !== "mock") {
+      sendJson(response, 400, { error: "demo_login_unavailable_for_identity_provider" }, request);
+      return;
+    }
+
     try {
       const { accessToken } = await requestDemoUserToken(email);
-      const identity = await validateUserIdentityJwt(accessToken);
+      const identity = await userIdentityProvider.validateBearerToken(accessToken);
       userIdentitiesBySession.set(sessionToken, identity);
-      sendJson(response, 200, publicUserIdentity(identity), request);
+      sendJson(response, 200, publicIdentitySession(userIdentityProvider, identity), request);
     } catch (error) {
       sendJson(response, 400, {
         error: "demo_login_failed",
@@ -3687,7 +3698,7 @@ async function start(): Promise<void> {
     }
 
     userIdentitiesBySession.delete(sessionToken);
-    sendJson(response, 200, publicUserIdentity(undefined), request);
+    sendJson(response, 200, publicIdentitySession(userIdentityProvider, undefined), request);
     return;
   }
 
