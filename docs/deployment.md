@@ -101,6 +101,7 @@ PORT=<railway-provided-port>
 ALLOWED_ORIGINS=https://<vercel-app>.vercel.app
 GATEWAY_ISSUER=https://<orchestrator>.railway.app
 ORCHESTRATOR_PUBLIC_URL=https://<orchestrator>.railway.app
+EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS=https://<jira-agent>.railway.app,https://<servicenow-agent>.railway.app,https://<github-agent>.railway.app
 CONNECTOR_RUNTIME_ALLOWED_ORIGINS=https://<jira-agent>.railway.app,https://<servicenow-agent>.railway.app,https://<github-agent>.railway.app
 
 OPENROUTER_API_KEY=<server-side-openrouter-key>
@@ -131,7 +132,7 @@ ORCHESTRATOR_PRIVATE_JWK_JSON=<private-jwk-json>
 ORCHESTRATOR_ALLOWED_AUTH_METHODS=private_key_jwt
 ```
 
-Use `ALLOWED_ORIGINS` for the browser origin. Set at least one of `GATEWAY_ISSUER` or `ORCHESTRATOR_PUBLIC_URL` to the orchestrator's real public HTTPS Railway URL; this value is published in Gateway metadata, used for the Gateway JWKS URI, and signs onboarding challenges as the issuer. `CONNECTOR_RUNTIME_ALLOWED_ORIGINS` must contain the public origins for the external connector runtime services. These entries are origins only, with scheme and host and no path, query, or fragment. Use `STATE_STORE_DRIVER=upstash` with `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for replay and security state, not browser sessions.
+Use `ALLOWED_ORIGINS` for the browser origin. Set at least one of `GATEWAY_ISSUER` or `ORCHESTRATOR_PUBLIC_URL` to the orchestrator's real public HTTPS Railway URL; this value is published in Gateway metadata, used for the Gateway JWKS URI, and signs onboarding challenges as the issuer. `EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS` controls Agent Registry discovery and onboarding server-side fetches. `CONNECTOR_RUNTIME_ALLOWED_ORIGINS` controls `/a2a/task` execution after an agent is trusted. Both allowlists must contain only public connector origins. These entries are origins only, with scheme and host and no path, query, or fragment. If `EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS` is unset, onboarding falls back to `CONNECTOR_RUNTIME_ALLOWED_ORIGINS`. Use `STATE_STORE_DRIVER=upstash` with `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for replay and security state, not browser sessions.
 
 ## Railway Mock IdP Service
 
