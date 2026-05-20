@@ -96,7 +96,7 @@ export async function completeAuth0Redirect(config: Auth0FrontendAuthConfig): Pr
   const error = params.get("error");
   if (error) {
     discardAuth0RedirectResult();
-    throw new Error("Auth0 login failed.");
+    throw new Error("Auth0 authorization failed.");
   }
 
   const code = params.get("code");
@@ -110,7 +110,7 @@ export async function completeAuth0Redirect(config: Auth0FrontendAuthConfig): Pr
 
   if (!code || !state || !expectedState || state !== expectedState || !codeVerifier) {
     discardAuth0RedirectResult();
-    throw new Error("Auth0 login failed.");
+    throw new Error("Auth0 login state validation failed.");
   }
 
   const response = await fetch(`https://${config.domain}/oauth/token`, {
@@ -128,12 +128,12 @@ export async function completeAuth0Redirect(config: Auth0FrontendAuthConfig): Pr
   discardAuth0RedirectResult();
 
   if (!response.ok) {
-    throw new Error("Auth0 login failed.");
+    throw new Error("Auth0 token exchange failed.");
   }
 
   const body = (await response.json()) as Auth0TokenResponse;
   if (!body.access_token || body.token_type?.toLowerCase() !== "bearer") {
-    throw new Error("Auth0 login failed.");
+    throw new Error("Auth0 access token was not returned.");
   }
 
   return { handled: true, accessToken: body.access_token };

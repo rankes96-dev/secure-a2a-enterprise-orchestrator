@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createIdentityProvider } from "../services/orchestrator-api/src/identity/identityConfig";
-import { mapOidcUserIdentityPayload } from "../services/orchestrator-api/src/identity/userIdentityMapper";
+import { mapMockUserIdentityPayload, mapOidcUserIdentityPayload } from "../services/orchestrator-api/src/identity/userIdentityMapper";
 import { buildExecutionGateStack } from "../services/orchestrator-api/src/executionGateStack";
 import type { Classification } from "../packages/shared/src";
 
@@ -26,6 +26,22 @@ assert(mockProvider.name === "mock", "AUTH_PROVIDER=mock should select mock iden
 assert(mockProvider.audience === "secure-a2a-gateway", "mock identity provider should preserve V1 audience");
 assert(mockProvider.publicIdentity(undefined).authenticated === false, "mock public identity should hide unauthenticated user details");
 assert(!JSON.stringify(mockProvider.publicIdentity(undefined)).includes("token"), "public identity should not expose raw token fields");
+
+const mockIdentity = mapMockUserIdentityPayload({
+  payload: {
+    token_use: "user_identity",
+    sub: "user:ran@company.com",
+    email: "Ran@Company.com",
+    name: "Ran Keselman",
+    roles: ["it-support"]
+  },
+  issuer: mockProvider.issuer,
+  audience: mockProvider.audience
+});
+const mockPublicIdentity = mockProvider.publicIdentity(mockIdentity);
+assert(mockPublicIdentity.provider === "mock", "mock public identity should include safe provider name");
+assert(!JSON.stringify(mockPublicIdentity).includes("user:ran@company.com"), "mock public identity should not expose raw subject");
+assert(!JSON.stringify(mockPublicIdentity).includes("token"), "mock public identity should not expose raw token fields");
 
 assertThrows(
   "unknown AUTH_PROVIDER",
@@ -99,6 +115,7 @@ const auth0IdentityWithoutRoles = mapOidcUserIdentityPayload({
 });
 assert(auth0IdentityWithoutRoles.email === "user@example.com", "Auth0 email claim should map safely");
 assert(auth0Provider.publicIdentity(auth0IdentityWithoutRoles).provider === "auth0", "Auth0 public identity should include safe provider name");
+assert(!JSON.stringify(auth0Provider.publicIdentity(auth0IdentityWithoutRoles)).includes("auth0|user-123"), "Auth0 public identity should not expose raw subject");
 assert(auth0IdentityWithoutRoles.roles.length === 0, "missing Auth0 roles claim should map to empty roles");
 
 assertThrows(

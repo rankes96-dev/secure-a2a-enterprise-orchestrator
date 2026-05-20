@@ -2162,7 +2162,8 @@ function App() {
         await ensureSession();
         const session = await postBearerIdentitySession(API_URL, result.accessToken).catch(async (error: unknown) => {
           if (error instanceof Response) {
-            throw new Error(await friendlyApiError(error, "Failed to attach Auth0 identity"));
+            const detail = await friendlyApiError(error, "Failed to attach Auth0 identity");
+            throw new Error(`Gateway rejected Auth0 identity: ${detail}`);
           }
           throw error;
         });

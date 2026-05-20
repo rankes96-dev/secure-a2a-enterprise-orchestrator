@@ -59,11 +59,27 @@ for (const phrase of [
   "code_challenge_method",
   "authorization_code",
   "!config.isConfigured || !config.domain || !config.clientId || !config.audience",
+  "Auth0 authorization failed.",
+  "Auth0 login state validation failed.",
+  "Auth0 token exchange failed.",
+  "Auth0 access token was not returned.",
   "client_id: config.clientId",
   "https://${config.domain}/oauth/token",
   "return { handled: true, accessToken: body.access_token }"
 ]) {
   assert(auth0Client.includes(phrase), `Auth0 frontend client missing PKCE/token exchange phrase: ${phrase}`);
+}
+
+for (const forbidden of [
+  "error_description}`",
+  "code}`",
+  "codeVerifier}`",
+  "body.access_token}`",
+  "access_token}`",
+  "refresh_token}`",
+  "id_token}`"
+]) {
+  assert(!auth0Client.includes(forbidden), `Auth0 frontend errors must not interpolate sensitive callback/token details: ${forbidden}`);
 }
 
 assert(mockAuthClient.includes("/identity/demo-login"), "mock login flow must still call /identity/demo-login");
@@ -73,6 +89,7 @@ assert(mockAuthClient.includes("authorization: `Bearer ${accessToken}`"), "Auth0
 for (const phrase of [
   "completeAuth0Redirect(auth0Config)",
   "postBearerIdentitySession(API_URL, result.accessToken)",
+  "Gateway rejected Auth0 identity:",
   "startAuth0LoginRedirect(frontendAuthConfig)",
   "frontendAuthConfig.provider === \"mock\"",
   "frontendAuthConfig.provider !== \"auth0\"",
