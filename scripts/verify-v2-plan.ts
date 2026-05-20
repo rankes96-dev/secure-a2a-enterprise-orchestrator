@@ -170,8 +170,16 @@ if (!existsSync(webPath)) {
   fail(`${webPath} should exist`);
 } else {
   const web = readFileSync(webPath, "utf8");
+  const answerStart = web.indexOf("function buildEndUserSupportAnswer(response: ResolveResponse): string");
+  const answerEnd = web.indexOf("function governedChatAnswer(response: ResolveResponse): string");
+  const answerBuilder = answerStart >= 0 && answerEnd > answerStart ? web.slice(answerStart, answerEnd) : "";
   for (const phrase of [
     "response.connectorRuntime?.authorizationRequirement",
+    "response.connectorRuntime?.agentResponse?.authorizationRequirement",
+    "AUTHORIZATION REQUIRED",
+    "Connect your ${authorizationRequirement.provider} account to continue.",
+    "No changes were made.",
+    "Requested scopes",
     "External account authorization required",
     "Requested scopes",
     "Actor provider",
@@ -180,6 +188,25 @@ if (!existsSync(webPath)) {
   ]) {
     if (!web.includes(phrase)) {
       fail(`Security Timeline authorization-required proof missing required phrase: ${phrase}`);
+    }
+  }
+  for (const phrase of [
+    "function buildEndUserSupportAnswer(response: ResolveResponse): string",
+    "response.connectorRuntime?.authorizationRequirement",
+    "response.connectorRuntime?.agentResponse?.authorizationRequirement",
+    "AUTHORIZATION REQUIRED",
+    "Connect your ${authorizationRequirement.provider} account to continue.",
+    "No changes were made.",
+    "Requested scopes:",
+    "Connect your ${authorizationRequirement.provider} account, then retry this request."
+  ]) {
+    if (!answerBuilder.includes(phrase)) {
+      fail(`chat authorization-required answer missing required phrase: ${phrase}`);
+    }
+  }
+  for (const forbidden of ["accessToken}</", "refreshToken}</", "authorizationCode}</", "Authorization header", "authorizeUrl"]) {
+    if (answerBuilder.includes(forbidden)) {
+      fail(`chat authorization-required answer should not expose forbidden token/url marker: ${forbidden}`);
     }
   }
 }

@@ -832,6 +832,12 @@ function buildEndUserSupportAnswer(response: ResolveResponse): string {
     ].join("\n");
   }
 
+  const authorizationRequirement = response.connectorRuntime?.authorizationRequirement ?? response.connectorRuntime?.agentResponse?.authorizationRequirement;
+  if (authorizationRequirement) {
+    const scopes = authorizationRequirement.requestedScopes.join(", ");
+    return ["AUTHORIZATION REQUIRED", `Connect your ${authorizationRequirement.provider} account to continue.`, "", "Why:", authorizationRequirement.reason, "", "Requested scopes:", scopes, "", "No changes were made.", "", "Next step:", `Connect your ${authorizationRequirement.provider} account, then retry this request.`].join("\n");
+  }
+
   if (response.finalAnswer.startsWith("CHECK READY")) {
     return [
       "CHECK READY",
@@ -1274,11 +1280,7 @@ function buildSecurityTimelineEvents(response: ResolveResponse): SecurityTimelin
       id: "connector-runtime-authorization-required", category: "response", title: "External account authorization required",
       description: `Connect your ${authRequirement.provider} account to continue. Raw tokens hidden.`,
       status: "warning", actor: authRequirement.actorEmail ?? response.userIdentity.email, agentId: authRequirement.connectorId,
-      metadata: metadataList([
-        { label: "Provider", value: authRequirement.provider }, { label: "Resource system", value: authRequirement.resourceSystem }, { label: "Connector", value: authRequirement.connectorId },
-        { label: "Requested scopes", value: authRequirement.requestedScopes }, { label: "Actor provider", value: authRequirement.actorProvider ?? response.userIdentity.provider },
-        { label: "Actor subject", value: authRequirement.actorSubject }, { label: "Actor email", value: authRequirement.actorEmail ?? response.userIdentity.email }, { label: "Raw tokens", value: "hidden" }
-      ])
+      metadata: metadataList([{ label: "Provider", value: authRequirement.provider }, { label: "Resource system", value: authRequirement.resourceSystem }, { label: "Connector", value: authRequirement.connectorId }, { label: "Requested scopes", value: authRequirement.requestedScopes }, { label: "Actor provider", value: authRequirement.actorProvider ?? response.userIdentity.provider }, { label: "Actor subject", value: authRequirement.actorSubject }, { label: "Actor email", value: authRequirement.actorEmail ?? response.userIdentity.email }, { label: "Raw tokens", value: "hidden" }])
     });
   }
 
