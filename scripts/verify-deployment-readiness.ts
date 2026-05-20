@@ -65,10 +65,14 @@ for (const phrase of [
   "SHOW_LEGACY_INTERNAL_AGENT_DISCOVERY_WARNINGS=false",
   "GATEWAY_ISSUER=https://<orchestrator>.railway.app",
   "ORCHESTRATOR_PUBLIC_URL=https://<orchestrator>.railway.app",
+  "EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS=https://<jira-agent>.railway.app,https://<servicenow-agent>.railway.app,https://<github-agent>.railway.app",
   "CONNECTOR_RUNTIME_ALLOWED_ORIGINS=https://<jira-agent>.railway.app,https://<servicenow-agent>.railway.app,https://<github-agent>.railway.app",
   "Gateway metadata",
   "Gateway JWKS URI",
   "onboarding challenges as the issuer",
+  "controls Agent Registry discovery and onboarding server-side fetches",
+  "controls `/a2a/task` execution",
+  "Both allowlists must contain only public connector origins",
   "origins only",
   "no path, query, or fragment",
   "Mock IdP debug endpoints are local-only or protected by `x-internal-service-token` in production.",
@@ -109,6 +113,16 @@ if (!hasEnvAssignment(orchestratorProductionEnv, "GATEWAY_ISSUER") && !hasEnvAss
 
 if (!hasEnvAssignment(orchestratorProductionEnv, "CONNECTOR_RUNTIME_ALLOWED_ORIGINS")) {
   console.error("fail - orchestrator production env should include CONNECTOR_RUNTIME_ALLOWED_ORIGINS");
+  failed = true;
+}
+
+if (!hasEnvAssignment(orchestratorProductionEnv, "EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS")) {
+  console.error("fail - orchestrator production env should include EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS");
+  failed = true;
+}
+
+if (!orchestratorProductionEnv.includes("EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS=https://<jira-agent>.railway.app,https://<servicenow-agent>.railway.app,https://<github-agent>.railway.app")) {
+  console.error("fail - orchestrator production env should include Railway external connector onboarding origins");
   failed = true;
 }
 
