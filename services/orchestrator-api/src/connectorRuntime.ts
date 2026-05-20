@@ -163,7 +163,7 @@ function sanitizedRuntimeString(value: unknown): string | undefined {
   }
 
   const trimmed = sanitized.trim();
-  return trimmed ? trimmed : undefined;
+  return trimmed && trimmed !== "hidden" ? trimmed : undefined;
 }
 
 function optionalSanitizedRuntimeString(value: unknown): string | undefined {
@@ -184,12 +184,26 @@ function normalizeAuthorizationRequirement(value: unknown): ExternalAuthorizatio
   const resourceSystem = sanitizedRuntimeString(record.resourceSystem);
   const connectorId = sanitizedRuntimeString(record.connectorId);
   const reason = sanitizedRuntimeString(record.reason);
-  const authorizeUrl = sanitizedRuntimeString(record.authorizeUrl);
-  if (!provider || !resourceSystem || !connectorId || !reason || !authorizeUrl || !Array.isArray(record.requestedScopes)) {
+  const authorizeUrlText = sanitizedRuntimeString(record.authorizeUrl);
+  const requestedScopes = Array.isArray(record.requestedScopes)
+    ? record.requestedScopes
+        .map((scope) => sanitizedRuntimeString(scope))
+        .filter((scope): scope is string => Boolean(scope))
+    : [];
+  let authorizeUrl: string | undefined;
+  if (authorizeUrlText) {
+    try {
+      const url = new URL(authorizeUrlText);
+      authorizeUrl = url.protocol === "https:" && !url.username && !url.password ? url.toString() : undefined;
+    } catch {
+      authorizeUrl = undefined;
+    }
+  }
+  if (!provider || !resourceSystem || !connectorId || !reason || !authorizeUrl || requestedScopes.length === 0) {
     return undefined;
   }
 
-  if (!record.requestedScopes.every((scope) => typeof scope === "string")) {
+  if (!Array.isArray(record.requestedScopes) || !record.requestedScopes.every((scope) => typeof scope === "string")) {
     return undefined;
   }
 
@@ -200,9 +214,7 @@ function normalizeAuthorizationRequirement(value: unknown): ExternalAuthorizatio
     connectorId,
     reason,
     authorizeUrl,
-    requestedScopes: record.requestedScopes
-      .map((scope) => sanitizedRuntimeString(scope))
-      .filter((scope): scope is string => Boolean(scope)),
+    requestedScopes,
     actorProvider: optionalSanitizedRuntimeString(record.actorProvider),
     actorSubject: optionalSanitizedRuntimeString(record.actorSubject),
     actorEmail: optionalSanitizedRuntimeString(record.actorEmail),

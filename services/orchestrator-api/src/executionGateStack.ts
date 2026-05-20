@@ -75,6 +75,10 @@ function finalOutcome(params: BuildExecutionGateStackParams): ExecutionGateStack
   }
 
   const runtime = params.connectorRuntime;
+  if (runtime?.authorizationRequirement || runtime?.agentResponse?.authorizationRequirement || runtime?.agentResponse?.status === "needs_more_info") {
+    return "needs_more_info";
+  }
+
   if (runtime?.executed) {
     return runtime.agentResponse?.runtimeSemantics?.outcome === "diagnosed" || runtime.agentResponse?.status === "diagnosed"
       ? "diagnosed"
@@ -89,6 +93,10 @@ function finalOutcome(params: BuildExecutionGateStackParams): ExecutionGateStack
 }
 
 function stoppedAt(params: BuildExecutionGateStackParams, outcome: ExecutionGateStack["finalOutcome"]): ExecutionGateId | undefined {
+  if (outcome === "needs_more_info" && params.connectorRuntime) {
+    return "runtime_execution";
+  }
+
   if (outcome === "blocked_at_gateway" || outcome === "unsupported" || outcome === "needs_more_info") {
     return "gateway_governance";
   }
@@ -111,6 +119,7 @@ function stoppedAt(params: BuildExecutionGateStackParams, outcome: ExecutionGate
 export function buildExecutionGateStack(params: BuildExecutionGateStackParams): ExecutionGateStack {
   const routing = params.connectorRouting;
   const runtime = params.connectorRuntime;
+  const authorizationRequirement = runtime?.authorizationRequirement ?? runtime?.agentResponse?.authorizationRequirement;
   const semantics = runtime?.agentResponse?.runtimeSemantics;
   const metadataOnly = routing?.status === "connector_skill_approved" && routing.runtimeMode === "metadata_only" && !runtime;
   const requiredGrants = compact(routing?.requiredApplicationGrants);
@@ -187,6 +196,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       skillId: routing?.skillId,
       policyEffect: params.connectorPolicy?.effect,
       executionType: semantics?.executionType,
+      authorizationRequired: Boolean(authorizationRequirement),
+      authorizationProvider: authorizationRequirement?.provider,
       planMode: params.connectorActionPlan?.mode
     }
   });
@@ -274,6 +285,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
         ? "not_evaluated"
       : metadataOnly
         ? "not_evaluated"
+      : authorizationRequirement
+        ? "blocked"
       : runtime?.executed
         ? semantics?.outcome === "diagnosed" || runtime.agentResponse?.status === "diagnosed" ? "diagnosed" : "executed"
         : runtime
@@ -285,6 +298,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
         ? "Connector returned a side-effect-free action plan only. No runtime write/action operation was executed."
       : metadataOnly
         ? "Runtime was not executed because the approved connector route is metadata-only; no trusted allowlisted runtime endpoint was available."
+      : authorizationRequirement
+        ? `External connector requires user authorization for ${authorizationRequirement.provider}; no target changes were made.`
       : runtime?.executed
         ? semantics?.outcome === "diagnosed" || runtime.agentResponse?.status === "diagnosed"
           ? "Read-only diagnostic runtime executed. No target write/action operation was attempted."
@@ -304,6 +319,12 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       identityProvider: runtime?.tokenMetadata?.actorProvider,
       actorIssuer: runtime?.tokenMetadata?.actorIssuer,
       actorSubject: runtime?.tokenMetadata?.actorSubject,
+      authorizationRequired: Boolean(authorizationRequirement),
+      authorizationProvider: authorizationRequirement?.provider,
+      authorizationConnectorId: authorizationRequirement?.connectorId,
+      requestedScopes: authorizationRequirement?.requestedScopes ?? [],
+      authorizationActorProvider: authorizationRequirement?.actorProvider,
+      authorizationActorSubject: authorizationRequirement?.actorSubject,
       rawTokenExposed: false
     }
   });

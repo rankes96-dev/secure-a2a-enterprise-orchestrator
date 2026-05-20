@@ -1268,6 +1268,20 @@ function buildSecurityTimelineEvents(response: ResolveResponse): SecurityTimelin
     });
   }
 
+  const authRequirement = response.connectorRuntime?.authorizationRequirement;
+  if (authRequirement) {
+    events.push({
+      id: "connector-runtime-authorization-required", category: "response", title: "External account authorization required",
+      description: `Connect your ${authRequirement.provider} account to continue. Raw tokens hidden.`,
+      status: "warning", actor: authRequirement.actorEmail ?? response.userIdentity.email, agentId: authRequirement.connectorId,
+      metadata: metadataList([
+        { label: "Provider", value: authRequirement.provider }, { label: "Resource system", value: authRequirement.resourceSystem }, { label: "Connector", value: authRequirement.connectorId },
+        { label: "Requested scopes", value: authRequirement.requestedScopes }, { label: "Actor provider", value: authRequirement.actorProvider ?? response.userIdentity.provider },
+        { label: "Actor subject", value: authRequirement.actorSubject }, { label: "Actor email", value: authRequirement.actorEmail ?? response.userIdentity.email }, { label: "Raw tokens", value: "hidden" }
+      ])
+    });
+  }
+
   events.push({
     id: "final-answer",
     category: "audit",

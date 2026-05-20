@@ -172,7 +172,7 @@ export async function validateRuntimeToken(token: string, requiredApplicationGra
     audience: expectedAudience()
   });
 
-  const scopes = [...new Set([...scopesFromClaim(payload.scope), ...scopesFromClaim(payload.scopes)])];
+  const scopes = [...new Set([...scopesFromClaim(payload.scope), ...scopesFromClaim(payload.scp), ...scopesFromClaim(payload.scopes)])];
   const missingGrant = requiredApplicationGrants.find((grant) => !scopes.includes(grant));
   if (missingGrant) {
     throw new Error("missing_required_application_grant");

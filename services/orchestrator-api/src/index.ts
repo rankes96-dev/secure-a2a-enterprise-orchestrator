@@ -747,6 +747,18 @@ function connectorRoutingFinalAnswer(decision: ConnectorRoutingDecision): string
 }
 
 function connectorRuntimeFinalAnswer(decision: ConnectorRoutingDecision, runtime: ConnectorRuntimeResult): string {
+  const authorizationRequirement = runtime.authorizationRequirement ?? runtime.agentResponse?.authorizationRequirement;
+  if (authorizationRequirement) {
+    return [
+      "AUTHORIZATION REQUIRED",
+      `Connect your ${authorizationRequirement.provider} account to continue.`,
+      `Reason: ${authorizationRequirement.reason}`,
+      `Requested scopes: ${authorizationRequirement.requestedScopes.join(", ")}`,
+      "Changed: No changes were made.",
+      "Raw OAuth tokens, authorization codes, refresh tokens, Authorization headers, and secrets were not exposed."
+    ].join("\n");
+  }
+
   if (runtime.executed && runtime.agentResponse) {
     const endUserAnswer = runtime.agentResponse.endUserAnswer;
     if (endUserAnswer?.safeToDisplay) {
@@ -866,6 +878,14 @@ function connectorRoutingResolutionStatus(decision: ConnectorRoutingDecision): R
   }
 
   return "unsupported";
+}
+
+function connectorRuntimeResolutionStatus(decision: ConnectorRoutingDecision, runtime?: ConnectorRuntimeResult): ResolveResponse["resolutionStatus"] {
+  if (runtime?.authorizationRequirement || runtime?.agentResponse?.authorizationRequirement || runtime?.agentResponse?.status === "needs_more_info") {
+    return "needs_more_info";
+  }
+
+  return connectorRoutingResolutionStatus(decision);
 }
 
 function isConnectorAccessPlanningRequest(message: string): boolean {
@@ -2841,7 +2861,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       routingSource: "rules_fallback",
       routingConfidence: routingDecision.routingConfidence,
       routingReasoningSummary: connectorRouting.reason,
-      resolutionStatus: connectorRoutingResolutionStatus(connectorRouting),
+      resolutionStatus: connectorRuntimeResolutionStatus(connectorRouting, connectorRuntime),
       evidence: [...connectorEvidence, ...runtimeEvidence],
       agentTrace: [
         trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
@@ -2876,7 +2896,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         ...metadataOnlyExecutionTrace,
         executionStep(
           "orchestrator",
-          connectorRuntime?.executed ? "return_connector_runtime_response" : runtimeExecutable ? "return_connector_runtime_failure" : "return_connector_guidance",
+          connectorRuntime?.authorizationRequirement ? "return_connector_authorization_required" : connectorRuntime?.executed ? "return_connector_runtime_response" : runtimeExecutable ? "return_connector_runtime_failure" : "return_connector_guidance",
           connectorRouting.recommendedNextStep
         )
       ],

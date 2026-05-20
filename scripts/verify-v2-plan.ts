@@ -4,6 +4,10 @@ const path = "docs/v2-platform-foundation.md";
 const sharedPath = "packages/shared/src/index.ts";
 const deploymentPath = "docs/deployment.md";
 const connectorRuntimePath = "services/orchestrator-api/src/connectorRuntime.ts";
+const orchestratorPath = "services/orchestrator-api/src/index.ts";
+const gateStackPath = "services/orchestrator-api/src/executionGateStack.ts";
+const webPath = "apps/web-ui/src/main.tsx";
+const realRuntimePath = "real-external-agent/src/runtime.ts";
 let failed = false;
 
 function fail(message: string): void {
@@ -102,6 +106,9 @@ if (!existsSync(connectorRuntimePath)) {
     "function normalizeAuthorizationRequirement(value: unknown): ExternalAuthorizationRequirement | undefined",
     'record.type !== "authorization_required"',
     "sanitizeConnectorRuntimeValue(value)",
+    'trimmed !== "hidden"',
+    'url.protocol === "https:" && !url.username && !url.password',
+    "requestedScopes.length === 0",
     "authorizationRequirement: normalizeAuthorizationRequirement(record.authorizationRequirement)",
     "authorizationRequirement: agentResponse.authorizationRequirement",
     '"authorization"',
@@ -113,6 +120,76 @@ if (!existsSync(connectorRuntimePath)) {
     if (!connectorRuntime.includes(phrase)) {
       fail(`connector runtime authorization propagation missing required phrase: ${phrase}`);
     }
+  }
+}
+
+if (!existsSync(orchestratorPath)) {
+  fail(`${orchestratorPath} should exist`);
+} else {
+  const orchestrator = readFileSync(orchestratorPath, "utf8");
+  for (const phrase of [
+    "AUTHORIZATION REQUIRED",
+    "Connect your ${authorizationRequirement.provider} account to continue.",
+    "Requested scopes: ${authorizationRequirement.requestedScopes.join",
+    "Changed: No changes were made.",
+    "Raw OAuth tokens, authorization codes, refresh tokens, Authorization headers, and secrets were not exposed.",
+    "function connectorRuntimeResolutionStatus",
+    'runtime?.agentResponse?.status === "needs_more_info"',
+    "resolutionStatus: connectorRuntimeResolutionStatus(connectorRouting, connectorRuntime)",
+    '"return_connector_authorization_required"'
+  ]) {
+    if (!orchestrator.includes(phrase)) {
+      fail(`orchestrator authorization-required semantics missing required phrase: ${phrase}`);
+    }
+  }
+}
+
+if (!existsSync(gateStackPath)) {
+  fail(`${gateStackPath} should exist`);
+} else {
+  const gateStack = readFileSync(gateStackPath, "utf8");
+  for (const phrase of [
+    "runtime?.authorizationRequirement",
+    'return "needs_more_info"',
+    'return "runtime_execution"',
+    "External connector requires user authorization for ${authorizationRequirement.provider}; no target changes were made.",
+    "authorizationRequired: Boolean(authorizationRequirement)",
+    "authorizationProvider: authorizationRequirement?.provider",
+    "requestedScopes: authorizationRequirement?.requestedScopes ?? []",
+    "authorizationActorProvider: authorizationRequirement?.actorProvider",
+    "authorizationActorSubject: authorizationRequirement?.actorSubject",
+    "rawTokenExposed: false"
+  ]) {
+    if (!gateStack.includes(phrase)) {
+      fail(`execution gate stack authorization-required semantics missing required phrase: ${phrase}`);
+    }
+  }
+}
+
+if (!existsSync(webPath)) {
+  fail(`${webPath} should exist`);
+} else {
+  const web = readFileSync(webPath, "utf8");
+  for (const phrase of [
+    "response.connectorRuntime?.authorizationRequirement",
+    "External account authorization required",
+    "Requested scopes",
+    "Actor provider",
+    "Raw tokens",
+    "hidden"
+  ]) {
+    if (!web.includes(phrase)) {
+      fail(`Security Timeline authorization-required proof missing required phrase: ${phrase}`);
+    }
+  }
+}
+
+if (!existsSync(realRuntimePath)) {
+  fail(`${realRuntimePath} should exist`);
+} else {
+  const realRuntime = readFileSync(realRuntimePath, "utf8");
+  if (!realRuntime.includes("scopesFromClaim(payload.scp)") || !realRuntime.includes("scopesFromClaim(payload.scopes)")) {
+    fail("real external agent should parse both payload.scp and payload.scopes");
   }
 }
 
