@@ -78,6 +78,8 @@ Goal: add pluggable real user identity.
 
 Auth0 will be the real user identity provider. Mock IdP remains the A2A machine-to-machine token issuer for local and V1-style runtime token flows. Phase 1 must not replace Mock IdP entirely.
 
+Auth0 is for browser end-user identity only. In V2 Phase 1, the Mock IdP remains the issuer for scoped A2A machine tokens used by connector runtime execution.
+
 Expected future implementation:
 
 - `AUTH_PROVIDER=mock|auth0`

@@ -9,6 +9,40 @@ function cleanEnv(value: string | undefined): string | undefined {
   return trimmed || undefined;
 }
 
+function requireNonEmpty(value: string | undefined, name: string): string {
+  const cleaned = cleanEnv(value);
+  if (!cleaned) {
+    throw new Error(`AUTH_PROVIDER=auth0 requires ${name}.`);
+  }
+  return cleaned;
+}
+
+function normalizeHttpsUrl(value: string, name: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${name} must be a valid HTTPS URL.`);
+  }
+
+  if (url.protocol !== "https:") {
+    throw new Error(`${name} must be a valid HTTPS URL.`);
+  }
+
+  if (url.username || url.password) {
+    throw new Error(`${name} must not include URL credentials.`);
+  }
+
+  return url.toString();
+}
+
+function auth0ClaimName(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  if (Object.prototype.hasOwnProperty.call(env, name) && !cleanEnv(env[name])) {
+    throw new Error(`${name} must be non-empty when provided.`);
+  }
+  return cleanEnv(env[name]) ?? fallback;
+}
+
 function mockIdpUrl(env: NodeJS.ProcessEnv = process.env): string {
   return cleanEnv(env.A2A_IDP_URL) ?? "http://localhost:4110";
 }
@@ -45,11 +79,11 @@ export function auth0IdentityProviderConfig(env: NodeJS.ProcessEnv = process.env
   }
 
   return {
-    issuer: issuer!,
-    audience: audience!,
-    jwksUri: jwksUri!,
-    emailClaim: cleanEnv(env.AUTH0_EMAIL_CLAIM) ?? "email",
-    rolesClaim: cleanEnv(env.AUTH0_ROLES_CLAIM) ?? "https://secure-a2a.dev/roles"
+    issuer: normalizeHttpsUrl(issuer!, "AUTH0_ISSUER"),
+    audience: requireNonEmpty(audience, "AUTH0_AUDIENCE"),
+    jwksUri: normalizeHttpsUrl(jwksUri!, "AUTH0_JWKS_URI"),
+    emailClaim: auth0ClaimName(env, "AUTH0_EMAIL_CLAIM", "email"),
+    rolesClaim: auth0ClaimName(env, "AUTH0_ROLES_CLAIM", "https://secure-a2a.dev/roles")
   };
 }
 

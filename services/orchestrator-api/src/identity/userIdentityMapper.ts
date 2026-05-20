@@ -109,11 +109,17 @@ export function mapOidcUserIdentityPayload(params: {
     throw new Error("User JWT sub claim is required");
   }
 
+  const rawRoles = payload[rolesClaim];
+  const roles = rawRoles === undefined ? [] : claimStringArray(payload, rolesClaim);
+  if (!roles) {
+    throw new Error(`User JWT ${rolesClaim} claim must be a string array when present`);
+  }
+
   return {
     provider,
     email: email.toLowerCase(),
     name: claimString(payload, "name"),
-    roles: claimStringArray(payload, rolesClaim) ?? [],
+    roles,
     issuer,
     audience,
     subject
