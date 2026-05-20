@@ -118,10 +118,12 @@ function verifyDemoUserTokenGuard(): void {
 
   const orchestrator = read("services/orchestrator-api/src/index.ts");
   const webUi = read("apps/web-ui/src/main.tsx");
+  const webUiMockAuthClient = read("apps/web-ui/src/auth/mockAuthClient.ts");
   assert(orchestrator.includes('"/identity/demo-login"'), "orchestrator should expose mediated demo login");
   assert(orchestrator.includes('"x-internal-service-token"'), "orchestrator should call Mock IdP demo minting with internal token when configured");
   assert(!webUi.includes("INTERNAL_SERVICE_TOKEN"), "frontend must not reference INTERNAL_SERVICE_TOKEN");
-  assert(webUi.includes("/identity/demo-login"), "frontend should call orchestrator-mediated demo login");
+  assert(!webUiMockAuthClient.includes("INTERNAL_SERVICE_TOKEN"), "frontend auth client must not reference INTERNAL_SERVICE_TOKEN");
+  assert(webUiMockAuthClient.includes("/identity/demo-login"), "frontend should call orchestrator-mediated demo login");
 
   const demoLoginHandler = orchestrator.slice(orchestrator.indexOf('request.url === "/identity/demo-login"'));
   assert(orchestrator.includes("const demoLoginRateLimit") && orchestrator.includes("DEMO_LOGIN_RATE_LIMIT_MAX_REQUESTS"), "orchestrator should define a dedicated demo-login rate limit");

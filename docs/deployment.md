@@ -66,10 +66,22 @@ Required public frontend env:
 
 ```env
 VITE_ORCHESTRATOR_API_URL=https://<orchestrator>.railway.app
+VITE_AUTH_PROVIDER=mock
 VITE_JIRA_AGENT_URL=https://<jira-agent>.railway.app
 VITE_SERVICENOW_AGENT_URL=https://<servicenow-agent>.railway.app
 VITE_GITHUB_AGENT_URL=https://<github-agent>.railway.app
 ```
+
+For Auth0 user login in V2 Phase 1, Vercel uses only public SPA values:
+
+```env
+VITE_AUTH_PROVIDER=auth0
+VITE_AUTH0_DOMAIN=<tenant>.auth0.com
+VITE_AUTH0_CLIENT_ID=<spa-client-id>
+VITE_AUTH0_AUDIENCE=<api-audience>
+```
+
+Auth0 is for real browser user identity. The Mock IdP remains the A2A machine-token issuer for scoped connector runtime execution.
 
 For the current Railway production demo, set:
 
@@ -132,6 +144,15 @@ TRUST_PROXY_HEADERS=false
 SHOW_INTERNAL_HEALTH_URLS=false
 SHOW_LEGACY_INTERNAL_AGENT_DISCOVERY_WARNINGS=false
 INTERNAL_SERVICE_TOKEN=<shared-internal-service-token>
+
+AUTH_PROVIDER=mock
+# For V2 Phase 1 Auth0 browser identity:
+# AUTH_PROVIDER=auth0
+# AUTH0_ISSUER=https://<tenant>.auth0.com/
+# AUTH0_AUDIENCE=<auth0-api-audience>
+# AUTH0_JWKS_URI=https://<tenant>.auth0.com/.well-known/jwks.json
+# AUTH0_EMAIL_CLAIM=email
+# AUTH0_ROLES_CLAIM=https://secure-a2a.dev/roles
 
 A2A_AUTH_MODE=oauth2_client_credentials_jwt
 REQUIRE_SECURE_A2A_AUTH=true

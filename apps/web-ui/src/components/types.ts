@@ -1,5 +1,6 @@
 import type { AgentsHealthResponse, ResolveResponse } from "@a2a/shared";
 import type { Dispatch, FormEvent, MutableRefObject, ReactNode, RefObject, SetStateAction } from "react";
+import type { FrontendAuthConfig } from "../auth/authTypes";
 import type { GuidedFocusTarget, LocalConnectorPreset, TrustedOnboardedAgent } from "./agent-registry/types";
 
 export type Scenario = {
@@ -73,6 +74,13 @@ export type TrustStatusView = {
     user: { email: string; name?: string; roles: string[] } | null;
     issuer: string;
     audience: string;
+  };
+  userIdentityProvider?: {
+    provider: "mock" | "auth0";
+    issuer: string;
+    audience: string;
+    jwksUri: string;
+    rawTokenExposed: false;
   };
   gatewayIdentity: {
     agentId: string;
@@ -155,6 +163,8 @@ export type ExtractedScreenContext = Record<string, unknown> & {
     audience: string;
   } | null;
   trustStatus: TrustStatusView | null;
+  frontendAuthConfig: FrontendAuthConfig;
+  frontendAuthProviderLabel: string;
   demoGuideRootRef: RefObject<HTMLElement>;
   runTaskRootRef: RefObject<HTMLElement>;
   composerRef: RefObject<HTMLFormElement>;
@@ -186,6 +196,7 @@ export type ExtractedScreenContext = Record<string, unknown> & {
   checkAgentHealth: () => Promise<void>;
   loadTrustStatus: () => Promise<void>;
   loginDemoUser: (options?: { silent?: boolean }) => Promise<void>;
+  loginAuth0User: () => Promise<void>;
   logoutIdentity: () => Promise<void>;
   cockpitStatusClass: (value: string) => string;
   statusDisplayLabel: (value: string) => string;

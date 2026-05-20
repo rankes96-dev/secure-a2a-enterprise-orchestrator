@@ -89,6 +89,22 @@ Expected future implementation:
 - claims mapping for `sub`, `email`, `name`, and roles/groups
 - user identity flows into policy, connector runtime context, audit proof, and Security Timeline
 
+Vercel frontend Auth0 env uses only public SPA configuration:
+
+- `VITE_AUTH_PROVIDER=auth0`
+- `VITE_AUTH0_DOMAIN`
+- `VITE_AUTH0_CLIENT_ID`
+- `VITE_AUTH0_AUDIENCE`
+
+Railway orchestrator Auth0 env validates the user JWT server-side:
+
+- `AUTH_PROVIDER=auth0`
+- `AUTH0_ISSUER`
+- `AUTH0_AUDIENCE`
+- `AUTH0_JWKS_URI`
+- `AUTH0_EMAIL_CLAIM`
+- `AUTH0_ROLES_CLAIM`
+
 ### Phase 2  Persistent Platform State
 
 Goal: move platform state out of in-memory maps.

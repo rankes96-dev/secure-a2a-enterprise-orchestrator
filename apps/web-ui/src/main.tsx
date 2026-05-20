@@ -4,6 +4,10 @@ import type { AgentsHealthResponse, EndUserAnswer, ResolveResponse } from "@a2a/
 import "./styles.css";
 import { PageHeader } from "./components/layout/PageHeader";
 import { buildLocalConnectorPresets } from "./connectorPresets";
+import { completeAuth0Redirect, discardAuth0RedirectResult, startAuth0LoginRedirect } from "./auth/auth0Client";
+import { frontendAuthProviderLabel, readFrontendAuthConfig } from "./auth/authConfig";
+import { postBearerIdentitySession, postIdentityLogout, postMockDemoLogin } from "./auth/mockAuthClient";
+import type { IdentitySessionResponse } from "./auth/authTypes";
 
 const DemoGuideTab = lazy(() => import("./components/demo-guide/DemoGuideTab").then((module) => ({ default: module.DemoGuideTab })));
 const RunTaskTab = lazy(() => import("./components/run-task/RunTaskTab").then((module) => ({ default: module.RunTaskTab })));
@@ -13,6 +17,7 @@ const TrustIdentityTab = lazy(() => import("./components/trust-identity/TrustIde
 const SecurityTimelineTab = lazy(() => import("./components/security-timeline/SecurityTimelineTab").then((module) => ({ default: module.SecurityTimelineTab })));
 
 const API_URL = import.meta.env.VITE_ORCHESTRATOR_API_URL ?? "http://localhost:4000";
+const frontendAuthConfig = readFrontendAuthConfig();
 const sampleMessage = "Jira issue creation fails with 403 when creating issues in FIN project";
 const endUserSampleMessage = "What is the status of my ticket INC0010245?";
 
@@ -1654,19 +1659,15 @@ type RegisteredAgentRow = {
   executionState?: "metadata_only";
 };
 
-type IdentitySessionResponse = {
-  authenticated: boolean;
-  user: {
-    email: string;
-    name?: string;
-    roles: string[];
-  } | null;
-  issuer: string;
-  audience: "secure-a2a-gateway";
-};
-
 type TrustStatusResponse = {
   userIdentity: IdentitySessionResponse & {
+    rawTokenExposed: false;
+  };
+  userIdentityProvider: {
+    provider: "mock" | "auth0";
+    issuer: string;
+    audience: string;
+    jwksUri: string;
     rawTokenExposed: false;
   };
   gatewayIdentity: {
@@ -2107,6 +2108,58 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (frontendAuthConfig.provider !== "auth0") {
+      return;
+    }
+    if (!frontendAuthConfig.isConfigured) {
+      discardAuth0RedirectResult();
+      return;
+    }
+
+    const auth0Config = frontendAuthConfig;
+    let cancelled = false;
+    async function completeLogin() {
+      setIdentityError("");
+      setIdentityMessage("");
+      try {
+        const result = await completeAuth0Redirect(auth0Config);
+        if (!result.handled || !result.accessToken || cancelled) {
+          return;
+        }
+
+        setIsIdentityLoading(true);
+        await ensureSession();
+        const session = await postBearerIdentitySession(API_URL, result.accessToken).catch(async (error: unknown) => {
+          if (error instanceof Response) {
+            throw new Error(await friendlyApiError(error, "Failed to attach Auth0 identity"));
+          }
+          throw error;
+        });
+        if (cancelled) {
+          return;
+        }
+
+        setIdentitySession(session);
+        setIdentityMessage("Auth0 identity verified and attached to this gateway session.");
+        await loadTrustStatus();
+      } catch (caughtError) {
+        if (!cancelled) {
+          setIdentityError(caughtError instanceof Error ? caughtError.message : "Auth0 login failed.");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsIdentityLoading(false);
+        }
+      }
+    }
+
+    void completeLogin();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (activeTab === "demo-guide") {
       void loadZeroTrustOnboardedAgents();
       void loadSupportedConnectorGuardrails();
@@ -2128,7 +2181,7 @@ function App() {
     if (activeTab !== "run-task") {
       setActiveTab("run-task");
     }
-    if (!isUserAuthenticated && !isIdentityLoading && !endUserAutoLoginAttempted) {
+    if (frontendAuthConfig.provider === "mock" && !isUserAuthenticated && !isIdentityLoading && !endUserAutoLoginAttempted) {
       setEndUserAutoLoginAttempted(true);
       void loginDemoUser({ silent: true });
     }
@@ -2279,19 +2332,16 @@ function App() {
     setIsIdentityLoading(true);
 
     try {
-      await ensureSession();
-      const response = await fetch(`${API_URL}/identity/demo-login`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ email: selectedDemoUserEmail })
-      });
-
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to login as demo user"));
+      if (frontendAuthConfig.provider !== "mock") {
+        throw new Error("Demo login is unavailable when Auth0 is the active identity provider.");
       }
-
-      const body = (await response.json()) as IdentitySessionResponse;
+      await ensureSession();
+      const body = await postMockDemoLogin(API_URL, selectedDemoUserEmail).catch(async (error: unknown) => {
+        if (error instanceof Response) {
+          throw new Error(await friendlyApiError(error, "Failed to login as demo user"));
+        }
+        throw error;
+      });
       setIdentitySession(body);
       if (!options?.silent) {
         setIdentityMessage("Demo user identity verified and attached to this gateway session.");
@@ -2307,6 +2357,24 @@ function App() {
     }
   }
 
+  async function loginAuth0User() {
+    setIdentityError("");
+    setIdentityMessage("");
+    if (frontendAuthConfig.provider !== "auth0" || !frontendAuthConfig.isConfigured) {
+      setIdentityError("Auth0 login is not configured for this deployment.");
+      discardAuth0RedirectResult();
+      return;
+    }
+
+    setIsIdentityLoading(true);
+    try {
+      await startAuth0LoginRedirect(frontendAuthConfig);
+    } catch (caughtError) {
+      setIdentityError(caughtError instanceof Error ? caughtError.message : "Auth0 login failed.");
+      setIsIdentityLoading(false);
+    }
+  }
+
   async function logoutIdentity() {
     setIdentityError("");
     setIdentityMessage("");
@@ -2314,20 +2382,17 @@ function App() {
 
     try {
       await ensureSession();
-      const response = await fetch(`${API_URL}/identity/logout`, {
-        method: "POST",
-        credentials: "include"
+      const body = await postIdentityLogout(API_URL).catch(async (error: unknown) => {
+        if (error instanceof Response) {
+          throw new Error(await friendlyApiError(error, "Failed to logout user"));
+        }
+        throw error;
       });
-
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to logout demo user"));
-      }
-
-      setIdentitySession((await response.json()) as IdentitySessionResponse);
-      setIdentityMessage("Demo user identity cleared from this gateway session.");
+      setIdentitySession(body);
+      setIdentityMessage("User identity cleared from this gateway session.");
       await loadTrustStatus();
     } catch (caughtError) {
-      setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to logout demo user");
+      setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to logout user");
     } finally {
       setIsIdentityLoading(false);
     }
@@ -2688,6 +2753,7 @@ function App() {
     guideToTarget, showGuidedStatus, goToTrustIdentity, goToRunTask, goToAgentRegistry, goToConnectorCatalog,
     goToInstalledConnectorAgents, goToSecurityTimeline, hasInstalledConnector, hasApprovedSkill, hasBlockedSkill, readinessStatusForSkill,
     checkAgentHealth, loadTrustStatus, loginDemoUser, logoutIdentity, applyLocalConnectorPreset, discoverZeroTrustAgent,
+    loginAuth0User, frontendAuthConfig, frontendAuthProviderLabel: frontendAuthProviderLabel(frontendAuthConfig),
     copyGatewayRegistrationJson, startZeroTrustOnboarding, resolveIssue, submitIssue, startNewConversation, resetZeroTrustConnectionState,
     loadZeroTrustOnboardedAgents, loadSupportedConnectorGuardrails, loadGatewayRegistrationMetadata,
     renderPageHeader,

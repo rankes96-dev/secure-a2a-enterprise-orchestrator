@@ -26,14 +26,15 @@ export function TrustIdentityTab({ ctx }: { ctx: ScreenContext }) {
     policyOutcome, tokenOutcome,
     guideToTarget, showGuidedStatus, goToTrustIdentity, goToRunTask, goToAgentRegistry, goToConnectorCatalog,
     goToInstalledConnectorAgents, goToSecurityTimeline, hasInstalledConnector, hasApprovedSkill, hasBlockedSkill, readinessStatusForSkill,
-    checkAgentHealth, loadTrustStatus, loginDemoUser, logoutIdentity, applyLocalConnectorPreset, discoverZeroTrustAgent,
+    checkAgentHealth, loadTrustStatus, loginDemoUser, loginAuth0User, logoutIdentity, applyLocalConnectorPreset, discoverZeroTrustAgent,
     copyGatewayRegistrationJson, startZeroTrustOnboarding, resolveIssue, submitIssue, startNewConversation, resetZeroTrustConnectionState,
     loadZeroTrustOnboardedAgents, loadSupportedConnectorGuardrails, loadGatewayRegistrationMetadata,
     renderPageHeader,
     localConnectorPresets, scenarios, quickScenarios, advancedScenarios, securityTimelineFilters, demoUserOptions,
     cockpitStatusClass, statusDisplayLabel, connectorRoutingStatusLabel, connectorRoutingStatusClass, connectorRuntimeFailureCopy,
     firstSentence, recommendedActionItems, shortHash, JsonBlock, MessageList, safeRawExecutionData, healthClass,
-    endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage
+    endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage,
+    frontendAuthConfig, frontendAuthProviderLabel
   } = ctx;
 
   function renderTrustIdentityTab() {
@@ -43,6 +44,7 @@ export function TrustIdentityTab({ ctx }: { ctx: ScreenContext }) {
     const mockIdp = trustStatus?.mockIdp;
     const securityControls = trustStatus?.securityControls;
     const isTrustAuthenticated = currentIdentity?.authenticated === true;
+    const activeIdentityProvider = trustStatus?.userIdentityProvider?.provider ?? frontendAuthConfig.provider;
     const flowSteps = [
       "User JWT verified",
       "Session identity stored",
@@ -58,7 +60,9 @@ export function TrustIdentityTab({ ctx }: { ctx: ScreenContext }) {
         {renderPageHeader({
           eyebrow: "Identity control",
           title: "Trust & Identity",
-          subtitle: "Authenticate a demo user and verify Gateway identity context.",
+          subtitle: frontendAuthConfig.provider === "auth0"
+            ? "Authenticate with Auth0 and verify Gateway identity context."
+            : "Authenticate a demo user and verify Gateway identity context.",
           action: <button type="button" className="secondary-button" onClick={() => {
               void checkAgentHealth();
               void loadTrustStatus();
@@ -73,7 +77,7 @@ export function TrustIdentityTab({ ctx }: { ctx: ScreenContext }) {
             <h2>{isTrustAuthenticated ? "Execution unlocked" : "Login required to unlock execution"}</h2>
             <p>{isTrustAuthenticated ? "Verified user identity is attached to this gateway session." : "Secure task execution is blocked until a verified user identity is attached to this gateway session."}</p>
           </div>
-          {!isTrustAuthenticated ? (
+          {!isTrustAuthenticated && frontendAuthConfig.provider === "mock" ? (
             <div className="trust-login-form">
               <label>
                 <span>Demo user</span>
@@ -88,9 +92,27 @@ export function TrustIdentityTab({ ctx }: { ctx: ScreenContext }) {
               </button>
               <p>The gateway requests a signed Mock IdP User JWT, validates it via JWKS, and stores only verified claims. Raw JWTs are never shown in the UI.</p>
             </div>
+          ) : !isTrustAuthenticated && frontendAuthConfig.provider === "auth0" && frontendAuthConfig.isConfigured ? (
+            <div className="trust-login-form">
+              <button type="button" className="trust-login-primary" ref={loginButtonRef} onClick={() => void loginAuth0User()} disabled={isIdentityLoading}>
+                {isIdentityLoading ? "Verifying..." : "Login with Auth0"}
+              </button>
+              <p>The browser uses the Auth0 public SPA client, sends the access token only to the Gateway identity session endpoint, and never displays the raw token.</p>
+            </div>
+          ) : !isTrustAuthenticated ? (
+            <div className="trust-login-form">
+              <p role="alert">Auth0 login is not configured for this deployment.</p>
+              <button type="button" className="trust-login-primary" ref={loginButtonRef} onClick={() => void loginAuth0User()} disabled>
+                Login with Auth0
+              </button>
+            </div>
           ) : (
             <div className="trust-authenticated-summary">
               <div className="trust-user-facts">
+                <article>
+                  <span>Provider</span>
+                  <strong>{activeIdentityProvider}</strong>
+                </article>
                 <article>
                   <span>Email</span>
                   <strong>{currentUser?.email ?? "unknown"}</strong>
@@ -135,6 +157,10 @@ export function TrustIdentityTab({ ctx }: { ctx: ScreenContext }) {
           <h2>Key Identity Facts</h2>
           {!isTrustAuthenticated ? <p className="muted-note">Login as a demo user to attach verified user identity to gateway execution.</p> : null}
           <div className="trust-card-grid">
+            <article>
+              <span>Identity provider</span>
+              <strong>{frontendAuthProviderLabel}</strong>
+            </article>
             <article>
               <span>Authentication status</span>
               <strong>{isTrustAuthenticated ? "authenticated" : "not authenticated"}</strong>
