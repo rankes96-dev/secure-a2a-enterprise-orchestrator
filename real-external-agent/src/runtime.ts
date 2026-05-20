@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { agentId, expectedAudience, mockIdpJwksUri } from "./config.js";
+import { agentId, expectedAudience, mockIdpIssuer, mockIdpJwksUri } from "./config.js";
 import { getConnectorProfile } from "./connectorProfile.js";
 import { adminConfigHash, getAdminConfig } from "./adminConfig.js";
 import { buildJiraRuntimeDiagnosis } from "./connectors/jiraRuntimeDiagnosis.js";
@@ -168,6 +168,7 @@ export async function validateRuntimeToken(token: string, requiredApplicationGra
   scopes: string[];
 }> {
   const { payload } = await jwtVerify(token, jwks(), {
+    issuer: mockIdpIssuer(),
     audience: expectedAudience()
   });
 

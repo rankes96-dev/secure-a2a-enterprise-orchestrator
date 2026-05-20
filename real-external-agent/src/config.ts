@@ -21,6 +21,10 @@ export function mockIdpJwksUri(): string {
   return env("MOCK_IDP_JWKS_URI", "http://localhost:4110/.well-known/jwks.json");
 }
 
+export function mockIdpIssuer(): string {
+  return env("MOCK_IDP_ISSUER", "http://localhost:4110").replace(/\/+$/, "");
+}
+
 export function expectedAudience(): string {
   return env("EXPECTED_AUDIENCE", agentId);
 }

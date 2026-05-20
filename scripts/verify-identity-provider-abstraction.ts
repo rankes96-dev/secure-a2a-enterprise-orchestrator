@@ -222,6 +222,7 @@ for (const phrase of [
 
 const externalRuntimeSource = readFileSync("real-external-agent/src/runtime.ts", "utf8");
 for (const phrase of [
+  "issuer: mockIdpIssuer()",
   "payload.actor_provider",
   "payload.actor_issuer",
   "payload.actor_sub",
@@ -232,6 +233,24 @@ for (const phrase of [
   assert(externalRuntimeSource.includes(phrase), `external agent runtime missing verified actor provenance phrase: ${phrase}`);
 }
 assert(!externalRuntimeSource.includes("AUTH0_"), "external agents must not validate Auth0 directly");
+
+const externalConfigSource = readFileSync("real-external-agent/src/config.ts", "utf8");
+assert(externalConfigSource.includes("function mockIdpIssuer"), "real external agent config should expose mockIdpIssuer");
+assert(externalConfigSource.includes('env("MOCK_IDP_ISSUER", "http://localhost:4110").replace(/\\/+$/, "")'), "mockIdpIssuer should support explicit MOCK_IDP_ISSUER");
+
+const externalProductionEnv = readFileSync("real-external-agent/.env.production.example", "utf8");
+assert(externalProductionEnv.includes("MOCK_IDP_ISSUER=https://<mock-idp>.railway.app"), "external agent production env should include MOCK_IDP_ISSUER");
+assert(externalProductionEnv.includes("MOCK_IDP_JWKS_URI=https://<mock-idp>.railway.app/.well-known/jwks.json"), "external agent production env should include MOCK_IDP_JWKS_URI");
+
+const deploymentDocs = readFileSync("docs/deployment.md", "utf8");
+for (const phrase of [
+  "MOCK_IDP_ISSUER=https://<mock-idp>.railway.app",
+  "MOCK_IDP_JWKS_URI=https://<mock-idp>.railway.app/.well-known/jwks.json",
+  "must point to the same Mock IdP / A2A token issuer deployment",
+  "they do not validate Auth0 directly"
+]) {
+  assert(deploymentDocs.includes(phrase), `deployment docs missing external runtime issuer validation phrase: ${phrase}`);
+}
 
 const frontendTimelineSource = readFileSync("apps/web-ui/src/main.tsx", "utf8");
 for (const phrase of [
