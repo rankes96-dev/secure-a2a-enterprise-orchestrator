@@ -40,6 +40,8 @@ The Gateway does not encode every enterprise permission or every possible connec
 
 ## V2 Roadmap
 
+The V2 platform foundation plan is tracked in [`docs/v2-platform-foundation.md`](docs/v2-platform-foundation.md).
+
 - Persistent connector registry / DB
 - Tenant/org ownership
 - Persistent installed connector registry
