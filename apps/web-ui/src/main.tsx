@@ -1258,6 +1258,8 @@ function buildSecurityTimelineEvents(response: ResolveResponse): SecurityTimelin
       agentId: response.connectorRuntime.connectorId,
       metadata: metadataList([
         { label: "Identity provider", value: tokenMetadata.actorProvider ?? response.userIdentity.provider },
+        { label: "Actor issuer", value: tokenMetadata.actorIssuer },
+        { label: "Actor subject", value: tokenMetadata.actorSubject },
         { label: "Actor email", value: tokenMetadata.actor },
         { label: "Actor roles", value: tokenMetadata.actorRoles ?? [] },
         { label: "Runtime token metadata", value: actorAttached ? "actor included" : "actor missing" },
@@ -1317,6 +1319,8 @@ function safeTaskAuthMetadata(auth: ResolveA2ATask["context"]["auth"] | undefine
     actor: auth.actor,
     actorRoles: auth.actorRoles,
     actorProvider: auth.actorProvider,
+    actorIssuer: auth.actorIssuer,
+    actorSubject: auth.actorSubject,
     tokenAuthMethod: auth.tokenAuthMethod,
     rawToken: "hidden"
   };

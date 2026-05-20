@@ -19,6 +19,8 @@ export type ConnectorRuntimeResult = {
     actor?: string;
     actorRoles?: string[];
     actorProvider?: string;
+    actorIssuer?: string;
+    actorSubject?: string;
     rawToken: "hidden";
   };
   agentResponse?: A2AAgentResponse;
@@ -37,7 +39,9 @@ function publicTokenMetadata(metadata: A2AIssuedTokenMetadata, actorProvider?: s
     scope: metadata.scope,
     actor: metadata.actor,
     actorRoles: metadata.actorRoles,
-    actorProvider,
+    actorProvider: metadata.actorProvider ?? actorProvider,
+    actorIssuer: metadata.actorIssuer,
+    actorSubject: metadata.actorSubject,
     rawToken: "hidden"
   };
 }
@@ -265,7 +269,10 @@ export async function executeApprovedConnectorSkill(params: {
       audience: params.connectorRoute.audience,
       scope,
       actor: params.actor?.email,
-      actorRoles: params.actor?.roles
+      actorRoles: params.actor?.roles,
+      actorProvider: params.actor?.provider,
+      actorIssuer: params.actor?.issuer,
+      actorSubject: params.actor?.subject
     });
     const taskId = randomUUID();
     const controller = new AbortController();

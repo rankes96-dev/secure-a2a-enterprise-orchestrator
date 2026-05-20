@@ -1060,7 +1060,9 @@ function createA2ATask(params: {
             email: params.actor.email,
             name: params.actor.name,
             roles: [...params.actor.roles],
-            provider: params.actor.provider
+            provider: params.actor.provider,
+            issuer: params.actor.issuer,
+            subject: params.actor.subject
           }
         : undefined
       // TODO: replace mock_internal_token with OAuth 2.0 Client Credentials, JWT access tokens,
@@ -1145,13 +1147,18 @@ async function prepareA2ARequestAuth(params: {
     parentTaskId: params.parentTaskId,
     requestedByAgent: params.requestedByAgent,
     actor: params.task.context.actor?.email,
-    actorRoles: params.task.context.actor?.roles
+    actorRoles: params.task.context.actor?.roles,
+    actorProvider: params.task.context.actor?.provider,
+    actorIssuer: params.task.context.actor?.issuer,
+    actorSubject: params.task.context.actor?.subject
   });
   params.task.context.authMode = "oauth2_client_credentials_jwt";
   params.task.context.auth = {
     ...issued.metadata,
     authMode: "oauth2_client_credentials_jwt",
-    actorProvider: params.task.context.actor?.provider
+    actorProvider: issued.metadata.actorProvider,
+    actorIssuer: issued.metadata.actorIssuer,
+    actorSubject: issued.metadata.actorSubject
   };
 
   params.executionSteps.push({

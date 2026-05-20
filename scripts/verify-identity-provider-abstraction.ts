@@ -189,14 +189,55 @@ for (const phrase of [
   "actorAttached",
   "runtimeContextIncluded",
   "identityProvider",
+  "actorIssuer",
+  "actorSubject",
   "rawTokenExposed: false"
 ]) {
   assert(executionGateStackSource.includes(phrase), `execution gate stack missing actor context proof phrase: ${phrase}`);
 }
 
+const tokenClientSource = readFileSync("services/orchestrator-api/src/security/tokenClient.ts", "utf8");
+for (const phrase of [
+  "actor_provider",
+  "actor_issuer",
+  "actor_sub",
+  "actorProvider",
+  "actorIssuer",
+  "actorSubject"
+]) {
+  assert(tokenClientSource.includes(phrase), `Gateway token client missing signed actor provenance phrase: ${phrase}`);
+}
+
+const mockIdpSource = readFileSync("services/mock-identity-provider/src/index.ts", "utf8");
+for (const phrase of [
+  "actor_provider",
+  "actor_issuer",
+  "actor_sub",
+  "claims.actor_provider",
+  "claims.actor_issuer",
+  "claims.actor_sub"
+]) {
+  assert(mockIdpSource.includes(phrase), `Mock IdP missing signed actor provenance phrase: ${phrase}`);
+}
+
+const externalRuntimeSource = readFileSync("real-external-agent/src/runtime.ts", "utf8");
+for (const phrase of [
+  "payload.actor_provider",
+  "payload.actor_issuer",
+  "payload.actor_sub",
+  "actorProvider: params.actorProvider",
+  "actorIssuer: params.actorIssuer",
+  "actorSubject: params.actorSubject"
+]) {
+  assert(externalRuntimeSource.includes(phrase), `external agent runtime missing verified actor provenance phrase: ${phrase}`);
+}
+assert(!externalRuntimeSource.includes("AUTH0_"), "external agents must not validate Auth0 directly");
+
 const frontendTimelineSource = readFileSync("apps/web-ui/src/main.tsx", "utf8");
 for (const phrase of [
   "Identity provider",
+  "Actor issuer",
+  "Actor subject",
   "Runtime actor context",
   "Actor context attached to runtime proof",
   "Raw identity and A2A tokens stayed hidden",
@@ -209,6 +250,11 @@ const sharedSource = readFileSync("packages/shared/src/index.ts", "utf8");
 for (const phrase of [
   'provider?: string',
   'actorProvider?: string',
+  'actorIssuer?: string',
+  'actorSubject?: string',
+  'actor_provider?: string',
+  'actor_issuer?: string',
+  'actor_sub?: string',
   '"user_identity_actor_context"'
 ]) {
   assert(sharedSource.includes(phrase), `shared public proof types missing safe actor metadata phrase: ${phrase}`);
@@ -272,6 +318,8 @@ function verifyActorGateFor(provider: "mock" | "auth0"): void {
         actor: provider === "auth0" ? "auth0-user@example.com" : "ran@company.com",
         actorRoles: provider === "auth0" ? ["support-engineer"] : ["it-support"],
         actorProvider: provider,
+        actorIssuer: provider === "auth0" ? "https://example.auth0.com/" : "http://localhost:4110",
+        actorSubject: provider === "auth0" ? "auth0|user-123" : "user:ran@company.com",
         rawToken: "hidden"
       },
       agentResponse: {
@@ -294,6 +342,8 @@ function verifyActorGateFor(provider: "mock" | "auth0"): void {
   const oauthGate = stack.gates.find((gate) => gate.id === "oauth_scope");
   assert(oauthGate?.evidence?.actorAttached === true, `${provider} OAuth gate should include actorAttached=true`);
   assert(oauthGate.evidence.identityProvider === provider, `${provider} OAuth gate should include identityProvider`);
+  assert(typeof oauthGate.evidence.actorIssuer === "string", `${provider} OAuth gate should include actorIssuer`);
+  assert(typeof oauthGate.evidence.actorSubject === "string", `${provider} OAuth gate should include actorSubject`);
   assert(JSON.stringify(stack).includes('"rawTokenExposed":false'), `${provider} proof should prove raw token is not exposed`);
   for (const forbidden of ["access_token", "Authorization", "Bearer", "Auth0 token"]) {
     assert(!JSON.stringify(stack).includes(forbidden), `${provider} actor proof must not expose ${forbidden}`);

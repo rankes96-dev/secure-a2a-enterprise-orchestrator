@@ -162,6 +162,9 @@ export function runtimeSkillRequirement(skillId: unknown): RuntimeSkillRequireme
 export async function validateRuntimeToken(token: string, requiredApplicationGrants: string[]): Promise<{
   actor?: string;
   actorRoles: string[];
+  actorProvider?: string;
+  actorIssuer?: string;
+  actorSubject?: string;
   scopes: string[];
 }> {
   const { payload } = await jwtVerify(token, jwks(), {
@@ -177,6 +180,9 @@ export async function validateRuntimeToken(token: string, requiredApplicationGra
   return {
     actor: typeof payload.actor === "string" ? payload.actor : undefined,
     actorRoles: scopesFromClaim(payload.actor_roles),
+    actorProvider: typeof payload.actor_provider === "string" ? payload.actor_provider : undefined,
+    actorIssuer: typeof payload.actor_issuer === "string" ? payload.actor_issuer : undefined,
+    actorSubject: typeof payload.actor_sub === "string" ? payload.actor_sub : undefined,
     scopes
   };
 }
@@ -287,6 +293,9 @@ export function safeDiagnosis(params: {
   skill: RuntimeSkillRequirement;
   actor?: string;
   actorRoles: string[];
+  actorProvider?: string;
+  actorIssuer?: string;
+  actorSubject?: string;
   scopes: string[];
   accessEvaluation: ConnectorAccessEvaluation;
 }) {
@@ -361,7 +370,9 @@ export function safeDiagnosis(params: {
           actorAttached: Boolean(params.actor),
           actor: params.actor,
           actorRoles: params.actorRoles,
-          actorProvider: typeof params.task.context?.actor?.provider === "string" ? params.task.context.actor.provider : undefined,
+          actorProvider: params.actorProvider,
+          actorIssuer: params.actorIssuer,
+          actorSubject: params.actorSubject,
           rawToken: "hidden"
         }
       },

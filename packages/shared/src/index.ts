@@ -222,6 +222,9 @@ export type A2ATokenClaims = {
   client_id: string;
   actor?: string;
   actor_roles?: string[];
+  actor_provider?: string;
+  actor_issuer?: string;
+  actor_sub?: string;
   delegated_by?: string;
   delegation_depth?: number;
   parent_task_id?: string;
@@ -257,6 +260,8 @@ export type A2ATaskAuthMetadata = {
   actor?: string;
   actorRoles?: string[];
   actorProvider?: string;
+  actorIssuer?: string;
+  actorSubject?: string;
   tokenAuthMethod?: OAuthClientAuthMethod | PublicOAuthClientAuthMethod;
 };
 
@@ -298,6 +303,8 @@ export interface A2ATask {
       name?: string;
       roles: string[];
       provider?: string;
+      issuer?: string;
+      subject?: string;
     };
   };
 }
@@ -653,6 +660,8 @@ export interface ResolveResponse {
       actor?: string;
       actorRoles?: string[];
       actorProvider?: string;
+      actorIssuer?: string;
+      actorSubject?: string;
       rawToken: "hidden";
     };
     agentResponse?: A2AAgentResponse;

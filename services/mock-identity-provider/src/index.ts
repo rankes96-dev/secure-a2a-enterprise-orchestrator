@@ -45,6 +45,9 @@ type TokenRequest = {
   requested_by_agent?: string;
   actor?: string;
   actor_roles?: string[];
+  actor_provider?: string;
+  actor_issuer?: string;
+  actor_sub?: string;
 };
 
 type SigningKey = {
@@ -230,6 +233,18 @@ function validateDelegationContext(body: TokenRequest): { ok: true } | { ok: fal
     return { ok: false, status: 400, error: "invalid_delegation_context" };
   }
 
+  if (body.actor_provider !== undefined && typeof body.actor_provider !== "string") {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
+  if (body.actor_issuer !== undefined && typeof body.actor_issuer !== "string") {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
+  if (body.actor_sub !== undefined && typeof body.actor_sub !== "string") {
+    return { ok: false, status: 400, error: "invalid_delegation_context" };
+  }
+
   if (body.delegation_depth !== undefined) {
     if (typeof body.delegation_depth !== "number" || !Number.isInteger(body.delegation_depth)) {
       return { ok: false, status: 400, error: "invalid_delegation_context" };
@@ -252,7 +267,7 @@ function validateDelegationContext(body: TokenRequest): { ok: true } | { ok: fal
 }
 
 async function issueToken(
-  body: Required<Pick<TokenRequest, "client_id" | "audience" | "scope">> & Pick<TokenRequest, "delegated_by" | "delegation_depth" | "parent_task_id" | "requested_by_agent" | "actor" | "actor_roles">,
+  body: Required<Pick<TokenRequest, "client_id" | "audience" | "scope">> & Pick<TokenRequest, "delegated_by" | "delegation_depth" | "parent_task_id" | "requested_by_agent" | "actor" | "actor_roles" | "actor_provider" | "actor_issuer" | "actor_sub">,
   scopes: string[],
   tokenTtlSeconds: number
 ): Promise<A2ATokenResponse> {
@@ -292,6 +307,18 @@ async function issueToken(
 
   if (body.actor_roles) {
     claims.actor_roles = body.actor_roles;
+  }
+
+  if (body.actor_provider) {
+    claims.actor_provider = body.actor_provider;
+  }
+
+  if (body.actor_issuer) {
+    claims.actor_issuer = body.actor_issuer;
+  }
+
+  if (body.actor_sub) {
+    claims.actor_sub = body.actor_sub;
   }
 
   const accessToken = await new SignJWT({ ...claims })
@@ -336,7 +363,10 @@ async function handleToken(request: IncomingMessage, response: ServerResponse, s
         parent_task_id: body.parent_task_id,
         requested_by_agent: body.requested_by_agent,
         actor: body.actor,
-        actor_roles: body.actor_roles
+        actor_roles: body.actor_roles,
+        actor_provider: body.actor_provider,
+        actor_issuer: body.actor_issuer,
+        actor_sub: body.actor_sub
       },
       validation.scopes,
       validation.application.tokenTtlSeconds ?? Number(process.env.A2A_TOKEN_TTL_SECONDS ?? 300)

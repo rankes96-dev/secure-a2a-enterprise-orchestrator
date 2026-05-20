@@ -228,6 +228,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       actorEmail: runtime?.tokenMetadata?.actor,
       actorRoles: runtime?.tokenMetadata?.actorRoles ?? [],
       identityProvider: runtime?.tokenMetadata?.actorProvider,
+      actorIssuer: runtime?.tokenMetadata?.actorIssuer,
+      actorSubject: runtime?.tokenMetadata?.actorSubject,
       rawTokenExposed: false
     }
   });
@@ -300,6 +302,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       actorEmail: runtime?.tokenMetadata?.actor,
       actorRoles: runtime?.tokenMetadata?.actorRoles ?? [],
       identityProvider: runtime?.tokenMetadata?.actorProvider,
+      actorIssuer: runtime?.tokenMetadata?.actorIssuer,
+      actorSubject: runtime?.tokenMetadata?.actorSubject,
       rawTokenExposed: false
     }
   });

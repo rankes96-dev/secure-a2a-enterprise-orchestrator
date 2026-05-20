@@ -11,6 +11,9 @@ export type A2ATokenRequestInput = {
   requestedByAgent?: string;
   actor?: string;
   actorRoles?: string[];
+  actorProvider?: string;
+  actorIssuer?: string;
+  actorSubject?: string;
   tokenAuthMethod?: OAuthClientAuthMethod;
 };
 
@@ -27,6 +30,9 @@ export type A2AIssuedTokenMetadata = {
   requestedByAgent?: string;
   actor?: string;
   actorRoles?: string[];
+  actorProvider?: string;
+  actorIssuer?: string;
+  actorSubject?: string;
   tokenAuthMethod?: PublicOAuthClientAuthMethod;
 };
 
@@ -48,6 +54,9 @@ function tokenCacheKey(input: A2ATokenRequestInput): string {
     input.requestedByAgent ?? "",
     input.actor ?? "",
     input.actorRoles?.join(",") ?? "",
+    input.actorProvider ?? "",
+    input.actorIssuer ?? "",
+    input.actorSubject ?? "",
     input.tokenAuthMethod ?? resolveTokenAuthMethod()
   ].join(":");
 }
@@ -115,7 +124,10 @@ async function buildTokenRequestBody(params: {
     parent_task_id: params.input.parentTaskId,
     requested_by_agent: params.input.requestedByAgent,
     actor: params.input.actor,
-    actor_roles: params.input.actorRoles
+    actor_roles: params.input.actorRoles,
+    actor_provider: params.input.actorProvider,
+    actor_issuer: params.input.actorIssuer,
+    actor_sub: params.input.actorSubject
   };
 
   if (params.tokenAuthMethod === "private_key_jwt") {
@@ -180,6 +192,9 @@ export async function getA2AAccessToken(input: A2ATokenRequestInput): Promise<{ 
     requestedByAgent: input.requestedByAgent,
     actor: input.actor,
     actorRoles: input.actorRoles,
+    actorProvider: input.actorProvider,
+    actorIssuer: input.actorIssuer,
+    actorSubject: input.actorSubject,
     tokenAuthMethod: publicTokenAuthMethod(tokenAuthMethod)
   };
 
