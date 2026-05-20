@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { A2AAgentResponse, ConnectorRuntimeExecutionType, ConnectorRuntimeOutcome, ConnectorRuntimeSemantics, ConnectorTargetActionStatus, EndUserAnswer } from "@a2a/shared";
+import type {
+  A2AAgentResponse,
+  ConnectorRuntimeExecutionType,
+  ConnectorRuntimeOutcome,
+  ConnectorRuntimeSemantics,
+  ConnectorTargetActionStatus,
+  EndUserAnswer,
+  ExternalAuthorizationRequirement
+} from "@a2a/shared";
 import { getA2AAccessToken, type A2AIssuedTokenMetadata } from "./security/tokenClient.js";
 import type { VerifiedUserIdentity } from "./security/userIdentity.js";
 import type { ConnectorRoutingDecision } from "./connectorRouting.js";
@@ -24,6 +32,7 @@ export type ConnectorRuntimeResult = {
     rawToken: "hidden";
   };
   agentResponse?: A2AAgentResponse;
+  authorizationRequirement?: ExternalAuthorizationRequirement;
   error?: string;
   errorMessage?: string;
 };
@@ -143,6 +152,64 @@ function normalizeEndUserAnswer(value: unknown): EndUserAnswer | undefined {
   };
 }
 
+function sanitizedRuntimeString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const sanitized = sanitizeConnectorRuntimeValue(value);
+  if (typeof sanitized !== "string") {
+    return undefined;
+  }
+
+  const trimmed = sanitized.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function optionalSanitizedRuntimeString(value: unknown): string | undefined {
+  return value === undefined ? undefined : sanitizedRuntimeString(value);
+}
+
+function normalizeAuthorizationRequirement(value: unknown): ExternalAuthorizationRequirement | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.type !== "authorization_required") {
+    return undefined;
+  }
+
+  const provider = sanitizedRuntimeString(record.provider);
+  const resourceSystem = sanitizedRuntimeString(record.resourceSystem);
+  const connectorId = sanitizedRuntimeString(record.connectorId);
+  const reason = sanitizedRuntimeString(record.reason);
+  const authorizeUrl = sanitizedRuntimeString(record.authorizeUrl);
+  if (!provider || !resourceSystem || !connectorId || !reason || !authorizeUrl || !Array.isArray(record.requestedScopes)) {
+    return undefined;
+  }
+
+  if (!record.requestedScopes.every((scope) => typeof scope === "string")) {
+    return undefined;
+  }
+
+  return {
+    type: "authorization_required",
+    provider,
+    resourceSystem,
+    connectorId,
+    reason,
+    authorizeUrl,
+    requestedScopes: record.requestedScopes
+      .map((scope) => sanitizedRuntimeString(scope))
+      .filter((scope): scope is string => Boolean(scope)),
+    actorProvider: optionalSanitizedRuntimeString(record.actorProvider),
+    actorSubject: optionalSanitizedRuntimeString(record.actorSubject),
+    actorEmail: optionalSanitizedRuntimeString(record.actorEmail),
+    expiresAt: optionalSanitizedRuntimeString(record.expiresAt)
+  };
+}
+
 async function readJsonWithLimit(response: Response): Promise<unknown> {
   const text = await response.text();
   if (text.length > maxConnectorRuntimeJsonBytes) {
@@ -163,6 +230,7 @@ function normalizeRuntimeResponse(value: unknown): A2AAgentResponse {
       probableCause: typeof record.probableCause === "string" ? record.probableCause : undefined,
       recommendedActions: Array.isArray(record.recommendedActions) ? record.recommendedActions.filter((item): item is string => typeof item === "string") : undefined,
       endUserAnswer: normalizeEndUserAnswer(record.endUserAnswer),
+      authorizationRequirement: normalizeAuthorizationRequirement(record.authorizationRequirement),
       clarifyingQuestions: Array.isArray(record.clarifyingQuestions) ? record.clarifyingQuestions.filter((item): item is string => typeof item === "string") : undefined,
       runtimeSemantics: normalizeRuntimeSemantics(record.runtimeSemantics),
       evidence: Array.isArray(record.evidence)
@@ -337,6 +405,7 @@ export async function executeApprovedConnectorSkill(params: {
       };
     }
 
+    const agentResponse = normalizeRuntimeResponse(body);
     return {
       executed: true,
       runtimeMode: "external_runtime",
@@ -345,7 +414,8 @@ export async function executeApprovedConnectorSkill(params: {
       skillId: params.connectorRoute.skillId,
       runtimeEndpoint: endpoint.url.toString(),
       tokenMetadata: publicTokenMetadata(issued.metadata, params.actor?.provider),
-      agentResponse: normalizeRuntimeResponse(body)
+      agentResponse,
+      authorizationRequirement: agentResponse.authorizationRequirement
     };
   } catch {
     return {

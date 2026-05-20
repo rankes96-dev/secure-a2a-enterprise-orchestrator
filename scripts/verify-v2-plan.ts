@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 const path = "docs/v2-platform-foundation.md";
 const sharedPath = "packages/shared/src/index.ts";
 const deploymentPath = "docs/deployment.md";
+const connectorRuntimePath = "services/orchestrator-api/src/connectorRuntime.ts";
 let failed = false;
 
 function fail(message: string): void {
@@ -87,6 +88,30 @@ if (!existsSync(deploymentPath)) {
   ]) {
     if (!deployment.includes(phrase)) {
       fail(`deployment docs missing required phrase: ${phrase}`);
+    }
+  }
+}
+
+if (!existsSync(connectorRuntimePath)) {
+  fail(`${connectorRuntimePath} should exist`);
+} else {
+  const connectorRuntime = readFileSync(connectorRuntimePath, "utf8");
+  for (const phrase of [
+    "ExternalAuthorizationRequirement",
+    "authorizationRequirement?: ExternalAuthorizationRequirement",
+    "function normalizeAuthorizationRequirement(value: unknown): ExternalAuthorizationRequirement | undefined",
+    'record.type !== "authorization_required"',
+    "sanitizeConnectorRuntimeValue(value)",
+    "authorizationRequirement: normalizeAuthorizationRequirement(record.authorizationRequirement)",
+    "authorizationRequirement: agentResponse.authorizationRequirement",
+    '"authorization"',
+    '"access_token"',
+    '"refresh_token"',
+    '"client_assertion"',
+    '"bearer"'
+  ]) {
+    if (!connectorRuntime.includes(phrase)) {
+      fail(`connector runtime authorization propagation missing required phrase: ${phrase}`);
     }
   }
 }
