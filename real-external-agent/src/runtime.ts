@@ -74,6 +74,7 @@ export type ConnectorRuntimeTask = {
     actor?: {
       email?: unknown;
       roles?: unknown;
+      provider?: unknown;
     };
   };
   trustedContext?: {
@@ -360,6 +361,7 @@ export function safeDiagnosis(params: {
           actorAttached: Boolean(params.actor),
           actor: params.actor,
           actorRoles: params.actorRoles,
+          actorProvider: typeof params.task.context?.actor?.provider === "string" ? params.task.context.actor.provider : undefined,
           rawToken: "hidden"
         }
       },

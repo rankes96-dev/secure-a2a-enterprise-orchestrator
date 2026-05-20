@@ -123,11 +123,16 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
 
   function renderProofSummary(response: ResolveResponse) {
     const actor = response.userIdentity.email ?? response.userIdentity.name ?? (response.userIdentity.authenticated ? "Authenticated user" : "Not authenticated");
+    const actorRoles = response.userIdentity.roles?.join(", ") || "none";
+    const actorRuntimeContext = response.connectorRuntime?.tokenMetadata?.actor ? "Included" : "Not included";
     const securityIntent = response.securityIntent?.detected
       ? `${response.securityIntent.category ?? "detected"}`
       : "No";
     const fields = [
       { label: "Actor", value: actor },
+      { label: "Identity provider", value: response.userIdentity.provider ?? "unknown" },
+      { label: "Actor roles", value: actorRoles },
+      { label: "Runtime actor context", value: actorRuntimeContext },
       { label: "Outcome", value: outcomeLabel(response) },
       { label: "Target connector / system", value: targetConnectorSystem(response) },
       { label: "Gate stopped at", value: gateStoppedAt(response) },

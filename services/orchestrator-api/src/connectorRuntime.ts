@@ -18,6 +18,7 @@ export type ConnectorRuntimeResult = {
     scope: string;
     actor?: string;
     actorRoles?: string[];
+    actorProvider?: string;
     rawToken: "hidden";
   };
   agentResponse?: A2AAgentResponse;
@@ -29,13 +30,14 @@ const connectorRuntimeTimeoutMs = 5_000;
 const maxConnectorRuntimeJsonBytes = 64 * 1024;
 const forbiddenResponseKeys = new Set(["rawtoken", "authorization", "access_token", "refresh_token", "client_assertion", "private_key", "client_secret", "bearer"]);
 
-function publicTokenMetadata(metadata: A2AIssuedTokenMetadata): ConnectorRuntimeResult["tokenMetadata"] {
+function publicTokenMetadata(metadata: A2AIssuedTokenMetadata, actorProvider?: string): ConnectorRuntimeResult["tokenMetadata"] {
   return {
     tokenIssued: metadata.tokenIssued,
     audience: metadata.audience,
     scope: metadata.scope,
     actor: metadata.actor,
     actorRoles: metadata.actorRoles,
+    actorProvider,
     rawToken: "hidden"
   };
 }
@@ -299,7 +301,8 @@ export async function executeApprovedConnectorSkill(params: {
             actor: params.actor
               ? {
                   email: params.actor.email,
-                  roles: [...params.actor.roles]
+                  roles: [...params.actor.roles],
+                  provider: params.actor.provider
                 }
               : undefined
           },
@@ -322,7 +325,7 @@ export async function executeApprovedConnectorSkill(params: {
         resourceSystem: params.connectorRoute.resourceSystem,
         skillId: params.connectorRoute.skillId,
         runtimeEndpoint: endpoint.url.toString(),
-        tokenMetadata: publicTokenMetadata(issued.metadata),
+        tokenMetadata: publicTokenMetadata(issued.metadata, params.actor?.provider),
         ...runtimeErrorFromBody(body)
       };
     }
@@ -334,7 +337,7 @@ export async function executeApprovedConnectorSkill(params: {
       resourceSystem: params.connectorRoute.resourceSystem,
       skillId: params.connectorRoute.skillId,
       runtimeEndpoint: endpoint.url.toString(),
-      tokenMetadata: publicTokenMetadata(issued.metadata),
+      tokenMetadata: publicTokenMetadata(issued.metadata, params.actor?.provider),
       agentResponse: normalizeRuntimeResponse(body)
     };
   } catch {

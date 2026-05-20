@@ -1051,18 +1051,26 @@ function tokenOutcomeLabel(token: string): string {
 function buildSecurityTimelineEvents(response: ResolveResponse): SecurityTimelineEvent[] {
   const events: SecurityTimelineEvent[] = [];
   const firstTraceTimestamp = response.executionTrace[0]?.timestamp ?? response.agentTrace[0]?.timestamp;
+  const runtimeActorContextIncluded = Boolean(
+    response.connectorRuntime?.tokenMetadata?.actor ||
+    response.connectorRuntime?.tokenMetadata?.actorRoles?.length ||
+    response.connectorRuntime?.tokenMetadata?.actorProvider
+  );
 
   events.push({
     id: "identity-verified",
     category: "identity",
     title: "User identity verified",
-    description: `Verified user ${response.userIdentity.email ?? "unknown"} was attached to this gateway session.`,
+    description: `Verified ${response.userIdentity.provider ?? "user"} identity for ${response.userIdentity.email ?? "unknown"} was attached to this gateway session.`,
     status: "success",
     timestamp: firstTraceTimestamp,
     actor: response.userIdentity.email,
     metadata: metadataList([
+      { label: "Identity provider", value: response.userIdentity.provider },
       { label: "Email", value: response.userIdentity.email },
-      { label: "Roles", value: response.userIdentity.roles ?? [] }
+      { label: "Roles", value: response.userIdentity.roles ?? [] },
+      { label: "Runtime actor context", value: runtimeActorContextIncluded ? "included" : "not included" },
+      { label: "Raw token", value: "hidden" }
     ])
   });
 
@@ -1236,6 +1244,28 @@ function buildSecurityTimelineEvents(response: ResolveResponse): SecurityTimelin
     });
   }
 
+  if (response.connectorRuntime?.tokenMetadata) {
+    const tokenMetadata = response.connectorRuntime.tokenMetadata;
+    const actorAttached = Boolean(tokenMetadata.actor || tokenMetadata.actorRoles?.length || tokenMetadata.actorProvider);
+    events.push({
+      id: "connector-runtime-actor-context",
+      category: "token",
+      title: "Actor context attached to runtime proof",
+      description: "Gateway attached safe actor metadata to the scoped runtime context. Raw identity and A2A tokens stayed hidden.",
+      status: actorAttached ? "success" : "warning",
+      timestamp: response.executionTrace.find((entry) => entry.action.includes("connector.runtime.token"))?.timestamp,
+      actor: tokenMetadata.actor,
+      agentId: response.connectorRuntime.connectorId,
+      metadata: metadataList([
+        { label: "Identity provider", value: tokenMetadata.actorProvider ?? response.userIdentity.provider },
+        { label: "Actor email", value: tokenMetadata.actor },
+        { label: "Actor roles", value: tokenMetadata.actorRoles ?? [] },
+        { label: "Runtime token metadata", value: actorAttached ? "actor included" : "actor missing" },
+        { label: "Raw token", value: "hidden" }
+      ])
+    });
+  }
+
   events.push({
     id: "final-answer",
     category: "audit",
@@ -1286,6 +1316,7 @@ function safeTaskAuthMetadata(auth: ResolveA2ATask["context"]["auth"] | undefine
     requestedByAgent: auth.requestedByAgent,
     actor: auth.actor,
     actorRoles: auth.actorRoles,
+    actorProvider: auth.actorProvider,
     tokenAuthMethod: auth.tokenAuthMethod,
     rawToken: "hidden"
   };

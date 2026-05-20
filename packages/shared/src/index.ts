@@ -256,11 +256,13 @@ export type A2ATaskAuthMetadata = {
   requestedByAgent?: string;
   actor?: string;
   actorRoles?: string[];
+  actorProvider?: string;
   tokenAuthMethod?: OAuthClientAuthMethod | PublicOAuthClientAuthMethod;
 };
 
 export type UserIdentitySummary = {
   authenticated: boolean;
+  provider?: string;
   email?: string;
   name?: string;
   roles?: string[];
@@ -295,6 +297,7 @@ export interface A2ATask {
       email: string;
       name?: string;
       roles: string[];
+      provider?: string;
     };
   };
 }
@@ -531,6 +534,7 @@ export type SafeTargetSelection = {
 };
 
 export type ExecutionGateId =
+  | "user_identity_actor_context"
   | "ai_interpretation"
   | "gateway_governance"
   | "oauth_scope"
@@ -648,6 +652,7 @@ export interface ResolveResponse {
       scope: string;
       actor?: string;
       actorRoles?: string[];
+      actorProvider?: string;
       rawToken: "hidden";
     };
     agentResponse?: A2AAgentResponse;

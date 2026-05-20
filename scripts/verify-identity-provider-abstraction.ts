@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { createIdentityProvider } from "../services/orchestrator-api/src/identity/identityConfig";
 import { mapOidcUserIdentityPayload } from "../services/orchestrator-api/src/identity/userIdentityMapper";
+import { buildExecutionGateStack } from "../services/orchestrator-api/src/executionGateStack";
+import type { Classification } from "../packages/shared/src";
 
 function assert(condition: unknown, message: string): void {
   if (!condition) {
@@ -96,6 +98,7 @@ const auth0IdentityWithoutRoles = mapOidcUserIdentityPayload({
   rolesClaim: "https://secure-a2a.dev/roles"
 });
 assert(auth0IdentityWithoutRoles.email === "user@example.com", "Auth0 email claim should map safely");
+assert(auth0Provider.publicIdentity(auth0IdentityWithoutRoles).provider === "auth0", "Auth0 public identity should include safe provider name");
 assert(auth0IdentityWithoutRoles.roles.length === 0, "missing Auth0 roles claim should map to empty roles");
 
 assertThrows(
@@ -162,6 +165,38 @@ const auth0Source = readFileSync("services/orchestrator-api/src/identity/auth0Id
 assert(auth0Source.includes("jwtVerify("), "Auth0 scaffold must verify JWT signature and claims");
 assert(!auth0Source.includes("decodeJwt("), "Auth0 scaffold must not decode unsigned tokens");
 
+const executionGateStackSource = readFileSync("services/orchestrator-api/src/executionGateStack.ts", "utf8");
+for (const phrase of [
+  "user_identity_actor_context",
+  "User Identity / Actor Context",
+  "actorAttached",
+  "runtimeContextIncluded",
+  "identityProvider",
+  "rawTokenExposed: false"
+]) {
+  assert(executionGateStackSource.includes(phrase), `execution gate stack missing actor context proof phrase: ${phrase}`);
+}
+
+const frontendTimelineSource = readFileSync("apps/web-ui/src/main.tsx", "utf8");
+for (const phrase of [
+  "Identity provider",
+  "Runtime actor context",
+  "Actor context attached to runtime proof",
+  "Raw identity and A2A tokens stayed hidden",
+  "actorProvider"
+]) {
+  assert(frontendTimelineSource.includes(phrase), `Security Timeline missing actor propagation proof phrase: ${phrase}`);
+}
+
+const sharedSource = readFileSync("packages/shared/src/index.ts", "utf8");
+for (const phrase of [
+  'provider?: string',
+  'actorProvider?: string',
+  '"user_identity_actor_context"'
+]) {
+  assert(sharedSource.includes(phrase), `shared public proof types missing safe actor metadata phrase: ${phrase}`);
+}
+
 const envExample = readFileSync("services/orchestrator-api/.env.production.example", "utf8");
 for (const phrase of [
   "AUTH_PROVIDER=mock",
@@ -174,6 +209,82 @@ for (const phrase of [
 ]) {
   assert(envExample.includes(phrase), `production env example missing Auth0 readiness phrase: ${phrase}`);
 }
+
+const classification: Classification = {
+  system: "jira",
+  issueType: "AUTHORIZATION_FAILURE",
+  operation: "lookup issue",
+  confidence: "high",
+  reasoningSummary: "Identity provider verification fixture.",
+  classificationSource: "rules_fallback",
+  reporterType: "it_engineer",
+  supportMode: "technical_integration"
+};
+
+function verifyActorGateFor(provider: "mock" | "auth0"): void {
+  const stack = buildExecutionGateStack({
+    userIdentity: {
+      authenticated: true,
+      provider,
+      email: provider === "auth0" ? "auth0-user@example.com" : "ran@company.com",
+      roles: provider === "auth0" ? ["support-engineer"] : ["it-support"]
+    },
+    connectorRouting: {
+      status: "connector_skill_approved",
+      connectorId: "jira-reference",
+      resourceSystem: "jira",
+      skillId: "jira.issue.status.lookup",
+      skillLabel: "Look up Jira issue status",
+      targetSystem: "jira",
+      requiredApplicationGrants: ["read:jira-work"],
+      requiredEffectivePermissions: ["browse_projects"],
+      runtimeMode: "external_runtime_available",
+      reason: "Verification fixture route.",
+      recommendedNextStep: "Execute runtime."
+    },
+    connectorRuntime: {
+      executed: true,
+      runtimeMode: "external_runtime",
+      connectorId: "jira-reference",
+      resourceSystem: "jira",
+      skillId: "jira.issue.status.lookup",
+      tokenMetadata: {
+        tokenIssued: true,
+        audience: "external-jira-agent",
+        scope: "read:jira-work",
+        actor: provider === "auth0" ? "auth0-user@example.com" : "ran@company.com",
+        actorRoles: provider === "auth0" ? ["support-engineer"] : ["it-support"],
+        actorProvider: provider,
+        rawToken: "hidden"
+      },
+      agentResponse: {
+        agentId: "external-jira-agent",
+        status: "diagnosed",
+        summary: "Verification fixture runtime response."
+      }
+    },
+    resolutionStatus: "resolved",
+    classification
+  });
+
+  const actorGate = stack.gates.find((gate) => gate.id === "user_identity_actor_context");
+  assert(actorGate?.status === "passed", `${provider} actor gate should pass: ${JSON.stringify(actorGate)}`);
+  assert(actorGate.reason.includes(`Verified ${provider} user identity`), `${provider} actor gate should name provider: ${actorGate.reason}`);
+  assert(actorGate.evidence?.actorAttached === true, `${provider} actor gate should include actorAttached=true`);
+  assert(actorGate.evidence?.provider === provider, `${provider} actor gate should include provider evidence`);
+  assert(actorGate.evidence?.rawTokenExposed === false, `${provider} actor gate should prove raw token is hidden`);
+
+  const oauthGate = stack.gates.find((gate) => gate.id === "oauth_scope");
+  assert(oauthGate?.evidence?.actorAttached === true, `${provider} OAuth gate should include actorAttached=true`);
+  assert(oauthGate.evidence.identityProvider === provider, `${provider} OAuth gate should include identityProvider`);
+  assert(JSON.stringify(stack).includes('"rawTokenExposed":false'), `${provider} proof should prove raw token is not exposed`);
+  for (const forbidden of ["access_token", "Authorization", "Bearer", "Auth0 token"]) {
+    assert(!JSON.stringify(stack).includes(forbidden), `${provider} actor proof must not expose ${forbidden}`);
+  }
+}
+
+verifyActorGateFor("auth0");
+verifyActorGateFor("mock");
 
 async function main(): Promise<void> {
   await auth0Provider.validateBearerToken("not-a-jwt").then(

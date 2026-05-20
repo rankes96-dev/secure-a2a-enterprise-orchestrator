@@ -17,6 +17,7 @@ export function publicIdentitySummary(identity?: VerifiedGatewayUserIdentity): U
   return identity
     ? {
         authenticated: true,
+        provider: identity.provider,
         email: identity.email,
         name: identity.name,
         roles: [...identity.roles]

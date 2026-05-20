@@ -1059,7 +1059,8 @@ function createA2ATask(params: {
         ? {
             email: params.actor.email,
             name: params.actor.name,
-            roles: [...params.actor.roles]
+            roles: [...params.actor.roles],
+            provider: params.actor.provider
           }
         : undefined
       // TODO: replace mock_internal_token with OAuth 2.0 Client Credentials, JWT access tokens,
@@ -1149,7 +1150,8 @@ async function prepareA2ARequestAuth(params: {
   params.task.context.authMode = "oauth2_client_credentials_jwt";
   params.task.context.auth = {
     ...issued.metadata,
-    authMode: "oauth2_client_credentials_jwt"
+    authMode: "oauth2_client_credentials_jwt",
+    actorProvider: params.task.context.actor?.provider
   };
 
   params.executionSteps.push({
@@ -1660,7 +1662,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           executionStep(
             "orchestrator",
             "user_identity_verified",
-            `Verified user ${verifiedUser.email} via Mock IdP User JWT; actor context attached to gateway session.`
+            `Verified ${verifiedUser.provider} user ${verifiedUser.email}; actor context attached to gateway session.`
           )
         ]
       : [];
@@ -1675,6 +1677,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     const finalResponse: ResolveResponse = {
       ...responseWithIdentity,
       executionGateStack: response.executionGateStack ?? buildExecutionGateStack({
+        userIdentity: responseWithIdentity.userIdentity,
         requestInterpretation: responseWithIdentity.requestInterpretation,
         securityIntent: responseWithIdentity.securityIntent,
         connectorRouting: responseWithIdentity.connectorRouting,

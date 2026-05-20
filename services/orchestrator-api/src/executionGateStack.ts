@@ -5,6 +5,7 @@ type ConnectorRouting = NonNullable<ResolveResponse["connectorRouting"]>;
 type ConnectorPolicy = NonNullable<ResolveResponse["connectorPolicy"]>;
 
 export type BuildExecutionGateStackParams = {
+  userIdentity?: ResolveResponse["userIdentity"];
   requestInterpretation?: RequestInterpretation;
   securityIntent?: SecurityIntent;
   connectorRouting?: ConnectorRouting;
@@ -124,6 +125,30 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
   const oauthBlocked = stopped === "oauth_scope";
   const serviceAccountBlocked = stopped === "service_account_permission";
   const accessBoundaryBlocked = oauthBlocked || serviceAccountBlocked;
+  const userIdentity = params.userIdentity;
+  const actorAuthenticated = userIdentity?.authenticated === true;
+  const actorRuntimeContextIncluded = Boolean(
+    runtime?.tokenMetadata?.actor ||
+    runtime?.tokenMetadata?.actorRoles?.length ||
+    runtime?.tokenMetadata?.actorProvider
+  );
+
+  const actorGate = gate({
+    id: "user_identity_actor_context",
+    label: "User Identity / Actor Context",
+    status: actorAuthenticated ? "passed" : "blocked",
+    reason: actorAuthenticated
+      ? `Verified ${userIdentity?.provider ?? "user"} user identity was attached to gateway session and runtime context.`
+      : "No verified user identity was attached to this gateway session.",
+    evidence: {
+      actorAttached: actorAuthenticated,
+      provider: userIdentity?.provider,
+      email: userIdentity?.email,
+      roles: userIdentity?.roles ?? [],
+      runtimeContextIncluded: actorRuntimeContextIncluded,
+      rawTokenExposed: false
+    }
+  });
 
   const aiGate = gate({
     id: "ai_interpretation",
@@ -198,7 +223,12 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
     missing: missingGrants,
     evidence: {
       tokenIssued: runtime?.tokenMetadata?.tokenIssued === true,
-      audience: runtime?.tokenMetadata?.audience
+      audience: runtime?.tokenMetadata?.audience,
+      actorAttached: Boolean(runtime?.tokenMetadata?.actor),
+      actorEmail: runtime?.tokenMetadata?.actor,
+      actorRoles: runtime?.tokenMetadata?.actorRoles ?? [],
+      identityProvider: runtime?.tokenMetadata?.actorProvider,
+      rawTokenExposed: false
     }
   });
 
@@ -265,13 +295,18 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       executedSkillId: semantics?.executedSkillId ?? routing?.skillId ?? runtime?.skillId,
       targetActionId: semantics?.targetActionId,
       targetActionStatus: semantics?.targetActionStatus,
-      diagnosticOnly: semantics?.diagnosticOnly
+      diagnosticOnly: semantics?.diagnosticOnly,
+      actorContextIncluded: actorRuntimeContextIncluded,
+      actorEmail: runtime?.tokenMetadata?.actor,
+      actorRoles: runtime?.tokenMetadata?.actorRoles ?? [],
+      identityProvider: runtime?.tokenMetadata?.actorProvider,
+      rawTokenExposed: false
     }
   });
 
   return {
     stoppedAt: stopped,
     finalOutcome: outcome,
-    gates: [aiGate, gatewayGate, oauthGate, serviceAccountGate, runtimeGate]
+    gates: [actorGate, aiGate, gatewayGate, oauthGate, serviceAccountGate, runtimeGate]
   };
 }
