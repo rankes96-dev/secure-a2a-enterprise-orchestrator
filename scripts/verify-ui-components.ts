@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, normalize, resolve } from "node:path";
+import { buildLocalConnectorPresets } from "../apps/web-ui/src/connectorPresets";
 
 let failed = false;
 
@@ -36,6 +37,52 @@ const mainLineCount = main.split(/\r?\n/).length;
 if (mainLineCount > 3000) {
   console.error(`fail - main.tsx should stay focused after extraction, found ${mainLineCount} lines`);
   failed = true;
+}
+
+if (!main.includes("buildLocalConnectorPresets(import.meta.env)")) {
+  console.error("fail - Agent Registry presets should be built from frontend env, not a localhost-only inline preset list");
+  failed = true;
+}
+
+for (const hardcodedPresetSource of [
+  'agentBaseUrl: "http://localhost:4201"',
+  'agentBaseUrl: "http://localhost:4202"',
+  'agentBaseUrl: "http://localhost:4203"',
+  'label: "Use local Jira reference agent"',
+  'label: "Use local ServiceNow reference agent"',
+  'label: "Use local GitHub reference agent"'
+]) {
+  if (main.includes(hardcodedPresetSource)) {
+    console.error(`fail - Agent Registry preset source should not be hardcoded in main.tsx: ${hardcodedPresetSource}`);
+    failed = true;
+  }
+}
+
+const localPresets = buildLocalConnectorPresets({});
+if (localPresets[0].agentBaseUrl !== "http://localhost:4201" || localPresets[0].label !== "Use local Jira reference agent") {
+  console.error("fail - local Agent Registry presets should fall back to localhost Jira");
+  failed = true;
+}
+
+const productionPresets = buildLocalConnectorPresets({
+  VITE_JIRA_AGENT_URL: "https://jira-external-agent-production.up.railway.app",
+  VITE_SERVICENOW_AGENT_URL: "https://servicenow-external-agent-production.up.railway.app",
+  VITE_GITHUB_AGENT_URL: "https://github-external-agent-production.up.railway.app"
+});
+for (const [label, expectedUrl, forbiddenLabel] of [
+  ["Use Jira reference agent", "https://jira-external-agent-production.up.railway.app", "Use local Jira reference agent"],
+  ["Use ServiceNow reference agent", "https://servicenow-external-agent-production.up.railway.app", "Use local ServiceNow reference agent"],
+  ["Use GitHub reference agent", "https://github-external-agent-production.up.railway.app", "Use local GitHub reference agent"]
+] as const) {
+  const preset = productionPresets.find((item) => item.label === label);
+  if (!preset || preset.agentBaseUrl !== expectedUrl) {
+    console.error(`fail - production Agent Registry preset should use Railway URL ${expectedUrl}`);
+    failed = true;
+  }
+  if (productionPresets.some((item) => item.label === forbiddenLabel)) {
+    console.error(`fail - production Agent Registry preset label should not say local: ${forbiddenLabel}`);
+    failed = true;
+  }
 }
 
 for (const componentName of ["DemoGuideTab", "RunTaskTab", "AgentRegistryTab", "ConnectorTestCenterTab", "TrustIdentityTab", "SecurityTimelineTab"]) {

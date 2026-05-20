@@ -1,24 +1,28 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+function readText(path: string): string {
+  return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+}
+
 function readTsxTree(path: string): string {
   return readdirSync(path, { withFileTypes: true }).map((entry) => {
     const fullPath = join(path, entry.name);
     if (entry.isDirectory()) {
       return readTsxTree(fullPath);
     }
-    return entry.isFile() && entry.name.endsWith(".tsx") ? readFileSync(fullPath, "utf8") : "";
+    return entry.isFile() && entry.name.endsWith(".tsx") ? readText(fullPath) : "";
   }).join("\n");
 }
 
 const webUi = [
-  readFileSync("apps/web-ui/src/main.tsx", "utf8"),
+  readText("apps/web-ui/src/main.tsx"),
   readTsxTree("apps/web-ui/src/components")
 ].join("\n");
-const mainTsx = readFileSync("apps/web-ui/src/main.tsx", "utf8");
-const runTask = readFileSync("apps/web-ui/src/components/run-task/RunTaskTab.tsx", "utf8");
-const shared = readFileSync("packages/shared/src/index.ts", "utf8");
-const connectorRuntime = readFileSync("services/orchestrator-api/src/connectorRuntime.ts", "utf8");
+const mainTsx = readText("apps/web-ui/src/main.tsx");
+const runTask = readText("apps/web-ui/src/components/run-task/RunTaskTab.tsx");
+const shared = readText("packages/shared/src/index.ts");
+const connectorRuntime = readText("services/orchestrator-api/src/connectorRuntime.ts");
 
 let failed = false;
 

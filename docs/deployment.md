@@ -66,7 +66,20 @@ Required public frontend env:
 
 ```env
 VITE_ORCHESTRATOR_API_URL=https://<orchestrator>.railway.app
+VITE_JIRA_AGENT_URL=https://<jira-agent>.railway.app
+VITE_SERVICENOW_AGENT_URL=https://<servicenow-agent>.railway.app
+VITE_GITHUB_AGENT_URL=https://<github-agent>.railway.app
 ```
+
+For the current Railway production demo, set:
+
+```env
+VITE_JIRA_AGENT_URL=https://jira-external-agent-production.up.railway.app
+VITE_SERVICENOW_AGENT_URL=https://servicenow-external-agent-production.up.railway.app
+VITE_GITHUB_AGENT_URL=https://github-external-agent-production.up.railway.app
+```
+
+The Agent Registry preset cards use these `VITE_*_AGENT_URL` values when they are present. Without them, local development falls back to the localhost reference agents.
 
 Vercel must not contain `OPENROUTER_API_KEY`, `UPSTASH_REDIS_REST_TOKEN`, `INTERNAL_SERVICE_TOKEN`, `ORCHESTRATOR_PRIVATE_JWK_JSON`, `ORCHESTRATOR_CLIENT_SECRET`, API keys, JWT secrets, cookies, or other server-side secrets.
 
