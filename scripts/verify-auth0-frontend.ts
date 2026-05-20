@@ -25,6 +25,8 @@ const main = readFileSync("apps/web-ui/src/main.tsx", "utf8");
 const trustIdentityTab = readFileSync("apps/web-ui/src/components/trust-identity/TrustIdentityTab.tsx", "utf8");
 const envExample = readFileSync("apps/web-ui/.env.example", "utf8");
 const deploymentDocs = readFileSync("docs/deployment.md", "utf8");
+const v2Plan = readFileSync("docs/v2-platform-foundation.md", "utf8");
+const vercelConfig = readFileSync("vercel.json", "utf8");
 
 for (const phrase of [
   'const configured = cleanEnv(value) ?? "mock"',
@@ -56,6 +58,12 @@ for (const forbidden of [
 }
 
 for (const phrase of [
+  'export const auth0CallbackPath = "/auth/callback"',
+  "return `${window.location.origin}${auth0CallbackPath}`",
+  "window.location.pathname === auth0CallbackPath",
+  "window.location.assign(auth0AuthorizeUrl",
+  "window.sessionStorage.setItem(returnToKey, safeInternalReturnTo(returnTo))",
+  "safeInternalReturnTo(value: string | null)",
   "code_challenge_method",
   "authorization_code",
   "!config.isConfigured || !config.domain || !config.clientId || !config.audience",
@@ -70,6 +78,9 @@ for (const phrase of [
   assert(auth0Client.includes(phrase), `Auth0 frontend client missing PKCE/token exchange phrase: ${phrase}`);
 }
 
+assert(!auth0Client.includes("return window.location.origin + window.location.pathname"), "Auth0 redirect URI must not use the current app pathname");
+assert(auth0Client.includes("cleanAuth0CallbackUrl(returnTo)") && auth0Client.includes("window.history.replaceState({}, document.title, safeInternalReturnTo(targetPath))"), "Auth0 callback cleanup must remove callback query parameters");
+
 for (const forbidden of [
   "error_description}`",
   "code}`",
@@ -82,11 +93,27 @@ for (const forbidden of [
   assert(!auth0Client.includes(forbidden), `Auth0 frontend errors must not interpolate sensitive callback/token details: ${forbidden}`);
 }
 
+for (const forbidden of [
+  "CLIENT_SECRET",
+  "setAccessToken",
+  "authorizationCode}</",
+  "error_description}`"
+]) {
+  assert(!auth0Client.includes(forbidden), `Auth0 frontend client must not expose or store forbidden OAuth material: ${forbidden}`);
+  assert(!main.includes(forbidden), `main frontend flow must not expose or store forbidden OAuth material: ${forbidden}`);
+}
+assert(!/localStorage\.setItem\([^)]*accessToken/isu.test(main), "main frontend flow must not store access tokens in localStorage");
+assert(!/localStorage\.setItem\([^)]*access_token/isu.test(auth0Client), "Auth0 frontend client must not store access tokens in localStorage");
+
 assert(mockAuthClient.includes("/identity/demo-login"), "mock login flow must still call /identity/demo-login");
 assert(mockAuthClient.includes("/identity/session"), "Auth0 bearer flow must post to /identity/session");
 assert(mockAuthClient.includes("authorization: `Bearer ${accessToken}`"), "Auth0 bearer flow must send token as Authorization bearer header");
 
 for (const phrase of [
+  "isAuth0CallbackRoute()",
+  "if (!isAuth0CallbackRoute())",
+  "discardAuth0RedirectResult()",
+  "Auth0 login failed. Please try again.",
   "completeAuth0Redirect(auth0Config)",
   "postBearerIdentitySession(API_URL, result.accessToken)",
   "Gateway rejected Auth0 identity:",
@@ -136,6 +163,7 @@ for (const [path, content] of frontendSource) {
 
 for (const phrase of [
   "VITE_AUTH_PROVIDER=mock",
+  "Configure Auth0 SPA callbacks to use /auth/callback, not the app root.",
   "# VITE_AUTH_PROVIDER=auth0",
   "# VITE_AUTH0_DOMAIN=<tenant>.auth0.com",
   "# VITE_AUTH0_CLIENT_ID=<spa-client-id>",
@@ -145,6 +173,15 @@ for (const phrase of [
 }
 
 for (const phrase of [
+  "/auth/callback",
+  "Allowed Callback URLs:",
+  "http://localhost:5173/auth/callback",
+  "https://secure-a2a-enterprise-orchestrator.vercel.app/auth/callback",
+  "Allowed Logout URLs:",
+  "Allowed Web Origins:",
+  "Allowed Origins CORS:",
+  "Root callback URLs",
+  "should be removed after verification",
   "VITE_AUTH_PROVIDER=auth0",
   "VITE_AUTH0_DOMAIN=<tenant>.auth0.com",
   "VITE_AUTH0_CLIENT_ID=<spa-client-id>",
@@ -156,5 +193,8 @@ for (const phrase of [
 ]) {
   assert(deploymentDocs.includes(phrase), `deployment docs missing Auth0 frontend/backend phrase: ${phrase}`);
 }
+
+assert(v2Plan.includes("/auth/callback") && v2Plan.includes("not the preferred OAuth callback route"), "V2 plan should document dedicated Auth0 callback routing");
+assert(vercelConfig.includes('"source": "/(.*)"') && vercelConfig.includes('"destination": "/index.html"'), "Vercel config should serve the SPA for /auth/callback");
 
 console.log("Auth0 frontend readiness verification passed.");

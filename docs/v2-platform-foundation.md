@@ -96,6 +96,8 @@ Vercel frontend Auth0 env uses only public SPA configuration:
 - `VITE_AUTH0_CLIENT_ID`
 - `VITE_AUTH0_AUDIENCE`
 
+The Auth0 SPA redirect URI should use `/auth/callback` in local and production deployments. The app root `/` is normal application boot, not the preferred OAuth callback route.
+
 Railway orchestrator Auth0 env validates the user JWT server-side:
 
 - `AUTH_PROVIDER=auth0`

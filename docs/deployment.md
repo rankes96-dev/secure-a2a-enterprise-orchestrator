@@ -83,6 +83,28 @@ VITE_AUTH0_AUDIENCE=<api-audience>
 
 Auth0 is for real browser user identity. The Mock IdP remains the A2A machine-token issuer for scoped connector runtime execution, and in V2 documentation this service is treated as the Reference A2A Token Issuer / Reference A2A Authorization Server rather than the primary user identity provider.
 
+Auth0 SPA dashboard settings should use the dedicated callback route:
+
+```text
+Allowed Callback URLs:
+http://localhost:5173/auth/callback
+https://secure-a2a-enterprise-orchestrator.vercel.app/auth/callback
+
+Allowed Logout URLs:
+http://localhost:5173/
+https://secure-a2a-enterprise-orchestrator.vercel.app/
+
+Allowed Web Origins:
+http://localhost:5173
+https://secure-a2a-enterprise-orchestrator.vercel.app
+
+Allowed Origins CORS:
+http://localhost:5173
+https://secure-a2a-enterprise-orchestrator.vercel.app
+```
+
+Root callback URLs such as `http://localhost:5173/` may be kept temporarily during migration, but `/auth/callback` is the preferred callback and root callbacks should be removed after verification.
+
 For the current Railway production demo, set:
 
 ```env

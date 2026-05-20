@@ -4,7 +4,7 @@ import type { AgentsHealthResponse, EndUserAnswer, ResolveResponse } from "@a2a/
 import "./styles.css";
 import { PageHeader } from "./components/layout/PageHeader";
 import { buildLocalConnectorPresets } from "./connectorPresets";
-import { completeAuth0Redirect, discardAuth0RedirectResult, startAuth0LoginRedirect } from "./auth/auth0Client";
+import { completeAuth0Redirect, discardAuth0RedirectResult, isAuth0CallbackRoute, startAuth0LoginRedirect } from "./auth/auth0Client";
 import { frontendAuthProviderLabel, readFrontendAuthConfig } from "./auth/authConfig";
 import { postBearerIdentitySession, postIdentityLogout, postMockDemoLogin } from "./auth/mockAuthClient";
 import type { IdentitySessionResponse } from "./auth/authTypes";
@@ -2159,26 +2159,26 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (frontendAuthConfig.provider !== "auth0") {
+    if (!isAuth0CallbackRoute()) {
       return;
     }
-    if (!frontendAuthConfig.isConfigured) {
+    if (frontendAuthConfig.provider !== "auth0" || !frontendAuthConfig.isConfigured) {
       discardAuth0RedirectResult();
+      setIdentityError("Auth0 login is not configured for this deployment.");
       return;
     }
 
     const auth0Config = frontendAuthConfig;
     let cancelled = false;
     async function completeLogin() {
-      setIdentityError("");
-      setIdentityMessage("");
+      setIdentityError(""); setIdentityMessage("");
+      setIsIdentityLoading(true);
       try {
         const result = await completeAuth0Redirect(auth0Config);
         if (!result.handled || !result.accessToken || cancelled) {
           return;
         }
 
-        setIsIdentityLoading(true);
         await ensureSession();
         const session = await postBearerIdentitySession(API_URL, result.accessToken).catch(async (error: unknown) => {
           if (error instanceof Response) {
@@ -2195,8 +2195,9 @@ function App() {
         setIdentityMessage("Auth0 identity verified and attached to this gateway session.");
         await loadTrustStatus();
       } catch (caughtError) {
+        void caughtError;
         if (!cancelled) {
-          setIdentityError(caughtError instanceof Error ? caughtError.message : "Auth0 login failed.");
+          setIdentityError("Auth0 login failed. Please try again.");
         }
       } finally {
         if (!cancelled) {

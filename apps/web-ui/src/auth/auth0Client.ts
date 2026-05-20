@@ -3,6 +3,8 @@ import type { Auth0FrontendAuthConfig } from "./authTypes";
 const verifierKey = "secure-a2a.auth0.codeVerifier";
 const stateKey = "secure-a2a.auth0.state";
 const nonceKey = "secure-a2a.auth0.nonce";
+const returnToKey = "secure-a2a.auth0.returnTo";
+export const auth0CallbackPath = "/auth/callback";
 
 type Auth0TokenResponse = {
   access_token?: string;
@@ -30,16 +32,19 @@ async function sha256Base64Url(value: string): Promise<string> {
 }
 
 function redirectUri(): string {
-  return window.location.origin + window.location.pathname;
+  return `${window.location.origin}${auth0CallbackPath}`;
 }
 
-function cleanAuth0CallbackUrl(): void {
-  const url = new URL(window.location.href);
-  url.searchParams.delete("code");
-  url.searchParams.delete("state");
-  url.searchParams.delete("error");
-  url.searchParams.delete("error_description");
-  window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+function safeInternalReturnTo(value: string | null): string {
+  return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
+}
+
+export function isAuth0CallbackRoute(): boolean {
+  return window.location.pathname === auth0CallbackPath;
+}
+
+export function cleanAuth0CallbackUrl(targetPath = "/"): void {
+  window.history.replaceState({}, document.title, safeInternalReturnTo(targetPath));
 }
 
 function auth0AuthorizeUrl(config: Required<Pick<Auth0FrontendAuthConfig, "domain" | "clientId" | "audience">>, state: string, nonce: string, codeChallenge: string): string {
@@ -62,7 +67,7 @@ export function hasAuth0RedirectResult(): boolean {
 }
 
 export function discardAuth0RedirectResult(): void {
-  if (hasAuth0RedirectResult()) {
+  if (hasAuth0RedirectResult() || isAuth0CallbackRoute()) {
     cleanAuth0CallbackUrl();
   }
 }
@@ -76,10 +81,12 @@ export async function startAuth0LoginRedirect(config: Auth0FrontendAuthConfig): 
   const nonce = randomBase64Url();
   const codeVerifier = randomBase64Url(48);
   const codeChallenge = await sha256Base64Url(codeVerifier);
+  const returnTo = window.location.pathname === auth0CallbackPath ? "/" : window.location.pathname;
 
   window.sessionStorage.setItem(verifierKey, codeVerifier);
   window.sessionStorage.setItem(stateKey, state);
   window.sessionStorage.setItem(nonceKey, nonce);
+  window.sessionStorage.setItem(returnToKey, safeInternalReturnTo(returnTo));
   window.location.assign(auth0AuthorizeUrl(config as Required<Pick<Auth0FrontendAuthConfig, "domain" | "clientId" | "audience">>, state, nonce, codeChallenge));
 }
 
@@ -103,29 +110,34 @@ export async function completeAuth0Redirect(config: Auth0FrontendAuthConfig): Pr
   const state = params.get("state");
   const expectedState = window.sessionStorage.getItem(stateKey);
   const codeVerifier = window.sessionStorage.getItem(verifierKey);
+  const returnTo = safeInternalReturnTo(window.sessionStorage.getItem(returnToKey));
 
   window.sessionStorage.removeItem(verifierKey);
   window.sessionStorage.removeItem(stateKey);
   window.sessionStorage.removeItem(nonceKey);
+  window.sessionStorage.removeItem(returnToKey);
 
   if (!code || !state || !expectedState || state !== expectedState || !codeVerifier) {
     discardAuth0RedirectResult();
     throw new Error("Auth0 login state validation failed.");
   }
 
-  const response = await fetch(`https://${config.domain}/oauth/token`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "authorization_code",
-      client_id: config.clientId,
-      code,
-      code_verifier: codeVerifier,
-      redirect_uri: redirectUri()
-    })
-  });
-
-  discardAuth0RedirectResult();
+  let response: Response;
+  try {
+    response = await fetch(`https://${config.domain}/oauth/token`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        grant_type: "authorization_code",
+        client_id: config.clientId,
+        code,
+        code_verifier: codeVerifier,
+        redirect_uri: redirectUri()
+      })
+    });
+  } finally {
+    cleanAuth0CallbackUrl(returnTo);
+  }
 
   if (!response.ok) {
     throw new Error("Auth0 token exchange failed.");
