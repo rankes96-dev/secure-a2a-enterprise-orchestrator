@@ -87,7 +87,7 @@ export async function completeAuth0Redirect(config: Auth0FrontendAuthConfig): Pr
   if (!hasAuth0RedirectResult()) {
     return { handled: false };
   }
-  if (!config.isConfigured || !config.domain || !config.clientId) {
+  if (!config.isConfigured || !config.domain || !config.clientId || !config.audience) {
     discardAuth0RedirectResult();
     throw new Error("Auth0 login is not configured for this deployment.");
   }

@@ -58,6 +58,7 @@ for (const forbidden of [
 for (const phrase of [
   "code_challenge_method",
   "authorization_code",
+  "!config.isConfigured || !config.domain || !config.clientId || !config.audience",
   "client_id: config.clientId",
   "https://${config.domain}/oauth/token",
   "return { handled: true, accessToken: body.access_token }"
