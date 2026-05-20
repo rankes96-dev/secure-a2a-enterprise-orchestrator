@@ -81,7 +81,7 @@ VITE_AUTH0_CLIENT_ID=<spa-client-id>
 VITE_AUTH0_AUDIENCE=<api-audience>
 ```
 
-Auth0 is for real browser user identity. The Mock IdP remains the A2A machine-token issuer for scoped connector runtime execution.
+Auth0 is for real browser user identity. The Mock IdP remains the A2A machine-token issuer for scoped connector runtime execution, and in V2 documentation this service is treated as the Reference A2A Token Issuer / Reference A2A Authorization Server rather than the primary user identity provider.
 
 For the current Railway production demo, set:
 
@@ -239,7 +239,7 @@ Railway provides `PORT`; do not set `EXTERNAL_AGENT_PORT` in Railway production.
 
 The connector-specific start command and EXTERNAL_* connector identity env values must match. The service fails fast in production if they do not.
 
-External connector runtime JWT validation uses the Mock IdP as the A2A token issuer. Set `MOCK_IDP_ISSUER=https://<mock-idp>.railway.app` to the exact `iss` value in A2A runtime JWTs, and set `MOCK_IDP_JWKS_URI=https://<mock-idp>.railway.app/.well-known/jwks.json` for signature verification. Both values must point to the same Mock IdP / A2A token issuer deployment. External agents validate the A2A issuer, audience, expiration, and required scope; they do not validate Auth0 directly.
+External connector runtime JWT validation uses the Mock IdP service as the Reference A2A Token Issuer. Set `MOCK_IDP_ISSUER=https://<mock-idp>.railway.app` to the exact `iss` value in A2A runtime JWTs, and set `MOCK_IDP_JWKS_URI=https://<mock-idp>.railway.app/.well-known/jwks.json` for signature verification. Both values must point to the same Mock IdP / A2A token issuer deployment. External agents validate the A2A issuer, audience, expiration, and required scope; they do not validate Auth0 directly.
 
 The external connector admin console is local-only by default. In Railway production, keep:
 

@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 
 const path = "docs/v2-platform-foundation.md";
+const sharedPath = "packages/shared/src/index.ts";
+const deploymentPath = "docs/deployment.md";
 let failed = false;
 
 function fail(message: string): void {
@@ -19,6 +21,7 @@ if (!existsSync(path)) {
     "Phase 0  V1 Closeout / Branch Hygiene",
     "Phase 1  Real User Identity With Auth0",
     "Phase 2  Persistent Platform State",
+    "Phase 2.5  Connected Accounts / User Delegated OAuth",
     "Phase 3  Connector SDK",
     "Phase 3.5  Real ServiceNow External Agent Adapter",
     "Phase 4  Governed Chat Engine",
@@ -29,6 +32,7 @@ if (!existsSync(path)) {
     "real Jira API writes",
     "Real ServiceNow read-only adapter is V2 scope",
     "Autonomous/high-risk ServiceNow writes are not V2 scope",
+    "shared admin/developer OAuth tokens for user-delegated external app actions",
     "real GitHub writes",
     "replacing all backend services with another stack",
     "rewriting everything from scratch",
@@ -36,6 +40,11 @@ if (!existsSync(path)) {
     "Onboarding URL allowlist protects against SSRF.",
     "Runtime URL allowlist protects against untrusted runtime execution.",
     "`private_key_jwt` remains preferred over `client_secret_post`.",
+    "Auth0 is the real user identity provider",
+    "Reference A2A Token Issuer",
+    "authorization_required",
+    "Never use one admin/developer OAuth token for all users",
+    "does not replace OAuth delegated authorization",
     "servicenow.incident.read",
     "SERVICENOW_INSTANCE_URL",
     "ServiceNow credentials live only in the external adapter",
@@ -44,6 +53,40 @@ if (!existsSync(path)) {
   ]) {
     if (!doc.includes(phrase)) {
       fail(`V2 plan missing required phrase: ${phrase}`);
+    }
+  }
+}
+
+if (!existsSync(sharedPath)) {
+  fail(`${sharedPath} should exist`);
+} else {
+  const shared = readFileSync(sharedPath, "utf8");
+  for (const phrase of [
+    "ExternalAuthorizationRequirement",
+    "ConnectedAccountStatus",
+    'type: "authorization_required"',
+    "authorizationRequirement?: ExternalAuthorizationRequirement",
+    "actorProvider?: string",
+    "actorSubject?: string",
+    "requestedScopes: string[]"
+  ]) {
+    if (!shared.includes(phrase)) {
+      fail(`shared contracts missing required phrase: ${phrase}`);
+    }
+  }
+}
+
+if (!existsSync(deploymentPath)) {
+  fail(`${deploymentPath} should exist`);
+} else {
+  const deployment = readFileSync(deploymentPath, "utf8");
+  for (const phrase of [
+    "Auth0 is for real browser user identity",
+    "Reference A2A Token Issuer",
+    "they do not validate Auth0 directly"
+  ]) {
+    if (!deployment.includes(phrase)) {
+      fail(`deployment docs missing required phrase: ${phrase}`);
     }
   }
 }

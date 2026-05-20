@@ -273,6 +273,40 @@ export type UserIdentitySummary = {
   roles?: string[];
 };
 
+export type ExternalAuthorizationProvider =
+  | "monday"
+  | "servicenow"
+  | "github"
+  | "jira"
+  | string;
+
+export type ExternalAuthorizationRequirement = {
+  type: "authorization_required";
+  provider: ExternalAuthorizationProvider;
+  resourceSystem: string;
+  connectorId: string;
+  reason: string;
+  authorizeUrl: string;
+  requestedScopes: string[];
+  actorProvider?: string;
+  actorSubject?: string;
+  actorEmail?: string;
+  expiresAt?: string;
+};
+
+export type ConnectedAccountStatus = {
+  provider: ExternalAuthorizationProvider;
+  resourceSystem: string;
+  connectorId: string;
+  actorProvider: string;
+  actorSubject: string;
+  actorEmail?: string;
+  externalAccountId?: string;
+  scopes: string[];
+  status: "connected" | "missing" | "expired" | "revoked" | "insufficient_scope";
+  expiresAt?: string;
+};
+
 export interface A2ATask {
   taskId: string;
   conversationId: string;
@@ -332,6 +366,7 @@ export interface A2AAgentResponse {
   probableCause?: string;
   recommendedActions?: string[];
   endUserAnswer?: EndUserAnswer;
+  authorizationRequirement?: ExternalAuthorizationRequirement;
   clarifyingQuestions?: string[];
   requestedDelegations?: Array<{
     targetAgentId: AgentId;
@@ -665,6 +700,7 @@ export interface ResolveResponse {
       rawToken: "hidden";
     };
     agentResponse?: A2AAgentResponse;
+    authorizationRequirement?: ExternalAuthorizationRequirement;
     error?: string;
     errorMessage?: string;
   };

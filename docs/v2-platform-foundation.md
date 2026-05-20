@@ -76,9 +76,9 @@ Acceptance criteria:
 
 Goal: add pluggable real user identity.
 
-Auth0 will be the real user identity provider. Mock IdP remains the A2A machine-to-machine token issuer for local and V1-style runtime token flows. Phase 1 must not replace Mock IdP entirely.
+Auth0 is the real user identity provider for browser users. The existing `services/mock-identity-provider` service remains the **Reference A2A Token Issuer** / **Reference A2A Authorization Server** for local and V1-style runtime token flows. Phase 1 must not replace that A2A issuer entirely.
 
-Auth0 is for browser end-user identity only. In V2 Phase 1, the Mock IdP remains the issuer for scoped A2A machine tokens used by connector runtime execution.
+Auth0 is for browser end-user identity only. In V2 Phase 1, the Reference A2A Token Issuer remains the issuer for scoped A2A machine tokens used by connector runtime execution. Future V2 work may replace the reference issuer with an Auth0/Okta-backed issuer or another production authorization server, but that is separate from user login.
 
 Expected future implementation:
 
@@ -135,6 +135,81 @@ Acceptance criteria:
 - conversation metadata survives restart
 - pending interactions survive refresh/restart
 - V1 local in-memory mode remains available for fast development
+
+### Phase 2.5  Connected Accounts / User Delegated OAuth
+
+Goal: prevent external agents from acting with one shared admin/developer OAuth token.
+
+Connected Accounts add user-delegated authorization for external applications that need user-level OAuth. The Gateway verifies enterprise user identity with Auth0, signs actor provenance into A2A runtime tokens, and external adapters validate those A2A runtime JWTs before calling vendor APIs. External adapters must never use one admin/developer OAuth token for all users.
+
+Example ServiceNow/Monday flow:
+
+- A user asks the ServiceNow agent to create a Monday defect.
+- The adapter checks for a Monday connected account for `actor_provider + actor_sub`.
+- If missing, the adapter returns `authorization_required`.
+- The Gateway shows `Connect your monday account`.
+- The user authorizes the Monday OAuth app.
+- The adapter stores an encrypted token for that user.
+- Future runtime calls use that user's Monday token, not Ran's token.
+
+External applications using the same IdP as the enterprise tenant can help identity mapping through subject, email, directory, or SCIM data, but that does not replace OAuth delegated authorization for the target application. Identity proves who the user is; connected-account OAuth proves the user authorized that specific external app action.
+
+Expected shared contracts:
+
+- `ExternalAuthorizationRequirement` describes an `authorization_required` runtime response.
+- `ConnectedAccountStatus` describes whether an actor has a usable connected account for a provider, connector, resource system, and scope set.
+- Connector runtime proof and A2A agent responses may include safe authorization requirement metadata.
+- End-user answers may safely say account connection is required, but must not expose raw OAuth tokens, refresh tokens, authorization codes, or Authorization headers.
+
+Expected external adapter behavior:
+
+- Validate the A2A runtime JWT signature, issuer, audience, expiration, required scope, `actor`, `actor_provider`, `actor_issuer`, and `actor_sub`.
+- Resolve the actor to an external account by `actor_sub`, actor email, external directory, SCIM, or a user mapping table.
+- Check the connected account token vault for provider, `actor_provider`, `actor_sub`, and required scopes.
+- If the connected account is missing, expired, revoked, or insufficiently scoped, return `authorization_required`.
+- If connected, use the actor's external app token for the vendor API call.
+- For writes, require Gateway policy allow and human approval when configured.
+- Never use one admin/developer OAuth token for all users.
+
+Expected Gateway behavior:
+
+- If connector runtime returns `authorization_required`, show `Connect your <provider> account`.
+- Use a safe `authorizeUrl` as the CTA target when the adapter marks it safe for browser use.
+- Keep a pending interaction so the user can continue after connecting the account.
+- Security Timeline should show user authorization required, requested provider/scopes, actor identity, and raw tokens hidden.
+
+Future token vault schema:
+
+```text
+connected_accounts
+  id
+  tenant_id
+  actor_provider
+  actor_issuer
+  actor_subject
+  actor_email
+  provider
+  resource_system
+  connector_id
+  external_account_id
+  scopes
+  status
+  encrypted_access_token
+  encrypted_refresh_token
+  expires_at
+  created_at
+  updated_at
+  revoked_at
+```
+
+Token vault security:
+
+- Tokens are encrypted at rest.
+- Tokens are never returned to the browser.
+- Tokens are never logged.
+- Revocation is supported.
+- Refresh is handled server-side.
+- One user's token is never used for another user.
 
 ### Phase 3  Connector SDK
 
@@ -334,6 +409,7 @@ V2 should not include:
 - real Jira API writes
 - autonomous/high-risk ServiceNow writes
 - real GitHub writes
+- shared admin/developer OAuth tokens for user-delegated external app actions
 - 20 connectors
 - marketplace
 - billing
@@ -362,6 +438,8 @@ Real ServiceNow read-only adapter is V2 scope. Real ServiceNow writes such as `s
 
 - Raw tokens are never displayed.
 - Browser never receives internal service tokens.
+- External adapters must not use one shared admin/developer OAuth token for all users.
+- User-delegated external application authorization must use per-user connected accounts when the vendor action requires user OAuth.
 - Public `.well-known/*` metadata is okay.
 - `/admin` and debug endpoints must remain disabled or token-protected in production.
 - Onboarding URL allowlist protects against SSRF.
@@ -375,8 +453,9 @@ Real ServiceNow read-only adapter is V2 scope. Real ServiceNow writes such as `s
 V2 foundation is done when:
 
 - V1 remains verifiable through `npm run verify:v1`.
-- Real user identity is pluggable and Auth0-backed without removing Mock IdP machine-token flows.
+- Real user identity is pluggable and Auth0-backed without removing Reference A2A Token Issuer runtime flows.
 - Installed connectors and audit proof persist across orchestrator restarts.
+- Connected Accounts / User Delegated OAuth contracts exist for external applications that require per-user authorization.
 - Connector SDK can express the existing reference connector contract.
 - Real ServiceNow read-only adapter exists or is documented as the flagship SDK adapter target.
 - ServiceNow secrets are isolated to the adapter.
@@ -391,11 +470,12 @@ V2 foundation is done when:
 1. Keep Phase 0 branch hygiene and verification discipline strict.
 2. Add identity provider abstraction before Auth0-specific code.
 3. Add persistence abstractions and schemas before migrating runtime state.
-4. Move audit events into durable storage before expanding Security Timeline.
-5. Extract the connector SDK from the existing reference connector contract.
-6. Extract governed chat rules behind focused tests before larger routing changes.
-7. Add CI and Playwright smoke once Phase 1 and Phase 2 stabilize.
-8. Polish presentation after platform proof is stable.
+4. Define Connected Accounts / User Delegated OAuth contracts before real write-capable adapters.
+5. Move audit events into durable storage before expanding Security Timeline.
+6. Extract the connector SDK from the existing reference connector contract.
+7. Extract governed chat rules behind focused tests before larger routing changes.
+8. Add CI and Playwright smoke once Phase 1 and Phase 2 stabilize.
+9. Polish presentation after platform proof is stable.
 
 ## Verification Strategy
 
@@ -407,6 +487,7 @@ V2 verification should layer new checks without weakening V1:
 - `npm run verify:v2-plan`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
 - future persistence verification for restart-surviving connectors, audit events, conversations, pending interactions, and runtime executions
+- future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
 - future SDK verification proving a connector can onboard without Gateway core changes
 - future chat-engine regression tests for precedence rules
 - future Playwright smoke tests for browser and production demo flows
@@ -443,6 +524,19 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Persist pending interactions
 - [ ] Persist runtime executions
 - [ ] Keep local in-memory mode available
+
+### Phase 2.5  Connected Accounts / User Delegated OAuth
+
+- [ ] Define shared `authorization_required` contract
+- [ ] Define connected account status contract
+- [ ] Design connected account token vault schema
+- [ ] Define actor-to-external-account resolution rules
+- [ ] Define adapter checks for provider, actor, connector, resource system, and required scopes
+- [ ] Design Gateway `Connect your <provider> account` CTA behavior
+- [ ] Preserve pending interaction after authorization
+- [ ] Add Security Timeline events for user authorization required
+- [ ] Verify one user's token is never used for another user
+- [ ] Verify raw OAuth tokens, refresh tokens, and authorization codes stay hidden
 
 ### Phase 3  Connector SDK
 
