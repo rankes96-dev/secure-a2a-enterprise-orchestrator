@@ -285,16 +285,17 @@ for (const prompt of [
 
 const agentRegistry = readFileSync("apps/web-ui/src/components/agent-registry/AgentRegistryTab.tsx", "utf8");
 const styles = readFileSync("apps/web-ui/src/styles.css", "utf8");
+const normalizedStyles = styles.replace(/\r\n/g, "\n");
 assert(agentRegistry.includes("registry-agent-metadata template-details"), "Agent Registry template details should use readable template-details layout");
-assert(styles.includes(".template-details") && styles.includes(".template-details > div"), "Template details should use a dedicated readable layout");
-assert(styles.includes(".template-details {\n  grid-template-columns: 1fr;"), "Template details should render as full-width key-value rows");
-assert(!styles.includes(".template-details {\n  grid-template-columns: repeat(5"), "Template details must not use five narrow columns");
-assert(!styles.includes(".template-details strong {\n  line-height: 1.45;\n  overflow-wrap: break-word;\n  word-break: break-all;"), "Template details should not force break-all wrapping");
-assert(!styles.includes("registry-agent-metadata,\n  .template-details,\n  .trust-card-grid"), "Responsive registry metadata grid must not force template details back into narrow columns");
-assert(styles.includes("grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));"), "Connector Catalog should use a responsive non-overflow card grid");
-assert(!styles.includes(".connector-preset-grid {\n  display: grid;\n  grid-template-columns: repeat(3"), "Connector Catalog must not use a fixed three-column grid");
-assert(styles.includes(".connector-card-actions .scenario-run") && styles.includes("width: auto;"), "Connector card actions should remain normal buttons instead of stretched circles");
-assert(styles.includes(".connector-template-facts span") && styles.includes("min-height: 0;"), "Connector template summary facts should stay compact");
+assert(normalizedStyles.includes(".template-details") && normalizedStyles.includes(".template-details > div"), "Template details should use a dedicated readable layout");
+assert(normalizedStyles.includes(".template-details {\n  grid-template-columns: 1fr;"), "Template details should render as full-width key-value rows");
+assert(!normalizedStyles.includes(".template-details {\n  grid-template-columns: repeat(5"), "Template details must not use five narrow columns");
+assert(!normalizedStyles.includes(".template-details strong {\n  line-height: 1.45;\n  overflow-wrap: break-word;\n  word-break: break-all;"), "Template details should not force break-all wrapping");
+assert(!normalizedStyles.includes("registry-agent-metadata,\n  .template-details,\n  .trust-card-grid"), "Responsive registry metadata grid must not force template details back into narrow columns");
+assert(normalizedStyles.includes("grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));"), "Connector Catalog should use a responsive non-overflow card grid");
+assert(!normalizedStyles.includes(".connector-preset-grid {\n  display: grid;\n  grid-template-columns: repeat(3"), "Connector Catalog must not use a fixed three-column grid");
+assert(normalizedStyles.includes(".connector-card-actions .scenario-run") && normalizedStyles.includes("width: auto;"), "Connector card actions should remain normal buttons instead of stretched circles");
+assert(normalizedStyles.includes(".connector-template-facts span") && normalizedStyles.includes("min-height: 0;"), "Connector template summary facts should stay compact");
 
 if (failed) {
   process.exitCode = 1;

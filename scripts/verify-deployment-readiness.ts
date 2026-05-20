@@ -51,6 +51,13 @@ for (const phrase of [
   "Legacy internal mock agents are local-development helpers only and are not deployed in the V1 production connector-first setup.",
   "public HTTPS URL",
   "VITE_ORCHESTRATOR_API_URL",
+  "VITE_JIRA_AGENT_URL=https://<jira-agent>.railway.app",
+  "VITE_SERVICENOW_AGENT_URL=https://<servicenow-agent>.railway.app",
+  "VITE_GITHUB_AGENT_URL=https://<github-agent>.railway.app",
+  "VITE_JIRA_AGENT_URL=https://jira-external-agent-production.up.railway.app",
+  "VITE_SERVICENOW_AGENT_URL=https://servicenow-external-agent-production.up.railway.app",
+  "VITE_GITHUB_AGENT_URL=https://github-external-agent-production.up.railway.app",
+  "The Agent Registry preset cards use these `VITE_*_AGENT_URL` values when they are present.",
   "ALLOWED_ORIGINS",
   "OPENROUTER_API_KEY",
   "OPENROUTER_MODEL",
@@ -351,7 +358,9 @@ for (const forbidden of [
   "OpenRouter or other AI provider",
   "OPENROUTER_API_KEY=optional",
   "Redis on Railway or Upstash",
-  "tsx src/index.ts"
+  "tsx src/index.ts",
+  "click localhost connector presets",
+  "Use local Jira reference agent"
 ]) {
   if (doc.includes(forbidden)) {
     console.error(`fail - deployment readiness doc should not include: ${forbidden}`);

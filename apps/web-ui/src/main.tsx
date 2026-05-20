@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { AgentsHealthResponse, EndUserAnswer, ResolveResponse } from "@a2a/shared";
 import "./styles.css";
 import { PageHeader } from "./components/layout/PageHeader";
+import { buildLocalConnectorPresets } from "./connectorPresets";
 
 const DemoGuideTab = lazy(() => import("./components/demo-guide/DemoGuideTab").then((module) => ({ default: module.DemoGuideTab })));
 const RunTaskTab = lazy(() => import("./components/run-task/RunTaskTab").then((module) => ({ default: module.RunTaskTab })));
@@ -161,29 +162,8 @@ const activePageHeaders: Record<ActiveTab, { title: string; subtitle: string }> 
   }
 };
 
-const localConnectorPresets = [
-  {
-    label: "Use local Jira reference agent",
-    agentBaseUrl: "http://localhost:4201",
-    expectedAgentId: "external-jira-agent",
-    expectedResourceSystem: "jira",
-    expectedConnectorId: "jira-reference"
-  },
-  {
-    label: "Use local ServiceNow reference agent",
-    agentBaseUrl: "http://localhost:4202",
-    expectedAgentId: "external-servicenow-agent",
-    expectedResourceSystem: "servicenow",
-    expectedConnectorId: "servicenow-reference"
-  },
-  {
-    label: "Use local GitHub reference agent",
-    agentBaseUrl: "http://localhost:4203",
-    expectedAgentId: "external-github-agent",
-    expectedResourceSystem: "github",
-    expectedConnectorId: "github-reference"
-  }
-];
+const localConnectorPresets = buildLocalConnectorPresets(import.meta.env);
+const defaultConnectorPreset = localConnectorPresets[0];
 
 const fallbackSupportedConnectorGuardrails: SupportedConnectorGuardrail[] = [
   {
@@ -1846,7 +1826,7 @@ function App() {
   const [health, setHealth] = useState<AgentsHealthResponse | null>(null);
   const [healthError, setHealthError] = useState("");
   const [isHealthLoading, setIsHealthLoading] = useState(false);
-  const [zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl] = useState("http://localhost:4201");
+  const [zeroTrustAgentBaseUrl, setZeroTrustAgentBaseUrl] = useState(defaultConnectorPreset.agentBaseUrl);
   const [zeroTrustExpectedAgentId, setZeroTrustExpectedAgentId] = useState("external-jira-agent");
   const [zeroTrustExpectedResourceSystem, setZeroTrustExpectedResourceSystem] = useState("");
   const [zeroTrustExpectedConnectorId, setZeroTrustExpectedConnectorId] = useState("");

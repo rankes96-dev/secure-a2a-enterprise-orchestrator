@@ -325,7 +325,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
           <article className="wizard-step-panel">
             <h3>Enter Agent URL</h3>
             <p>The connector template defines the expected profile contract, skills, grants, permissions, and runtime response shape. The external agent instance must still prove identity and return a signed attestation before it becomes installed and trusted.</p>
-            <div className="connector-preset-grid" aria-label="Local reference connectors">
+            <div className="connector-preset-grid" aria-label="Reference connector presets">
               {localConnectorPresets.map((preset) => (
                 <button
                   type="button"
@@ -1032,7 +1032,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
               </div>
               <div className="wizard-action-row">
                 <button type="button" className="secondary-button compact-button" onClick={goToConnectorCatalog}>Open Connector Catalog</button>
-                <button type="button" className="secondary-button compact-button" onClick={() => applyLocalConnectorPreset(localConnectorPresets[0])}>Use local Jira reference agent</button>
+                <button type="button" className="secondary-button compact-button" onClick={() => applyLocalConnectorPreset(localConnectorPresets[0])}>{localConnectorPresets[0].label}</button>
               </div>
             </div>
           )}
