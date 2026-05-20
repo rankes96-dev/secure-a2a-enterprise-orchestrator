@@ -147,6 +147,79 @@ Future acceptance criteria:
 - at least one new connector example can be onboarded without changing Gateway core
 - Gateway routing relies on connector profile/capabilities, not connector-specific hardcoding
 
+### Phase 3.5  Real ServiceNow External Agent Adapter
+
+Goal: make the ServiceNow adapter the flagship SDK proof.
+
+This phase proves the platform can govern a real enterprise integration, not only reference mock connectors. The adapter should be built with the Connector SDK, speak Secure A2A to the Gateway, and speak ServiceNow REST/OAuth to a real ServiceNow instance.
+
+ServiceNow itself does not need to support A2A. The external adapter implements the A2A contract with the Gateway and uses ServiceNow REST/OAuth behind the scenes.
+
+Architecture:
+
+```text
+Vercel UI
+  Secure A2A Gateway / Orchestrator
+    signed onboarding + scoped runtime A2A JWT
+      External ServiceNow Agent Adapter
+        OAuth / REST
+          ServiceNow Instance
+```
+
+Initial V2 capabilities should be read-only or low-risk:
+
+- `servicenow.incident.read`
+- `servicenow.incident.search`
+- `servicenow.user.lookup`
+- `servicenow.cmdb.ci.lookup`
+
+Optional controlled write:
+
+- `servicenow.incident.add_work_note`
+- disabled by default
+- requires human approval
+- never enabled as casual autonomous write execution
+
+Do not include initially:
+
+- delete records
+- grant roles
+- update ACLs
+- approve catalog requests
+- close incidents/changes automatically
+- bulk updates
+- admin operations
+
+Adapter environment shape:
+
+```env
+SERVICENOW_INSTANCE_URL=https://<instance>.service-now.com
+SERVICENOW_AUTH_METHOD=oauth_client_credentials
+SERVICENOW_CLIENT_ID=<servicenow-client-id>
+SERVICENOW_CLIENT_SECRET=<servicenow-client-secret>
+SERVICENOW_MAX_RESULT_RECORDS=10
+SERVICENOW_ALLOW_WRITE_ACTIONS=false
+SERVICENOW_REQUIRE_APPROVAL_FOR_WRITE=true
+```
+
+Security principles:
+
+- ServiceNow credentials live only in the external adapter, never in Gateway or Vercel.
+- Gateway still controls onboarding, trust, scoped A2A JWTs, runtime allowlists, policy, and audit proof.
+- Adapter validates A2A runtime JWT before calling ServiceNow.
+- Adapter enforces action-level scope checks.
+- Adapter returns safe end-user answers and redacts ServiceNow secrets/tokens.
+
+Acceptance criteria:
+
+- Real ServiceNow adapter can onboard through signed Gateway challenge.
+- Adapter exposes `.well-known/a2a-agent.json`, JWKS, connector profile, onboarding challenge, `/a2a/task`, and `/health`.
+- Gateway can issue scoped runtime token for a ServiceNow read action.
+- Adapter validates token and calls a real ServiceNow REST API.
+- Gateway shows `tokenIssued=true`, runtime executed, and persisted/safe audit proof.
+- ServiceNow read-only flow works without changing Gateway core.
+- Any write action remains disabled by default or requires approval.
+
 ### Phase 4  Governed Chat Engine
 
 Goal: turn the conversation layer into a deterministic state machine around AI interpretation.
@@ -241,7 +314,7 @@ Deliverables:
 V2 should not include:
 
 - real Jira API writes
-- real ServiceNow writes
+- autonomous/high-risk ServiceNow writes
 - real GitHub writes
 - 20 connectors
 - marketplace
@@ -253,6 +326,8 @@ V2 should not include:
 - Kubernetes
 - replacing all backend services with another stack
 - rewriting everything from scratch
+
+Real ServiceNow read-only adapter is V2 scope. Real ServiceNow writes such as `servicenow.incident.add_work_note` may be documented as optional controlled/approval-gated exploration, not default execution. Autonomous/high-risk ServiceNow writes are not V2 scope.
 
 ## Architecture Principles
 
@@ -285,6 +360,9 @@ V2 foundation is done when:
 - Real user identity is pluggable and Auth0-backed without removing Mock IdP machine-token flows.
 - Installed connectors and audit proof persist across orchestrator restarts.
 - Connector SDK can express the existing reference connector contract.
+- Real ServiceNow read-only adapter exists or is documented as the flagship SDK adapter target.
+- ServiceNow secrets are isolated to the adapter.
+- Gateway core does not change for ServiceNow-specific API logic.
 - At least one new connector can be onboarded without changing Gateway core.
 - Governed chat precedence rules are encoded in tests.
 - Browser smoke tests cover the core production demo path.
@@ -360,6 +438,19 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Add secret redaction helper
 - [ ] Port current `real-external-agent` to SDK usage
 - [ ] Add one new connector example without Gateway core changes
+
+### Phase 3.5  Real ServiceNow External Agent Adapter
+
+- [ ] Define ServiceNow adapter connector profile
+- [ ] Add ServiceNow adapter env validation
+- [ ] Implement ServiceNow OAuth/client credentials helper
+- [ ] Implement incident read
+- [ ] Implement incident search
+- [ ] Implement user lookup
+- [ ] Implement CMDB CI lookup
+- [ ] Add optional work-note action behind approval/disabled flag
+- [ ] Add ServiceNow adapter verification
+- [ ] Add demo flow showing real ServiceNow read-only execution
 
 ### Phase 4  Governed Chat Engine
 

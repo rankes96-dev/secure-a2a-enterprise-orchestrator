@@ -48,6 +48,7 @@ The V2 platform foundation plan is tracked in [`docs/v2-platform-foundation.md`]
 - Audit log persistence
 - Connector policy management
 - Connector SDK
+- Real ServiceNow External Agent Adapter, read-only first, built through the Connector SDK
 - Custom connector publishing
 - Revocation / disablement
 - Admin RBAC
