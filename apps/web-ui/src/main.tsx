@@ -4,7 +4,7 @@ import type { AgentsHealthResponse, EndUserAnswer, ResolveResponse } from "@a2a/
 import "./styles.css";
 import { PageHeader } from "./components/layout/PageHeader";
 import { buildLocalConnectorPresets } from "./connectorPresets";
-import { completeAuth0Redirect, discardAuth0RedirectResult, isAuth0CallbackRoute, startAuth0LoginRedirect } from "./auth/auth0Client";
+import { cleanAuth0CallbackUrl, completeAuth0Redirect, discardAuth0RedirectResult, isAuth0CallbackRoute, startAuth0LoginRedirect } from "./auth/auth0Client";
 import { frontendAuthProviderLabel, readFrontendAuthConfig } from "./auth/authConfig";
 import { postBearerIdentitySession, postIdentityLogout, postMockDemoLogin } from "./auth/mockAuthClient";
 import type { IdentitySessionResponse } from "./auth/authTypes";
@@ -2175,9 +2175,8 @@ function App() {
       setIsIdentityLoading(true);
       try {
         const result = await completeAuth0Redirect(auth0Config);
-        if (!result.handled || !result.accessToken || cancelled) {
-          return;
-        }
+        if (!result.handled) return void cleanAuth0CallbackUrl("/");
+        if (!result.accessToken || cancelled) return;
 
         await ensureSession();
         const session = await postBearerIdentitySession(API_URL, result.accessToken).catch(async (error: unknown) => {
