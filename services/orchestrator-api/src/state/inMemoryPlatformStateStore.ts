@@ -1,4 +1,4 @@
-import type { PlatformStateStore, PlatformStateStoreHealth, StoredAuditEvent, StoredConnectorTrustRecord } from "./platformStateStore.js";
+import type { PlatformStateStore, PlatformStateStoreHealth, StoredAuditEvent, StoredConnectorTrustRecord, StoredConversationStateRecord } from "./platformStateStore.js";
 
 function deepClone<T>(value: T): T {
   if (typeof structuredClone === "function") {
@@ -25,9 +25,14 @@ function copyAuditEvent(event: StoredAuditEvent): StoredAuditEvent {
   };
 }
 
+function copyConversationState(record: StoredConversationStateRecord): StoredConversationStateRecord {
+  return deepClone(record);
+}
+
 export class InMemoryPlatformStateStore implements PlatformStateStore {
   private readonly connectorTrustRecordsByOwner = new Map<string, StoredConnectorTrustRecord[]>();
   private readonly auditEvents: StoredAuditEvent[] = [];
+  private readonly conversationStates = new Map<string, StoredConversationStateRecord>();
 
   async health(): Promise<PlatformStateStoreHealth> {
     return {
@@ -84,5 +89,34 @@ export class InMemoryPlatformStateStore implements PlatformStateStore {
     });
     const limited = typeof params.limit === "number" && params.limit >= 0 ? filtered.slice(-params.limit) : filtered;
     return limited.map(copyAuditEvent);
+  }
+
+  async upsertConversationState(record: StoredConversationStateRecord): Promise<void> {
+    this.conversationStates.set(record.id, copyConversationState(record));
+  }
+
+  async getConversationState(id: string): Promise<StoredConversationStateRecord | undefined> {
+    const record = this.conversationStates.get(id);
+    return record ? copyConversationState(record) : undefined;
+  }
+
+  async listConversationStates(params: {
+    actorSubject?: string;
+    tenantId?: string;
+    limit?: number;
+  }): Promise<StoredConversationStateRecord[]> {
+    const filtered = [...this.conversationStates.values()]
+      .filter((record) => {
+        if (params.tenantId && record.tenantId !== params.tenantId) {
+          return false;
+        }
+        if (params.actorSubject && record.actorSubject !== params.actorSubject) {
+          return false;
+        }
+        return true;
+      })
+      .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+    const limited = typeof params.limit === "number" && params.limit >= 0 ? filtered.slice(-params.limit) : filtered;
+    return limited.map(copyConversationState);
   }
 }

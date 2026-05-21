@@ -35,6 +35,38 @@ export type StoredAuditEvent = {
   safeMetadata: Record<string, unknown>;
 };
 
+export type StoredConversationMessage = {
+  role: "user" | "assistant";
+  timestamp: string;
+  safeSummary: string;
+};
+
+export type StoredPendingInteractionRecord = {
+  id: string;
+  type: string;
+  createdAt: string;
+  expiresAt?: string;
+  safeOriginalUserRequestSummary?: string;
+  safeContext: Record<string, unknown>;
+};
+
+export type StoredConversationStateRecord = {
+  id: string;
+  tenantId?: string;
+  actorProvider?: string;
+  actorSubject?: string;
+  actorEmail?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastResolutionStatus?: string;
+  needsMoreInfoCount: number;
+  messages: StoredConversationMessage[];
+  pendingInteraction?: StoredPendingInteractionRecord;
+  pendingFollowUp?: Record<string, unknown>;
+  lastRequestInterpretation?: Record<string, unknown>;
+  safeMetadata: Record<string, unknown>;
+};
+
 export type PlatformStateStore = {
   health(): Promise<PlatformStateStoreHealth>;
 
@@ -52,4 +84,13 @@ export type PlatformStateStore = {
     resourceId?: string;
     limit?: number;
   }): Promise<StoredAuditEvent[]>;
+
+  // Conversation snapshots: future Phase 2.3 read-path persistence.
+  upsertConversationState(record: StoredConversationStateRecord): Promise<void>;
+  getConversationState(id: string): Promise<StoredConversationStateRecord | undefined>;
+  listConversationStates(params: {
+    actorSubject?: string;
+    tenantId?: string;
+    limit?: number;
+  }): Promise<StoredConversationStateRecord[]>;
 };

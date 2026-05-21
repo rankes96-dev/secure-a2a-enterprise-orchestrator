@@ -588,6 +588,11 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.2a: harden early adversarial/governance block audit coverage
 - [ ] Phase 2.2a: use neutral persisted audit proof names like `protectedMaterialExposed` and `tokenMaterialStored`
 - [ ] Phase 2.2a: keep raw prompts out of adversarial/security block audit events
+- [ ] Phase 2.3: define conversation and pending-interaction state boundary
+- [ ] Phase 2.3: write safe conversation snapshots through `PlatformStateStore`
+- [ ] Phase 2.3: keep existing in-memory read path active
+- [ ] Phase 2.3: do not persist raw prompts or token-looking content
+- [ ] Phase 2.3: memory driver remains active; restart survival is future Postgres work
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

@@ -14,7 +14,6 @@ import type {
   ConnectorPlanningTargetResolution,
   ExecutionTraceStep,
   FollowUpInterpretation,
-  PendingFollowUpContext,
   PendingInteraction,
   PendingInteractionResolution,
   PlanningFollowUpResolution,
@@ -56,6 +55,8 @@ import { evaluateConnectorPolicy } from "./policy/connectorPolicy.js";
 import { detectAdversarialIntent } from "./adversarialIntent.js";
 import { buildExecutionGateStack } from "./executionGateStack.js";
 import { resolvePendingInteraction } from "./pendingInteractionResolver.js";
+import type { ConversationState } from "./conversation/conversationTypes.js";
+import { persistConversationStateSnapshot } from "./conversation/conversationStateStore.js";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -122,23 +123,6 @@ const healthRateLimit: RateLimitConfig = {
   name: "health",
   windowMs: Number(process.env.HEALTH_RATE_LIMIT_WINDOW_MS ?? 60_000),
   maxRequests: Number(process.env.HEALTH_RATE_LIMIT_MAX_REQUESTS ?? 30)
-};
-
-type ConversationState = {
-  conversationId: string;
-  messages: Array<{
-    role: "user" | "assistant";
-    content: string;
-    timestamp: string;
-  }>;
-  needsMoreInfoCount: number;
-  lastRequestInterpretation?: RequestInterpretation;
-  lastFollowUpInterpretation?: FollowUpInterpretation;
-  lastIncidentContext?: IncidentContext;
-  lastSelectedAgents?: SelectedAgent[];
-  lastResolutionStatus?: "resolved" | "needs_more_info" | "unsupported";
-  pendingFollowUp?: PendingFollowUpContext;
-  pendingInteraction?: PendingInteraction;
 };
 
 const conversations = new Map<string, ConversationState>();
@@ -1859,6 +1843,11 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       })
     };
     updateConversationState(conversationState, finalResponse, mergedIncidentContext);
+    void persistConversationStateSnapshot({
+      state: conversationState,
+      actor: verifiedUser,
+      response: finalResponse
+    });
     return finalResponse;
   };
 
