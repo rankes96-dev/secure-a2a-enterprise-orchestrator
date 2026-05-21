@@ -544,6 +544,7 @@ V2 verification should layer new checks without weakening V1:
 - `npm run verify:v1`
 - `npm run verify:v2-plan`
 - `npm run verify:platform-state-foundation`
+- `npm run verify:platform-state-onboarding`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
 - Phase 2.0 does not implement a database yet; future persistence verification should cover restart-surviving connectors, audit events, conversations, pending interactions, and runtime executions
 - future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
@@ -576,6 +577,9 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.0: define `PlatformStateStore`
 - [ ] Phase 2.0: keep `InMemoryPlatformStateStore` as the local/dev default
 - [ ] Phase 2.0: verify no raw tokens are represented in store boundary types
+- [ ] Phase 2.1: route installed connector trust registry through `PlatformStateStore`
+- [ ] Phase 2.1: preserve existing in-memory local mode
+- [ ] Phase 2.1: verify onboarding success writes safe connector trust records
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

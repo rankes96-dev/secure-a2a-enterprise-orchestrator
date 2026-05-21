@@ -12,7 +12,7 @@ import {
   deriveCapabilitiesFromConnectorDecisions,
   publicTokenEndpointAuthMethod
 } from "./responseMapper.js";
-import { addTrustedOnboardedAgent } from "./trustedAgentStore.js";
+import { persistTrustedOnboardedAgent } from "./trustedAgentStore.js";
 import { requestExternalAgentTrustResponse } from "./trustResponseVerifier.js";
 import type { AgentOnboardingCheck, AgentOnboardingDiscoveryResult, AgentOnboardingValidationResult } from "./types.js";
 
@@ -198,7 +198,7 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     applicationAccessGrants: binding.applicationAccessGrants,
     grantedScopes: binding.grantedScopes
   });
-  addTrustedOnboardedAgent(ownerKey, trustedAgent);
+  await persistTrustedOnboardedAgent(ownerKey, trustedAgent);
 
   return {
     onboardingId: challenge.onboardingId,
