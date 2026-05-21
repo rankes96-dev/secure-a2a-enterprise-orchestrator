@@ -51,6 +51,7 @@ import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./co
 import { requestConnectorActionPlan } from "./connectorActionPlanner.js";
 import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation.js";
 import { AuditEvents } from "./audit/auditEvents.js";
+import { appendPlatformAuditEvent } from "./audit/platformAuditStore.js";
 import { evaluateConnectorPolicy } from "./policy/connectorPolicy.js";
 import { detectAdversarialIntent } from "./adversarialIntent.js";
 import { buildExecutionGateStack } from "./executionGateStack.js";
@@ -886,6 +887,139 @@ function connectorRuntimeResolutionStatus(decision: ConnectorRoutingDecision, ru
   }
 
   return connectorRoutingResolutionStatus(decision);
+}
+
+async function appendIdentityVerifiedAuditEvent(identity: VerifiedUserIdentity): Promise<void> {
+  await appendPlatformAuditEvent({
+    actorProvider: identity.provider,
+    actorSubject: identity.subject,
+    actorEmail: identity.email,
+    eventType: AuditEvents.USER_IDENTITY_VERIFIED,
+    resourceType: "user",
+    resourceId: identity.subject || identity.email,
+    safeMetadata: {
+      provider: identity.provider,
+      issuer: identity.issuer,
+      audience: identity.audience,
+      email: identity.email,
+      roles: identity.roles,
+      rawTokenExposed: false
+    }
+  });
+}
+
+async function appendSecurityBlockedAuditEvent(params: {
+  actor?: VerifiedUserIdentity;
+  category: string;
+  reason: string;
+  finalOutcome: string;
+}): Promise<void> {
+  await appendPlatformAuditEvent({
+    actorProvider: params.actor?.provider,
+    actorSubject: params.actor?.subject,
+    actorEmail: params.actor?.email,
+    eventType: AuditEvents.SECURITY_REQUEST_BLOCKED,
+    resourceType: "request",
+    safeMetadata: {
+      category: params.category,
+      reason: params.reason,
+      finalOutcome: params.finalOutcome,
+      rawTokenExposed: false,
+      promptTextStored: false
+    }
+  });
+}
+
+async function appendConnectorRuntimeAuditEvents(params: {
+  connectorRouting: ConnectorRoutingDecision;
+  connectorRuntime: ConnectorRuntimeResult;
+  actor?: VerifiedUserIdentity;
+}): Promise<void> {
+  const { connectorRouting, connectorRuntime, actor } = params;
+  const tokenMetadata = connectorRuntime.tokenMetadata;
+  const connectorId = connectorRuntime.connectorId ?? connectorRouting.connectorId;
+  const resourceSystem = connectorRuntime.resourceSystem ?? connectorRouting.resourceSystem;
+  const skillId = connectorRuntime.skillId ?? connectorRouting.skillId;
+
+  if (tokenMetadata?.tokenIssued) {
+    await appendPlatformAuditEvent({
+      actorProvider: tokenMetadata.actorProvider ?? actor?.provider,
+      actorSubject: tokenMetadata.actorSubject ?? actor?.subject,
+      actorEmail: tokenMetadata.actor ?? actor?.email,
+      eventType: AuditEvents.CONNECTOR_RUNTIME_TOKEN_ISSUED,
+      resourceType: "connector",
+      resourceId: connectorId,
+      safeMetadata: {
+        connectorId,
+        resourceSystem,
+        skillId,
+        audience: tokenMetadata.audience,
+        scope: tokenMetadata.scope,
+        actorProvider: tokenMetadata.actorProvider,
+        actorIssuer: tokenMetadata.actorIssuer,
+        actorSubject: tokenMetadata.actorSubject,
+        actorRoles: tokenMetadata.actorRoles,
+        tokenIssued: true,
+        rawToken: "hidden"
+      }
+    });
+  }
+
+  const authorizationRequirement = connectorRuntime.authorizationRequirement ?? connectorRuntime.agentResponse?.authorizationRequirement;
+  if (authorizationRequirement) {
+    await appendPlatformAuditEvent({
+      actorProvider: authorizationRequirement.actorProvider ?? tokenMetadata?.actorProvider ?? actor?.provider,
+      actorSubject: authorizationRequirement.actorSubject ?? tokenMetadata?.actorSubject ?? actor?.subject,
+      actorEmail: tokenMetadata?.actor ?? actor?.email,
+      eventType: AuditEvents.CONNECTOR_RUNTIME_AUTHORIZATION_REQUIRED,
+      resourceType: "connector",
+      resourceId: connectorId,
+      safeMetadata: {
+        provider: authorizationRequirement.provider,
+        resourceSystem: authorizationRequirement.resourceSystem ?? resourceSystem,
+        connectorId: authorizationRequirement.connectorId ?? connectorId,
+        requestedScopes: authorizationRequirement.requestedScopes,
+        actorProvider: authorizationRequirement.actorProvider,
+        actorSubject: authorizationRequirement.actorSubject,
+        actorEmail: tokenMetadata?.actor ?? actor?.email,
+        rawTokens: "hidden"
+      }
+    });
+  }
+
+  await appendPlatformAuditEvent({
+    actorProvider: tokenMetadata?.actorProvider ?? actor?.provider,
+    actorSubject: tokenMetadata?.actorSubject ?? actor?.subject,
+    actorEmail: tokenMetadata?.actor ?? actor?.email,
+    eventType: connectorRuntime.executed ? AuditEvents.CONNECTOR_RUNTIME_SUCCEEDED : AuditEvents.CONNECTOR_RUNTIME_FAILED,
+    resourceType: "connector",
+    resourceId: connectorId,
+    safeMetadata: connectorRuntime.executed
+      ? {
+          connectorId,
+          resourceSystem,
+          skillId,
+          runtimeMode: connectorRuntime.runtimeMode,
+          agentId: connectorRuntime.agentResponse?.agentId,
+          status: connectorRuntime.agentResponse?.status,
+          executionType: connectorRuntime.agentResponse?.runtimeSemantics?.executionType,
+          outcome: connectorRuntime.agentResponse?.runtimeSemantics?.outcome,
+          diagnosticOnly: connectorRuntime.agentResponse?.runtimeSemantics?.diagnosticOnly,
+          writeActionAttempted: connectorRuntime.agentResponse?.runtimeSemantics?.writeActionAttempted,
+          targetActionId: connectorRuntime.agentResponse?.runtimeSemantics?.targetActionId,
+          targetActionStatus: connectorRuntime.agentResponse?.runtimeSemantics?.targetActionStatus,
+          rawTokenExposed: false
+        }
+      : {
+          connectorId,
+          resourceSystem,
+          skillId,
+          runtimeMode: connectorRuntime.runtimeMode,
+          error: connectorRuntime.error,
+          errorMessage: connectorRuntime.errorMessage,
+          rawTokenExposed: false
+        }
+  });
 }
 
 function isConnectorAccessPlanningRequest(message: string): boolean {
@@ -1727,6 +1861,12 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       probableCause: "Adversarial governance bypass request blocked",
       recommendedFix: "Use normal approved requests. Prompt text cannot grant scopes, permissions, Gateway approval, or raw token access."
     };
+    await appendSecurityBlockedAuditEvent({
+      actor: verifiedUser,
+      category: "adversarial_governance_bypass",
+      reason: effectiveSecurityIntent.reason,
+      finalOutcome: "blocked_at_gateway_governance"
+    });
 
     return finalize({
       finalAnswer: "BLOCKED\nThe request attempted to bypass governance or obtain protected access from prompt text. Admin access requires governed approval.\nNo changes were made. No access was granted. No request was submitted.",
@@ -2705,6 +2845,12 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       probableCause: "Sensitive security action blocked by policy",
       recommendedFix: "Use approved security review workflows; raw tokens, headers, and secrets are not exposed by this demo."
     };
+    await appendSecurityBlockedAuditEvent({
+      actor: verifiedUser,
+      category: "sensitive_security_action",
+      reason: policyDecision.reason,
+      finalOutcome: "blocked_by_policy"
+    });
 
     return finalize({
       finalAnswer: `Blocked by policy: ${policyDecision.reason}`,
@@ -2851,6 +2997,13 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         ]
       : [];
     const a2aResponses = runtimeAgentResponse ? [runtimeAgentResponse] : [];
+    if (connectorRuntime) {
+      await appendConnectorRuntimeAuditEvents({
+        connectorRouting,
+        connectorRuntime,
+        actor: verifiedUser
+      });
+    }
 
     return finalize({
       conversationId,
@@ -3660,6 +3813,7 @@ async function start(): Promise<void> {
     try {
       const identity = await userIdentityProvider.validateBearerToken(token);
       userIdentitiesBySession.set(sessionToken, identity);
+      await appendIdentityVerifiedAuditEvent(identity);
       sendJson(response, 200, publicIdentitySession(userIdentityProvider, identity), request);
     } catch (error) {
       sendJson(response, 401, {
@@ -3696,6 +3850,7 @@ async function start(): Promise<void> {
       const { accessToken } = await requestDemoUserToken(email);
       const identity = await userIdentityProvider.validateBearerToken(accessToken);
       userIdentitiesBySession.set(sessionToken, identity);
+      await appendIdentityVerifiedAuditEvent(identity);
       sendJson(response, 200, publicIdentitySession(userIdentityProvider, identity), request);
     } catch (error) {
       sendJson(response, 400, {

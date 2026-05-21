@@ -1,4 +1,6 @@
 import { decideConnectorActions } from "../connectors/decisionEngine.js";
+import { AuditEvents } from "../audit/auditEvents.js";
+import { appendPlatformAuditEvent } from "../audit/platformAuditStore.js";
 import { gatewayMetadata, gatewayPublicIdentity, signGatewayOnboardingChallenge } from "../security/gatewayIdentity.js";
 import { validateOAuthApplicationBinding } from "../trustedOAuthApplications.js";
 import { fetchExternalConnectorProfile, verifyConnectorProfileBinding } from "./connectorProfileFetcher.js";
@@ -199,6 +201,29 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
     grantedScopes: binding.grantedScopes
   });
   await persistTrustedOnboardedAgent(ownerKey, trustedAgent);
+  await appendPlatformAuditEvent({
+    eventType: AuditEvents.CONNECTOR_ONBOARDING_TRUSTED,
+    resourceType: "connector",
+    resourceId: trustedAgent.connectorId ?? trustedAgent.agentId,
+    safeMetadata: {
+      agentId: trustedAgent.agentId,
+      connectorId: trustedAgent.connectorId,
+      resourceSystem: trustedAgent.resourceSystem,
+      issuer: trustedAgent.issuer,
+      audience: trustedAgent.audience,
+      runtimeEndpointPresent: Boolean(trustedAgent.runtimeEndpoint),
+      connectorProfileHash: trustedAgent.connectorProfileHash,
+      externalConfigHash: trustedAgent.externalConfigHash,
+      trustLevel: trustedAgent.trustLevel,
+      connectorProfileVerified: trustedAgent.connectorProfileVerified,
+      requestedScopes: trustedAgent.requestedScopes,
+      requestedApplicationGrants: trustedAgent.requestedApplicationGrants,
+      approvedCapabilities: trustedAgent.approvedCapabilities.map((item) => item.capability),
+      blockedCapabilities: trustedAgent.blockedCapabilities.map((item) => item.capability),
+      rawAssertionExposed: false,
+      rawTokenExposed: false
+    }
+  });
 
   return {
     onboardingId: challenge.onboardingId,

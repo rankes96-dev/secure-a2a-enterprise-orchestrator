@@ -1,5 +1,6 @@
 export const AuditEvents = {
   USER_LOGIN_SUCCEEDED: "user.login.succeeded",
+  USER_IDENTITY_VERIFIED: "user.identity.verified",
 
   CONNECTOR_DISCOVERY_STARTED: "connector.discovery.started",
   CONNECTOR_DISCOVERY_SUCCEEDED: "connector.discovery.succeeded",
@@ -22,6 +23,9 @@ export const AuditEvents = {
 
   CONNECTOR_RUNTIME_TOKEN_REQUESTED: "connector.runtime.token.requested",
   CONNECTOR_RUNTIME_TOKEN_ISSUED: "connector.runtime.token.issued",
+  CONNECTOR_RUNTIME_SUCCEEDED: "connector.runtime.succeeded",
+  CONNECTOR_RUNTIME_FAILED: "connector.runtime.failed",
+  CONNECTOR_RUNTIME_AUTHORIZATION_REQUIRED: "connector.runtime.authorization_required",
   CONNECTOR_RUNTIME_CALL_STARTED: "connector.runtime.call.started",
   CONNECTOR_RUNTIME_CALL_SUCCEEDED: "connector.runtime.call.succeeded",
   CONNECTOR_RUNTIME_CALL_FAILED: "connector.runtime.call.failed",
@@ -30,5 +34,8 @@ export const AuditEvents = {
   POLICY_EVALUATION_STARTED: "policy.evaluation.started",
   POLICY_EVALUATION_PASSED: "policy.evaluation.passed",
   POLICY_EVALUATION_BLOCKED: "policy.evaluation.blocked",
-  POLICY_EVALUATION_NEEDS_APPROVAL: "policy.evaluation.needs.approval"
+  POLICY_EVALUATION_NEEDS_APPROVAL: "policy.evaluation.needs.approval",
+
+  CONNECTOR_ONBOARDING_TRUSTED: "connector.onboarding.trusted",
+  SECURITY_REQUEST_BLOCKED: "security.request.blocked"
 } as const;
