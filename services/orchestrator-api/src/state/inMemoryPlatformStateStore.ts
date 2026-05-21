@@ -1,16 +1,27 @@
 import type { PlatformStateStore, PlatformStateStoreHealth, StoredAuditEvent, StoredConnectorTrustRecord } from "./platformStateStore.js";
 
+function deepClone<T>(value: T): T {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function cloneSafeMetadata(value: Record<string, unknown>): Record<string, unknown> {
+  return deepClone(value);
+}
+
 function copyConnectorTrustRecord(record: StoredConnectorTrustRecord): StoredConnectorTrustRecord {
   return {
     ...record,
-    safeMetadata: { ...record.safeMetadata }
+    safeMetadata: cloneSafeMetadata(record.safeMetadata)
   };
 }
 
 function copyAuditEvent(event: StoredAuditEvent): StoredAuditEvent {
   return {
     ...event,
-    safeMetadata: { ...event.safeMetadata }
+    safeMetadata: cloneSafeMetadata(event.safeMetadata)
   };
 }
 

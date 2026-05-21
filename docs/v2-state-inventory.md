@@ -21,3 +21,4 @@ Planning constraints:
 - Redis / Upstash remains the right home for replay protection, rate limits, nonce/challenge state, callback state, and other short-lived cache/lock data.
 - Local memory remains available for local development fallback, tests, and demo-only ephemeral state.
 - Store boundaries must use safe metadata only and no raw tokens.
+- In-memory store reads/writes must use defensive deep copies for safe metadata. Runtime modules should use the singleton store accessor once the store is wired into orchestration paths.

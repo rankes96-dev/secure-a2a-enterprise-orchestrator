@@ -152,6 +152,8 @@ This checkpoint inventories current in-memory platform state and classifies each
 
 It introduces a `PlatformStateStore` boundary and keeps `InMemoryPlatformStateStore` as the default local/dev implementation. The boundary prepares the platform for Postgres later without implementing database persistence in this checkpoint.
 
+The local memory implementation must defensively clone stored safe metadata and expose a process-local singleton accessor so future wiring does not accidentally create isolated memory stores.
+
 Recommended state placement:
 
 Postgres / durable:

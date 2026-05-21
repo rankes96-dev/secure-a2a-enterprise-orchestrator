@@ -27,6 +27,10 @@ const platformStateStore = read("services/orchestrator-api/src/state/platformSta
 const inMemoryStore = read("services/orchestrator-api/src/state/inMemoryPlatformStateStore.ts");
 const factory = read("services/orchestrator-api/src/state/createPlatformStateStore.ts");
 const packageJson = read("package.json");
+const parsedPackageJson = JSON.parse(packageJson) as {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+};
 
 for (const phrase of [
   "Phase 2.0  Persistent State Foundation / Store Boundary",
@@ -41,6 +45,8 @@ for (const phrase of [
   "no real vendor OAuth persistence",
   "no replacement of Upstash",
   "no removal of in-memory local mode",
+  "defensively clone stored safe metadata",
+  "process-local singleton accessor",
   "npm run verify:platform-state-foundation",
   "does not implement a database yet"
 ]) {
@@ -57,6 +63,8 @@ for (const phrase of [
   "runtime executions",
   "Redis / Upstash",
   "Postgres",
+  "defensive deep copies",
+  "singleton store accessor",
   "no raw tokens"
 ]) {
   requireIncludes(inventory, phrase, "V2 state inventory");
@@ -78,10 +86,19 @@ for (const phrase of [
   "InMemoryPlatformStateStore",
   "new Map<string, StoredConnectorTrustRecord[]>",
   "auditEvents: StoredAuditEvent[]",
+  "structuredClone",
+  "deepClone",
+  "cloneSafeMetadata",
   "copyConnectorTrustRecord",
   "copyAuditEvent"
 ]) {
   requireIncludes(inMemoryStore, phrase, "in-memory platform state store");
+}
+
+for (const forbidden of ["safeMetadata: { ...record.safeMetadata }", "safeMetadata: { ...event.safeMetadata }"]) {
+  if (inMemoryStore.includes(forbidden)) {
+    fail(`in-memory platform state store should not rely on shallow safeMetadata copy: ${forbidden}`);
+  }
 }
 
 for (const phrase of [
@@ -89,7 +106,10 @@ for (const phrase of [
   'driver === "memory"',
   'driver === "postgres"',
   "planned but not implemented in this checkpoint",
-  "createPlatformStateStore"
+  "createPlatformStateStore",
+  "cachedPlatformStateStore",
+  "getPlatformStateStore",
+  "cachedPlatformStateStore ??= createPlatformStateStore()"
 ]) {
   requireIncludes(factory, phrase, "platform state store factory");
 }
@@ -100,6 +120,22 @@ const stateSources = [platformStateStore, inMemoryStore, factory].join("\n");
 for (const forbidden of ["access_token", "refresh_token", "Authorization", "private_key", "client_secret"]) {
   if (stateSources.includes(forbidden)) {
     fail(`platform state source should not include dangerous field marker: ${forbidden}`);
+  }
+}
+
+for (const forbidden of ["token", "secret", "credential"]) {
+  if (platformStateStore.toLowerCase().includes(forbidden)) {
+    fail(`platform state store types should not add token-specific field marker: ${forbidden}`);
+  }
+}
+
+const dependencyNames = Object.keys({
+  ...(parsedPackageJson.dependencies ?? {}),
+  ...(parsedPackageJson.devDependencies ?? {})
+});
+for (const forbidden of ["prisma", "drizzle", "pg", "postgres"]) {
+  if (dependencyNames.some((name) => name.toLowerCase().includes(forbidden))) {
+    fail(`Phase 2.0 should not introduce DB dependency: ${forbidden}`);
   }
 }
 
