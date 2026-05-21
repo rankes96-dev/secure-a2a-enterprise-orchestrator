@@ -903,7 +903,8 @@ async function appendIdentityVerifiedAuditEvent(identity: VerifiedUserIdentity):
       audience: identity.audience,
       email: identity.email,
       roles: identity.roles,
-      rawTokenExposed: false
+      protectedMaterialExposed: false,
+      tokenMaterialStored: false
     }
   });
 }
@@ -924,7 +925,8 @@ async function appendSecurityBlockedAuditEvent(params: {
       category: params.category,
       reason: params.reason,
       finalOutcome: params.finalOutcome,
-      rawTokenExposed: false,
+      protectedMaterialExposed: false,
+      tokenMaterialStored: false,
       promptTextStored: false
     }
   });
@@ -960,7 +962,8 @@ async function appendConnectorRuntimeAuditEvents(params: {
         actorSubject: tokenMetadata.actorSubject,
         actorRoles: tokenMetadata.actorRoles,
         tokenIssued: true,
-        rawToken: "hidden"
+        protectedMaterialExposed: false,
+        tokenMaterialStored: false
       }
     });
   }
@@ -982,7 +985,8 @@ async function appendConnectorRuntimeAuditEvents(params: {
         actorProvider: authorizationRequirement.actorProvider,
         actorSubject: authorizationRequirement.actorSubject,
         actorEmail: tokenMetadata?.actor ?? actor?.email,
-        rawTokens: "hidden"
+        protectedMaterialExposed: false,
+        tokenMaterialStored: false
       }
     });
   }
@@ -1008,7 +1012,8 @@ async function appendConnectorRuntimeAuditEvents(params: {
           writeActionAttempted: connectorRuntime.agentResponse?.runtimeSemantics?.writeActionAttempted,
           targetActionId: connectorRuntime.agentResponse?.runtimeSemantics?.targetActionId,
           targetActionStatus: connectorRuntime.agentResponse?.runtimeSemantics?.targetActionStatus,
-          rawTokenExposed: false
+          protectedMaterialExposed: false,
+          tokenMaterialStored: false
         }
       : {
           connectorId,
@@ -1017,7 +1022,8 @@ async function appendConnectorRuntimeAuditEvents(params: {
           runtimeMode: connectorRuntime.runtimeMode,
           error: connectorRuntime.error,
           errorMessage: connectorRuntime.errorMessage,
-          rawTokenExposed: false
+          protectedMaterialExposed: false,
+          tokenMaterialStored: false
         }
   });
 }
@@ -1863,9 +1869,9 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     };
     await appendSecurityBlockedAuditEvent({
       actor: verifiedUser,
-      category: "adversarial_governance_bypass",
-      reason: effectiveSecurityIntent.reason,
-      finalOutcome: "blocked_at_gateway_governance"
+      category: effectiveSecurityIntent.category ?? "adversarial_or_governance_bypass",
+      reason: effectiveSecurityIntent.detected ? effectiveSecurityIntent.reason : "Pending interaction indicated adversarial or governance bypass concern.",
+      finalOutcome: "blocked_at_gateway"
     });
 
     return finalize({

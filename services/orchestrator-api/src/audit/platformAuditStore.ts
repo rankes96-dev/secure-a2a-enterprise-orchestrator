@@ -30,6 +30,8 @@ const dangerousMarkers = [
   "raw token"
 ];
 
+// Metadata keys containing these markers are intentionally redacted. Audit
+// proof metadata should use neutral names such as protectedMaterialExposed.
 function dangerousText(value: string): boolean {
   const normalized = value.toLowerCase();
   return dangerousMarkers.some((marker) => normalized.includes(marker));

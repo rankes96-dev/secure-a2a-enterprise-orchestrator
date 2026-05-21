@@ -220,8 +220,9 @@ export async function startAgentOnboarding(ownerKey: string, value: unknown): Pr
       requestedApplicationGrants: trustedAgent.requestedApplicationGrants,
       approvedCapabilities: trustedAgent.approvedCapabilities.map((item) => item.capability),
       blockedCapabilities: trustedAgent.blockedCapabilities.map((item) => item.capability),
-      rawAssertionExposed: false,
-      rawTokenExposed: false
+      protectedMaterialExposed: false,
+      assertionMaterialStored: false,
+      tokenMaterialStored: false
     }
   });
 

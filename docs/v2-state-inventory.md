@@ -22,3 +22,4 @@ Planning constraints:
 - Local memory remains available for local development fallback, tests, and demo-only ephemeral state.
 - Store boundaries must use safe metadata only and no raw tokens.
 - In-memory store reads/writes must use defensive deep copies for safe metadata. Runtime modules should use the singleton store accessor once the store is wired into orchestration paths.
+- Audit metadata should use neutral proof names and avoid raw-token-looking key names because the audit sanitizer intentionally redacts dangerous key markers.
