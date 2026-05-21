@@ -138,6 +138,60 @@ Acceptance criteria:
 - pending interactions survive refresh/restart
 - V1 local in-memory mode remains available for fast development
 
+#### Phase 2.0  Persistent State Foundation / Store Boundary
+
+Goal: define the platform state boundary before adding a real database.
+
+Inventory all current in-memory platform state, classify ownership, and define the first stable store boundary before implementation moves to Postgres.
+
+This checkpoint inventories current in-memory platform state and classifies each item by future owner:
+
+- durable Postgres candidate
+- short-lived Redis/cache candidate
+- local-only/dev-only state
+
+It introduces a `PlatformStateStore` boundary and keeps `InMemoryPlatformStateStore` as the default local/dev implementation. The boundary prepares the platform for Postgres later without implementing database persistence in this checkpoint.
+
+Recommended state placement:
+
+Postgres / durable:
+
+- tenants
+- users
+- installed connectors
+- connector trust records
+- connector profile snapshots
+- connector trust events
+- conversations metadata
+- pending interactions
+- audit events
+- runtime executions
+- security decisions
+- connected account metadata, not raw tokens yet
+
+Redis / short-lived:
+
+- replay protection
+- rate limits
+- onboarding challenge nonce state
+- short-lived auth/session cache
+- temporary OAuth state during callbacks
+- transient lock/cache state
+
+Local memory:
+
+- local development fallback
+- test fixtures
+- demo-only ephemeral state
+
+Phase 2.0 non-goals:
+
+- no DB migration in this checkpoint
+- no token vault implementation
+- no real vendor OAuth persistence
+- no replacement of Upstash
+- no removal of in-memory local mode
+
 ### Phase 2.5  Connected Accounts / User Delegated OAuth
 
 Goal: prevent external agents from acting with one shared admin/developer OAuth token.
@@ -487,8 +541,9 @@ V2 verification should layer new checks without weakening V1:
 - `npm run build`
 - `npm run verify:v1`
 - `npm run verify:v2-plan`
+- `npm run verify:platform-state-foundation`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
-- future persistence verification for restart-surviving connectors, audit events, conversations, pending interactions, and runtime executions
+- Phase 2.0 does not implement a database yet; future persistence verification should cover restart-surviving connectors, audit events, conversations, pending interactions, and runtime executions
 - future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
 - future SDK verification proving a connector can onboard without Gateway core changes
 - future chat-engine regression tests for precedence rules
@@ -515,6 +570,10 @@ V2 verification should layer new checks without weakening V1:
 
 ### Phase 2  Persistence
 
+- [ ] Phase 2.0: inventory current in-memory platform state
+- [ ] Phase 2.0: define `PlatformStateStore`
+- [ ] Phase 2.0: keep `InMemoryPlatformStateStore` as the local/dev default
+- [ ] Phase 2.0: verify no raw tokens are represented in store boundary types
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users
