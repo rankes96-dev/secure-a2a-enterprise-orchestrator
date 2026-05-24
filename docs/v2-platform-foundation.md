@@ -267,6 +267,15 @@ Future sinks may include:
 
 This phase is documentation and boundary design only. It must not implement vendor-specific sinks, add Splunk/Sentinel/Datadog dependencies, add OpenTelemetry runtime dependencies, add a database, or change runtime behavior.
 
+Checkpoint implementation:
+
+- Phase 2.4 implements the internal `SecurityEventSink` boundary.
+- Default sink is `noop`, so no events are sent externally by default.
+- Console sink is local diagnostic only and does not log full metadata.
+- Vendor sinks remain future work.
+- Exported event envelope uses schemaVersion `secure-a2a.security-event.v1`.
+- Publish failures must not break runtime or audit write-through.
+
 Correlation requirements:
 
 Future exported security events should include correlation IDs and actor/tenant fields where available:
@@ -720,6 +729,11 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.4: add correlation ID requirements
 - [ ] Phase 2.4: keep SOC/observability exports sanitized
 - [ ] Phase 2.4: do not implement vendor-specific sinks yet
+- [ ] Phase 2.4: implement internal SecurityEventSink boundary
+- [ ] Phase 2.4: default SecurityEventSink to noop
+- [ ] Phase 2.4: keep ConsoleSecurityEventSink local and metadata-minimal
+- [ ] Phase 2.4: use schemaVersion `secure-a2a.security-event.v1`
+- [ ] Phase 2.4: keep publish failures non-blocking for runtime and audit write-through
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

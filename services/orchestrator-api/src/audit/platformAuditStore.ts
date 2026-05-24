@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { publishSecurityEventFromAuditEvent } from "../securityEvents/securityEventPublisher.js";
 import { getPlatformStateStore } from "../state/createPlatformStateStore.js";
 import type { StoredAuditEvent } from "../state/platformStateStore.js";
 
@@ -85,6 +86,7 @@ export async function appendPlatformAuditEvent(input: PlatformAuditEventInput): 
       safeMetadata: sanitizeAuditMetadata(input.safeMetadata)
     };
     await getPlatformStateStore().appendAuditEvent(event);
+    await publishSecurityEventFromAuditEvent(event);
   } catch {
     console.warn(`[audit] append failed for eventType=${input.eventType}`);
   }
