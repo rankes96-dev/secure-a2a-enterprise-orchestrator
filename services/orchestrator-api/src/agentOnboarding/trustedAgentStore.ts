@@ -1,6 +1,7 @@
 import type { TrustedOnboardedAgent } from "./types.js";
 import { getPlatformStateStore } from "../state/createPlatformStateStore.js";
 import type { StoredConnectorTrustRecord } from "../state/platformStateStore.js";
+import { defaultTenantId } from "../tenant/tenantContext.js";
 
 // Local runtime mirror only. Phase 2.1 writes trusted connector records through
 // PlatformStateStore; Phase 2.1b can move the read path async without changing
@@ -37,6 +38,7 @@ export function toStoredConnectorTrustRecord(ownerKey: string, agent: TrustedOnb
   const now = new Date().toISOString();
   return {
     id: agent.agentId,
+    tenantId: defaultTenantId(),
     ownerKey,
     connectorId: agent.connectorId ?? agent.connectorProfile?.connectorId,
     resourceSystem: agent.resourceSystem ?? agent.connectorProfile?.resourceSystem,

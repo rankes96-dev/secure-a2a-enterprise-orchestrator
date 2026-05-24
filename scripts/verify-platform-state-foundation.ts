@@ -47,8 +47,7 @@ for (const phrase of [
   "no removal of in-memory local mode",
   "defensively clone stored safe metadata",
   "process-local singleton accessor",
-  "npm run verify:platform-state-foundation",
-  "does not implement a database yet"
+  "npm run verify:platform-state-foundation"
 ]) {
   requireIncludes(plan, phrase, "V2 platform foundation doc");
 }
@@ -102,10 +101,10 @@ for (const forbidden of ["safeMetadata: { ...record.safeMetadata }", "safeMetada
 }
 
 for (const phrase of [
-  'process.env.PLATFORM_STATE_STORE_DRIVER ?? "memory"',
+  "platformStateStoreDriver()",
   'driver === "memory"',
   'driver === "postgres"',
-  "planned but not implemented in this checkpoint",
+  "PostgresPlatformStateStore",
   "createPlatformStateStore",
   "cachedPlatformStateStore",
   "getPlatformStateStore",
@@ -133,9 +132,9 @@ const dependencyNames = Object.keys({
   ...(parsedPackageJson.dependencies ?? {}),
   ...(parsedPackageJson.devDependencies ?? {})
 });
-for (const forbidden of ["prisma", "drizzle", "pg", "postgres"]) {
+for (const forbidden of ["prisma", "drizzle"]) {
   if (dependencyNames.some((name) => name.toLowerCase().includes(forbidden))) {
-    fail(`Phase 2.0 should not introduce DB dependency: ${forbidden}`);
+    fail(`Platform state foundation should not introduce ORM dependency: ${forbidden}`);
   }
 }
 

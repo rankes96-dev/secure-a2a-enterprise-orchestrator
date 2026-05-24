@@ -8,6 +8,7 @@ export type PlatformStateStoreHealth = {
 
 export type StoredConnectorTrustRecord = {
   id: string;
+  tenantId?: string;
   ownerKey: string;
   connectorId?: string;
   resourceSystem?: string;

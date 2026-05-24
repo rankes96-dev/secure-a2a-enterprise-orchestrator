@@ -456,7 +456,7 @@ if (deniedTicketText.includes("Messaging Operations") || deniedTicketText.includ
   fail(`ServiceNow denied ticket response leaked record details: ${deniedTicketText}`);
 }
 
-for (const forbiddenDependency of ["pg", "prisma", "drizzle", "@opentelemetry", "splunk", "datadog"]) {
+for (const forbiddenDependency of ["prisma", "drizzle", "@opentelemetry", "splunk", "datadog"]) {
   if (packageJson.includes(`"${forbiddenDependency}`)) {
     fail(`P1 checkpoint should not add dependency ${forbiddenDependency}`);
   }

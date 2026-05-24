@@ -397,6 +397,39 @@ Token vault security:
 - Refresh is handled server-side.
 - One user's token is never used for another user.
 
+### Phase 2.6  Tenant-Aware Postgres Schema Foundation
+
+Goal: add the first opt-in durable database foundation behind `PlatformStateStore` without migrating every runtime read path at once.
+
+This checkpoint adds a small Postgres boundary using `pg` directly. It does not introduce Prisma or Drizzle, does not make Postgres required for local development, and does not remove `InMemoryPlatformStateStore`.
+
+Postgres is opt-in:
+
+```env
+PLATFORM_STATE_STORE_DRIVER=postgres
+DATABASE_URL=<postgres-url>
+DATABASE_SSL=true
+```
+
+Local development and V1-style demo flows continue to default to memory; memory remains default:
+
+```env
+PLATFORM_STATE_STORE_DRIVER=memory
+```
+
+Initial tenant-aware schema tables:
+
+- `tenants`
+- `users`
+- `connector_trust_records`
+- `audit_events`
+- `conversation_states`
+- `runtime_executions`
+
+The schema uses `safe_metadata jsonb` for extensible proof data. It intentionally does not include a Connected Accounts token vault and does not include raw token material. OAuth access tokens, refresh tokens, authorization codes, JWTs, Authorization headers, cookies, private keys, client secrets, and client assertions must not be stored in these tables.
+
+The `PostgresPlatformStateStore` implements the existing state boundary for connector trust records, audit events, and conversation snapshots using parameterized queries. Security Timeline still uses the existing read model in this checkpoint; a persisted audit timeline read model remains future work.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
@@ -717,7 +750,7 @@ V2 verification should layer new checks without weakening V1:
 - `npm run verify:platform-state-onboarding`
 - `npm run verify:platform-audit-write-through`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
-- Phase 2.0 does not implement a database yet; future persistence verification should cover restart-surviving connectors, audit events, conversations, pending interactions, and runtime executions
+- Phase 2.6 adds the first opt-in Postgres schema and `PostgresPlatformStateStore`; future persistence verification should cover full restart-surviving runtime read paths
 - future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
 - future SOC/SIEM and observability verification for sanitized vendor-neutral SecurityEventSink exports
 - future SDK verification proving a connector can onboard without Gateway core changes
@@ -775,6 +808,11 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.4: keep ConsoleSecurityEventSink local and metadata-minimal
 - [ ] Phase 2.4: use schemaVersion `secure-a2a.security-event.v1`
 - [ ] Phase 2.4: keep publish failures non-blocking for runtime and audit write-through
+- [ ] Phase 2.6: add `pg` Postgres dependency without adding Prisma or Drizzle
+- [ ] Phase 2.6: add tenant-aware schema for tenants, users, connector trust, audit events, conversations, and runtime executions
+- [ ] Phase 2.6: add `PostgresPlatformStateStore` behind `PLATFORM_STATE_STORE_DRIVER=postgres`
+- [ ] Phase 2.6: keep memory as the default local/dev state store
+- [ ] Phase 2.6: verify schema has no raw token material or token vault columns
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

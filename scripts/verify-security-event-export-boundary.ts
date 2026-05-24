@@ -205,7 +205,7 @@ const dependencyNames = Object.keys({
   ...(parsedPackageJson.devDependencies ?? {})
 });
 
-for (const forbidden of ["splunk", "sentinel", "datadog", "opentelemetry", "otel", "prisma", "drizzle", "pg", "postgres"]) {
+for (const forbidden of ["splunk", "sentinel", "datadog", "opentelemetry", "otel", "prisma", "drizzle"]) {
   if (dependencyNames.some((name) => name.toLowerCase().includes(forbidden))) {
     fail(`Phase 2.4 should not introduce dependency: ${forbidden}`);
   }

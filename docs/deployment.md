@@ -160,6 +160,12 @@ STATE_STORE_KEY_PREFIX=a2a
 UPSTASH_REDIS_REST_URL=<upstash-rest-url>
 UPSTASH_REDIS_REST_TOKEN=<upstash-rest-token>
 
+# Optional V2 platform state persistence. V1 does not require this.
+PLATFORM_STATE_STORE_DRIVER=memory
+# PLATFORM_STATE_STORE_DRIVER=postgres
+# DATABASE_URL=<postgres-url>
+# DATABASE_SSL=true
+
 SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_SAMESITE=None
 TRUST_PROXY_HEADERS=false
@@ -188,7 +194,7 @@ ORCHESTRATOR_PRIVATE_JWK_JSON=<private-jwk-json>
 ORCHESTRATOR_ALLOWED_AUTH_METHODS=private_key_jwt
 ```
 
-Use `ALLOWED_ORIGINS` for the browser origin. Set at least one of `GATEWAY_ISSUER` or `ORCHESTRATOR_PUBLIC_URL` to the orchestrator's real public HTTPS Railway URL; this value is published in Gateway metadata, used for the Gateway JWKS URI, and signs onboarding challenges as the issuer. `EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS` controls Agent Registry discovery and onboarding server-side fetches. `CONNECTOR_RUNTIME_ALLOWED_ORIGINS` controls `/a2a/task` execution after an agent is trusted. Both allowlists must contain only public connector origins. These entries are origins only, with scheme and host and no path, query, or fragment. If `EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS` is unset, onboarding falls back to `CONNECTOR_RUNTIME_ALLOWED_ORIGINS`. Use `STATE_STORE_DRIVER=upstash` with `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for replay and security state, not browser sessions.
+Use `ALLOWED_ORIGINS` for the browser origin. Set at least one of `GATEWAY_ISSUER` or `ORCHESTRATOR_PUBLIC_URL` to the orchestrator's real public HTTPS Railway URL; this value is published in Gateway metadata, used for the Gateway JWKS URI, and signs onboarding challenges as the issuer. `EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS` controls Agent Registry discovery and onboarding server-side fetches. `CONNECTOR_RUNTIME_ALLOWED_ORIGINS` controls `/a2a/task` execution after an agent is trusted. Both allowlists must contain only public connector origins. These entries are origins only, with scheme and host and no path, query, or fragment. If `EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS` is unset, onboarding falls back to `CONNECTOR_RUNTIME_ALLOWED_ORIGINS`. Use `STATE_STORE_DRIVER=upstash` with `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for replay and security state, not browser sessions. `PLATFORM_STATE_STORE_DRIVER=postgres` is optional V2 platform persistence and requires `DATABASE_URL`; keep `PLATFORM_STATE_STORE_DRIVER=memory` for V1/local demo behavior. Do not put raw OAuth tokens, JWTs, Authorization headers, private keys, client secrets, or client assertions in Postgres platform-state tables.
 
 ## Railway Mock IdP Service
 

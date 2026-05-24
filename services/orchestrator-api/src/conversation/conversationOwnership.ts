@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { VerifiedUserIdentity } from "../security/userIdentity.js";
+import { defaultTenantId } from "../tenant/tenantContext.js";
 import type { ConversationState } from "./conversationTypes.js";
 
 export type ConversationOwnerContext = {
@@ -24,7 +25,7 @@ export function conversationOwnerContext(params: {
     actorProvider: params.actor?.provider,
     actorSubject: params.actor?.subject,
     actorEmail: params.actor?.email,
-    tenantId: params.tenantId
+    tenantId: params.tenantId ?? defaultTenantId()
   };
 }
 

@@ -1,17 +1,19 @@
 import { InMemoryPlatformStateStore } from "./inMemoryPlatformStateStore.js";
+import { platformStateStoreDriver } from "./postgresConfig.js";
+import { PostgresPlatformStateStore } from "./postgresPlatformStateStore.js";
 import type { PlatformStateStore, PlatformStateStoreDriver } from "./platformStateStore.js";
 
 let cachedPlatformStateStore: PlatformStateStore | undefined;
 
 export function createPlatformStateStore(): PlatformStateStore {
-  const driver = (process.env.PLATFORM_STATE_STORE_DRIVER ?? "memory") as PlatformStateStoreDriver;
+  const driver = platformStateStoreDriver() as PlatformStateStoreDriver;
 
   if (driver === "memory") {
     return new InMemoryPlatformStateStore();
   }
 
   if (driver === "postgres") {
-    throw new Error("PLATFORM_STATE_STORE_DRIVER=postgres is planned but not implemented in this checkpoint.");
+    return new PostgresPlatformStateStore();
   }
 
   throw new Error(`Unsupported PLATFORM_STATE_STORE_DRIVER ${driver}. Expected memory or postgres.`);

@@ -152,9 +152,9 @@ const dependencyNames = Object.keys({
   ...(parsedPackageJson.dependencies ?? {}),
   ...(parsedPackageJson.devDependencies ?? {})
 });
-for (const forbidden of ["prisma", "drizzle", "pg", "postgres"]) {
+for (const forbidden of ["prisma", "drizzle"]) {
   if (dependencyNames.some((name) => name.toLowerCase().includes(forbidden))) {
-    fail(`Phase 2.1 should not introduce DB dependency: ${forbidden}`);
+    fail(`Platform state onboarding should not introduce ORM dependency: ${forbidden}`);
   }
 }
 

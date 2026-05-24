@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { publishSecurityEventFromAuditEvent } from "../securityEvents/securityEventPublisher.js";
 import { getPlatformStateStore } from "../state/createPlatformStateStore.js";
 import type { StoredAuditEvent } from "../state/platformStateStore.js";
+import { defaultTenantId } from "../tenant/tenantContext.js";
 
 export type PlatformAuditEventInput = {
   tenantId?: string;
@@ -75,7 +76,7 @@ export async function appendPlatformAuditEvent(input: PlatformAuditEventInput): 
   try {
     const event: StoredAuditEvent = {
       id: randomUUID(),
-      tenantId: input.tenantId,
+      tenantId: input.tenantId ?? defaultTenantId(),
       actorProvider: input.actorProvider,
       actorSubject: input.actorSubject,
       actorEmail: input.actorEmail,

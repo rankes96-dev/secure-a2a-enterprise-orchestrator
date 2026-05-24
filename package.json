@@ -16,7 +16,7 @@
     "build:backends": "npm run build -w services/orchestrator-api && npm run build -w services/mock-identity-provider && npm run build -w services/end-user-triage-agent && npm run build -w services/jira-agent && npm run build -w services/github-agent && npm run build -w services/pagerduty-agent && npm run build -w services/security-oauth-agent && npm run build -w services/api-health-agent && npm run build -w real-external-agent",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "verify:v1": "npm run typecheck && npm run build && npm run verify:production-build && npm run verify:end-user-product && npm run verify:ui-copy && npm run verify:ui-components && npm run verify:ui-style && npm run verify:persona-mode && npm run verify:chat-keyboard && npm run verify:connector-test-center && npm run verify:runtime-safety && npm run verify:deployment-readiness && npm run verify:demo-readiness && npm run verify:identity-provider && npm run verify:pr8-review-fixes",
-    "verify:v2-plan": "tsx scripts/verify-v2-plan.ts && npm run verify:platform-state-foundation && npm run verify:platform-state-onboarding && npm run verify:platform-audit-write-through && npm run verify:platform-conversation-state && npm run verify:security-event-export-boundary && npm run verify:security-scan-p0 && npm run verify:security-scan-p1",
+    "verify:v2-plan": "tsx scripts/verify-v2-plan.ts && npm run verify:platform-state-foundation && npm run verify:platform-state-onboarding && npm run verify:platform-audit-write-through && npm run verify:platform-conversation-state && npm run verify:security-event-export-boundary && npm run verify:security-scan-p0 && npm run verify:security-scan-p1 && npm run verify:platform-postgres-foundation",
     "verify:platform-state-foundation": "tsx scripts/verify-platform-state-foundation.ts",
     "verify:platform-state-onboarding": "tsx scripts/verify-platform-state-onboarding.ts",
     "verify:platform-audit-write-through": "tsx scripts/verify-platform-audit-write-through.ts",
@@ -24,6 +24,8 @@
     "verify:security-event-export-boundary": "tsx scripts/verify-security-event-export-boundary.ts",
     "verify:security-scan-p0": "tsx scripts/verify-security-scan-p0.ts",
     "verify:security-scan-p1": "tsx scripts/verify-security-scan-p1.ts",
+    "verify:platform-postgres-foundation": "tsx scripts/verify-platform-postgres-foundation.ts",
+    "db:apply-platform-schema": "tsx scripts/apply-platform-schema.ts",
     "verify:auth0-frontend": "tsx scripts/verify-auth0-frontend.ts",
     "verify:v1:e2e": "npm run verify:connector-routing && npm run verify:multi-connector-routing",
     "verify:a2a-token": "tsx scripts/verify-a2a-token.ts",
@@ -74,7 +76,9 @@
     "vite": "^5.2.11"
   },
   "dependencies": {
+    "@types/pg": "^8.20.0",
     "jose": "^5.10.0",
+    "pg": "^8.21.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   }
