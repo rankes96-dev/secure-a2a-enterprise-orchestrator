@@ -71,8 +71,25 @@ function taskContextMismatch(expected: string | undefined, actual: string | unde
 }
 
 export function validateA2ADelegationClaimBinding(task: A2ATask, claims: A2ATokenClaims): { ok: true } | { ok: false; reason: string } {
+  const taskIsDelegated =
+    (task.delegationDepth ?? 0) > 0 ||
+    Boolean(task.parentTaskId) ||
+    Boolean(task.requestedByAgent);
+
   if ((claims.delegation_depth ?? 0) > 1) {
     return { ok: false, reason: "Delegation depth exceeds allowed limit" };
+  }
+
+  if (taskIsDelegated && task.delegationDepth === undefined) {
+    return { ok: false, reason: "Delegated task context is missing delegation depth" };
+  }
+
+  if (taskIsDelegated && claims.delegation_depth === undefined) {
+    return { ok: false, reason: "Delegated task requires JWT delegation_depth" };
+  }
+
+  if (taskIsDelegated && claims.delegation_depth !== task.delegationDepth) {
+    return { ok: false, reason: "Delegation token delegation_depth does not match task context" };
   }
 
   if (claims.delegated_by && claims.delegation_depth === undefined) {
@@ -83,8 +100,20 @@ export function validateA2ADelegationClaimBinding(task: A2ATask, claims: A2AToke
     return { ok: false, reason: "Delegation token is missing delegated_by" };
   }
 
+  if (taskIsDelegated && !claims.delegated_by) {
+    return { ok: false, reason: "Delegation token is missing delegated_by" };
+  }
+
+  if (task.parentTaskId && !claims.parent_task_id) {
+    return { ok: false, reason: "Delegated task requires JWT parent_task_id" };
+  }
+
   if (taskContextMismatch(claims.parent_task_id, task.parentTaskId)) {
     return { ok: false, reason: "Delegation token parent_task_id does not match task context" };
+  }
+
+  if (task.requestedByAgent && !claims.requested_by_agent) {
+    return { ok: false, reason: "Delegated task requires JWT requested_by_agent" };
   }
 
   if (taskContextMismatch(claims.requested_by_agent, task.requestedByAgent)) {

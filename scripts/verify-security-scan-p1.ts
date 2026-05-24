@@ -165,6 +165,11 @@ for (const phrase of [
 }
 
 for (const phrase of [
+  "const taskIsDelegated",
+  "Delegated task requires JWT delegation_depth",
+  "Delegation token delegation_depth does not match task context",
+  "Delegated task requires JWT parent_task_id",
+  "Delegated task requires JWT requested_by_agent",
   "parent_task_id does not match task context",
   "requested_by_agent does not match task context",
   "delegated_by does not match requesting agent context",
@@ -245,6 +250,53 @@ function expectDelegationBinding(label: string, task: A2ATask, claims: A2ATokenC
 }
 
 expectDelegationBinding("valid delegated task/token", delegatedTask, delegatedClaims, true);
+expectDelegationBinding(
+  "delegated task with non-delegated claims",
+  delegatedTask,
+  {
+    ...delegatedClaims,
+    delegated_by: undefined,
+    delegation_depth: undefined,
+    parent_task_id: undefined,
+    requested_by_agent: undefined
+  },
+  false,
+  "Delegated task requires JWT delegation_depth"
+);
+expectDelegationBinding(
+  "task delegation depth requires JWT delegation depth",
+  delegatedTask,
+  { ...delegatedClaims, delegation_depth: undefined },
+  false,
+  "Delegated task requires JWT delegation_depth"
+);
+expectDelegationBinding(
+  "task delegation depth must match JWT delegation depth",
+  delegatedTask,
+  { ...delegatedClaims, delegation_depth: 0 },
+  false,
+  "Delegation token delegation_depth does not match task context"
+);
+expectDelegationBinding(
+  "task parentTaskId requires JWT parent_task_id",
+  delegatedTask,
+  { ...delegatedClaims, parent_task_id: undefined },
+  false,
+  "Delegated task requires JWT parent_task_id"
+);
+expectDelegationBinding(
+  "task requestedByAgent requires JWT requested_by_agent",
+  delegatedTask,
+  { ...delegatedClaims, requested_by_agent: undefined },
+  false,
+  "Delegated task requires JWT requested_by_agent"
+);
+expectDelegationBinding(
+  "mediatedBy mismatch alone is not bound to delegated_by",
+  { ...delegatedTask, mediatedBy: "another-gateway" },
+  delegatedClaims,
+  true
+);
 expectDelegationBinding(
   "mismatched delegated_by",
   delegatedTask,
