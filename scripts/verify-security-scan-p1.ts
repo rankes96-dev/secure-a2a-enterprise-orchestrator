@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
+import type { A2ATask, A2ATokenClaims } from "../packages/shared/src";
+import { validateA2ADelegationClaimBinding } from "../packages/shared/src/auth/requireA2AAuth";
 import { normalizeRuntimeResponse } from "../services/orchestrator-api/src/connectorRuntime";
 import { evaluateSourceIpAllowlist } from "../services/mock-identity-provider/src/security/sourceIpAllowlist";
 import { buildServiceNowRuntimeDiagnosis } from "../real-external-agent/src/connectors/servicenowRuntimeDiagnosis";
@@ -22,6 +24,12 @@ function read(path: string): string {
 function requireIncludes(source: string, phrase: string, context: string): void {
   if (!source.includes(phrase)) {
     fail(`${context} missing required phrase: ${phrase}`);
+  }
+}
+
+function requireExcludes(source: string, phrase: string, context: string): void {
+  if (source.includes(phrase)) {
+    fail(`${context} should not include forbidden phrase: ${phrase}`);
   }
 }
 
@@ -159,13 +167,119 @@ for (const phrase of [
 for (const phrase of [
   "parent_task_id does not match task context",
   "requested_by_agent does not match task context",
-  "delegated_by does not match task context",
+  "delegated_by does not match requesting agent context",
+  "task.fromAgent",
+  "task.requestedByAgent",
   "Delegation depth exceeds allowed limit",
   "Delegation token is missing delegated_by",
   "A2A JWT actor subject does not match task context"
 ]) {
   requireIncludes(requireA2AAuth, phrase, "delegation claim binding");
 }
+requireExcludes(requireA2AAuth, "validation.claims?.delegated_by, input.task.mediatedBy", "delegation claim binding");
+requireExcludes(requireA2AAuth, "claims.delegated_by, task.mediatedBy", "delegation claim binding");
+
+const delegatedTask: A2ATask = {
+  taskId: "child-task-1",
+  conversationId: "conversation-1",
+  fromAgent: "security-oauth-agent",
+  toAgent: "github-agent",
+  mediatedBy: "servicenow-orchestrator-agent",
+  delegationDepth: 1,
+  parentTaskId: "parent-task-1",
+  requestedByAgent: "security-oauth-agent",
+  skillId: "github.rate_limit.read",
+  userMessage: "Check GitHub rate limits",
+  classification: {
+    system: "github",
+    issueType: "API_AVAILABILITY",
+    operation: "rate limit lookup",
+    confidence: "high",
+    reasoningSummary: "delegation binding fixture",
+    classificationSource: "rules_fallback",
+    reporterType: "it_engineer",
+    supportMode: "technical_integration"
+  },
+  context: {
+    callerAgentId: "security-oauth-agent",
+    targetAgentId: "github-agent",
+    requestedScope: "github.rate_limit.read",
+    actor: {
+      email: "ran@company.com",
+      roles: ["it-support"],
+      provider: "mock",
+      issuer: "http://localhost:4110",
+      subject: "user:ran@company.com"
+    }
+  }
+};
+
+const delegatedClaims: A2ATokenClaims = {
+  iss: "http://localhost:4110",
+  sub: "servicenow-orchestrator-agent",
+  aud: "github-agent",
+  scope: "github.rate_limit.read",
+  exp: 1_800_000_000,
+  iat: 1_700_000_000,
+  jti: "jti-1",
+  client_id: "servicenow-orchestrator-agent",
+  actor: "ran@company.com",
+  actor_provider: "mock",
+  actor_issuer: "http://localhost:4110",
+  actor_sub: "user:ran@company.com",
+  delegated_by: "security-oauth-agent",
+  delegation_depth: 1,
+  parent_task_id: "parent-task-1",
+  requested_by_agent: "security-oauth-agent"
+};
+
+function expectDelegationBinding(label: string, task: A2ATask, claims: A2ATokenClaims, ok: boolean, expectedReason?: string): void {
+  const result = validateA2ADelegationClaimBinding(task, claims);
+  if (result.ok !== ok) {
+    fail(`${label} expected ok=${ok}, got ${JSON.stringify(result)}`);
+    return;
+  }
+  if (!result.ok && expectedReason && result.reason !== expectedReason) {
+    fail(`${label} expected reason "${expectedReason}", got "${result.reason}"`);
+  }
+}
+
+expectDelegationBinding("valid delegated task/token", delegatedTask, delegatedClaims, true);
+expectDelegationBinding(
+  "mismatched delegated_by",
+  delegatedTask,
+  { ...delegatedClaims, delegated_by: "servicenow-orchestrator-agent" },
+  false,
+  "Delegation token delegated_by does not match requesting agent context"
+);
+expectDelegationBinding(
+  "mismatched parent_task_id",
+  delegatedTask,
+  { ...delegatedClaims, parent_task_id: "wrong-parent" },
+  false,
+  "Delegation token parent_task_id does not match task context"
+);
+expectDelegationBinding(
+  "mismatched requested_by_agent",
+  delegatedTask,
+  { ...delegatedClaims, requested_by_agent: "wrong-agent" },
+  false,
+  "Delegation token requested_by_agent does not match task context"
+);
+expectDelegationBinding(
+  "delegation depth greater than max",
+  delegatedTask,
+  { ...delegatedClaims, delegation_depth: 2 },
+  false,
+  "Delegation depth exceeds allowed limit"
+);
+expectDelegationBinding(
+  "delegated token missing delegated_by",
+  delegatedTask,
+  { ...delegatedClaims, delegated_by: undefined, delegation_depth: 1 },
+  false,
+  "Delegation token is missing delegated_by"
+);
 
 for (const phrase of [
   "resourceRegistry.audiences.has(body.audience)",
