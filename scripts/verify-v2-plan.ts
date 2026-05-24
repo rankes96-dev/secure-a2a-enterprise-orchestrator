@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 
 const path = "docs/v2-platform-foundation.md";
+const stateInventoryPath = "docs/v2-state-inventory.md";
 const sharedPath = "packages/shared/src/index.ts";
 const deploymentPath = "docs/deployment.md";
 const connectorRuntimePath = "services/orchestrator-api/src/connectorRuntime.ts";
@@ -26,6 +27,22 @@ if (!existsSync(path)) {
     "Phase 0  V1 Closeout / Branch Hygiene",
     "Phase 1  Real User Identity With Auth0",
     "Phase 2  Persistent Platform State",
+    "Phase 2.4  Security Event Export Boundary / SOC & Observability Readiness",
+    "SecurityEventSink",
+    "schemaVersion",
+    "severity",
+    "outcome",
+    "correlation IDs",
+    "SOC",
+    "SIEM",
+    "observability",
+    "OpenTelemetry",
+    "Splunk",
+    "Microsoft Sentinel",
+    "Datadog",
+    "vendor-neutral",
+    "no raw tokens",
+    "no raw prompts",
     "Phase 2.5  Connected Accounts / User Delegated OAuth",
     "Phase 3  Connector SDK",
     "Phase 3.5  Real ServiceNow External Agent Adapter",
@@ -58,6 +75,32 @@ if (!existsSync(path)) {
   ]) {
     if (!doc.includes(phrase)) {
       fail(`V2 plan missing required phrase: ${phrase}`);
+    }
+  }
+}
+
+if (!existsSync(stateInventoryPath)) {
+  fail(`${stateInventoryPath} should exist`);
+} else {
+  const stateInventory = readFileSync(stateInventoryPath, "utf8");
+  for (const phrase of [
+    "SecurityEventSink export boundary",
+    "sanitized and vendor-neutral",
+    "SOC/observability integrations",
+    "structured safe events only",
+    "Raw prompts",
+    "raw tokens",
+    "no raw tokens",
+    "no raw prompts",
+    "Authorization headers",
+    "JWTs",
+    "cookies",
+    "client assertions",
+    "private keys",
+    "client secrets must never be exported"
+  ]) {
+    if (!stateInventory.includes(phrase)) {
+      fail(`state inventory missing Phase 2.4 SOC export phrase: ${phrase}`);
     }
   }
 }

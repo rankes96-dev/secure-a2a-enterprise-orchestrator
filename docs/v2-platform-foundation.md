@@ -194,6 +194,125 @@ Phase 2.0 non-goals:
 - no replacement of Upstash
 - no removal of in-memory local mode
 
+#### Phase 2.4  Security Event Export Boundary / SOC & Observability Readiness
+
+Goal: prepare the Gateway to export sanitized structured security events through a vendor-neutral boundary.
+
+This phase should be designed after Phase 2.3 Conversation / Pending Interaction State Boundary, when audit events and conversation/pending-interaction state have clearer shape, but before real external write-heavy connected account flows and before vendor-specific SOC, SIEM, and observability integrations.
+
+The export boundary should:
+
+- Prepare the Gateway to export sanitized structured security events.
+- Keep the audit event model vendor-neutral.
+- Support future SOC/SIEM and observability integrations.
+- Avoid coupling the Gateway to Splunk, Microsoft Sentinel, Elastic, Datadog, OpenTelemetry collectors, webhook pipelines, or any one vendor.
+- Keep raw protected material out of exported events.
+
+Future boundary shape:
+
+```ts
+export type SecurityEventSeverity =
+  | "info"
+  | "low"
+  | "medium"
+  | "high"
+  | "critical";
+
+export type SecurityEventOutcome =
+  | "success"
+  | "failure"
+  | "blocked"
+  | "needs_action";
+
+export type SecurityEventEnvelope = {
+  schemaVersion: string;
+  id: string;
+  eventType: string;
+  severity: SecurityEventSeverity;
+  outcome: SecurityEventOutcome;
+  createdAt: string;
+
+  tenantId?: string;
+  actorProvider?: string;
+  actorSubject?: string;
+  actorEmail?: string;
+
+  conversationId?: string;
+  requestId?: string;
+  taskId?: string;
+  connectorId?: string;
+  runtimeExecutionId?: string;
+
+  resourceType?: string;
+  resourceId?: string;
+
+  safeMetadata: Record<string, unknown>;
+};
+
+export type SecurityEventSink = {
+  publish(event: SecurityEventEnvelope): Promise<void>;
+};
+```
+
+Future sinks may include:
+
+- PlatformStateStore sink
+- Console sink
+- Webhook sink
+- OpenTelemetry sink
+- Splunk sink
+- Microsoft Sentinel sink
+- Elastic sink
+- Datadog sink
+
+This phase is documentation and boundary design only. It must not implement vendor-specific sinks, add Splunk/Sentinel/Datadog dependencies, add OpenTelemetry runtime dependencies, add a database, or change runtime behavior.
+
+Correlation requirements:
+
+Future exported security events should include correlation IDs and actor/tenant fields where available:
+
+- conversationId
+- requestId
+- taskId
+- connectorId
+- runtimeExecutionId
+- actorProvider
+- actorSubject
+- actorEmail
+- tenantId
+
+SOC and observability teams need to trace a flow from user login, request interpreted, connector selected, token issued, runtime executed or blocked, and final response.
+
+Severity guidance:
+
+| Event | Severity |
+| --- | --- |
+| `user.identity.verified` | `info` |
+| `connector.onboarding.trusted` | `medium` |
+| `connector.runtime.succeeded` | `info` |
+| `connector.runtime.failed` | `medium` |
+| `connector.runtime.authorization_required` | `low` or `medium` |
+| `security.request.blocked` | `high` |
+| governance bypass attempt | `high` or `critical` |
+
+Outcome guidance:
+
+| Event | Outcome |
+| --- | --- |
+| identity verified | `success` |
+| runtime succeeded | `success` |
+| runtime failed | `failure` |
+| security blocked | `blocked` |
+| authorization_required | `needs_action` |
+
+Export safety requirements:
+
+- Exported events must use safeMetadata only.
+- Raw tokens, JWTs, Authorization headers, cookies, client assertions, private keys, client secrets, and raw prompts must never be exported.
+- Future SOC/SIEM and observability exports must preserve the invariant: no raw tokens and no raw prompts.
+- Existing neutral proof fields such as `protectedMaterialExposed` and `tokenMaterialStored` should remain safe boolean proof, not protected material.
+- Vendor mappings should happen at the sink edge later, not inside the Gateway audit model.
+
 ### Phase 2.5  Connected Accounts / User Delegated OAuth
 
 Goal: prevent external agents from acting with one shared admin/developer OAuth token.
@@ -528,12 +647,13 @@ V2 foundation is done when:
 1. Keep Phase 0 branch hygiene and verification discipline strict.
 2. Add identity provider abstraction before Auth0-specific code.
 3. Add persistence abstractions and schemas before migrating runtime state.
-4. Define Connected Accounts / User Delegated OAuth contracts before real write-capable adapters.
-5. Move audit events into durable storage before expanding Security Timeline.
-6. Extract the connector SDK from the existing reference connector contract.
-7. Extract governed chat rules behind focused tests before larger routing changes.
-8. Add CI and Playwright smoke once Phase 1 and Phase 2 stabilize.
-9. Polish presentation after platform proof is stable.
+4. Define the SecurityEventSink export boundary after audit and conversation state are shaped.
+5. Define Connected Accounts / User Delegated OAuth contracts before real write-capable adapters.
+6. Move audit events into durable storage before expanding Security Timeline.
+7. Extract the connector SDK from the existing reference connector contract.
+8. Extract governed chat rules behind focused tests before larger routing changes.
+9. Add CI and Playwright smoke once Phase 1 and Phase 2 stabilize.
+10. Polish presentation after platform proof is stable.
 
 ## Verification Strategy
 
@@ -549,6 +669,7 @@ V2 verification should layer new checks without weakening V1:
 - future Auth0 verification for JWT/JWKS validation and claim mapping
 - Phase 2.0 does not implement a database yet; future persistence verification should cover restart-surviving connectors, audit events, conversations, pending interactions, and runtime executions
 - future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
+- future SOC/SIEM and observability verification for sanitized vendor-neutral SecurityEventSink exports
 - future SDK verification proving a connector can onboard without Gateway core changes
 - future chat-engine regression tests for precedence rules
 - future Playwright smoke tests for browser and production demo flows
@@ -593,6 +714,12 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.3: keep existing in-memory read path active
 - [ ] Phase 2.3: do not persist raw prompts or token-looking content
 - [ ] Phase 2.3: memory driver remains active; restart survival is future Postgres work
+- [ ] Phase 2.4: define vendor-neutral SecurityEventSink boundary
+- [ ] Phase 2.4: add event schema version guidance
+- [ ] Phase 2.4: add severity and outcome model
+- [ ] Phase 2.4: add correlation ID requirements
+- [ ] Phase 2.4: keep SOC/observability exports sanitized
+- [ ] Phase 2.4: do not implement vendor-specific sinks yet
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users
