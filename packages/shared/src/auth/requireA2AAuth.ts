@@ -66,6 +66,10 @@ function hasA2AContext(task: A2ATask | AgentTask): task is A2ATask {
   return "context" in task;
 }
 
+function taskContextMismatch(expected: string | undefined, actual: string | undefined): boolean {
+  return Boolean(expected && expected !== actual);
+}
+
 function validateInternalServiceToken(request: IncomingMessage, agentId: string): RequireA2AAuthResult {
   const expected = process.env.INTERNAL_SERVICE_TOKEN;
   if (!expected) {
@@ -130,6 +134,30 @@ export async function requireA2AAuth(input: RequireA2AAuthInput): Promise<Requir
 
   if ((validation.claims?.delegation_depth ?? 0) > 0 && !validation.claims?.delegated_by) {
     return blocked(input.agentId, 403, "Delegation token is missing delegated_by");
+  }
+
+  if (taskContextMismatch(validation.claims?.parent_task_id, input.task.parentTaskId)) {
+    return blocked(input.agentId, 403, "Delegation token parent_task_id does not match task context");
+  }
+
+  if (taskContextMismatch(validation.claims?.requested_by_agent, input.task.requestedByAgent)) {
+    return blocked(input.agentId, 403, "Delegation token requested_by_agent does not match task context");
+  }
+
+  if (taskContextMismatch(validation.claims?.delegated_by, input.task.mediatedBy)) {
+    return blocked(input.agentId, 403, "Delegation token delegated_by does not match task context");
+  }
+
+  if (input.task.context.actor?.subject && validation.claims?.actor_sub !== input.task.context.actor.subject) {
+    return blocked(input.agentId, 403, "A2A JWT actor subject does not match task context");
+  }
+
+  if (input.task.context.actor?.provider && validation.claims?.actor_provider !== input.task.context.actor.provider) {
+    return blocked(input.agentId, 403, "A2A JWT actor provider does not match task context");
+  }
+
+  if (input.task.context.actor?.email && validation.claims?.actor !== input.task.context.actor.email) {
+    return blocked(input.agentId, 403, "A2A JWT actor does not match task context");
   }
 
   return {

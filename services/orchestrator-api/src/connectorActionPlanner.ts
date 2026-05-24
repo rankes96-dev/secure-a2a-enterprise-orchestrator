@@ -1,6 +1,8 @@
 import type { A2AAgentResponse, ConnectorActionPlan, PlannedActionExecutionType, PlannedActionRiskLevel, PlannedActionSideEffects } from "@a2a/shared";
 import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
 import { validateTrustedConnectorRuntimeEndpoint } from "./security/connectorRuntimeSafety.js";
+import { getA2AAccessToken } from "./security/tokenClient.js";
+import type { VerifiedUserIdentity } from "./security/userIdentity.js";
 
 const maxActionPlanJsonBytes = 64 * 1024;
 const connectorActionPlanTimeoutMs = 5_000;
@@ -123,10 +125,20 @@ function validatePlanIdentity(plan: ConnectorActionPlan, onboardedAgent: Trusted
   }
 }
 
+function planOnlyScope(onboardedAgent: TrustedOnboardedAgent): string | undefined {
+  const grants = [
+    ...onboardedAgent.requestedApplicationGrants,
+    ...onboardedAgent.applicationAccessGrants,
+    ...onboardedAgent.grantedScopes
+  ].filter(Boolean);
+  return grants.find((grant) => /read|lookup|metadata|inspect|diagnose/i.test(grant)) ?? grants[0];
+}
+
 export async function requestConnectorActionPlan(params: {
   message: string;
   conversationId: string;
   onboardedAgent: TrustedOnboardedAgent;
+  actor?: VerifiedUserIdentity;
 }): Promise<{ agentResponse: A2AAgentResponse; actionPlan?: ConnectorActionPlan }> {
   const endpoint = validateTrustedConnectorRuntimeEndpoint({
     endpoint: params.onboardedAgent.runtimeEndpoint,
@@ -135,17 +147,33 @@ export async function requestConnectorActionPlan(params: {
   if (!endpoint.ok) {
     throw new Error(endpoint.error);
   }
+  const scope = planOnlyScope(params.onboardedAgent);
+  if (!params.onboardedAgent.audience || !scope) {
+    throw new Error("external connector action plan auth could not be derived");
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), connectorActionPlanTimeoutMs);
   let response: Response;
   let body: unknown;
   try {
+    const issued = await getA2AAccessToken({
+      audience: params.onboardedAgent.audience,
+      scope,
+      actor: params.actor?.email,
+      actorRoles: params.actor?.roles,
+      actorProvider: params.actor?.provider,
+      actorIssuer: params.actor?.issuer,
+      actorSubject: params.actor?.subject
+    });
     response = await fetch(endpoint.url, {
       method: "POST",
       redirect: "error",
       signal: controller.signal,
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${issued.accessToken}`
+      },
       body: JSON.stringify({
         mode: "plan_only",
         runtimeMode: "connector_plan_only",
@@ -154,6 +182,17 @@ export async function requestConnectorActionPlan(params: {
         connectorId: params.onboardedAgent.connectorId,
         resourceSystem: params.onboardedAgent.resourceSystem,
         message: params.message,
+        context: {
+          actor: params.actor
+            ? {
+                email: params.actor.email,
+                roles: [...params.actor.roles],
+                provider: params.actor.provider,
+                issuer: params.actor.issuer,
+                subject: params.actor.subject
+              }
+            : undefined
+        },
         trustedContext: {
           externalConfigHash: params.onboardedAgent.externalConfigHash,
           connectorProfileHash: params.onboardedAgent.connectorProfileHash

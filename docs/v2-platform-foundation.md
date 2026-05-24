@@ -619,16 +619,35 @@ P0 items for this checkpoint:
 - connector risk/approval enforcement
 - Agent Card / health check SSRF hardening
 
-P1/P2 backlog:
+P1 findings:
 
-- plan-only auth
-- runtime config oracle
-- delegation claim binding
-- mock IdP production hardening
-- trust-status/debug endpoint hardening
-- upstream error body sanitization
-- connector answer spoofing
-- UI crash hardening
+- fixed: plan-only runtime requests bypass A2A authentication. Runtime-facing plan-only calls now require scoped A2A JWT validation before action plans are returned.
+- fixed: runtime config oracle before JWT validation. External runtime token validation now happens before trusted config and connector access evaluation responses.
+- fixed: external agent accepts under-validated A2A JWTs. Runtime JWT validation requires issuer, audience, expiration/signature, required scope, `sub`, `client_id`, `jti`, and actor provenance when task actor context is present.
+- fixed: delegation JWT claims are not bound to task context. Delegated claims such as `parent_task_id`, `requested_by_agent`, `delegated_by`, depth, and actor context are checked against the submitted A2A task.
+- fixed: mock IdP mints tokens for arbitrary audiences. Token audience must be in the registered A2A resource registry, and requested scopes must be allowed for that audience.
+- fixed: spoofable proxy headers bypass Mock IdP IP allowlist. Proxy headers are ignored unless Mock IdP trusted proxy mode is explicitly enabled.
+- fixed: trust status endpoint leaks configured JWKS URLs. Production trust status redacts full JWKS URLs for non-admin session callers.
+- partially fixed: public demo token endpoint / mock IdP production hardening. Demo token and debug endpoints require internal/demo access gates; future work should disable demo login entirely for non-demo deployments.
+- fixed: upstream agent error bodies leak through `/resolve`. Runtime and action-plan responses are normalized through token-aware sanitizers and generic upstream failure messages.
+- fixed: ServiceNow ticket lookup leaks record existence. Missing and unauthorized tickets now return the same safe user-facing response.
+- partially fixed: connector record access inferred from email prefixes. Current behavior is documented as demo fixture role hints only; real ACL integration remains future hardening.
+
+P2 findings:
+
+- pending: AI-derived capability is logged without sanitization.
+- pending: Agent Card support hints bypass delegation policy.
+- fixed: onboarding fetch errors leak network details. Onboarding fetch errors use safe generic messages.
+- partially fixed: read-only connector answers can claim changes were made. Current end-user answers state no changes for reference read flows; broader connector answer attestation remains future hardening.
+- pending: connector answer can spoof governed change results.
+- pending: divergent skills bypass onboarding action review.
+- pending: untrusted connector profiles can approve unauthorized actions.
+- partially fixed: token-not-issued state is shown as successful. P0 connector policy paths avoid issuing runtime tokens for blocked/approval-required execution; UI polish remains future hardening.
+- pending: malformed agent trace can crash Security Timeline UI.
+- future hardening: replay verification can leak access tokens in logs.
+- partially fixed: debug AI config endpoint exposed via self-issued sessions. Production access now requires admin/API-key access; local diagnostic behavior remains for development.
+- pending: malformed Agent Card scope can crash routing.
+- pending: composer clears messages that were not accepted.
 
 ## Architecture Principles
 

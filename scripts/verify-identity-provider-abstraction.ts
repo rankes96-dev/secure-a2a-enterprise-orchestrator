@@ -163,7 +163,7 @@ for (const phrase of [
   "provider: userIdentityProvider.name",
   "issuer: userIdentityProvider.issuer",
   "audience: userIdentityProvider.audience",
-  "jwksUri: safeTrustUrl(userIdentityProvider.jwksUri)",
+  "jwksUri: safeTrustUrl(userIdentityProvider.jwksUri, adminView)",
   "rawTokenExposed: false"
 ]) {
   assert(index.includes(phrase), `orchestrator identity routes/trust status missing provider abstraction phrase: ${phrase}`);

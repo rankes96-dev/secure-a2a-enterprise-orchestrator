@@ -13,6 +13,7 @@ const managedEnvVars = [
   "MOCK_IDP_ENFORCE_IP_ALLOWLIST",
   "MOCK_IDP_ALLOWED_SOURCE_IPS",
   "MOCK_IDP_ALLOWED_SOURCE_CIDRS",
+  "MOCK_IDP_TRUST_PROXY_HEADERS",
   "TRUST_PROXY_HEADERS"
 ] as const;
 
@@ -81,6 +82,7 @@ const cases: CheckCase[] = [
     env: {
       MOCK_IDP_ENFORCE_IP_ALLOWLIST: "true",
       MOCK_IDP_ALLOWED_SOURCE_IPS: "10.10.10.10",
+      MOCK_IDP_TRUST_PROXY_HEADERS: "true",
       TRUST_PROXY_HEADERS: "true"
     },
     remoteAddress: "127.0.0.1",
@@ -92,11 +94,23 @@ const cases: CheckCase[] = [
     env: {
       MOCK_IDP_ENFORCE_IP_ALLOWLIST: "true",
       MOCK_IDP_ALLOWED_SOURCE_IPS: "203.0.113.50",
+      MOCK_IDP_TRUST_PROXY_HEADERS: "true",
       TRUST_PROXY_HEADERS: "true"
     },
     remoteAddress: "127.0.0.1",
     headers: { "x-forwarded-for": "203.0.113.50" },
     expected: { ok: true, matchedBy: "ip", sourceIp: "203.0.113.50" }
+  },
+  {
+    name: "generic proxy trust flag alone cannot bypass socket source",
+    env: {
+      MOCK_IDP_ENFORCE_IP_ALLOWLIST: "true",
+      MOCK_IDP_ALLOWED_SOURCE_IPS: "203.0.113.50",
+      TRUST_PROXY_HEADERS: "true"
+    },
+    remoteAddress: "127.0.0.1",
+    headers: { "x-forwarded-for": "203.0.113.50" },
+    expected: { ok: false, sourceIp: "127.0.0.1" }
   },
   {
     name: "untrusted proxy headers cannot bypass socket source",

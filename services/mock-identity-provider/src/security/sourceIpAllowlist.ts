@@ -41,8 +41,12 @@ function ipVariants(ip: string): Set<string> {
   return variants;
 }
 
+function trustedProxyHeadersEnabled(): boolean {
+  return envEnabled("MOCK_IDP_TRUST_PROXY_HEADERS") && envEnabled("TRUST_PROXY_HEADERS");
+}
+
 function getSourceIp(request: IncomingMessage): string {
-  if (envEnabled("TRUST_PROXY_HEADERS")) {
+  if (trustedProxyHeadersEnabled()) {
     return normalizeIp(
       firstForwardedForIp(request.headers["x-forwarded-for"]) ??
         firstHeaderValue(request.headers["x-real-ip"]) ??

@@ -427,7 +427,9 @@ export async function executeApprovedConnectorSkill(params: {
               ? {
                   email: params.actor.email,
                   roles: [...params.actor.roles],
-                  provider: params.actor.provider
+                  provider: params.actor.provider,
+                  issuer: params.actor.issuer,
+                  subject: params.actor.subject
                 }
               : undefined
           },

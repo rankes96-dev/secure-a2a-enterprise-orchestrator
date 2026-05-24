@@ -75,6 +75,8 @@ export type ConnectorRuntimeTask = {
       email?: unknown;
       roles?: unknown;
       provider?: unknown;
+      issuer?: unknown;
+      subject?: unknown;
     };
   };
   trustedContext?: {
@@ -89,6 +91,8 @@ export type ConnectorAccessEvaluation = {
   deniedEffectivePermissions: string[];
   skillApprovedByConfig: boolean;
 };
+
+type ConnectorRuntimeActor = NonNullable<ConnectorRuntimeTask["context"]>["actor"];
 
 function inferExecutionType(skillId: string, explicit?: ConnectorRuntimeExecutionType): ConnectorRuntimeExecutionType {
   if (explicit) {
@@ -159,7 +163,56 @@ export function runtimeSkillRequirement(skillId: unknown): RuntimeSkillRequireme
   };
 }
 
-export async function validateRuntimeToken(token: string, requiredApplicationGrants: string[]): Promise<{
+export function planOnlyRuntimeRequirement(): RuntimeSkillRequirement | undefined {
+  const profile = getConnectorProfile(getAdminConfig().selectedConnectorId);
+  const catalog = profile.skillCatalog.length ? profile.skillCatalog : profile.actionCatalog;
+  const grants = [
+    ...new Set(
+      catalog
+        .flatMap((skill) => skill.requiredApplicationGrants)
+        .filter(Boolean)
+    )
+  ];
+  const readGrant = grants.find((grant) => /read|lookup|metadata|inspect|diagnose/i.test(grant));
+  const requiredGrant = readGrant ?? grants[0];
+  if (!requiredGrant) {
+    return undefined;
+  }
+
+  return {
+    id: "connector.plan_only",
+    label: "Connector plan-only runtime",
+    requiredApplicationGrants: [requiredGrant],
+    requiredEffectivePermissions: [],
+    executionType: "inspection_read_only"
+  };
+}
+
+function validateActorProvenance(payload: Record<string, unknown>, expectedActor?: ConnectorRuntimeActor): void {
+  if (!expectedActor) {
+    return;
+  }
+
+  const actorEmail = typeof expectedActor.email === "string" ? expectedActor.email : undefined;
+  const actorProvider = typeof expectedActor.provider === "string" ? expectedActor.provider : undefined;
+  const actorIssuer = typeof expectedActor.issuer === "string" ? expectedActor.issuer : undefined;
+  const actorSubject = typeof expectedActor.subject === "string" ? expectedActor.subject : undefined;
+
+  if (actorEmail && payload.actor !== actorEmail) {
+    throw new Error("actor_provenance_mismatch");
+  }
+  if (actorProvider && payload.actor_provider !== actorProvider) {
+    throw new Error("actor_provenance_mismatch");
+  }
+  if (actorIssuer && payload.actor_issuer !== actorIssuer) {
+    throw new Error("actor_provenance_mismatch");
+  }
+  if (actorSubject && payload.actor_sub !== actorSubject) {
+    throw new Error("actor_provenance_mismatch");
+  }
+}
+
+export async function validateRuntimeToken(token: string, requiredApplicationGrants: string[], expectedActor?: ConnectorRuntimeActor): Promise<{
   actor?: string;
   actorRoles: string[];
   actorProvider?: string;
@@ -171,6 +224,16 @@ export async function validateRuntimeToken(token: string, requiredApplicationGra
     issuer: mockIdpIssuer(),
     audience: expectedAudience()
   });
+
+  if (
+    typeof payload.sub !== "string" ||
+    typeof payload.client_id !== "string" ||
+    typeof payload.jti !== "string" ||
+    payload.sub !== payload.client_id
+  ) {
+    throw new Error("invalid_a2a_token_claims");
+  }
+  validateActorProvenance(payload, expectedActor);
 
   const scopes = [...new Set([...scopesFromClaim(payload.scope), ...scopesFromClaim(payload.scp), ...scopesFromClaim(payload.scopes)])];
   const missingGrant = requiredApplicationGrants.find((grant) => !scopes.includes(grant));
@@ -287,6 +350,28 @@ export function validateRuntimeTrustedConfig(task: ConnectorRuntimeTask, skill: 
   }
 
   return { ok: true, accessEvaluation };
+}
+
+export function validatePlanOnlyTrustedConfig(task: ConnectorRuntimeTask): {
+  ok: true;
+} | {
+  ok: false;
+  status: 409;
+  body: { error: string; message: string };
+} {
+  const expectedHash = typeof task.trustedContext?.externalConfigHash === "string" ? task.trustedContext.externalConfigHash : "";
+  if (!expectedHash || expectedHash !== adminConfigHash()) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        error: "connector_configuration_changed",
+        message: "External connector configuration changed after Gateway onboarding. Re-run Gateway onboarding before executing runtime."
+      }
+    };
+  }
+
+  return { ok: true };
 }
 
 export function safeDiagnosis(params: {

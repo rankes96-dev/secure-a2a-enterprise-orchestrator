@@ -194,8 +194,8 @@ async function validateTokenRequest(body: TokenRequest): Promise<TokenValidation
     return { ok: false, status: 400, error: "missing_audience_or_scope", authMethod: clientAuth.authMethod };
   }
 
-  const isStaticAudience = resourceRegistry.audiences.has(body.audience);
-  if (!isStaticAudience) {
+  const isRegisteredAudience = application.scopePolicy === "agent_card_registry" && resourceRegistry.audiences.has(body.audience);
+  if (!isRegisteredAudience) {
     return { ok: false, status: 403, error: `audience_not_allowed: ${body.audience}`, authMethod: clientAuth.authMethod };
   }
 
@@ -204,7 +204,8 @@ async function validateTokenRequest(body: TokenRequest): Promise<TokenValidation
     return { ok: false, status: 403, error: `scope_denied: ${denied}`, authMethod: clientAuth.authMethod };
   }
 
-  const unsupported = isStaticAudience ? scopes.find((scope) => !resourceRegistry.scopes.has(scope)) : undefined;
+  const audienceScopes = new Set(resourceRegistry.audienceToScopes.get(body.audience) ?? []);
+  const unsupported = scopes.find((scope) => !audienceScopes.has(scope));
   if (unsupported) {
     return { ok: false, status: 403, error: `scope_not_allowed: ${unsupported}`, authMethod: clientAuth.authMethod };
   }

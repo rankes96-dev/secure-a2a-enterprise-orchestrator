@@ -86,7 +86,27 @@ function accessRequestDetailPrompt(fields: string[]): string {
   return prompts.join("; ");
 }
 
+function hiddenServiceNowTicketResponse(requestedTicketNumber: string): ServiceNowRuntimeDiagnosis {
+  return {
+    summary: "ServiceNow ticket lookup could not return a visible ticket.",
+    probableCause: "The ticket number was not found or is not visible to the current actor in this demo connector data.",
+    recommendedActions: ["Check the ticket number or ask the requester, watcher, assignee, or support team for access."],
+    evidence: [{ title: "ServiceNow ticket visibility check", data: { requestedTicketNumber, status: "not_visible_or_not_found" } }],
+    endUserAnswer: {
+      title: "I cannot show that ticket",
+      summary: "I cannot find a ServiceNow ticket you can view for that number.",
+      whatWasChecked: "A ticket lookup and visibility check were completed.",
+      whatWasChanged: "No changes were made.",
+      nextStep: "Check the ticket number or ask the ticket requester or support team for access.",
+      severity: "medium",
+      safeToDisplay: true
+    }
+  };
+}
+
 export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnosisInput): ServiceNowRuntimeDiagnosis {
+  // Demo fixture role hints only. Real ServiceNow ACLs must come from vendor identity,
+  // SCIM/directory mapping, or connected-account state, not email prefixes.
   const roleHints = params.actor?.startsWith("ran@") ? ["it-support"] : params.actor?.startsWith("admin@") ? ["identity-admin"] : params.actor?.startsWith("analyst@") ? ["read-only"] : [];
 
   if (params.skillId === "servicenow.ticket.status.lookup") {
@@ -111,39 +131,11 @@ export function buildServiceNowRuntimeDiagnosis(params: ServiceNowRuntimeDiagnos
 
     const ticket = findServiceNowTicketByNumber(requestedTicketNumber);
     if (!ticket) {
-      return {
-        summary: `${requestedTicketNumber} was not found in the ServiceNow connector data.`,
-        probableCause: "The user provided an exact ticket number, but the connector mock data has no matching record.",
-        recommendedActions: ["Check the ticket number and retry, or open a support ticket with the exact number."],
-        evidence: [{ title: "ServiceNow ticket lookup", data: { requestedTicketNumber, status: "not_found" } }],
-        endUserAnswer: {
-          title: `${requestedTicketNumber} was not found`,
-          summary: `I looked for ${requestedTicketNumber}, but I could not find that ticket in the ServiceNow connector data.`,
-          whatWasChecked: `Exact ServiceNow ticket lookup for ${requestedTicketNumber}.`,
-          whatWasChanged: "No changes were made.",
-          nextStep: "Check the ticket number and try again, or open a support ticket with the exact number.",
-          severity: "low",
-          safeToDisplay: true
-        }
-      };
+      return hiddenServiceNowTicketResponse(requestedTicketNumber);
     }
 
     if (!canReadServiceNowTicket(ticket, params.actor, roleHints)) {
-      return {
-        summary: "ServiceNow ticket lookup was denied by record visibility rules.",
-        probableCause: "The ticket is not associated with the actor or allowed groups in the connector mock data.",
-        recommendedActions: ["Ask the requester, watcher, assignee, or support team for access."],
-        evidence: [{ title: "ServiceNow ticket visibility check", data: { ticketNumber: ticket.number, actor: params.actor, status: "blocked" } }],
-        endUserAnswer: {
-          title: "I cannot show that ticket",
-          summary: "I cannot show this ticket because it is not associated with your user or allowed groups.",
-          whatWasChecked: "Ticket visibility was checked for your user.",
-          whatWasChanged: "No changes were made.",
-          nextStep: "Ask the ticket requester or support team to add you as a watcher, or open a support ticket with the ticket number.",
-          severity: "medium",
-          safeToDisplay: true
-        }
-      };
+      return hiddenServiceNowTicketResponse(requestedTicketNumber);
     }
 
     return {

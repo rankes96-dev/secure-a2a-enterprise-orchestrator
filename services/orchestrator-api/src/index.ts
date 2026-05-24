@@ -1375,7 +1375,7 @@ function mockIdentityProviderJwksUri(): string {
   return process.env.A2A_JWKS_URI ?? `${process.env.A2A_IDP_URL ?? "http://localhost:4110"}/.well-known/jwks.json`;
 }
 
-function safeTrustUrl(value: string): string {
+function safeTrustUrl(value: string, adminView = false): string {
   try {
     const url = new URL(value);
     const hostname = url.hostname.toLowerCase();
@@ -1389,13 +1389,17 @@ function safeTrustUrl(value: string): string {
       /^192\.168\./.test(hostname) ||
       /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
 
+    if (process.env.NODE_ENV === "production" && !adminView) {
+      return internalHost ? "internal endpoint" : `${url.protocol}//${url.host}/...`;
+    }
+
     return internalHost ? `${url.pathname}${url.search}` : url.toString();
   } catch {
     return "unknown";
   }
 }
 
-function buildTrustStatus(sessionToken?: string) {
+function buildTrustStatus(sessionToken?: string, adminView = false) {
   const userIdentity = publicIdentitySession(userIdentityProvider, currentUserIdentity(sessionToken));
 
   return {
@@ -1407,7 +1411,7 @@ function buildTrustStatus(sessionToken?: string) {
       provider: userIdentityProvider.name,
       issuer: userIdentityProvider.issuer,
       audience: userIdentityProvider.audience,
-      jwksUri: safeTrustUrl(userIdentityProvider.jwksUri),
+      jwksUri: safeTrustUrl(userIdentityProvider.jwksUri, adminView),
       rawTokenExposed: false
     },
     gatewayIdentity: {
@@ -1419,7 +1423,7 @@ function buildTrustStatus(sessionToken?: string) {
     },
     mockIdp: {
       issuer: mockIdentityProviderIssuer(),
-      jwksUri: safeTrustUrl(mockIdentityProviderJwksUri()),
+      jwksUri: safeTrustUrl(mockIdentityProviderJwksUri(), adminView),
       tokenEndpoint: "/oauth/token",
       userTokenEndpoint: "/demo/user-token",
       rawKeysExposed: false
@@ -2717,7 +2721,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
         const { agentResponse, actionPlan } = await requestConnectorActionPlan({
           message: effectiveMessage,
           conversationId,
-          onboardedAgent
+          onboardedAgent,
+          actor: verifiedUser
         });
         if (actionPlan) {
           const evaluatedActionPlan = evaluateConnectorActionPlan(actionPlan, onboardedAgent);
@@ -3844,6 +3849,11 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/debug/ai-config") {
+    if (process.env.NODE_ENV === "production" && !hasValidClientApiKey(request)) {
+      sendJson(response, 403, { error: "admin_access_required" }, request);
+      return;
+    }
+
     if (!requireClientAccess(request, response)) {
       return;
     }
@@ -3889,7 +3899,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    sendJson(response, 200, buildTrustStatus(getSessionToken(request)), request);
+    sendJson(response, 200, buildTrustStatus(getSessionToken(request), hasValidClientApiKey(request)), request);
     return;
   }
 

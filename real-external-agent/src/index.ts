@@ -15,7 +15,7 @@ import { discoveryDocument } from "./discoveryDocument.js";
 import { bearerToken, readJsonBody, sendJson } from "./http.js";
 import { createSignedTrustResponse, OnboardingError, type OnboardingRequest } from "./onboarding.js";
 import { publicJwks } from "./keys.js";
-import { runtimeSkillRequirement, safeDiagnosis, validateRuntimeToken, validateRuntimeTrustedConfig, type ConnectorRuntimeTask } from "./runtime.js";
+import { planOnlyRuntimeRequirement, runtimeSkillRequirement, safeDiagnosis, validatePlanOnlyTrustedConfig, validateRuntimeToken, validateRuntimeTrustedConfig, type ConnectorRuntimeTask } from "./runtime.js";
 import { buildConnectorActionPlan } from "./connectors/actionPlanning.js";
 
 function sendHtml(response: Parameters<typeof sendJson>[0], status: number, body: string): void {
@@ -127,6 +127,31 @@ const server = createServer(async (request, response) => {
       const message = typeof body.message === "string" ? body.message : "";
       const planOnly = body.mode === "plan_only" || body.runtimeMode === "connector_plan_only";
       if (planOnly) {
+        const skill = planOnlyRuntimeRequirement();
+        if (!skill) {
+          sendJson(response, 403, { error: "runtime_not_authorized" });
+          return;
+        }
+
+        const token = bearerToken(request);
+        if (!token) {
+          sendJson(response, 401, { error: "missing_bearer_token" });
+          return;
+        }
+
+        try {
+          await validateRuntimeToken(token, skill.requiredApplicationGrants, body.context?.actor);
+        } catch {
+          sendJson(response, 401, { error: "invalid_a2a_token" });
+          return;
+        }
+
+        const configGuard = validatePlanOnlyTrustedConfig(body);
+        if (!configGuard.ok) {
+          sendJson(response, configGuard.status, configGuard.body);
+          return;
+        }
+
         const profile = getConnectorProfile(publicAdminConfig().selectedConnectorId);
         const actionPlan = buildConnectorActionPlan({
           connectorId: profile.connectorId,
@@ -179,22 +204,25 @@ const server = createServer(async (request, response) => {
         return;
       }
 
-      const configGuard = validateRuntimeTrustedConfig(body, skill);
-      if (!configGuard.ok) {
-        sendJson(response, configGuard.status, configGuard.body);
-        return;
-      }
-
+      let tokenContext: Awaited<ReturnType<typeof validateRuntimeToken>>;
       try {
-        const tokenContext = await validateRuntimeToken(token, skill.requiredApplicationGrants);
-        sendJson(response, 200, safeDiagnosis({ ...tokenContext, task: body, skill, accessEvaluation: configGuard.accessEvaluation }));
+        tokenContext = await validateRuntimeToken(token, skill.requiredApplicationGrants, body.context?.actor);
       } catch (error) {
         sendJson(response, 401, {
           error: error instanceof Error && error.message === "missing_required_application_grant"
             ? "missing_required_application_grant"
             : "invalid_a2a_token"
         });
+        return;
       }
+
+      const configGuard = validateRuntimeTrustedConfig(body, skill);
+      if (!configGuard.ok) {
+        sendJson(response, configGuard.status, configGuard.body);
+        return;
+      }
+
+      sendJson(response, 200, safeDiagnosis({ ...tokenContext, task: body, skill, accessEvaluation: configGuard.accessEvaluation }));
       return;
     }
 

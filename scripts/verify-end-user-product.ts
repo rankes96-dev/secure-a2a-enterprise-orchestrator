@@ -106,8 +106,8 @@ const serviceNowMissingExactTicket = buildServiceNowRuntimeDiagnosis({
 });
 const serviceNowMissingExactTicketText = JSON.stringify(serviceNowMissingExactTicket);
 assert(serviceNowMissingExactTicketText.includes("REQ0099999"), "ServiceNow not-found lookup should mention the exact requested ticket");
-assert(serviceNowMissingExactTicket.endUserAnswer?.summary.includes("REQ0099999"), "ServiceNow not-found answer should include the exact requested ticket");
-assert(serviceNowMissingExactTicket.endUserAnswer?.summary.includes("could not find"), "ServiceNow not-found answer should say the exact ticket was not found");
+assert(serviceNowMissingExactTicket.endUserAnswer?.summary === "I cannot find a ServiceNow ticket you can view for that number.", "ServiceNow not-found answer should use the safe visibility message");
+assert(!serviceNowMissingExactTicket.endUserAnswer?.summary.includes("REQ0099999"), "ServiceNow not-found user answer should not distinguish missing from unauthorized records");
 assert(!serviceNowMissingExactTicketText.includes("INC0010245"), "ServiceNow not-found lookup must not fall back to INC0010245");
 
 const serviceNowDenied = buildServiceNowRuntimeDiagnosis({
@@ -119,7 +119,7 @@ const serviceNowDenied = buildServiceNowRuntimeDiagnosis({
   connectorAccessEvaluation: approvedAccess,
   runtimeSemantics: baseRuntime
 });
-assert(serviceNowDenied.endUserAnswer?.summary.includes("cannot show this ticket"), "ServiceNow denied lookup should not reveal ticket details");
+assert(serviceNowDenied.endUserAnswer?.summary === serviceNowMissingExactTicket.endUserAnswer?.summary, "ServiceNow denied lookup should match not-found wording");
 assert(!JSON.stringify(serviceNowDenied).includes("Shared mailbox cannot receive external mail"), "ServiceNow denied lookup should hide sensitive ticket description");
 
 const serviceNowAws = buildServiceNowRuntimeDiagnosis({

@@ -10,6 +10,7 @@ export type DiscoveredA2AResourceRegistry = {
   audiences: Set<string>;
   scopes: Set<string>;
   scopeToAgents: Map<string, string[]>;
+  audienceToScopes: Map<string, string[]>;
 };
 
 const referenceResources: A2AResourceRegistration[] = [
@@ -93,7 +94,8 @@ export function buildA2AResourceRegistry(
   const registry: DiscoveredA2AResourceRegistry = {
     audiences: new Set<string>(),
     scopes: new Set<string>(),
-    scopeToAgents: new Map<string, string[]>()
+    scopeToAgents: new Map<string, string[]>(),
+    audienceToScopes: new Map<string, string[]>()
   };
 
   for (const resource of resources) {
@@ -110,6 +112,7 @@ export function buildA2AResourceRegistry(
 
       registry.scopes.add(normalized);
       registry.scopeToAgents.set(normalized, [...(registry.scopeToAgents.get(normalized) ?? []), resource.agentId]);
+      registry.audienceToScopes.set(audience, [...(registry.audienceToScopes.get(audience) ?? []), normalized]);
     }
   }
 
