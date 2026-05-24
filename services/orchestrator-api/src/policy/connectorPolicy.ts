@@ -69,7 +69,32 @@ export const defaultConnectorPolicyRules: ConnectorPolicyRule[] = [
 export function evaluateConnectorPolicy(input: {
   connectorRouteStatus: ConnectorRoutingDecision["status"];
   riskLevel?: "low" | "medium" | "high" | "sensitive";
+  executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
+  requiresApproval?: boolean;
+  sensitivity?: "standard" | "sensitive";
 }): ConnectorPolicyEvaluation {
+  if (input.connectorRouteStatus !== "connector_skill_approved") {
+    return {
+      effect: "block",
+      reason: "Skill was not eligible for runtime execution because Gateway action decision blocked it.",
+      matchedRuleIds: ["block-unknown-or-unapproved-skills"]
+    };
+  }
+
+  if (
+    input.requiresApproval === true ||
+    input.executionType === "write_action" ||
+    input.riskLevel === "high" ||
+    input.riskLevel === "sensitive" ||
+    input.sensitivity === "sensitive"
+  ) {
+    return {
+      effect: "needs_approval",
+      reason: "Gateway policy requires approval before this high-risk or sensitive connector skill can execute.",
+      matchedRuleIds: ["high-risk-skills-need-approval"]
+    };
+  }
+
   if (input.connectorRouteStatus === "connector_skill_approved") {
     return {
       effect: "allow",

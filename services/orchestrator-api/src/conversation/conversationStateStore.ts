@@ -97,9 +97,11 @@ export function toStoredConversationStateRecord(params: {
   const updatedAt = state.messages[state.messages.length - 1]?.timestamp ?? createdAt;
   return {
     id: state.conversationId,
-    actorProvider: actor?.provider,
-    actorSubject: actor?.subject,
-    actorEmail: actor?.email,
+    ownerSessionHash: state.ownerSessionHash,
+    tenantId: state.tenantId,
+    actorProvider: state.actorProvider ?? actor?.provider,
+    actorSubject: state.actorSubject ?? actor?.subject,
+    actorEmail: state.actorEmail ?? actor?.email,
     createdAt,
     updatedAt,
     lastResolutionStatus: response?.resolutionStatus ?? state.lastResolutionStatus,

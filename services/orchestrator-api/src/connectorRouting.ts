@@ -43,6 +43,10 @@ export type ConnectorRoutingDecision = {
   connectorProfileHash?: string;
   requiredApplicationGrants?: string[];
   requiredEffectivePermissions?: string[];
+  riskLevel?: "low" | "medium" | "high" | "sensitive";
+  executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
+  requiresApproval?: boolean;
+  sensitivity?: "standard" | "sensitive";
   missingApplicationGrants?: string[];
   missingEffectivePermissions?: string[];
   deniedEffectivePermissions?: string[];
@@ -377,6 +381,10 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       connectorProfileHash: onboarded.connectorProfileHash,
       requiredApplicationGrants: approved.requiredApplicationGrants ?? [],
       requiredEffectivePermissions: approved.requiredEffectivePermissions ?? [],
+      riskLevel: approved.riskLevel,
+      executionType: approved.executionType,
+      requiresApproval: approved.requiresApproval,
+      sensitivity: approved.sensitivity,
       runtimeMode: runtimeAvailable ? "external_runtime_available" : "metadata_only",
       reason: "Connector is onboarded and the requested skill is approved by application access grants and effective permissions.",
       recommendedNextStep: intent.fulfillmentCapability ? "Use connector-backed request preparation flow." : "Use connector-backed diagnosis flow.",

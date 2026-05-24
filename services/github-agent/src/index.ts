@@ -70,6 +70,12 @@ const agentCard = {
   ]
 };
 
+function requiredScopeForTask(task: A2ATask | AgentTask): string | undefined {
+  const skillId = "skillId" in task ? task.skillId : undefined;
+  const skill = agentCard.skills.find((item) => item.id === skillId);
+  return skill?.requiredPermission ?? skill?.requiredScopes?.[0];
+}
+
 async function loadEvents(): Promise<GitHubRateLimitEvent[]> {
   const filePath = path.resolve(process.cwd(), "../../mock-data/github-events.json");
   return JSON.parse(await readFile(filePath, "utf8")) as GitHubRateLimitEvent[];
@@ -96,7 +102,8 @@ startJsonServer(port, async (request, response) => {
     request,
     task,
     agentId: agentCard.agentId,
-    expectedAudience: agentCard.auth.audience
+    expectedAudience: agentCard.auth.audience,
+    requiredScope: requiredScopeForTask(task)
   });
   if (!auth.ok) {
     sendJson(response, auth.statusCode, auth.response, request);

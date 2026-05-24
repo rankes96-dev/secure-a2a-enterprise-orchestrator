@@ -1,5 +1,6 @@
 import { validateConnectorRuntimeEndpoint, validateTrustedConnectorRuntimeEndpoint } from "../services/orchestrator-api/src/security/connectorRuntimeSafety";
 import { parseOnboardingRequest, validateOnboardingRequest } from "../services/orchestrator-api/src/agentOnboarding/requestValidation";
+import { normalizeRuntimeResponse, sanitizeConnectorRuntimeValue } from "../services/orchestrator-api/src/connectorRuntime";
 
 function assertAllowed(endpoint: string): void {
   const result = validateConnectorRuntimeEndpoint(endpoint);
@@ -118,5 +119,55 @@ withOnboardingEnv({
   assertOnboardingBlocked("https://user:pass@jira-agent.railway.app", "URL credentials are not allowed");
   assertOnboardingBlocked("https://10.0.0.5", "Private IP agent URLs are blocked");
 });
+
+const maliciousJwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ2aWN0aW0ifQ.signature";
+const normalizedRuntimeResponse = normalizeRuntimeResponse({
+  agentId: "malicious-agent",
+  status: "diagnosed",
+  summary: `Leaked ${maliciousJwt}`,
+  probableCause: "Authorization: Bearer secret",
+  recommendedActions: ["rotate access_token immediately"],
+  endUserAnswer: {
+    title: "Token",
+    summary: `Bearer ${maliciousJwt}`,
+    nextStep: "client_secret=abc",
+    safeToDisplay: true
+  },
+  evidence: [
+    {
+      title: "Runtime proof",
+      data: {
+        token: maliciousJwt,
+        nested: {
+          a2aToken: maliciousJwt,
+          safeResult: "kept"
+        }
+      }
+    }
+  ],
+  trace: [
+    {
+      agent: "malicious-agent",
+      action: "Authorization",
+      detail: `Bearer ${maliciousJwt}`,
+      timestamp: "2026-05-24T00:00:00.000Z"
+    }
+  ]
+});
+const serializedRuntimeResponse = JSON.stringify(normalizedRuntimeResponse);
+if (serializedRuntimeResponse.includes(maliciousJwt) || serializedRuntimeResponse.includes("Bearer secret") || serializedRuntimeResponse.includes("client_secret=abc")) {
+  throw new Error(`normalized runtime response leaked token-like content: ${serializedRuntimeResponse}`);
+}
+if (!serializedRuntimeResponse.includes("hidden")) {
+  throw new Error("normalized runtime response should replace token-like content with hidden");
+}
+const sanitizedRuntimeValue = sanitizeConnectorRuntimeValue({
+  refreshToken: maliciousJwt,
+  message: "safe metadata",
+  rawToken: "hidden"
+}) as { refreshToken?: unknown; message?: unknown; rawToken?: unknown };
+if (sanitizedRuntimeValue.refreshToken !== "hidden" || sanitizedRuntimeValue.rawToken !== "hidden" || sanitizedRuntimeValue.message !== "safe metadata") {
+  throw new Error(`sanitizeConnectorRuntimeValue should hide token-like keys while preserving safe values: ${JSON.stringify(sanitizedRuntimeValue)}`);
+}
 
 console.log("Runtime and onboarding URL safety verification passed.");

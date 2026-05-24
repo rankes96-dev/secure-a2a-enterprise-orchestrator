@@ -57,6 +57,7 @@ import { buildExecutionGateStack } from "./executionGateStack.js";
 import { resolvePendingInteraction } from "./pendingInteractionResolver.js";
 import type { ConversationState } from "./conversation/conversationTypes.js";
 import { persistConversationStateSnapshot } from "./conversation/conversationStateStore.js";
+import { applyConversationOwner, conversationBelongsToOwner, conversationOwnerContext, type ConversationOwnerContext } from "./conversation/conversationOwnership.js";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
@@ -240,19 +241,19 @@ function executionStep(actor: ExecutionTraceStep["actor"], action: string, detai
   };
 }
 
-function getOrCreateConversationState(conversationId?: string): ConversationState {
+export function getOrCreateConversationState(conversationId: string | undefined, owner: ConversationOwnerContext): ConversationState {
   if (conversationId) {
     const existing = conversations.get(conversationId);
-    if (existing) {
+    if (existing && conversationBelongsToOwner(existing, owner)) {
       return existing;
     }
   }
 
-  const state: ConversationState = {
+  const state = applyConversationOwner({
     conversationId: createTaskId(),
     messages: [],
     needsMoreInfoCount: 0
-  };
+  }, owner);
   conversations.set(state.conversationId, state);
   return state;
 }
@@ -1474,15 +1475,89 @@ async function requestDemoUserToken(email: string): Promise<{ accessToken: strin
   return { accessToken: body.accessToken };
 }
 
+function privateOrLinkLocalHealthHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, "$1");
+  const ipv4 = normalized.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const [first, second] = ipv4.slice(1).map((part) => Number(part));
+    return first === 0 ||
+      first === 10 ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168);
+  }
+  return normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    normalized.startsWith("fe80:");
+}
+
+function safeAgentHealthEndpoint(endpoint: string): { ok: true; url: string } | { ok: false; error: string } {
+  try {
+    const url = new URL(endpoint);
+    const hostname = url.hostname.toLowerCase();
+    const localhost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+    if (url.username || url.password) {
+      return { ok: false, error: "Health endpoint credentials are not allowed." };
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return { ok: false, error: "Health endpoint uses an unsafe scheme." };
+    }
+    if (privateOrLinkLocalHealthHost(hostname) && !localhost) {
+      return { ok: false, error: "Health endpoint host is not allowed." };
+    }
+    if (url.protocol === "http:" && !localhost) {
+      return { ok: false, error: "Health endpoint must use HTTPS outside local development." };
+    }
+    if (localhost && process.env.NODE_ENV === "production") {
+      return { ok: false, error: "Localhost health endpoints are disabled in production." };
+    }
+    return { ok: true, url: url.toString() };
+  } catch {
+    return { ok: false, error: "Health endpoint is invalid." };
+  }
+}
+
 async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>[number]): Promise<AgentHealthCheck> {
   const checkedAt = new Date().toISOString();
   const healthUrl = endpointForPath(card.endpoint, "/health");
+  const safeHealth = safeAgentHealthEndpoint(healthUrl);
+  if (!safeHealth.ok) {
+    return {
+      agentId: card.agentId,
+      endpointType: "unknown",
+      status: "down",
+      latencyMs: 0,
+      checkedAt,
+      details: {
+        healthEndpoint: "/health",
+        agentCardAvailable: Boolean(getAgentCard(card.agentId))
+      },
+      error: safeHealth.error
+    };
+  }
+  const trustedAgentCard = getAgentCard(card.agentId);
+  const trustedHealthUrl = trustedAgentCard ? endpointForPath(trustedAgentCard.endpoint, "/health") : healthUrl;
+  if (healthUrl !== trustedHealthUrl) {
+    return {
+      agentId: card.agentId,
+      endpointType: "unknown",
+      status: "down",
+      latencyMs: 0,
+      checkedAt,
+      details: {
+        healthEndpoint: "/health",
+        agentCardAvailable: Boolean(trustedAgentCard)
+      },
+      error: "Health endpoint is not trusted for this agent."
+    };
+  }
   const startTime = performance.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1500);
 
   try {
-    const response = await fetch(healthUrl, { signal: controller.signal });
+    const response = await fetch(healthUrl, { redirect: "error", signal: controller.signal });
     const body = await response.text();
     const latencyMs = Math.max(0, Math.round(performance.now() - startTime));
 
@@ -1497,7 +1572,7 @@ async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>
           healthEndpoint: "/health",
           agentCardAvailable: Boolean(getAgentCard(card.agentId))
         },
-        error: `Health endpoint returned ${response.status}${body ? ` with body ${body}` : ""}`
+        error: `Health endpoint returned ${response.status}`
       };
     }
 
@@ -1514,7 +1589,7 @@ async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>
         healthEndpoint: "/health",
         agentCardAvailable: Boolean(getAgentCard(card.agentId))
       },
-      error: status === "degraded" ? `Unexpected health payload: ${body}` : undefined
+      error: status === "degraded" ? "Unexpected health payload." : undefined
     };
   } catch (error) {
     return {
@@ -1527,7 +1602,7 @@ async function checkAgentHealth(card: ReturnType<typeof getExecutableAgentCards>
         healthEndpoint: "/health",
         agentCardAvailable: Boolean(getAgentCard(card.agentId))
       },
-      error: error instanceof Error ? error.message : "Unknown health check failure"
+      error: "Health check failed."
     };
   } finally {
     clearTimeout(timeout);
@@ -1619,9 +1694,22 @@ function safeUserIdentity(sessionToken?: string): UserIdentitySummary {
   return userIdentityProvider.publicIdentity(currentUserIdentity(sessionToken));
 }
 
-function canExecuteConnectorRuntime(decision: ConnectorRoutingDecision): boolean {
+function canExecuteConnectorRuntime(decision: ConnectorRoutingDecision, policy: ReturnType<typeof evaluateConnectorPolicy>): boolean {
   return decision.status === "connector_skill_approved" &&
-    decision.runtimeMode === "external_runtime_available";
+    decision.runtimeMode === "external_runtime_available" &&
+    policy.effect === "allow" &&
+    decision.requiresApproval !== true;
+}
+
+function connectorPolicyFinalAnswer(decision: ConnectorRoutingDecision, policy: ReturnType<typeof evaluateConnectorPolicy>): string | undefined {
+  const skill = decision.skillLabel ?? decision.skillId ?? "requested connector skill";
+  if (policy.effect === "needs_approval") {
+    return `Approval required: Gateway policy stopped ${skill} before runtime execution. ${policy.reason} No runtime token was issued and no external connector runtime was called.`;
+  }
+  if (policy.effect === "block") {
+    return `Blocked by Gateway policy: ${skill} was not executed. ${policy.reason} No runtime token was issued and no external connector runtime was called.`;
+  }
+  return undefined;
 }
 
 function agentCardRegistryKey(request: IncomingMessage, response: ServerResponse): string | undefined {
@@ -1740,8 +1828,9 @@ async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
 }
 
 async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string): Promise<ResolveResponse> {
-  const conversationState = getOrCreateConversationState(requestBody.conversationId);
   const verifiedUser = currentUserIdentity(sessionToken);
+  const conversationOwner = conversationOwnerContext({ sessionToken, actor: verifiedUser });
+  const conversationState = getOrCreateConversationState(requestBody.conversationId, conversationOwner);
   const responseUserIdentity = safeUserIdentity(sessionToken);
   const requestAgentCards = getExecutableAgentCards();
   const installedAgents = sessionToken ? listTrustedOnboardedAgents(sessionToken) : [];
@@ -2906,8 +2995,14 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
 
   if (connectorRouting.status !== "needs_more_info") {
     const connectorStatus = connectorRoutingStatusLabel(connectorRouting.status);
-    const connectorPolicy = evaluateConnectorPolicy({ connectorRouteStatus: connectorRouting.status });
-    const runtimeExecutable = canExecuteConnectorRuntime(connectorRouting);
+    const connectorPolicy = evaluateConnectorPolicy({
+      connectorRouteStatus: connectorRouting.status,
+      riskLevel: connectorRouting.riskLevel,
+      executionType: connectorRouting.executionType,
+      requiresApproval: connectorRouting.requiresApproval,
+      sensitivity: connectorRouting.sensitivity
+    });
+    const runtimeExecutable = canExecuteConnectorRuntime(connectorRouting, connectorPolicy);
     const connectorRuntime = runtimeExecutable
       ? await executeApprovedConnectorSkill({
           message: effectiveMessage,
@@ -2931,6 +3026,10 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           skillLabel: connectorRouting.skillLabel,
           reason: connectorRouting.reason,
           recommendedNextStep: connectorRouting.recommendedNextStep,
+          riskLevel: connectorRouting.riskLevel,
+          executionType: connectorRouting.executionType,
+          requiresApproval: connectorRouting.requiresApproval,
+          sensitivity: connectorRouting.sensitivity,
           runtimeMode: connectorRouting.runtimeMode,
           runtimeExecution: runtimeExecutable ? "external_runtime_available" : "not_executed",
           policy: connectorPolicy
@@ -3002,14 +3101,14 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
 
     return finalize({
       conversationId,
-      finalAnswer: connectorRuntime ? connectorRuntimeFinalAnswer(connectorRouting, connectorRuntime) : connectorRoutingFinalAnswer(connectorRouting),
+      finalAnswer: connectorRuntime ? connectorRuntimeFinalAnswer(connectorRouting, connectorRuntime) : connectorPolicyFinalAnswer(connectorRouting, connectorPolicy) ?? connectorRoutingFinalAnswer(connectorRouting),
       classification,
       selectedAgents: [],
       skippedAgents,
       routingSource: "rules_fallback",
       routingConfidence: routingDecision.routingConfidence,
       routingReasoningSummary: connectorRouting.reason,
-      resolutionStatus: connectorRuntimeResolutionStatus(connectorRouting, connectorRuntime),
+      resolutionStatus: connectorPolicy.effect === "needs_approval" ? "needs_more_info" : connectorRuntimeResolutionStatus(connectorRouting, connectorRuntime),
       evidence: [...connectorEvidence, ...runtimeEvidence],
       agentTrace: [
         trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
@@ -3040,6 +3139,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           : []),
         executionStep("orchestrator", "route_connector_intent", `${connectorRouting.targetSystem ?? "unknown"} / ${connectorRouting.connectorId ?? "no connector"} / ${connectorRouting.skillId ?? "no skill"}`),
         executionStep("orchestrator", "evaluate_onboarded_connector", `${connectorStatus}: ${connectorRouting.reason}`),
+        executionStep("orchestrator", "evaluate_connector_policy", `${connectorPolicy.effect}: ${connectorPolicy.reason}`),
         ...runtimeExecutionTrace,
         ...metadataOnlyExecutionTrace,
         executionStep(

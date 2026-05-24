@@ -52,6 +52,7 @@ export type StoredPendingInteractionRecord = {
 
 export type StoredConversationStateRecord = {
   id: string;
+  ownerSessionHash?: string;
   tenantId?: string;
   actorProvider?: string;
   actorSubject?: string;

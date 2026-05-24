@@ -110,6 +110,10 @@ export type DerivedCapability = {
   capability: string;
   label?: string;
   reason: string;
+  riskLevel?: "low" | "medium" | "high" | "sensitive";
+  executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
+  requiresApproval?: boolean;
+  sensitivity?: "standard" | "sensitive";
   requiredApplicationGrants?: string[];
   requiredEffectivePermissions?: string[];
   missingApplicationGrants?: string[];

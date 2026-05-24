@@ -39,6 +39,12 @@ const agentCard = {
   ]
 };
 
+function requiredScopeForTask(task: A2ATask | AgentTask): string | undefined {
+  const skillId = "skillId" in task ? task.skillId : undefined;
+  const skill = agentCard.skills.find((item) => item.id === skillId);
+  return skill?.requiredPermission ?? skill?.requiredScopes?.[0];
+}
+
 startJsonServer(port, async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, { status: "ok", agentId: "end-user-triage-agent" }, request);
@@ -60,7 +66,8 @@ startJsonServer(port, async (request, response) => {
     request,
     task,
     agentId: agentCard.agentId,
-    expectedAudience: agentCard.auth.audience
+    expectedAudience: agentCard.auth.audience,
+    requiredScope: requiredScopeForTask(task)
   });
   if (!auth.ok) {
     sendJson(response, auth.statusCode, auth.response, request);

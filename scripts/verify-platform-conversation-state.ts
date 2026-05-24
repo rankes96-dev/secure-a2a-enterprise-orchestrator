@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { InMemoryPlatformStateStore } from "../services/orchestrator-api/src/state/inMemoryPlatformStateStore.js";
 import { safeConversationSummary, sanitizeConversationMetadata, toStoredConversationStateRecord } from "../services/orchestrator-api/src/conversation/conversationStateStore.js";
+import { applyConversationOwner, conversationBelongsToOwner, conversationOwnerContext } from "../services/orchestrator-api/src/conversation/conversationOwnership.js";
 import type { StoredConversationStateRecord } from "../services/orchestrator-api/src/state/platformStateStore.js";
 import type { ConversationState } from "../services/orchestrator-api/src/conversation/conversationTypes.js";
 
@@ -35,6 +36,7 @@ async function verifyInMemoryConversationCopies(): Promise<void> {
   const store = new InMemoryPlatformStateStore();
   const record: StoredConversationStateRecord = {
     id: "conversation-1",
+    ownerSessionHash: "owner-a",
     actorSubject: "user-1",
     createdAt: "2026-05-21T00:00:00.000Z",
     updatedAt: "2026-05-21T00:00:01.000Z",
@@ -99,6 +101,7 @@ function verifySanitizer(): void {
 
   const state: ConversationState = {
     conversationId: "conversation-2",
+    ownerSessionHash: "owner-a",
     messages: [
       {
         role: "user",
@@ -143,6 +146,55 @@ function verifySanitizer(): void {
   }
 }
 
+function verifyConversationOwnerBinding(): void {
+  const ownerA = conversationOwnerContext({
+    sessionToken: "session-a",
+    actor: {
+      provider: "auth0",
+      issuer: "https://issuer.example.com/",
+      subject: "user-a",
+      email: "a@example.com",
+      name: "User A",
+      roles: ["user"]
+    }
+  });
+  const ownerB = conversationOwnerContext({
+    sessionToken: "session-b",
+    actor: {
+      provider: "auth0",
+      issuer: "https://issuer.example.com/",
+      subject: "user-b",
+      email: "b@example.com",
+      name: "User B",
+      roles: ["user"]
+    }
+  });
+  const state = applyConversationOwner({
+    conversationId: "conversation-owner-test",
+    messages: [],
+    needsMoreInfoCount: 0,
+    pendingInteraction: {
+      id: "pending-owner-test",
+      type: "target_selection",
+      originalUserRequest: "Need Jira access",
+      createdAt: "2026-05-21T00:00:00.000Z",
+      context: {
+        targetOptions: ["jira"],
+        incidentContext: {
+          originalMessage: "victim context"
+        }
+      }
+    }
+  }, ownerA);
+
+  if (!conversationBelongsToOwner(state, ownerA)) {
+    fail("conversation should belong to its creating owner session/user");
+  }
+  if (conversationBelongsToOwner(state, ownerB)) {
+    fail("foreign session/user should not be able to reuse conversation context");
+  }
+}
+
 const platformStateStore = read("services/orchestrator-api/src/state/platformStateStore.ts");
 const inMemoryStore = read("services/orchestrator-api/src/state/inMemoryPlatformStateStore.ts");
 const conversationStore = read("services/orchestrator-api/src/conversation/conversationStateStore.ts");
@@ -159,6 +211,7 @@ const parsedPackageJson = JSON.parse(packageJson) as {
 
 for (const phrase of [
   "StoredConversationStateRecord",
+  "ownerSessionHash",
   "StoredPendingInteractionRecord",
   "StoredConversationMessage",
   "upsertConversationState",
@@ -181,6 +234,9 @@ for (const phrase of [
 
 for (const phrase of [
   "ConversationState",
+  "ownerSessionHash: string",
+  "actorProvider?: string",
+  "actorSubject?: string",
   "pendingInteraction?: PendingInteraction",
   "pendingFollowUp?: PendingFollowUpContext"
 ]) {
@@ -189,6 +245,7 @@ for (const phrase of [
 
 for (const phrase of [
   "getPlatformStateStore",
+  "ownerSessionHash: state.ownerSessionHash",
   "toStoredConversationStateRecord",
   "persistConversationStateSnapshot",
   "safeConversationSummary",
@@ -217,6 +274,9 @@ for (const forbidden of ["access_token", "refresh_token", "Authorization", "Bear
 
 for (const phrase of [
   "persistConversationStateSnapshot",
+  "conversationOwnerContext",
+  "conversationBelongsToOwner",
+  "applyConversationOwner",
   "void persistConversationStateSnapshot({",
   "updateConversationState(conversationState, finalResponse, mergedIncidentContext)"
 ]) {
@@ -266,6 +326,7 @@ for (const forbidden of ["prisma", "drizzle", "pg", "postgres"]) {
 async function main(): Promise<void> {
   await verifyInMemoryConversationCopies();
   verifySanitizer();
+  verifyConversationOwnerBinding();
 
   if (failed) {
     process.exitCode = 1;

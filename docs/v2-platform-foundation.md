@@ -609,6 +609,27 @@ V2 should not include:
 
 Real ServiceNow read-only adapter is V2 scope. Real ServiceNow writes such as `servicenow.incident.add_work_note` may be documented as optional controlled/approval-gated exploration, not default execution. Autonomous/high-risk ServiceNow writes are not V2 scope.
 
+## Security Remediation Gate after Codex Security scan
+
+P0 items for this checkpoint:
+
+- session-bound conversations
+- runtime token/JWT response redaction
+- server-derived A2A required scopes
+- connector risk/approval enforcement
+- Agent Card / health check SSRF hardening
+
+P1/P2 backlog:
+
+- plan-only auth
+- runtime config oracle
+- delegation claim binding
+- mock IdP production hardening
+- trust-status/debug endpoint hardening
+- upstream error body sanitization
+- connector answer spoofing
+- UI crash hardening
+
 ## Architecture Principles
 
 - Do not trust agent-declared metadata by itself.

@@ -178,7 +178,7 @@ if (!existsSync(orchestratorPath)) {
     "Raw OAuth tokens, authorization codes, refresh tokens, Authorization headers, and secrets were not exposed.",
     "function connectorRuntimeResolutionStatus",
     'runtime?.agentResponse?.status === "needs_more_info"',
-    "resolutionStatus: connectorRuntimeResolutionStatus(connectorRouting, connectorRuntime)",
+    "connectorRuntimeResolutionStatus(connectorRouting, connectorRuntime)",
     '"return_connector_authorization_required"'
   ]) {
     if (!orchestrator.includes(phrase)) {

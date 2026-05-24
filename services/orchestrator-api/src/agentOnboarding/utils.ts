@@ -50,15 +50,14 @@ export function describeFetchFailure(url: string, error: unknown): string {
   if (error instanceof Error) {
     const cause = (error as Error & { cause?: unknown }).cause;
     const causeCode = errorCode(cause);
-    const causeAddress = errorAddress(cause);
     if (causeCode) {
-      return `${url} failed with ${causeCode}${causeAddress ? ` at ${causeAddress}` : ""}`;
+      return `external agent fetch failed with ${causeCode}`;
     }
 
-    return `${url} failed: ${error.message}`;
+    return "external agent fetch failed";
   }
 
-  return `${url} failed: unknown error`;
+  return "external agent fetch failed";
 }
 
 export async function fetchJsonWithLimit<T>(url: string, init: RequestInit, maxBytes: number): Promise<T> {

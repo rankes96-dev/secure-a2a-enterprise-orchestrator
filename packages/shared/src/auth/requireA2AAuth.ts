@@ -7,6 +7,7 @@ export type RequireA2AAuthInput = {
   task: A2ATask | AgentTask;
   agentId: string;
   expectedAudience: string;
+  requiredScope?: string;
   authMode?: A2AAuthMode;
   expectedIssuer?: string;
   jwksUri?: string;
@@ -99,9 +100,9 @@ export async function requireA2AAuth(input: RequireA2AAuthInput): Promise<Requir
     return blocked(input.agentId, 403, "Missing A2A task context for JWT validation");
   }
 
-  const requiredScope = input.task.context.requestedScope;
+  const requiredScope = input.requiredScope;
   if (!requiredScope) {
-    return blocked(input.agentId, 403, "Missing requested scope in A2A task context");
+    return blocked(input.agentId, 403, "Missing server-derived required scope for A2A JWT validation");
   }
 
   const expectedIssuer = input.expectedIssuer ?? process.env.A2A_ISSUER ?? "http://localhost:4110";

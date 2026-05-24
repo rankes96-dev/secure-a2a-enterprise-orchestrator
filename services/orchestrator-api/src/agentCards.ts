@@ -292,6 +292,17 @@ function agentCardUrl(endpoint: string): string {
   return url.toString();
 }
 
+function endpointMatchesTrustedStaticCard(discovered: AgentCard, staticCard: AgentCard): boolean {
+  try {
+    const discoveredEndpoint = new URL(discovered.endpoint);
+    const trustedEndpoint = new URL(staticCard.endpoint);
+    return discoveredEndpoint.toString() === trustedEndpoint.toString() &&
+      discoveredEndpoint.origin === trustedEndpoint.origin;
+  } catch {
+    return false;
+  }
+}
+
 function isAgentCard(value: unknown): value is AgentCard {
   const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
 
@@ -316,7 +327,7 @@ async function fetchAgentCardOnce(staticCard: AgentCard): Promise<AgentCard> {
   const timeout = setTimeout(() => controller.abort(), 1500);
 
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { redirect: "error", signal: controller.signal });
     const body = await response.text();
 
     if (!response.ok) {
@@ -331,6 +342,10 @@ async function fetchAgentCardOnce(staticCard: AgentCard): Promise<AgentCard> {
 
     if (card.agentId !== staticCard.agentId) {
       throw new Error(`${url} returned agentId ${card.agentId}; expected ${staticCard.agentId}`);
+    }
+
+    if (!endpointMatchesTrustedStaticCard(card, staticCard)) {
+      throw new Error(`${url} returned an untrusted Agent Card endpoint`);
     }
 
     return card;

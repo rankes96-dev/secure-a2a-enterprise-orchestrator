@@ -88,6 +88,10 @@ export type ConnectorActionDecision = {
   label: string;
   status: "approved" | "blocked";
   reason: string;
+  riskLevel?: ConnectorActionRequirement["riskLevel"];
+  executionType?: ConnectorActionRequirement["executionType"];
+  requiresApproval?: boolean;
+  sensitivity?: "standard" | "sensitive";
   requiredApplicationGrants: string[];
   requiredEffectivePermissions: string[];
   missingApplicationGrants: string[];

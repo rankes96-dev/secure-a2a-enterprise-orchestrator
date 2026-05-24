@@ -37,6 +37,10 @@ function finalOutcome(params: BuildExecutionGateStackParams): ExecutionGateStack
     return "blocked_at_gateway";
   }
 
+  if (params.connectorPolicy?.effect === "block" || params.connectorPolicy?.effect === "needs_approval") {
+    return "blocked_at_gateway";
+  }
+
   if (params.connectorActionPlan) {
     return "planned";
   }
@@ -178,7 +182,7 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
   const gatewayGate = gate({
     id: "gateway_governance",
     label: "Gateway Governance",
-    status: (params.connectorActionPlan || routing?.status === "connector_skill_approved" || accessBoundaryBlocked) && !params.securityIntent?.detected && !securityStopped ? "passed" : "blocked",
+    status: (params.connectorActionPlan || routing?.status === "connector_skill_approved" || accessBoundaryBlocked) && !params.securityIntent?.detected && !securityStopped && params.connectorPolicy?.effect !== "block" && params.connectorPolicy?.effect !== "needs_approval" ? "passed" : "blocked",
     reason: params.connectorActionPlan
       ? "Gateway requested a side-effect-free connector action plan."
       : params.securityIntent?.detected
@@ -187,6 +191,10 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       ? "Gateway stopped the request because this action requires governed approval."
       : params.securityDecision?.decision === "Blocked"
       ? params.securityDecision.reason
+      : params.connectorPolicy?.effect === "needs_approval"
+      ? "Gateway stopped the request because connector policy requires governed approval before runtime execution."
+      : params.connectorPolicy?.effect === "block"
+      ? params.connectorPolicy.reason
       : accessBoundaryBlocked
         ? "Gateway evaluated the request and stopped it at the access boundary shown below."
         : routing?.reason ?? (params.resolutionStatus === "unsupported" ? "No supported connector route was available." : "No connector-specific route was approved."),

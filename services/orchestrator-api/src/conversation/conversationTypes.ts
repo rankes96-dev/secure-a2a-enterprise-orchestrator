@@ -10,6 +10,11 @@ import type { IncidentContext } from "../incidentContext.js";
 
 export type ConversationState = {
   conversationId: string;
+  ownerSessionHash: string;
+  actorProvider?: string;
+  actorSubject?: string;
+  actorEmail?: string;
+  tenantId?: string;
   messages: Array<{
     role: "user" | "assistant";
     content: string;

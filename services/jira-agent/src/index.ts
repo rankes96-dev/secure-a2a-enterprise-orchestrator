@@ -65,6 +65,12 @@ function taskMessage(task: A2ATask | AgentTask): string {
   return "userMessage" in task ? task.userMessage : task.message;
 }
 
+function requiredScopeForTask(task: A2ATask | AgentTask): string | undefined {
+  const skillId = "skillId" in task ? task.skillId : undefined;
+  const skill = agentCard.skills.find((item) => item.id === skillId);
+  return skill?.requiredPermission ?? skill?.requiredScopes?.[0];
+}
+
 function extractProjectKey(message: string): string | undefined {
   return (
     message.match(/\bin the\s+([A-Z][A-Z0-9_-]*)\s+project\b/i)?.[1] ??
@@ -94,7 +100,8 @@ startJsonServer(port, async (request, response) => {
     request,
     task,
     agentId: agentCard.agentId,
-    expectedAudience: agentCard.auth.audience
+    expectedAudience: agentCard.auth.audience,
+    requiredScope: requiredScopeForTask(task)
   });
   if (!auth.ok) {
     sendJson(response, auth.statusCode, auth.response, request);

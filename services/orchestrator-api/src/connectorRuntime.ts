@@ -39,7 +39,43 @@ export type ConnectorRuntimeResult = {
 
 const connectorRuntimeTimeoutMs = 5_000;
 const maxConnectorRuntimeJsonBytes = 64 * 1024;
-const forbiddenResponseKeys = new Set(["rawtoken", "authorization", "access_token", "refresh_token", "client_assertion", "private_key", "client_secret", "bearer"]);
+const forbiddenResponseKeyMarkers = [
+  "token",
+  "jwt",
+  "a2atoken",
+  "accesstoken",
+  "access_token",
+  "refreshtoken",
+  "refresh_token",
+  "idtoken",
+  "id_token",
+  "authorization",
+  "bearer",
+  "clientassertion",
+  "client_assertion",
+  "clientsecret",
+  "client_secret",
+  "privatekey",
+  "private_key",
+  "cookie",
+  "setcookie",
+  "set-cookie"
+];
+const compactJwtPattern = /\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/;
+const dangerousRuntimeStringPattern = /Bearer\s+\S+|Authorization:|access_token|refresh_token|client_secret|private_key|authorization_code/i;
+
+function normalizeResponseKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function dangerousRuntimeResponseKey(key: string): boolean {
+  const normalized = normalizeResponseKey(key);
+  return forbiddenResponseKeyMarkers.some((marker) => normalized.includes(normalizeResponseKey(marker)));
+}
+
+function dangerousRuntimeResponseString(value: string): boolean {
+  return dangerousRuntimeStringPattern.test(value) || compactJwtPattern.test(value);
+}
 
 function publicTokenMetadata(metadata: A2AIssuedTokenMetadata, actorProvider?: string): ConnectorRuntimeResult["tokenMetadata"] {
   return {
@@ -55,9 +91,9 @@ function publicTokenMetadata(metadata: A2AIssuedTokenMetadata, actorProvider?: s
   };
 }
 
-function sanitizeConnectorRuntimeValue(value: unknown): unknown {
+export function sanitizeConnectorRuntimeValue(value: unknown): unknown {
   if (typeof value === "string") {
-    return /Bearer\s+|Authorization:|access_token|refresh_token|client_assertion|private_key|client_secret/i.test(value) ? "hidden" : value;
+    return dangerousRuntimeResponseString(value) ? "hidden" : value;
   }
 
   if (Array.isArray(value)) {
@@ -68,7 +104,7 @@ function sanitizeConnectorRuntimeValue(value: unknown): unknown {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
         key,
-        forbiddenResponseKeys.has(key.toLowerCase()) ? "hidden" : sanitizeConnectorRuntimeValue(nested)
+        dangerousRuntimeResponseKey(key) ? "hidden" : sanitizeConnectorRuntimeValue(nested)
       ])
     );
   }
@@ -134,19 +170,19 @@ function normalizeEndUserAnswer(value: unknown): EndUserAnswer | undefined {
     : undefined;
   if (
     record.safeToDisplay !== true ||
-    typeof record.title !== "string" ||
-    typeof record.summary !== "string" ||
-    typeof record.nextStep !== "string"
+    !sanitizedRuntimeString(record.title) ||
+    !sanitizedRuntimeString(record.summary) ||
+    !sanitizedRuntimeString(record.nextStep)
   ) {
     return undefined;
   }
 
   return {
-    title: record.title,
-    summary: record.summary,
-    whatWasChecked: typeof record.whatWasChecked === "string" ? record.whatWasChecked : undefined,
-    whatWasChanged: typeof record.whatWasChanged === "string" ? record.whatWasChanged : undefined,
-    nextStep: record.nextStep,
+    title: sanitizedRuntimeString(record.title) ?? "External connector response",
+    summary: sanitizedRuntimeString(record.summary) ?? "External connector returned a safe display response.",
+    whatWasChecked: optionalSanitizedRuntimeString(record.whatWasChecked),
+    whatWasChanged: optionalSanitizedRuntimeString(record.whatWasChanged),
+    nextStep: sanitizedRuntimeString(record.nextStep) ?? "Review connector logs.",
     severity,
     safeToDisplay: true
   };
@@ -230,7 +266,7 @@ async function readJsonWithLimit(response: Response): Promise<unknown> {
   return text ? sanitizeConnectorRuntimeValue(JSON.parse(text)) : {};
 }
 
-function normalizeRuntimeResponse(value: unknown): A2AAgentResponse {
+export function normalizeRuntimeResponse(value: unknown): A2AAgentResponse {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     const record = value as Record<string, unknown>;
     return {
@@ -238,9 +274,11 @@ function normalizeRuntimeResponse(value: unknown): A2AAgentResponse {
       status: record.status === "diagnosed" || record.status === "completed" || record.status === "needs_more_info" || record.status === "blocked" || record.status === "unsupported" || record.status === "error"
         ? record.status
         : "diagnosed",
-      summary: typeof record.summary === "string" ? record.summary : "External connector runtime returned a response.",
-      probableCause: typeof record.probableCause === "string" ? record.probableCause : undefined,
-      recommendedActions: Array.isArray(record.recommendedActions) ? record.recommendedActions.filter((item): item is string => typeof item === "string") : undefined,
+      summary: sanitizedRuntimeString(record.summary) ?? "External connector runtime returned a response.",
+      probableCause: optionalSanitizedRuntimeString(record.probableCause),
+      recommendedActions: Array.isArray(record.recommendedActions)
+        ? record.recommendedActions.map((item) => sanitizedRuntimeString(item)).filter((item): item is string => Boolean(item))
+        : undefined,
       endUserAnswer: normalizeEndUserAnswer(record.endUserAnswer),
       authorizationRequirement: normalizeAuthorizationRequirement(record.authorizationRequirement),
       clarifyingQuestions: Array.isArray(record.clarifyingQuestions) ? record.clarifyingQuestions.filter((item): item is string => typeof item === "string") : undefined,
@@ -249,7 +287,7 @@ function normalizeRuntimeResponse(value: unknown): A2AAgentResponse {
         ? record.evidence
             .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && !Array.isArray(item))
             .map((item) => ({
-              title: typeof item.title === "string" ? item.title : "External connector evidence",
+              title: sanitizedRuntimeString(item.title) ?? "External connector evidence",
               data: sanitizeConnectorRuntimeValue(item.data)
             }))
         : undefined,
@@ -257,9 +295,9 @@ function normalizeRuntimeResponse(value: unknown): A2AAgentResponse {
         ? record.trace
             .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && !Array.isArray(item))
             .map((item) => ({
-              agent: typeof item.agent === "string" ? item.agent : "external-connector-agent",
-              action: typeof item.action === "string" ? item.action : "external_connector_runtime_response",
-              detail: typeof item.detail === "string" ? item.detail : "External connector runtime returned a response.",
+              agent: sanitizedRuntimeString(item.agent) ?? "external-connector-agent",
+              action: sanitizedRuntimeString(item.action) ?? "external_connector_runtime_response",
+              detail: sanitizedRuntimeString(item.detail) ?? "External connector runtime returned a response.",
               timestamp: typeof item.timestamp === "string" ? item.timestamp : new Date().toISOString()
             }))
         : undefined
@@ -279,8 +317,8 @@ function runtimeErrorFromBody(value: unknown): { error: string; errorMessage?: s
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     const record = value as Record<string, unknown>;
     return {
-      error: typeof record.error === "string" ? record.error : "external connector runtime failed",
-      errorMessage: typeof record.message === "string" ? record.message : undefined
+      error: sanitizedRuntimeString(record.error) ?? "external connector runtime failed",
+      errorMessage: optionalSanitizedRuntimeString(record.message)
     };
   }
 
