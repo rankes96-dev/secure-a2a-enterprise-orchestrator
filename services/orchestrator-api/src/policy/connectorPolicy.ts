@@ -26,6 +26,8 @@ export type ConnectorPolicyEvaluation = {
   effect: ConnectorPolicyEffect;
   reason: string;
   matchedRuleIds: string[];
+  matchedGuardrailRuleIds: string[];
+  matchedTenantRuleIds: string[];
   policyVersion: string;
   decisionId: string;
   inputHash: string;
@@ -93,6 +95,8 @@ function toConnectorPolicyEvaluation(decision: OgenPolicyDecision): ConnectorPol
     effect: decision.effect,
     reason: decision.reason,
     matchedRuleIds: decision.matchedRuleIds,
+    matchedGuardrailRuleIds: decision.matchedGuardrailRuleIds,
+    matchedTenantRuleIds: decision.matchedTenantRuleIds,
     policyVersion: decision.policyVersion,
     decisionId: decision.decisionId,
     inputHash: decision.inputHash,

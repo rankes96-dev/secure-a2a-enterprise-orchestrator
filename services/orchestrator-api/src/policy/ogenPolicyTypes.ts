@@ -85,6 +85,8 @@ export type OgenPolicyDecision = {
   effect: OgenPolicyEffect;
   reason: string;
   matchedRuleIds: string[];
+  matchedGuardrailRuleIds: string[];
+  matchedTenantRuleIds: string[];
   deniedByDefault: boolean;
   requiresApproval: boolean;
   createdAt: string;

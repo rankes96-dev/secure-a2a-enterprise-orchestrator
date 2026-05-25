@@ -10,7 +10,12 @@ const forbiddenMarkers = [
   "client_assertion"
 ];
 
-const approved = evaluateConnectorPolicy({ connectorRouteStatus: "connector_skill_approved" });
+const approved = evaluateConnectorPolicy({
+  connectorRouteStatus: "connector_skill_approved",
+  runtimeMode: "external_runtime_available",
+  executionType: "diagnostic_read_only",
+  riskLevel: "low"
+});
 if (approved.effect !== "allow") {
   throw new Error(`expected approved connector skill to be allowed, got ${approved.effect}`);
 }
@@ -19,6 +24,9 @@ if (approved.reason.includes("diagnostic skill")) {
 }
 if (!approved.matchedRuleIds.includes("allow-readonly-approved-runtime")) {
   throw new Error("expected approved connector skill to match allow-readonly-approved-runtime");
+}
+if (!approved.matchedTenantRuleIds.includes("allow-readonly-approved-runtime")) {
+  throw new Error("expected approved connector skill to record tenant allow rule");
 }
 
 const blocked = evaluateConnectorPolicy({ connectorRouteStatus: "connector_skill_blocked" });

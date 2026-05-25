@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { evaluateOgenPolicy, OGEN_POLICY_VERSION, defaultOgenPolicyRules } from "../services/orchestrator-api/src/policy/ogenPolicyEngine.js";
+import { evaluateOgenPolicy, OGEN_POLICY_VERSION, defaultOgenPolicyRules, defaultTenantOgenPolicyRules, mandatoryOgenPolicyGuardrails } from "../services/orchestrator-api/src/policy/ogenPolicyEngine.js";
 import { evaluateConnectorPolicy } from "../services/orchestrator-api/src/policy/connectorPolicy.js";
 import type { OgenPolicyInput, OgenPolicyRule } from "../services/orchestrator-api/src/policy/ogenPolicyTypes.js";
 
@@ -44,6 +44,22 @@ function requireRule(id: string): void {
     return;
   }
   ok(`default Ogen policy rules include ${id}`);
+}
+
+function requireGuardrail(id: string): void {
+  if (!mandatoryOgenPolicyGuardrails.some((rule) => rule.id === id)) {
+    fail(`mandatory Ogen policy guardrails should include ${id}`);
+    return;
+  }
+  ok(`mandatory Ogen policy guardrails include ${id}`);
+}
+
+function requireTenantRule(id: string): void {
+  if (!defaultTenantOgenPolicyRules.some((rule) => rule.id === id)) {
+    fail(`default tenant Ogen policy rules should include ${id}`);
+    return;
+  }
+  ok(`default tenant Ogen policy rules include ${id}`);
 }
 
 type OgenPolicyInputOverrides = Partial<Omit<OgenPolicyInput, "interpretation" | "connectorRoute" | "subject" | "resource" | "action">> & {
@@ -125,17 +141,18 @@ function baseInput(overrides: OgenPolicyInputOverrides = {}): OgenPolicyInput {
   };
 }
 
-function assertEffect(name: string, input: OgenPolicyInput, expected: "allow" | "block" | "needs_approval", rules?: OgenPolicyRule[]): void {
+function assertEffect(name: string, input: OgenPolicyInput, expected: "allow" | "block" | "needs_approval", rules?: OgenPolicyRule[]) {
   const decision = evaluateOgenPolicy(input, rules);
   if (decision.effect !== expected) {
     fail(`${name} expected ${expected}, got ${decision.effect}: ${decision.reason}`);
-    return;
+    return decision;
   }
   if (!decision.policyVersion || !decision.decisionId || !decision.inputHash || !decision.safeInputSummary) {
     fail(`${name} should include policy proof fields`);
-    return;
+    return decision;
   }
   ok(name);
+  return decision;
 }
 
 const policyTypes = read("services/orchestrator-api/src/policy/ogenPolicyTypes.ts");
@@ -152,24 +169,41 @@ const productIdentityDocs = read("docs/ogen-product-identity.md");
 requireIncludes(policyTypes, "export type OgenPolicyInput", "Ogen policy types exist");
 requireIncludes(policyTypes, "export type OgenPolicyDecision", "Ogen policy decision type exists");
 requireIncludes(policyEngine, "export function evaluateOgenPolicy", "Ogen policy engine exists");
+requireIncludes(policyEngine, "mandatoryOgenPolicyGuardrails", "Ogen policy engine defines mandatory guardrails");
+requireIncludes(policyEngine, "defaultTenantOgenPolicyRules", "Ogen policy engine defines tenant rules");
 requireIncludes(policyEngine, "defaultOgenPolicyRules", "Ogen policy engine defines default rules");
 
 for (const id of [
   "block-unapproved-route",
   "block-metadata-only-runtime",
   "block-missing-action-risk-metadata",
-  "approval-required-for-write-or-sensitive",
-  "allow-readonly-approved-runtime",
-  "default-deny"
+  "approval-required-for-write-or-sensitive"
 ]) {
+  requireGuardrail(id);
   requireRule(id);
   requireIncludes(policyEngine, id, "Ogen policy engine source includes default rule");
 }
+requireGuardrail("block-low-confidence-interpretation");
+for (const id of [
+  "allow-readonly-approved-runtime",
+  "default-deny"
+]) {
+  requireTenantRule(id);
+  requireRule(id);
+  requireIncludes(policyEngine, id, "Ogen policy engine source includes default rule");
+}
+
+requireIncludes(policyEngine, "const enabledGuardrails = [...mandatoryOgenPolicyGuardrails]", "policy engine always evaluates mandatory guardrails");
+requireIncludes(policyEngine, "const tenantRules = rules.filter", "policy engine separates custom tenant rules from guardrails");
+requireIncludes(policyEngine, "guardrailBlocks.length > 0", "mandatory guardrail blocks are returned before tenant rules");
+requireIncludes(policyEngine, "guardrailApprovalRules.length > 0 || tenantApprovalRules.length > 0", "mandatory approval guardrails override tenant allow");
 
 for (const phrase of [
   "policyVersion",
   "decisionId",
   "matchedRuleIds",
+  "matchedGuardrailRuleIds",
+  "matchedTenantRuleIds",
   "inputHash",
   "deniedByDefault",
   "safeInputSummary"
@@ -185,8 +219,12 @@ requireNotIncludes(connectorPolicy, '? "external_runtime_available" : "not_avail
 requireIncludes(backend, "policyProof", "runtime evidence includes policy proof fields");
 requireIncludes(executionGateStack, "policyDecisionId", "execution gate evidence includes policy decision id");
 requireIncludes(executionGateStack, "policyInputHash", "execution gate evidence includes policy input hash");
+requireIncludes(executionGateStack, "policyMatchedGuardrailRuleIds", "execution gate evidence includes guardrail rule ids");
+requireIncludes(executionGateStack, "policyMatchedTenantRuleIds", "execution gate evidence includes tenant rule ids");
 requireIncludes(auditEvents, 'POLICY_DECISION_EVALUATED: "policy.decision.evaluated"', "policy decision audit event exists");
 requireIncludes(backend, "appendConnectorPolicyDecisionAuditEvent", "backend appends policy decision audit proof");
+requireIncludes(backend, "matchedGuardrailRuleIds: connectorPolicy.matchedGuardrailRuleIds", "audit/runtime proof includes guardrail rule ids");
+requireIncludes(backend, "matchedTenantRuleIds: connectorPolicy.matchedTenantRuleIds", "audit/runtime proof includes tenant rule ids");
 
 for (const marker of [
   "access" + "_token",
@@ -204,7 +242,15 @@ for (const marker of [
 requireNotIncludes(policyEngine, 'input.action.executionType === undefined', "allow logic does not treat missing execution type as safe");
 requireNotIncludes(policyEngine, 'input.action.riskLevel === undefined', "allow logic does not treat missing risk level as safe");
 
-assertEffect("approved read-only external runtime is allowed", baseInput(), "allow");
+const approvedReadonlyDecision = assertEffect("approved read-only external runtime is allowed", baseInput(), "allow");
+if (
+  !approvedReadonlyDecision?.matchedTenantRuleIds.includes("allow-readonly-approved-runtime") ||
+  approvedReadonlyDecision.matchedGuardrailRuleIds.length !== 0
+) {
+  fail("approved read-only decision should be allowed by tenant rule after guardrails pass");
+} else {
+  ok("approved read-only decision separates tenant allow from guardrails");
+}
 assertEffect("approved inspection read-only medium external runtime is allowed", baseInput({
   action: {
     executionType: "inspection_read_only",
@@ -258,6 +304,80 @@ assertEffect("sensitive action needs approval", baseInput({
     sensitivity: "sensitive"
   }
 }), "needs_approval");
+
+const tenantAllowEverythingRule: OgenPolicyRule = {
+  id: "tenant-allow-everything",
+  name: "Tenant allow everything",
+  description: "Test tenant rule that attempts to allow unsafe execution.",
+  effect: "allow",
+  priority: 1,
+  enabled: true,
+  match: {}
+};
+const bypassMetadataOnly = assertEffect("tenant allow cannot bypass metadata-only guardrail", baseInput({
+  connectorRoute: {
+    runtimeMode: "metadata_only"
+  }
+}), "block", [tenantAllowEverythingRule]);
+if (!bypassMetadataOnly?.matchedGuardrailRuleIds.includes("block-metadata-only-runtime")) {
+  fail("metadata-only bypass attempt should be blocked by mandatory guardrail");
+}
+const bypassMissingRuntime = assertEffect("tenant allow cannot bypass missing runtimeMode guardrail", baseInput({
+  connectorRoute: {
+    runtimeMode: undefined
+  }
+}), "block", [tenantAllowEverythingRule]);
+if (!bypassMissingRuntime?.matchedGuardrailRuleIds.includes("block-metadata-only-runtime")) {
+  fail("missing runtimeMode bypass attempt should be blocked by mandatory guardrail");
+}
+const bypassMissingExecutionType = assertEffect("tenant allow cannot bypass missing executionType guardrail", baseInput({
+  action: {
+    executionType: undefined
+  }
+}), "block", [tenantAllowEverythingRule]);
+if (!bypassMissingExecutionType?.matchedGuardrailRuleIds.includes("block-missing-action-risk-metadata")) {
+  fail("missing executionType bypass attempt should be blocked by mandatory guardrail");
+}
+const bypassMissingRisk = assertEffect("tenant allow cannot bypass missing riskLevel guardrail", baseInput({
+  action: {
+    riskLevel: undefined
+  }
+}), "block", [tenantAllowEverythingRule]);
+if (!bypassMissingRisk?.matchedGuardrailRuleIds.includes("block-missing-action-risk-metadata")) {
+  fail("missing riskLevel bypass attempt should be blocked by mandatory guardrail");
+}
+const bypassWrite = assertEffect("tenant allow cannot bypass write approval guardrail", baseInput({
+  action: {
+    executionType: "write_action"
+  }
+}), "needs_approval", [tenantAllowEverythingRule]);
+if (!bypassWrite?.matchedGuardrailRuleIds.includes("approval-required-for-write-or-sensitive")) {
+  fail("write bypass attempt should require approval by mandatory guardrail");
+}
+const bypassHighRisk = assertEffect("tenant allow cannot bypass high-risk approval guardrail", baseInput({
+  action: {
+    riskLevel: "high"
+  }
+}), "needs_approval", [tenantAllowEverythingRule]);
+if (!bypassHighRisk?.matchedGuardrailRuleIds.includes("approval-required-for-write-or-sensitive")) {
+  fail("high-risk bypass attempt should require approval by mandatory guardrail");
+}
+
+const tenantBlockRule: OgenPolicyRule = {
+  id: "tenant-block-jira",
+  name: "Tenant block Jira",
+  description: "Test tenant block rule.",
+  effect: "block",
+  priority: 1,
+  enabled: true,
+  match: {
+    connectorIds: ["jira-reference"]
+  }
+};
+const tenantBlocked = assertEffect("tenant block rule blocks otherwise valid read-only request", baseInput(), "block", [tenantBlockRule, tenantAllowEverythingRule]);
+if (!tenantBlocked?.matchedTenantRuleIds.includes("tenant-block-jira")) {
+  fail("tenant block decision should record matched tenant rule id");
+}
 
 const adminRoleRule: OgenPolicyRule = {
   id: "allow-admin-readonly-runtime",
@@ -353,12 +473,16 @@ for (const phrase of [
   "Runtime execution requires explicit risk classification.",
   "Missing action/risk metadata fails closed.",
   "Approved connector route alone is not enough to allow runtime execution.",
+  "Ogen separates mandatory platform guardrails from tenant/configurable policy rules.",
+  "Tenant policies can restrict further but cannot override core Ogen safety guardrails.",
+  "Decision proof records matched guardrail rules and matched tenant rules separately.",
   "tenant-scoped policy storage"
 ]) {
   requireIncludes(platformDocs, phrase, "platform docs cover Ogen policy engine boundary");
 }
 
 requireIncludes(productIdentityDocs, "AI can interpret. Ogen decides. Runtime executes only approved actions. Audit proves what happened.", "product identity docs include Ogen policy principle");
+requireIncludes(productIdentityDocs, "Tenant policy can restrict. Ogen guardrails cannot be bypassed.", "product identity docs include non-overridable guardrail principle");
 
 if (failed) {
   process.exitCode = 1;

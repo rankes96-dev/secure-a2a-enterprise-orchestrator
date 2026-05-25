@@ -59,6 +59,8 @@ AI can interpret. Ogen decides. Runtime executes only approved actions. Audit pr
 
 Ogen does not infer safety from missing metadata.
 
+Tenant policy can restrict. Ogen guardrails cannot be bypassed.
+
 ## Public copy direction
 
 Ogen should sound like a product, not a protocol name.

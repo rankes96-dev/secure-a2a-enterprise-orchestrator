@@ -206,6 +206,8 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       policyVersion: params.connectorPolicy?.policyVersion,
       policyDecisionId: params.connectorPolicy?.decisionId,
       policyMatchedRuleIds: params.connectorPolicy?.matchedRuleIds ?? [],
+      policyMatchedGuardrailRuleIds: params.connectorPolicy?.matchedGuardrailRuleIds ?? [],
+      policyMatchedTenantRuleIds: params.connectorPolicy?.matchedTenantRuleIds ?? [],
       policyInputHash: params.connectorPolicy?.inputHash,
       policyDeniedByDefault: params.connectorPolicy?.deniedByDefault,
       policyRequiresApproval: params.connectorPolicy?.requiresApproval,

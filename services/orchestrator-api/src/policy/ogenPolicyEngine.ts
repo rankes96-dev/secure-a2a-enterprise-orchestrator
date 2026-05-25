@@ -3,7 +3,7 @@ import type { OgenPolicyDecision, OgenPolicyEffect, OgenPolicyInput, OgenPolicyR
 
 export const OGEN_POLICY_VERSION = "ogen.policy.v1";
 
-export const defaultOgenPolicyRules: OgenPolicyRule[] = [
+export const mandatoryOgenPolicyGuardrails: OgenPolicyRule[] = [
   {
     id: "block-unapproved-route",
     name: "Block unapproved connector route",
@@ -63,7 +63,10 @@ export const defaultOgenPolicyRules: OgenPolicyRule[] = [
     match: {
       routeStatuses: ["connector_skill_approved"]
     }
-  },
+  }
+];
+
+export const defaultTenantOgenPolicyRules: OgenPolicyRule[] = [
   {
     id: "allow-readonly-approved-runtime",
     name: "Allow read-only approved runtime",
@@ -84,6 +87,11 @@ export const defaultOgenPolicyRules: OgenPolicyRule[] = [
     enabled: true,
     match: {}
   }
+];
+
+export const defaultOgenPolicyRules: OgenPolicyRule[] = [
+  ...mandatoryOgenPolicyGuardrails,
+  ...defaultTenantOgenPolicyRules
 ];
 
 function stableValue(value: unknown): unknown {
@@ -243,10 +251,12 @@ function buildDecision(
   input: OgenPolicyInput,
   effect: OgenPolicyEffect,
   reason: string,
-  matchedRuleIds: string[],
+  matchedGuardrailRuleIds: string[],
+  matchedTenantRuleIds: string[],
   deniedByDefault: boolean
 ): OgenPolicyDecision {
   const summary = safeInputSummary(input);
+  const matchedRuleIds = [...matchedGuardrailRuleIds, ...matchedTenantRuleIds];
   return {
     decisionId: randomUUID(),
     tenantId: input.tenantId,
@@ -254,6 +264,8 @@ function buildDecision(
     effect,
     reason,
     matchedRuleIds,
+    matchedGuardrailRuleIds,
+    matchedTenantRuleIds,
     deniedByDefault,
     requiresApproval: effect === "needs_approval",
     createdAt: new Date().toISOString(),
@@ -285,13 +297,19 @@ function reasonFor(effect: OgenPolicyEffect, matchedRuleIds: string[]): string {
 }
 
 export function evaluateOgenPolicy(input: OgenPolicyInput, rules = defaultOgenPolicyRules): OgenPolicyDecision {
-  const enabledRules = [...rules]
+  const enabledGuardrails = [...mandatoryOgenPolicyGuardrails]
     .filter((rule) => rule.enabled)
     .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));
 
-  const matched: OgenPolicyRule[] = [];
+  const tenantRules = rules.filter((rule) => !mandatoryOgenPolicyGuardrails.some((guardrail) => guardrail.id === rule.id));
+  const enabledTenantRules = tenantRules
+    .filter((rule) => rule.enabled)
+    .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));
 
-  for (const rule of enabledRules) {
+  const matchedGuardrails: OgenPolicyRule[] = [];
+  const matchedTenantRules: OgenPolicyRule[] = [];
+
+  for (const rule of enabledGuardrails) {
     if (!ruleMatches(input, rule)) {
       continue;
     }
@@ -302,36 +320,73 @@ export function evaluateOgenPolicy(input: OgenPolicyInput, rules = defaultOgenPo
         "block",
         `Required policy role is missing for rule ${rule.id}.`,
         [rule.id],
+        [],
         false
       );
     }
 
-    matched.push(rule);
+    matchedGuardrails.push(rule);
   }
 
-  const blocks = matched.filter((rule) => rule.effect === "block");
-  if (blocks.length > 0) {
-    const matchedRuleIds = blocks.map((rule) => rule.id);
-    return buildDecision(input, "block", reasonFor("block", matchedRuleIds), matchedRuleIds, false);
+  const guardrailBlocks = matchedGuardrails.filter((rule) => rule.effect === "block");
+  if (guardrailBlocks.length > 0) {
+    const matchedRuleIds = guardrailBlocks.map((rule) => rule.id);
+    return buildDecision(input, "block", reasonFor("block", matchedRuleIds), matchedRuleIds, [], false);
   }
 
-  const approvalRules = matched.filter((rule) => rule.effect === "needs_approval");
-  if (approvalRules.length > 0) {
-    const matchedRuleIds = approvalRules.map((rule) => rule.id);
-    return buildDecision(input, "needs_approval", reasonFor("needs_approval", matchedRuleIds), matchedRuleIds, false);
+  const guardrailApprovalRules = matchedGuardrails.filter((rule) => rule.effect === "needs_approval");
+  const guardrailApprovalRuleIds = guardrailApprovalRules.map((rule) => rule.id);
+
+  for (const rule of enabledTenantRules) {
+    if (!ruleMatches(input, rule)) {
+      continue;
+    }
+
+    if (!roleRequirementSatisfied(input, rule)) {
+      return buildDecision(
+        input,
+        "block",
+        `Required policy role is missing for rule ${rule.id}.`,
+        guardrailApprovalRuleIds,
+        [rule.id],
+        false
+      );
+    }
+
+    matchedTenantRules.push(rule);
   }
 
-  const allowRules = matched.filter((rule) => rule.effect === "allow");
-  if (allowRules.length > 0) {
-    const matchedRuleIds = allowRules.map((rule) => rule.id);
-    return buildDecision(input, "allow", reasonFor("allow", matchedRuleIds), matchedRuleIds, false);
+  const tenantBlocks = matchedTenantRules.filter((rule) => rule.effect === "block");
+  if (tenantBlocks.length > 0) {
+    const matchedTenantRuleIds = tenantBlocks.map((rule) => rule.id);
+    return buildDecision(input, "block", reasonFor("block", matchedTenantRuleIds), guardrailApprovalRuleIds, matchedTenantRuleIds, false);
   }
 
-  const defaultRule = enabledRules.find((rule) => rule.id === "default-deny");
+  const tenantApprovalRules = matchedTenantRules.filter((rule) => rule.effect === "needs_approval");
+  if (guardrailApprovalRules.length > 0 || tenantApprovalRules.length > 0) {
+    const matchedTenantRuleIds = tenantApprovalRules.map((rule) => rule.id);
+    return buildDecision(
+      input,
+      "needs_approval",
+      reasonFor("needs_approval", [...guardrailApprovalRuleIds, ...matchedTenantRuleIds]),
+      guardrailApprovalRuleIds,
+      matchedTenantRuleIds,
+      false
+    );
+  }
+
+  const tenantAllowRules = matchedTenantRules.filter((rule) => rule.effect === "allow");
+  if (tenantAllowRules.length > 0) {
+    const matchedTenantRuleIds = tenantAllowRules.map((rule) => rule.id);
+    return buildDecision(input, "allow", reasonFor("allow", matchedTenantRuleIds), [], matchedTenantRuleIds, false);
+  }
+
+  const defaultRule = enabledTenantRules.find((rule) => rule.id === "default-deny");
   return buildDecision(
     input,
     "block",
     "Ogen policy denied the request by default because no allow rule matched.",
+    [],
     defaultRule ? [defaultRule.id] : [],
     true
   );

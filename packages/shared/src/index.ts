@@ -684,6 +684,8 @@ export interface ResolveResponse {
     effect: "allow" | "block" | "needs_approval";
     reason: string;
     matchedRuleIds: string[];
+    matchedGuardrailRuleIds?: string[];
+    matchedTenantRuleIds?: string[];
     policyVersion?: string;
     decisionId?: string;
     inputHash?: string;
