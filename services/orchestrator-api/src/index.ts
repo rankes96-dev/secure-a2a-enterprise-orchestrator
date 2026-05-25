@@ -1729,15 +1729,49 @@ function requireIdentitySession(request: IncomingMessage, response: ServerRespon
   return { sessionToken, identity };
 }
 
-function requireIdentityOrAdminAccess(
+async function requireFreshIdentitySession(
   request: IncomingMessage,
   response: ServerResponse
-): { kind: "admin" } | { kind: "identity"; sessionToken: string; identity: VerifiedUserIdentity } | undefined {
+): Promise<{ sessionToken: string; identity: VerifiedUserIdentity } | undefined> {
+  const identitySession = requireIdentitySession(request, response);
+  if (!identitySession) {
+    return undefined;
+  }
+
+  const tenantId = defaultTenantId();
+  const directoryAccess = await verifyUserDirectoryAccess({
+    identity: identitySession.identity,
+    tenantId
+  });
+
+  if (!directoryAccess.ok) {
+    userIdentitiesBySession.delete(identitySession.sessionToken);
+    await appendIdentityDeniedAuditEvent(identitySession.identity, directoryAccess.reason, tenantId);
+    sendJson(response, directoryAccess.status, {
+      error: "user_directory_access_denied",
+      message: directoryAccess.message
+    }, request);
+    return undefined;
+  }
+
+  const allowedIdentity = identityWithDirectoryRoles(identitySession.identity, directoryAccess.user.roles);
+  userIdentitiesBySession.set(identitySession.sessionToken, allowedIdentity);
+
+  return {
+    sessionToken: identitySession.sessionToken,
+    identity: allowedIdentity
+  };
+}
+
+async function requireIdentityOrAdminAccess(
+  request: IncomingMessage,
+  response: ServerResponse
+): Promise<{ kind: "admin" } | { kind: "identity"; sessionToken: string; identity: VerifiedUserIdentity } | undefined> {
   if (hasValidClientApiKey(request)) {
     return { kind: "admin" };
   }
 
-  const identitySession = requireIdentitySession(request, response);
+  const identitySession = await requireFreshIdentitySession(request, response);
   if (!identitySession) {
     return undefined;
   }
@@ -1799,6 +1833,16 @@ function agentCardRegistryKey(request: IncomingMessage, response: ServerResponse
 
   sendJson(response, 401, { error: "Unauthorized" }, request);
   return undefined;
+}
+
+async function agentCardRegistryKeyForIdentityOrAdmin(request: IncomingMessage, response: ServerResponse): Promise<string | undefined> {
+  const apiKey = clientApiKey(request);
+  if (apiKey && process.env.ORCHESTRATOR_API_KEY && apiKey === process.env.ORCHESTRATOR_API_KEY) {
+    return `api:${createHash("sha256").update(apiKey).digest("hex")}`;
+  }
+
+  const identitySession = await requireFreshIdentitySession(request, response);
+  return identitySession?.sessionToken;
 }
 
 async function prepareEndUserDemoEnvironment(ownerKey: string): Promise<{
@@ -3906,7 +3950,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/agents/health") {
-    if (!requireIdentityOrAdminAccess(request, response)) {
+    if (!await requireIdentityOrAdminAccess(request, response)) {
       return;
     }
 
@@ -3921,7 +3965,7 @@ async function start(): Promise<void> {
   if (request.method === "GET" && request.url === "/debug/ai-config") {
     if (!hasValidClientApiKey(request)) {
       if (process.env.NODE_ENV !== "production" && process.env.ALLOW_DEBUG_AI_CONFIG_WITH_IDENTITY === "true") {
-        if (!requireIdentityOrAdminAccess(request, response)) {
+        if (!await requireIdentityOrAdminAccess(request, response)) {
           return;
         }
       } else {
@@ -3962,38 +4006,18 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/identity/session") {
-    const sessionToken = requireSessionToken(request, response);
-    if (!sessionToken) {
+    const identitySession = await requireFreshIdentitySession(request, response);
+    if (!identitySession) {
       return;
     }
 
-    const identity = currentUserIdentity(sessionToken);
-    if (!identity) {
-      sendJson(response, 401, { error: "identity_session_required" }, request);
-      return;
-    }
-
-    const tenantId = defaultTenantId();
-    const directoryAccess = await verifyUserDirectoryAccess({ identity, tenantId });
-    if (!directoryAccess.ok) {
-      userIdentitiesBySession.delete(sessionToken);
-      await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId);
-      sendJson(response, directoryAccess.status, {
-        error: "user_directory_access_denied",
-        message: directoryAccess.message
-      }, request);
-      return;
-    }
-
-    const allowedIdentity = identityWithDirectoryRoles(identity, directoryAccess.user.roles);
-    userIdentitiesBySession.set(sessionToken, allowedIdentity);
-    sendJson(response, 200, publicIdentitySession(userIdentityProvider, allowedIdentity), request);
+    sendJson(response, 200, publicIdentitySession(userIdentityProvider, identitySession.identity), request);
     return;
   }
 
   if (request.method === "GET" && request.url === "/identity/trust-status") {
     const adminView = hasValidClientApiKey(request);
-    const identitySession = adminView ? undefined : requireIdentitySession(request, response);
+    const identitySession = adminView ? undefined : await requireFreshIdentitySession(request, response);
     if (!adminView && !identitySession) {
       return;
     }
@@ -4090,7 +4114,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/demo/end-user-ready") {
-    const registryKey = agentCardRegistryKey(request, response, { requireIdentity: true });
+    const registryKey = await agentCardRegistryKeyForIdentityOrAdmin(request, response);
     if (!registryKey) {
       return;
     }
@@ -4116,7 +4140,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/agent-onboarding") {
-    const registryKey = agentCardRegistryKey(request, response, { requireIdentity: true });
+    const registryKey = await agentCardRegistryKeyForIdentityOrAdmin(request, response);
     if (!registryKey) {
       return;
     }
@@ -4130,7 +4154,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/agent-onboarding/supported-connectors") {
-    const registryKey = agentCardRegistryKey(request, response, { requireIdentity: true });
+    const registryKey = await agentCardRegistryKeyForIdentityOrAdmin(request, response);
     if (!registryKey) {
       return;
     }
@@ -4158,7 +4182,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/agent-onboarding/discover") {
-    if (!agentCardRegistryKey(request, response, { requireIdentity: true })) {
+    if (!await agentCardRegistryKeyForIdentityOrAdmin(request, response)) {
       return;
     }
 
@@ -4177,7 +4201,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/agent-onboarding/start") {
-    const registryKey = agentCardRegistryKey(request, response, { requireIdentity: true });
+    const registryKey = await agentCardRegistryKeyForIdentityOrAdmin(request, response);
     if (!registryKey) {
       return;
     }
@@ -4204,16 +4228,8 @@ async function start(): Promise<void> {
     return;
   }
 
-  const sessionToken = requireSessionToken(request, response);
-  if (!sessionToken) {
-    return;
-  }
-
-  if (!currentUserIdentity(sessionToken)) {
-    sendJson(response, 401, {
-      error: "user_identity_required",
-      message: "Login as a demo user before running secure A2A tasks."
-    }, request);
+  const identitySession = await requireFreshIdentitySession(request, response);
+  if (!identitySession) {
     return;
   }
 
@@ -4228,7 +4244,7 @@ async function start(): Promise<void> {
     return;
   }
 
-  sendJson(response, 200, await resolveIssue(requestBody, sessionToken));
+  sendJson(response, 200, await resolveIssue(requestBody, identitySession.sessionToken));
   });
 }
 

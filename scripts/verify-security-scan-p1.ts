@@ -43,7 +43,11 @@ function requireOrder(source: string, first: string, second: string, context: st
 
 function routeBlock(source: string, method: string, path: string): string {
   const marker = `request.method === "${method}" && request.url === "${path}"`;
-  const start = source.indexOf(marker);
+  const fallbackMarker = `request.method !== "${method}" || request.url !== "${path}"`;
+  let start = source.indexOf(marker);
+  if (start < 0) {
+    start = source.indexOf(fallbackMarker);
+  }
   if (start < 0) {
     fail(`route block missing: ${method} ${path}`);
     return "";
@@ -367,17 +371,36 @@ for (const phrase of [
   "internal endpoint",
   "`${url.protocol}//${url.host}/...`",
   "admin_access_required",
-  "function requireIdentityOrAdminAccess",
+  "async function requireFreshIdentitySession",
+  "async function requireIdentityOrAdminAccess",
+  "await requireFreshIdentitySession(request, response)",
   "const adminView = hasValidClientApiKey(request)",
-  "const identitySession = adminView ? undefined : requireIdentitySession(request, response)",
+  "const identitySession = adminView ? undefined : await requireFreshIdentitySession(request, response)",
   "buildTrustStatus(identitySession?.sessionToken ?? getSessionToken(request), adminView)"
 ]) {
   requireIncludes(orchestrator, phrase, "trust status and debug hardening");
 }
 
 const agentsHealthRoute = routeBlock(orchestrator, "GET", "/agents/health");
-requireIncludes(agentsHealthRoute, "requireIdentityOrAdminAccess(request, response)", "agents health access hardening");
+requireIncludes(agentsHealthRoute, "await requireIdentityOrAdminAccess(request, response)", "agents health access hardening");
 requireExcludes(agentsHealthRoute, "requireClientAccess", "agents health access hardening");
+
+for (const phrase of [
+  "verifyUserDirectoryAccess",
+  "userIdentitiesBySession.delete(identitySession.sessionToken)",
+  "user_directory_access_denied",
+  "appendIdentityDeniedAuditEvent(identitySession.identity, directoryAccess.reason, tenantId)"
+]) {
+  requireIncludes(orchestrator, phrase, "stale in-memory identity directory revalidation");
+}
+
+requireIncludes(routeBlock(orchestrator, "GET", "/agents/health"), "await requireIdentityOrAdminAccess", "stale identity cannot bypass /agents/health");
+for (const [method, path] of [
+  ["GET", "/identity/trust-status"],
+  ["POST", "/resolve"]
+] as const) {
+  requireIncludes(routeBlock(orchestrator, method, path), "await requireFreshIdentitySession", `stale identity cannot bypass ${path}`);
+}
 
 const debugAiConfigRoute = routeBlock(orchestrator, "GET", "/debug/ai-config");
 for (const phrase of [

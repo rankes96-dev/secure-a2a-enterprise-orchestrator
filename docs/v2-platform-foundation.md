@@ -476,7 +476,7 @@ Frontend gating is UX only. The orchestrator still enforces session and identity
 
 The app does not expose raw Auth0 access tokens, JWTs, OAuth callback `code` / `state` / `code_verifier` values, or internal session tokens. Login tokens are not stored in `localStorage`; the frontend only uses the Gateway session cookie and safe public identity response.
 
-Browser session is not authentication. A `/session` cookie only identifies a browser session; protected operational endpoints require attached Gateway identity or an admin API key. `/agents/health` requires identity/admin access because it can expose operational state. `/debug/ai-config` is admin/API-key only by default, with any identity-based debug access limited to explicit non-production local override. Health checks do not return upstream response bodies.
+Browser session is not authentication. A `/session` cookie only identifies a browser session; protected operational endpoints require attached Gateway identity or an admin API key. In-memory attached identity is not a permanent authorization decision: attached Gateway identity is revalidated against the user directory on protected routes. Disabling a user in the local `users` table invalidates future protected route access and clears the attached session identity. `/agents/health` requires identity/admin access because it can expose operational state. `/debug/ai-config` is admin/API-key only by default, with any identity-based debug access limited to explicit non-production local override. Health checks do not return upstream response bodies.
 
 ### Phase 3  Connector SDK
 
@@ -751,6 +751,7 @@ P2 findings:
 - Public `.well-known/*` metadata is okay.
 - `/admin` and debug endpoints must remain disabled or token-protected in production.
 - Browser session is not authentication; protected operational endpoints require attached Gateway identity or admin/API-key access.
+- In-memory attached identity is not a permanent authorization decision; protected routes revalidate Gateway identity against the local user directory.
 - Health checks must not echo upstream response bodies.
 - Onboarding URL allowlist protects against SSRF.
 - Runtime URL allowlist protects against untrusted runtime execution.

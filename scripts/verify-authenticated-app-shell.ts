@@ -38,7 +38,11 @@ function requireNotIncludes(source: string, needle: string, label: string): void
 
 function routeBlock(source: string, method: string, path: string): string {
   const marker = `request.method === "${method}" && request.url === "${path}"`;
-  const start = source.indexOf(marker);
+  const fallbackMarker = `request.method !== "${method}" || request.url !== "${path}"`;
+  let start = source.indexOf(marker);
+  if (start === -1) {
+    start = source.indexOf(fallbackMarker);
+  }
   if (start === -1) {
     fail(`route block missing: ${method} ${path}`);
   }
@@ -93,20 +97,41 @@ function verifyBackend(): void {
   const backend = read("services/orchestrator-api/src/index.ts");
 
   requireIncludes(backend, 'request.method === "GET" && request.url === "/identity/session"', "backend has GET /identity/session");
-  requireRegex(backend, /GET" && request\.url === "\/identity\/session"[\s\S]*identity_session_required/, "backend current identity returns 401 when identity missing");
-  requireRegex(backend, /GET" && request\.url === "\/identity\/session"[\s\S]*verifyUserDirectoryAccess/, "backend current identity rechecks user directory access");
-  requireRegex(backend, /request\.method !== "POST" \|\| request\.url !== "\/resolve"[\s\S]*requireSessionToken/, "backend /resolve requires session");
-  requireRegex(backend, /\/resolve"[\s\S]*currentUserIdentity\(sessionToken\)/, "backend /resolve requires attached identity");
   requireIncludes(backend, "function requireIdentitySession", "backend has identity-session route helper");
-  requireRegex(backend, /\/agent-onboarding"[\s\S]*requireIdentity: true/, "backend agent onboarding list requires identity");
-  requireRegex(backend, /\/agent-onboarding\/supported-connectors"[\s\S]*requireIdentity: true/, "backend supported connectors requires identity");
-  requireRegex(backend, /\/agent-onboarding\/discover"[\s\S]*requireIdentity: true/, "backend onboarding discovery requires identity");
-  requireRegex(backend, /\/agent-onboarding\/start"[\s\S]*requireIdentity: true/, "backend onboarding start requires identity");
-  requireRegex(backend, /\/demo\/end-user-ready"[\s\S]*requireIdentity: true/, "backend demo preparation requires identity");
+  requireRegex(backend, /function requireIdentitySession[\s\S]*identity_session_required/, "backend identity helper returns 401 when identity missing");
+  requireIncludes(backend, "async function requireFreshIdentitySession", "backend has fresh identity session helper");
+  requireRegex(backend, /async function requireFreshIdentitySession[\s\S]*verifyUserDirectoryAccess/, "fresh identity helper rechecks user directory access");
+  requireRegex(backend, /async function requireFreshIdentitySession[\s\S]*userIdentitiesBySession\.delete\(identitySession\.sessionToken\)/, "fresh identity helper clears denied session identity");
+  requireRegex(backend, /async function requireFreshIdentitySession[\s\S]*user_directory_access_denied/, "fresh identity helper returns safe directory denial");
+  requireRegex(backend, /async function requireFreshIdentitySession[\s\S]*identityWithDirectoryRoles/, "fresh identity helper merges directory roles");
+
+  const identitySessionRoute = routeBlock(backend, "GET", "/identity/session");
+  requireIncludes(identitySessionRoute, "await requireFreshIdentitySession(request, response)", "backend current identity uses fresh directory revalidation");
+
+  const resolveRoute = routeBlock(backend, "POST", "/resolve");
+  requireIncludes(resolveRoute, "await requireFreshIdentitySession(request, response)", "backend /resolve uses fresh directory revalidation");
+
+  const trustStatusRoute = routeBlock(backend, "GET", "/identity/trust-status");
+  requireIncludes(trustStatusRoute, "await requireFreshIdentitySession(request, response)", "backend /identity/trust-status non-admin path uses fresh revalidation");
+
+  requireIncludes(backend, "async function agentCardRegistryKeyForIdentityOrAdmin", "backend has fresh registry-key helper");
+  requireRegex(backend, /async function agentCardRegistryKeyForIdentityOrAdmin[\s\S]*await requireFreshIdentitySession/, "registry-key helper uses fresh directory revalidation");
+  requireNotIncludes(backend, "requireIdentity: true", "protected routes do not rely on session-only registry identity option");
+
+  for (const [method, path] of [
+    ["POST", "/demo/end-user-ready"],
+    ["GET", "/agent-onboarding"],
+    ["GET", "/agent-onboarding/supported-connectors"],
+    ["POST", "/agent-onboarding/discover"],
+    ["POST", "/agent-onboarding/start"]
+  ] as const) {
+    requireIncludes(routeBlock(backend, method, path), "await agentCardRegistryKeyForIdentityOrAdmin(request, response)", `backend ${path} uses fresh identity/admin registry key`);
+  }
 
   requireIncludes(backend, "function requireIdentityOrAdminAccess", "backend has identity/admin access helper");
+  requireRegex(backend, /async function requireIdentityOrAdminAccess[\s\S]*await requireFreshIdentitySession/, "identity/admin helper revalidates directory for identity callers");
   const agentsHealthRoute = routeBlock(backend, "GET", "/agents/health");
-  requireIncludes(agentsHealthRoute, "requireIdentityOrAdminAccess(request, response)", "backend /agents/health uses identity/admin access");
+  requireIncludes(agentsHealthRoute, "await requireIdentityOrAdminAccess(request, response)", "backend /agents/health uses async identity/admin access");
   requireNotIncludes(agentsHealthRoute, "requireClientAccess", "backend /agents/health avoids raw-session access helper");
 
   const debugRoute = routeBlock(backend, "GET", "/debug/ai-config");
@@ -135,6 +160,8 @@ function verifyDocs(): void {
   requireIncludes(deployment, "npm.cmd run db:seed-platform-user", "deployment docs include platform user seed");
   requireIncludes(deployment, "AUTH0_REQUIRE_USER_DIRECTORY=true", "deployment docs include Auth0 directory gate");
   requireIncludes(platform, "Browser session is not authentication", "platform docs distinguish session from authentication");
+  requireIncludes(platform, "In-memory attached identity is not a permanent authorization decision", "platform docs cover stale identity revalidation");
+  requireIncludes(platform, "Disabling a user in the local `users` table invalidates future protected route access", "platform docs cover disabled-user invalidation");
   requireIncludes(platform, "`/agents/health` requires identity/admin access", "platform docs cover health endpoint access");
   requireIncludes(platform, "`/debug/ai-config` is admin/API-key only by default", "platform docs cover debug endpoint access");
   requireIncludes(platform, "Health checks do not return upstream response bodies", "platform docs cover health body sanitization");

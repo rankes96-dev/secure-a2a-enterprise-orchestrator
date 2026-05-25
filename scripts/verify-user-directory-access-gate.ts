@@ -257,11 +257,21 @@ for (const phrase of [
   requireIncludes(userDirectoryAccess, phrase, "user directory access helper");
 }
 
-const verifyCall = index.indexOf("verifyUserDirectoryAccess({ identity, tenantId })");
-const sessionSet = index.indexOf("userIdentitiesBySession.set(sessionToken, allowedIdentity)");
-if (verifyCall < 0 || sessionSet < 0 || verifyCall > sessionSet) {
-  fail("/identity/session should call verifyUserDirectoryAccess before userIdentitiesBySession.set");
+const freshHelperStart = index.indexOf("async function requireFreshIdentitySession");
+const freshVerifyCall = freshHelperStart < 0 ? -1 : index.indexOf("verifyUserDirectoryAccess", freshHelperStart);
+const freshSessionDelete = freshHelperStart < 0 ? -1 : index.indexOf("userIdentitiesBySession.delete(identitySession.sessionToken)", freshHelperStart);
+const freshDeniedResponse = freshHelperStart < 0 ? -1 : index.indexOf('error: "user_directory_access_denied"', freshHelperStart);
+const freshSessionSet = freshHelperStart < 0 ? -1 : index.indexOf("userIdentitiesBySession.set(identitySession.sessionToken, allowedIdentity)", freshHelperStart);
+if (freshHelperStart < 0 || freshVerifyCall < 0 || freshSessionDelete < 0 || freshDeniedResponse < 0 || freshSessionSet < 0) {
+  fail("requireFreshIdentitySession should recheck directory access, clear denied identities, return safe 403, and refresh allowed identity");
 }
+if (freshVerifyCall > freshSessionSet) {
+  fail("requireFreshIdentitySession should call verifyUserDirectoryAccess before refreshing userIdentitiesBySession");
+}
+requireIncludes(index, "await requireFreshIdentitySession(request, response)", "protected routes fresh directory revalidation");
+requireIncludes(index, "await appendIdentityDeniedAuditEvent(identitySession.identity, directoryAccess.reason, tenantId)", "fresh session denied audit");
+requireIncludes(index, "sendJson(response, directoryAccess.status", "fresh session safe denied status");
+requireIncludes(index, "message: directoryAccess.message", "fresh session safe denied message");
 
 for (const phrase of [
   "USER_IDENTITY_DENIED",
