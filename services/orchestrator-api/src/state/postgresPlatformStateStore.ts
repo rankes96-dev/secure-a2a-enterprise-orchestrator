@@ -210,6 +210,10 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
     };
   }
 
+  async close(): Promise<void> {
+    await this.pool.end();
+  }
+
   async listConnectorTrustRecords(ownerKey: string): Promise<StoredConnectorTrustRecord[]> {
     const ownerKeyHash = platformOwnerKeyHash(ownerKey);
     const result = await this.pool.query<DbConnectorTrustRecord>(

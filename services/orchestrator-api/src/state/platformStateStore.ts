@@ -87,6 +87,7 @@ export type StoredConversationStateRecord = {
 
 export type PlatformStateStore = {
   health(): Promise<PlatformStateStoreHealth>;
+  close?(): Promise<void>;
 
   // Connector trust registry: first durable target for Phase 2.1.
   listConnectorTrustRecords(ownerKey: string): Promise<StoredConnectorTrustRecord[]>;

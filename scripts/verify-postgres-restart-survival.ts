@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { Pool } from "pg";
 import { fromStoredConnectorTrustRecord } from "../services/orchestrator-api/src/agentOnboarding/trustedAgentStore.js";
-import { getPlatformStateStore, resetPlatformStateStoreForTests } from "../services/orchestrator-api/src/state/createPlatformStateStore.js";
+import { closePlatformStateStoreForTests, getPlatformStateStore } from "../services/orchestrator-api/src/state/createPlatformStateStore.js";
 import type { StoredAuditEvent, StoredConnectorTrustRecord, StoredConversationStateRecord } from "../services/orchestrator-api/src/state/platformStateStore.js";
 import { platformOwnerKeyHash } from "../services/orchestrator-api/src/state/stateKeyHash.js";
 import { defaultTenantId } from "../services/orchestrator-api/src/tenant/tenantContext.js";
@@ -88,9 +88,12 @@ function assertNoForbiddenKeys(value: unknown, context: string): void {
 }
 
 function staticVerification(): void {
+  const platformStateStore = read("services/orchestrator-api/src/state/platformStateStore.ts");
   const postgresStore = read("services/orchestrator-api/src/state/postgresPlatformStateStore.ts");
+  const createStore = read("services/orchestrator-api/src/state/createPlatformStateStore.ts");
   const trustedStore = read("services/orchestrator-api/src/agentOnboarding/trustedAgentStore.ts");
   const connectorRouting = read("services/orchestrator-api/src/connectorRouting.ts");
+  const restartSmoke = read("scripts/verify-postgres-restart-survival.ts");
   const migrations = readdirSync("services/orchestrator-api/db/migrations")
     .filter((file) => file.endsWith(".sql"))
     .map((file) => read(`services/orchestrator-api/db/migrations/${file}`))
@@ -111,6 +114,17 @@ function staticVerification(): void {
     requireIncludes(postgresStore, phrase, "PostgresPlatformStateStore implements restart-survival methods");
   }
 
+  requireIncludes(platformStateStore, "close?(): Promise<void>;", "PlatformStateStore exposes optional close");
+  requireIncludes(postgresStore, "async close(): Promise<void>", "PostgresPlatformStateStore implements close");
+  requireIncludes(postgresStore, "await this.pool.end()", "PostgresPlatformStateStore closes its pool");
+  requireIncludes(createStore, "export async function closePlatformStateStoreForTests", "async close/reset helper exists");
+  requireIncludes(createStore, "await store.close()", "async close/reset helper closes cached store");
+  requireIncludes(restartSmoke, "await closePlatformStateStoreForTests()", "restart smoke awaits close/reset helper");
+  if (new RegExp("resetPlatformStateStoreForTests\\s*\\(").test(restartSmoke)) {
+    fail("restart smoke should not rely on the sync reset helper");
+  } else {
+    ok("restart smoke does not rely on sync reset");
+  }
   requireIncludes(trustedStore, "export async function listTrustedOnboardedAgentsForOwner", "trusted store exports read-through helper");
   requireIncludes(trustedStore, 'runtimeTrustSource: "stored_metadata"', "stored connector hydration marks stored metadata");
   requireIncludes(trustedStore, "rehydratedFromStore: true", "stored connector hydration marks rehydrated records");
@@ -224,7 +238,7 @@ async function runtimeSmoke(): Promise<void> {
 
   const previousDriver = process.env.PLATFORM_STATE_STORE_DRIVER;
   process.env.PLATFORM_STATE_STORE_DRIVER = "postgres";
-  resetPlatformStateStoreForTests();
+  await closePlatformStateStoreForTests();
 
   const suffix = `${Date.now()}_${randomBytes(4).toString("hex")}`;
   const now = new Date().toISOString();
@@ -328,7 +342,7 @@ async function runtimeSmoke(): Promise<void> {
     await writeStore.upsertConversationState(conversationState);
     await upsertSmokeUser({ suffix, email, now });
 
-    resetPlatformStateStoreForTests();
+    await closePlatformStateStoreForTests();
     const readStore = getPlatformStateStore();
 
     const connectorRecords = await readStore.listConnectorTrustRecords(ownerKey);
@@ -393,7 +407,7 @@ async function runtimeSmoke(): Promise<void> {
       }
     }
   } finally {
-    resetPlatformStateStoreForTests();
+    await closePlatformStateStoreForTests();
     if (previousDriver === undefined) {
       delete process.env.PLATFORM_STATE_STORE_DRIVER;
     } else {

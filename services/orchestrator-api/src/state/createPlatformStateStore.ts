@@ -28,3 +28,12 @@ export function getPlatformStateStore(): PlatformStateStore {
 export function resetPlatformStateStoreForTests(): void {
   cachedPlatformStateStore = undefined;
 }
+
+// Test/dev-only helper for verification cases that need to simulate process restart.
+export async function closePlatformStateStoreForTests(): Promise<void> {
+  const store = cachedPlatformStateStore;
+  cachedPlatformStateStore = undefined;
+  if (store?.close) {
+    await store.close();
+  }
+}
