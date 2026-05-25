@@ -5,6 +5,7 @@ export type IdentityProviderName = "mock" | "auth0";
 export type VerifiedGatewayUserIdentity = {
   provider: IdentityProviderName;
   email: string;
+  emailVerified?: boolean;
   name?: string;
   roles: string[];
   issuer: string;

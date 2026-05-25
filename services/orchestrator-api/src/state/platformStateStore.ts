@@ -36,6 +36,22 @@ export type StoredAuditEvent = {
   safeMetadata: Record<string, unknown>;
 };
 
+export type StoredPlatformUserStatus = "active" | "disabled" | "invited";
+
+export type StoredPlatformUser = {
+  id: string;
+  tenantId: string;
+  provider?: string;
+  issuer?: string;
+  subject?: string;
+  email: string;
+  displayName?: string;
+  roles: string[];
+  status: StoredPlatformUserStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type StoredConversationMessage = {
   role: "user" | "assistant";
   timestamp: string;
@@ -86,6 +102,21 @@ export type PlatformStateStore = {
     resourceId?: string;
     limit?: number;
   }): Promise<StoredAuditEvent[]>;
+
+  // User directory allowlist: local authorization gate for verified browser identities.
+  findUserByEmail(params: {
+    tenantId: string;
+    email: string;
+  }): Promise<StoredPlatformUser | undefined>;
+  bindUserIdentity(params: {
+    userId: string;
+    provider: string;
+    issuer?: string;
+    subject: string;
+    email: string;
+    displayName?: string;
+    roles?: string[];
+  }): Promise<StoredPlatformUser>;
 
   // Conversation snapshots: future Phase 2.3 read-path persistence.
   upsertConversationState(record: StoredConversationStateRecord): Promise<void>;

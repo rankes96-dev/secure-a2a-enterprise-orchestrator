@@ -9,16 +9,53 @@ create table if not exists tenants (
 create table if not exists users (
   id text primary key,
   tenant_id text not null references tenants(id),
-  provider text not null,
+  provider text,
   issuer text,
-  subject text not null,
-  email text,
+  subject text,
+  email text not null,
   display_name text,
   roles jsonb not null default '[]'::jsonb,
+  status text not null default 'active',
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (tenant_id, provider, subject)
+  updated_at timestamptz not null default now()
 );
+
+alter table users
+  add column if not exists status text not null default 'active';
+
+do $$
+begin
+  if exists (select 1 from users where email is null or trim(email) = '') then
+    raise exception 'users.email contains null values; seed/update users before enforcing user directory access';
+  end if;
+end $$;
+
+alter table users
+  alter column email set not null;
+
+alter table users
+  alter column subject drop not null;
+
+alter table users
+  alter column provider drop not null;
+
+alter table users
+  drop constraint if exists users_tenant_id_provider_subject_key;
+
+do $$
+declare
+  unique_constraint_name text;
+begin
+  for unique_constraint_name in
+    select conname
+    from pg_constraint
+    where conrelid = 'users'::regclass
+      and contype = 'u'
+      and pg_get_constraintdef(oid) = 'UNIQUE (tenant_id, provider, subject)'
+  loop
+    execute format('alter table users drop constraint if exists %I', unique_constraint_name);
+  end loop;
+end $$;
 
 create table if not exists connector_trust_records (
   id text primary key,
@@ -86,8 +123,16 @@ create table if not exists runtime_executions (
   safe_metadata jsonb not null default '{}'::jsonb
 );
 
+create unique index if not exists users_tenant_email_idx
+  on users (tenant_id, lower(email));
+
+create unique index if not exists users_tenant_provider_issuer_subject_idx
+  on users (tenant_id, provider, issuer, subject)
+  where provider is not null and subject is not null;
+
 create index if not exists users_tenant_provider_subject_idx
-  on users (tenant_id, provider, subject);
+  on users (tenant_id, provider, subject)
+  where provider is not null and subject is not null;
 
 create index if not exists connector_trust_records_owner_key_hash_idx
   on connector_trust_records (owner_key_hash);

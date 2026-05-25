@@ -1799,26 +1799,24 @@ const demoUserOptions = [
 
 async function friendlyApiError(response: Response, fallback: string): Promise<string> {
   const text = await response.text();
-  let body: { error?: string; details?: string[]; limit?: number } | undefined;
-
+  let body: { error?: string; message?: string; details?: string[]; limit?: number } | undefined;
   try {
-    body = text ? JSON.parse(text) as { error?: string; details?: string[]; limit?: number } : undefined;
+    body = text ? JSON.parse(text) as { error?: string; message?: string; details?: string[]; limit?: number } : undefined;
   } catch {
     body = undefined;
   }
-
   if (response.status === 429 || body?.error === "Too many requests") {
     return "Too many requests. Wait a minute and try again.";
   }
-
   if (body?.error === "Session required") {
     return "Your browser session expired. Refresh the page and try again.";
   }
-
+  if (response.status === 403 && body?.message === "Access denied. Your user is not enabled for this gateway.") {
+    return body.message;
+  }
   if (body?.error) {
     return `${fallback}: ${body.error}`;
   }
-
   return text ? `${fallback}: ${text}` : `${fallback} (${response.status})`;
 }
 
@@ -2194,9 +2192,8 @@ function App() {
         setIdentityMessage("Auth0 identity verified and attached to this gateway session.");
         await loadTrustStatus();
       } catch (caughtError) {
-        void caughtError;
         if (!cancelled) {
-          setIdentityError("Auth0 login failed. Please try again.");
+          setIdentityError(caughtError instanceof Error ? caughtError.message : "Auth0 login failed. Please try again.");
         }
       } finally {
         if (!cancelled) {

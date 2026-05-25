@@ -1,6 +1,7 @@
 export const AuditEvents = {
   USER_LOGIN_SUCCEEDED: "user.login.succeeded",
   USER_IDENTITY_VERIFIED: "user.identity.verified",
+  USER_IDENTITY_DENIED: "user.identity.denied",
 
   CONNECTOR_DISCOVERY_STARTED: "connector.discovery.started",
   CONNECTOR_DISCOVERY_SUCCEEDED: "connector.discovery.succeeded",

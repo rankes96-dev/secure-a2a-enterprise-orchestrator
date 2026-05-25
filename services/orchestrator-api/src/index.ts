@@ -38,6 +38,7 @@ import {
 } from "./security/userIdentity.js";
 import { getIdentityProvider } from "./identity/identityConfig.js";
 import { publicIdentitySession } from "./identity/userIdentityMapper.js";
+import { verifyUserDirectoryAccess } from "./identity/userDirectoryAccess.js";
 import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext.js";
 import { interpretFollowUp } from "./followUpInterpreter.js";
 import { cleanupExpiredSessions, createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager.js";
@@ -51,6 +52,7 @@ import { requestConnectorActionPlan } from "./connectorActionPlanner.js";
 import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation.js";
 import { AuditEvents } from "./audit/auditEvents.js";
 import { appendPlatformAuditEvent } from "./audit/platformAuditStore.js";
+import { defaultTenantId } from "./tenant/tenantContext.js";
 import { evaluateConnectorPolicy } from "./policy/connectorPolicy.js";
 import { detectAdversarialIntent } from "./adversarialIntent.js";
 import { buildExecutionGateStack } from "./executionGateStack.js";
@@ -892,6 +894,33 @@ async function appendIdentityVerifiedAuditEvent(identity: VerifiedUserIdentity):
       tokenMaterialStored: false
     }
   });
+}
+
+async function appendIdentityDeniedAuditEvent(identity: VerifiedUserIdentity, reason: string, tenantId: string): Promise<void> {
+  await appendPlatformAuditEvent({
+    tenantId,
+    actorProvider: identity.provider,
+    actorSubject: identity.subject,
+    actorEmail: identity.email,
+    eventType: AuditEvents.USER_IDENTITY_DENIED,
+    resourceType: "user",
+    resourceId: identity.email,
+    safeMetadata: {
+      provider: identity.provider,
+      email: identity.email,
+      reason,
+      tenantId,
+      protectedMaterialExposed: false,
+      tokenMaterialStored: false
+    }
+  });
+}
+
+function identityWithDirectoryRoles(identity: VerifiedUserIdentity, roles: string[]): VerifiedUserIdentity {
+  return {
+    ...identity,
+    roles: [...new Set([...identity.roles, ...roles])]
+  };
 }
 
 async function appendSecurityBlockedAuditEvent(params: {
@@ -3917,9 +3946,21 @@ async function start(): Promise<void> {
 
     try {
       const identity = await userIdentityProvider.validateBearerToken(token);
-      userIdentitiesBySession.set(sessionToken, identity);
-      await appendIdentityVerifiedAuditEvent(identity);
-      sendJson(response, 200, publicIdentitySession(userIdentityProvider, identity), request);
+      const tenantId = defaultTenantId();
+      const directoryAccess = await verifyUserDirectoryAccess({ identity, tenantId });
+      if (!directoryAccess.ok) {
+        await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId);
+        sendJson(response, directoryAccess.status, {
+          error: "user_directory_access_denied",
+          message: directoryAccess.message
+        }, request);
+        return;
+      }
+
+      const allowedIdentity = identityWithDirectoryRoles(identity, directoryAccess.user.roles);
+      userIdentitiesBySession.set(sessionToken, allowedIdentity);
+      await appendIdentityVerifiedAuditEvent(allowedIdentity);
+      sendJson(response, 200, publicIdentitySession(userIdentityProvider, allowedIdentity), request);
     } catch (error) {
       sendJson(response, 401, {
         error: "invalid_user_identity_token",
@@ -3954,9 +3995,21 @@ async function start(): Promise<void> {
     try {
       const { accessToken } = await requestDemoUserToken(email);
       const identity = await userIdentityProvider.validateBearerToken(accessToken);
-      userIdentitiesBySession.set(sessionToken, identity);
-      await appendIdentityVerifiedAuditEvent(identity);
-      sendJson(response, 200, publicIdentitySession(userIdentityProvider, identity), request);
+      const tenantId = defaultTenantId();
+      const directoryAccess = await verifyUserDirectoryAccess({ identity, tenantId });
+      if (!directoryAccess.ok) {
+        await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId);
+        sendJson(response, directoryAccess.status, {
+          error: "user_directory_access_denied",
+          message: directoryAccess.message
+        }, request);
+        return;
+      }
+
+      const allowedIdentity = identityWithDirectoryRoles(identity, directoryAccess.user.roles);
+      userIdentitiesBySession.set(sessionToken, allowedIdentity);
+      await appendIdentityVerifiedAuditEvent(allowedIdentity);
+      sendJson(response, 200, publicIdentitySession(userIdentityProvider, allowedIdentity), request);
     } catch (error) {
       sendJson(response, 400, {
         error: "demo_login_failed",

@@ -432,6 +432,40 @@ Connector trust records persist `owner_key_hash`, not raw owner keys or session-
 
 The `PostgresPlatformStateStore` implements the existing state boundary for connector trust records, audit events, and conversation snapshots using parameterized queries. Security Timeline still uses the existing read model in this checkpoint; a persisted audit timeline read model remains future work.
 
+### Phase 2.7  User Directory Access Gate
+
+Goal: allow Auth0 to authenticate browser users, then require the local Gateway user directory to authorize access before attaching Gateway identity to the browser session.
+
+Auth0 remains the authentication provider. The local users table authorizes Gateway access as an allowlist / user directory. The users table is passwordless: it stores no passwords, no password hashes, no raw OAuth tokens, no JWTs, and no Authorization headers. This is no token storage for user login. Email is the pre-provisioning key so operators can invite or allowlist a user before first login.
+
+Directory model:
+
+- `email` is required and normalized for lookup.
+- `status` is `active`, `disabled`, or `invited`.
+- `provider`, `issuer`, and `subject` may be empty before first login.
+- First successful Auth0 login binds `provider` / `issuer` / `subject` to the email directory entry.
+- Missing users are denied with a safe browser message.
+- Disabled users are denied.
+- Existing provider or subject mismatches fail closed.
+- Directory roles can be merged into the verified Gateway identity.
+
+For Auth0, `AUTH0_REQUIRE_USER_DIRECTORY=true` enforces the directory gate. When Postgres is the platform state driver, the recommended production default is to require the directory. Memory remains available for local/dev, and `PLATFORM_ALLOWED_USER_EMAILS=ran@gateway.com,admin@gateway.com` can seed an in-memory allowlist. If the memory allowlist is empty, the directory gate stays disabled unless explicitly required. Mock demo login remains available unless configured otherwise with `MOCK_REQUIRE_USER_DIRECTORY=true`; mock demo remains available unless configured otherwise.
+
+Example local seed for an Auth0 user:
+
+```powershell
+$env:DATABASE_URL="postgresql://a2a:a2a@localhost:5432/secure_a2a_dev"
+$env:DATABASE_SSL="false"
+$env:PLATFORM_USER_EMAIL="ran@gateway.com"
+$env:PLATFORM_USER_TENANT_ID="default"
+$env:PLATFORM_USER_ROLES="it-support,admin"
+$env:PLATFORM_USER_DISPLAY_NAME="Ran"
+$env:PLATFORM_USER_STATUS="active"
+npm.cmd run db:seed-platform-user
+```
+
+After seeding, `ran@gateway.com` starts with `provider`, `issuer`, and `subject` unset. The first successful Auth0 login binds those identity fields to that directory row.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
@@ -751,6 +785,7 @@ V2 verification should layer new checks without weakening V1:
 - `npm run verify:platform-state-foundation`
 - `npm run verify:platform-state-onboarding`
 - `npm run verify:platform-audit-write-through`
+- `npm run verify:user-directory-access-gate`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
 - Phase 2.6 adds the first opt-in Postgres schema and `PostgresPlatformStateStore`; future persistence verification should cover full restart-surviving runtime read paths
 - future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
@@ -816,6 +851,10 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.6: keep memory as the default local/dev state store
 - [ ] Phase 2.6: verify schema has no raw token material or token vault columns
 - [ ] Phase 2.6: persist connector trust owner scope as `owner_key_hash` and scope trust IDs by tenant / owner / agent
+- [ ] Phase 2.7: require the local user directory before Auth0 identity attaches to a Gateway session
+- [ ] Phase 2.7: support email allowlist first and provider/issuer/subject binding after first login
+- [ ] Phase 2.7: deny missing, disabled, and mismatched users safely
+- [ ] Phase 2.7: keep mock demo available unless configured otherwise
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

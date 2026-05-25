@@ -1,4 +1,5 @@
-import type { PlatformStateStore, PlatformStateStoreHealth, StoredAuditEvent, StoredConnectorTrustRecord, StoredConversationStateRecord } from "./platformStateStore.js";
+import { defaultTenantId } from "../tenant/tenantContext.js";
+import type { PlatformStateStore, PlatformStateStoreHealth, StoredAuditEvent, StoredConnectorTrustRecord, StoredConversationStateRecord, StoredPlatformUser } from "./platformStateStore.js";
 import { platformOwnerKeyHash } from "./stateKeyHash.js";
 
 function deepClone<T>(value: T): T {
@@ -30,10 +31,54 @@ function copyConversationState(record: StoredConversationStateRecord): StoredCon
   return deepClone(record);
 }
 
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function userKey(tenantId: string, email: string): string {
+  return `${tenantId}:${normalizeEmail(email)}`;
+}
+
+function copyPlatformUser(user: StoredPlatformUser): StoredPlatformUser {
+  return {
+    ...user,
+    roles: [...user.roles]
+  };
+}
+
 export class InMemoryPlatformStateStore implements PlatformStateStore {
   private readonly connectorTrustRecordsByOwnerHash = new Map<string, StoredConnectorTrustRecord[]>();
   private readonly auditEvents: StoredAuditEvent[] = [];
   private readonly conversationStates = new Map<string, StoredConversationStateRecord>();
+  private readonly usersByTenantEmail = new Map<string, StoredPlatformUser>();
+
+  constructor(seedUsers: StoredPlatformUser[] = []) {
+    const now = new Date().toISOString();
+    for (const email of (process.env.PLATFORM_ALLOWED_USER_EMAILS ?? "").split(",")) {
+      const normalizedEmail = normalizeEmail(email);
+      if (!normalizedEmail) {
+        continue;
+      }
+      const tenantId = defaultTenantId();
+      const user: StoredPlatformUser = {
+        id: `${tenantId}:${normalizedEmail}`,
+        tenantId,
+        email: normalizedEmail,
+        roles: [],
+        status: "active",
+        createdAt: now,
+        updatedAt: now
+      };
+      this.usersByTenantEmail.set(userKey(tenantId, normalizedEmail), copyPlatformUser(user));
+    }
+
+    for (const user of seedUsers) {
+      this.usersByTenantEmail.set(userKey(user.tenantId, user.email), copyPlatformUser({
+        ...user,
+        email: normalizeEmail(user.email)
+      }));
+    }
+  }
 
   async health(): Promise<PlatformStateStoreHealth> {
     return {
@@ -92,6 +137,51 @@ export class InMemoryPlatformStateStore implements PlatformStateStore {
     });
     const limited = typeof params.limit === "number" && params.limit >= 0 ? filtered.slice(-params.limit) : filtered;
     return limited.map(copyAuditEvent);
+  }
+
+  async findUserByEmail(params: {
+    tenantId: string;
+    email: string;
+  }): Promise<StoredPlatformUser | undefined> {
+    const user = this.usersByTenantEmail.get(userKey(params.tenantId, params.email));
+    return user ? copyPlatformUser(user) : undefined;
+  }
+
+  async bindUserIdentity(params: {
+    userId: string;
+    provider: string;
+    issuer?: string;
+    subject: string;
+    email: string;
+    displayName?: string;
+    roles?: string[];
+  }): Promise<StoredPlatformUser> {
+    const entry = [...this.usersByTenantEmail.entries()].find(([, user]) => user.id === params.userId);
+    if (!entry) {
+      throw new Error("User directory entry was not found.");
+    }
+
+    const [currentKey, user] = entry;
+    if (user.subject || user.provider || user.issuer) {
+      if (user.provider !== params.provider || user.issuer !== params.issuer || user.subject !== params.subject) {
+        throw new Error("User directory identity binding mismatch.");
+      }
+    }
+
+    const updated: StoredPlatformUser = {
+      ...user,
+      provider: params.provider,
+      issuer: params.issuer ?? user.issuer,
+      subject: params.subject,
+      email: normalizeEmail(params.email),
+      displayName: params.displayName ?? user.displayName,
+      roles: params.roles ?? user.roles,
+      status: user.status === "invited" ? "active" : user.status,
+      updatedAt: new Date().toISOString()
+    };
+    this.usersByTenantEmail.delete(currentKey);
+    this.usersByTenantEmail.set(userKey(updated.tenantId, updated.email), copyPlatformUser(updated));
+    return copyPlatformUser(updated);
   }
 
   async upsertConversationState(record: StoredConversationStateRecord): Promise<void> {

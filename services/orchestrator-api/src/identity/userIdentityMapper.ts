@@ -55,6 +55,11 @@ function claimStringArray(payload: JWTPayload, claim: string): string[] | undefi
   return strings.length === value.length ? strings : undefined;
 }
 
+function claimBoolean(payload: JWTPayload, claim: string): boolean | undefined {
+  const value = payload[claim];
+  return typeof value === "boolean" ? value : undefined;
+}
+
 export function mapMockUserIdentityPayload(params: {
   payload: JWTPayload;
   issuer: string;
@@ -119,6 +124,7 @@ export function mapOidcUserIdentityPayload(params: {
   return {
     provider,
     email: email.toLowerCase(),
+    emailVerified: claimBoolean(payload, "email_verified"),
     name: claimString(payload, "name"),
     roles,
     issuer,

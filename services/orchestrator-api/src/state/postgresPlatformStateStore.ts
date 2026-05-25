@@ -7,6 +7,8 @@ import type {
   StoredConnectorTrustRecord,
   StoredConversationMessage,
   StoredConversationStateRecord,
+  StoredPlatformUser,
+  StoredPlatformUserStatus,
   StoredPendingInteractionRecord
 } from "./platformStateStore.js";
 import { platformOwnerKeyHash } from "./stateKeyHash.js";
@@ -57,6 +59,20 @@ type DbConversationState = QueryResultRow & {
   pending_follow_up: unknown;
   last_request_interpretation: unknown;
   safe_metadata: unknown;
+};
+
+type DbPlatformUser = QueryResultRow & {
+  id: string;
+  tenant_id: string;
+  provider: string | null;
+  issuer: string | null;
+  subject: string | null;
+  email: string;
+  display_name: string | null;
+  roles: unknown;
+  status: StoredPlatformUserStatus;
+  created_at: Date | string;
+  updated_at: Date | string;
 };
 
 function recordFromJson(value: unknown): Record<string, unknown> {
@@ -146,6 +162,22 @@ function conversationStateFromRow(row: DbConversationState): StoredConversationS
     pendingFollowUp: row.pending_follow_up ? recordFromJson(row.pending_follow_up) : undefined,
     lastRequestInterpretation: row.last_request_interpretation ? recordFromJson(row.last_request_interpretation) : undefined,
     safeMetadata: recordFromJson(row.safe_metadata)
+  };
+}
+
+function platformUserFromRow(row: DbPlatformUser): StoredPlatformUser {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    provider: optional(row.provider),
+    issuer: optional(row.issuer),
+    subject: optional(row.subject),
+    email: row.email.toLowerCase(),
+    displayName: optional(row.display_name),
+    roles: arrayFromJson<string>(row.roles),
+    status: row.status,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at)
   };
 }
 
@@ -288,6 +320,82 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
       values
     );
     return result.rows.map(auditEventFromRow);
+  }
+
+  async findUserByEmail(params: {
+    tenantId: string;
+    email: string;
+  }): Promise<StoredPlatformUser | undefined> {
+    const result = await this.pool.query<DbPlatformUser>(
+      `select id, tenant_id, provider, issuer, subject, email, display_name, roles, status, created_at, updated_at
+       from users
+       where tenant_id = $1
+         and lower(email) = lower($2)
+       limit 1`,
+      [params.tenantId, params.email]
+    );
+    return result.rows[0] ? platformUserFromRow(result.rows[0]) : undefined;
+  }
+
+  async bindUserIdentity(params: {
+    userId: string;
+    provider: string;
+    issuer?: string;
+    subject: string;
+    email: string;
+    displayName?: string;
+    roles?: string[];
+  }): Promise<StoredPlatformUser> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      const current = await client.query<DbPlatformUser>(
+        `select id, tenant_id, provider, issuer, subject, email, display_name, roles, status, created_at, updated_at
+         from users
+         where id = $1
+         for update`,
+        [params.userId]
+      );
+      const user = current.rows[0];
+      if (!user) {
+        throw new Error("User directory entry was not found.");
+      }
+      if (user.subject || user.provider || user.issuer) {
+        if (user.provider !== params.provider || user.issuer !== (params.issuer ?? null) || user.subject !== params.subject) {
+          throw new Error("User directory identity binding mismatch.");
+        }
+      }
+
+      const updated = await client.query<DbPlatformUser>(
+        `update users
+         set provider = $2,
+             issuer = coalesce($3, issuer),
+             subject = $4,
+             email = lower($5),
+             display_name = coalesce($6, display_name),
+             roles = coalesce($7::jsonb, roles),
+             status = case when status = 'invited' then 'active' else status end,
+             updated_at = now()
+         where id = $1
+         returning id, tenant_id, provider, issuer, subject, email, display_name, roles, status, created_at, updated_at`,
+        [
+          params.userId,
+          params.provider,
+          params.issuer ?? null,
+          params.subject,
+          params.email,
+          params.displayName ?? null,
+          params.roles ? JSON.stringify(params.roles) : null
+        ]
+      );
+      await client.query("commit");
+      return platformUserFromRow(updated.rows[0]);
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async upsertConversationState(record: StoredConversationStateRecord): Promise<void> {
