@@ -54,6 +54,17 @@ export const defaultOgenPolicyRules: OgenPolicyRule[] = [
     }
   },
   {
+    id: "block-missing-action-risk-metadata",
+    name: "Block missing action risk metadata",
+    description: "Runtime execution requires explicit execution type and risk classification.",
+    effect: "block",
+    priority: 35,
+    enabled: true,
+    match: {
+      routeStatuses: ["connector_skill_approved"]
+    }
+  },
+  {
     id: "allow-readonly-approved-runtime",
     name: "Allow read-only approved runtime",
     description: "Read-only approved connector skills may execute only when the runtime endpoint is externally available.",
@@ -211,13 +222,17 @@ function ruleMatches(input: OgenPolicyInput, rule: OgenPolicyRule): boolean {
     return routeApproved(input) && runtimeExternallyAvailable(input) && approvalRequired(input);
   }
 
+  if (rule.id === "block-missing-action-risk-metadata") {
+    return routeApproved(input) &&
+      runtimeExternallyAvailable(input) &&
+      (!input.action.executionType || !input.action.riskLevel);
+  }
+
   if (rule.id === "allow-readonly-approved-runtime") {
     const readOnly = input.action.executionType === "diagnostic_read_only" ||
-      input.action.executionType === "inspection_read_only" ||
-      input.action.executionType === undefined;
+      input.action.executionType === "inspection_read_only";
     const safeRisk = input.action.riskLevel === "low" ||
-      input.action.riskLevel === "medium" ||
-      input.action.riskLevel === undefined;
+      input.action.riskLevel === "medium";
     return routeApproved(input) && runtimeExternallyAvailable(input) && readOnly && safeRisk && !approvalRequired(input);
   }
 
@@ -256,6 +271,9 @@ function reasonFor(effect: OgenPolicyEffect, matchedRuleIds: string[]): string {
   }
   if (matchedRuleIds.includes("block-metadata-only-runtime")) {
     return "Connector trust metadata is metadata-only; runtime execution requires fresh runtime validation.";
+  }
+  if (matchedRuleIds.includes("block-missing-action-risk-metadata")) {
+    return "Connector action is missing explicit execution type or risk classification.";
   }
   if (effect === "needs_approval") {
     return "Ogen policy requires governed approval before this write, high-risk, or sensitive connector action can execute.";

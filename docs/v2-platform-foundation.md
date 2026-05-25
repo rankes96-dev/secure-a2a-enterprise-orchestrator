@@ -512,6 +512,8 @@ Policy is deny-by-default. Each decision has a policy version, decision ID, matc
 
 The runtime rule is: metadata-only connector trust cannot execute runtime. Write, high-risk, sensitive, or explicitly approval-marked actions require governed approval. Read-only connector runtime execution requires an approved connector route, external runtime availability, current user identity, connector runtime allowlist, scoped JWT issuance, and an allow decision from policy. Future tenant-scoped policy storage will move rule definitions into Postgres without changing the policy decision proof shape.
 
+Runtime execution requires explicit runtime availability. Runtime execution requires explicit action execution type. Runtime execution requires explicit risk classification. Missing action/risk metadata fails closed. Approved connector route alone is not enough to allow runtime execution.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

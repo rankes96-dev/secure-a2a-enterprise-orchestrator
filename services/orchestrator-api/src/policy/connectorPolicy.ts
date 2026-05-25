@@ -104,6 +104,8 @@ function toConnectorPolicyEvaluation(decision: OgenPolicyDecision): ConnectorPol
 
 // Compatibility wrapper: existing callers still receive the connector policy
 // shape, while authorization is decided by the versioned Ogen policy engine.
+// An approved connector route is necessary but not sufficient; runtime
+// availability must be explicit.
 export function evaluateConnectorPolicy(input: ConnectorPolicyInput): ConnectorPolicyEvaluation {
   const tenantId = input.tenantId ?? input.subject?.tenantId ?? "default";
   const connectorId = input.connectorId ?? input.resource?.connectorId;
@@ -122,7 +124,7 @@ export function evaluateConnectorPolicy(input: ConnectorPolicyInput): ConnectorP
       resourceSystem,
       skillId,
       skillLabel,
-      runtimeMode: input.runtimeMode ?? (input.connectorRouteStatus === "connector_skill_approved" ? "external_runtime_available" : "not_available")
+      runtimeMode: input.runtimeMode ?? "not_available"
     },
     subject: {
       tenantId,

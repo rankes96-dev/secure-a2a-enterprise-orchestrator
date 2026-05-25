@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { evaluateOgenPolicy, OGEN_POLICY_VERSION, defaultOgenPolicyRules } from "../services/orchestrator-api/src/policy/ogenPolicyEngine.js";
+import { evaluateConnectorPolicy } from "../services/orchestrator-api/src/policy/connectorPolicy.js";
 import type { OgenPolicyInput, OgenPolicyRule } from "../services/orchestrator-api/src/policy/ogenPolicyTypes.js";
 
 let failed = false;
@@ -156,6 +157,7 @@ requireIncludes(policyEngine, "defaultOgenPolicyRules", "Ogen policy engine defi
 for (const id of [
   "block-unapproved-route",
   "block-metadata-only-runtime",
+  "block-missing-action-risk-metadata",
   "approval-required-for-write-or-sensitive",
   "allow-readonly-approved-runtime",
   "default-deny"
@@ -178,6 +180,8 @@ for (const phrase of [
 
 requireIncludes(connectorPolicy, "evaluateOgenPolicy(policyInput)", "connectorPolicy wraps Ogen policy engine");
 requireIncludes(connectorPolicy, "OGEN_POLICY_VERSION", "connectorPolicy uses versioned policy");
+requireIncludes(connectorPolicy, 'runtimeMode: input.runtimeMode ?? "not_available"', "connectorPolicy defaults missing runtime mode to not available");
+requireNotIncludes(connectorPolicy, '? "external_runtime_available" : "not_available"', "connectorPolicy does not infer runtime availability from approved route");
 requireIncludes(backend, "policyProof", "runtime evidence includes policy proof fields");
 requireIncludes(executionGateStack, "policyDecisionId", "execution gate evidence includes policy decision id");
 requireIncludes(executionGateStack, "policyInputHash", "execution gate evidence includes policy input hash");
@@ -197,16 +201,46 @@ for (const marker of [
 ]) {
   requireNotIncludes(`${policyTypes}\n${policyEngine}\n${connectorPolicy}`, marker, "policy boundary source");
 }
+requireNotIncludes(policyEngine, 'input.action.executionType === undefined', "allow logic does not treat missing execution type as safe");
+requireNotIncludes(policyEngine, 'input.action.riskLevel === undefined', "allow logic does not treat missing risk level as safe");
 
 assertEffect("approved read-only external runtime is allowed", baseInput(), "allow");
+assertEffect("approved inspection read-only medium external runtime is allowed", baseInput({
+  action: {
+    executionType: "inspection_read_only",
+    riskLevel: "medium"
+  }
+}), "allow");
 assertEffect("unapproved route is blocked", baseInput({
   connectorRoute: {
     status: "connector_skill_blocked"
   }
 }), "block");
+const missingRuntimeModePolicy = evaluateConnectorPolicy({
+  connectorRouteStatus: "connector_skill_approved",
+  riskLevel: "low",
+  executionType: "diagnostic_read_only",
+  requiresApproval: false,
+  sensitivity: "standard"
+});
+if (missingRuntimeModePolicy.effect !== "block") {
+  fail(`missing runtimeMode should block in compatibility wrapper, got ${missingRuntimeModePolicy.effect}`);
+} else {
+  ok("missing runtimeMode blocks in compatibility wrapper");
+}
 assertEffect("metadata-only runtime is blocked", baseInput({
   connectorRoute: {
     runtimeMode: "metadata_only"
+  }
+}), "block");
+assertEffect("missing executionType blocks", baseInput({
+  action: {
+    executionType: undefined
+  }
+}), "block");
+assertEffect("missing riskLevel blocks", baseInput({
+  action: {
+    riskLevel: undefined
   }
 }), "block");
 assertEffect("write action needs approval", baseInput({
@@ -262,7 +296,7 @@ if (lowConfidenceDecision.effect === "allow") {
 const defaultDenied = evaluateOgenPolicy(baseInput({
   action: {
     executionType: "unsupported",
-    riskLevel: undefined,
+    riskLevel: "low",
     sensitivity: "standard"
   }
 }));
@@ -314,6 +348,11 @@ for (const phrase of [
   "deny-by-default",
   "policy decisions are audit proof",
   "metadata-only connector trust cannot execute runtime",
+  "Runtime execution requires explicit runtime availability.",
+  "Runtime execution requires explicit action execution type.",
+  "Runtime execution requires explicit risk classification.",
+  "Missing action/risk metadata fails closed.",
+  "Approved connector route alone is not enough to allow runtime execution.",
   "tenant-scoped policy storage"
 ]) {
   requireIncludes(platformDocs, phrase, "platform docs cover Ogen policy engine boundary");

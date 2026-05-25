@@ -104,6 +104,7 @@ for (const phrase of [
 
 const highRiskPolicy = evaluateConnectorPolicy({
   connectorRouteStatus: "connector_skill_approved",
+  runtimeMode: "external_runtime_available",
   riskLevel: "high",
   executionType: "write_action",
   requiresApproval: true,
@@ -114,6 +115,7 @@ if (highRiskPolicy.effect !== "needs_approval") {
 }
 const mediumPolicy = evaluateConnectorPolicy({
   connectorRouteStatus: "connector_skill_approved",
+  runtimeMode: "external_runtime_available",
   riskLevel: "medium",
   executionType: "diagnostic_read_only",
   requiresApproval: false,

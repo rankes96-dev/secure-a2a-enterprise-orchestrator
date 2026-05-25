@@ -57,6 +57,8 @@ Product principle:
 AI can interpret. Ogen decides. Runtime executes only approved actions. Audit proves what happened.
 ```
 
+Ogen does not infer safety from missing metadata.
+
 ## Public copy direction
 
 Ogen should sound like a product, not a protocol name.
