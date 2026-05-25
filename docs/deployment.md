@@ -205,6 +205,17 @@ Use `ALLOWED_ORIGINS` for the browser origin. Set at least one of `GATEWAY_ISSUE
 
 For Railway Postgres, set `DATABASE_URL` from Railway Postgres and set `DATABASE_SSL=true` if required by the deployment. Run `npm.cmd run db:apply-platform-migrations` before enabling `PLATFORM_STATE_STORE_DRIVER=postgres`. The versioned migrations are preferred for staging and production. `services/orchestrator-api/db/schema.sql` remains an idempotent bootstrap/reference schema, and `npm.cmd run db:apply-platform-schema` remains useful for local reset/bootstrap only.
 
+Local Postgres restart-survival smoke:
+
+```powershell
+$env:DATABASE_URL="postgresql://a2a:a2a@localhost:5432/secure_a2a_dev"
+$env:DATABASE_SSL="false"
+$env:POSTGRES_RESTART_SMOKE_ALLOW_WRITE="true"
+npm.cmd run verify:postgres-restart-survival
+```
+
+Do not enable the write smoke against production unless intentionally testing a controlled environment. Smoke records use safe synthetic IDs and no secrets.
+
 Use `ORCHESTRATOR_API_KEY` for admin/internal debug access such as `/debug/ai-config`. Do not enable identity-based debug config in production. `ALLOW_DEBUG_AI_CONFIG_WITH_IDENTITY=true` is only for explicit local non-production diagnostics; keep it `false` by default.
 
 For Auth0 browser login, set `AUTH0_REQUIRE_USER_DIRECTORY=true` in production so Auth0 authentication only attaches Gateway identity after the local users directory authorizes the email. The required login shell hides the main app until Gateway identity is attached. The directory stores no passwords and no raw token material, and browser login tokens are not stored in `localStorage`. In memory mode, `PLATFORM_ALLOWED_USER_EMAILS=` can seed local allowed users; if it is empty, the directory gate remains disabled unless explicitly required.

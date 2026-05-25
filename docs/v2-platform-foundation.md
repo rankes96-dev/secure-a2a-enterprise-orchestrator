@@ -496,6 +496,14 @@ Rehydrated connector trust records are safe metadata records and use `runtimeTru
 
 Rehydration does not make a connector automatically executable. Stored connector records remain metadata-only unless a future safe runtime revalidation path proves current executable trust. Stored metadata cannot execute runtime until fresh runtime validation or re-onboarding occurs. Live onboarding remains the path that can enable runtime execution. The runtime execution still requires policy, approved skill, runtime allowlist, scoped JWT, and current Gateway user identity. Memory mode remains available for local/demo use and remains compatible with the same read-through API.
 
+### Phase 2.10b  Postgres Restart-Survival Smoke
+
+Postgres restart survival is verified through store recreation / simulated process restart in `verify:postgres-restart-survival`. Static checks always run. The integration write smoke runs only when `DATABASE_URL` is set and `POSTGRES_RESTART_SMOKE_ALLOW_WRITE=true`.
+
+The smoke writes safe synthetic records and then recreates the `PlatformStateStore` singleton before reading them back. It verifies connector trust metadata, audit events, conversation snapshots, and user directory records survive at the Postgres store layer.
+
+Connector trust metadata survives restart as restart-surviving metadata, but rehydrated connector trust remains metadata-only. Runtime execution after restart still requires fresh runtime validation or re-onboarding before a persisted connector can execute. The smoke does not store raw tokens, raw prompts, passwords, password hashes, raw owner keys, or secrets.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
