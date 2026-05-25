@@ -488,6 +488,14 @@ schema.sql remains an idempotent bootstrap/reference schema. `db:apply-platform-
 
 The initial migrations preserve the current safe platform model: tenant-aware users, connector trust, audit events, conversation state, and runtime executions. Existing local DBs that already applied `schema.sql` can run the idempotent migrations safely. The migration set intentionally has no token or password columns and does not add a connected-account token vault.
 
+### Phase 2.10a  Connector Trust Read-Through / Rehydration
+
+Connector trust records are persisted through `PlatformStateStore` and can now be read back into the orchestrator runtime mirror after restart. The runtime mirror can rehydrate from the store after restart. Request paths that list installed connectors, prepare demo connectors, or route `/resolve` use async read-through from the store when the process-local mirror is empty.
+
+Rehydrated connector trust records are safe metadata records. They preserve connector identity, resource system, connector profile metadata, approved actions, and blocked actions without requiring raw owner/session keys or raw token material.
+
+Rehydration does not make a connector automatically executable. Stored connector records remain metadata-only unless a future safe runtime revalidation path proves current executable trust. The runtime execution still requires policy, approved skill, runtime allowlist, scoped JWT, and current Gateway user identity. Memory mode remains available for local/demo use and remains compatible with the same read-through API.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

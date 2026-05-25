@@ -45,7 +45,8 @@ import { cleanupExpiredSessions, createSessionCookie, getSessionToken, hasValidS
 import { gatewayMetadata, gatewayPublicJwks } from "./security/gatewayIdentity.js";
 import { buildManualWorkflowAnswer } from "./requestInterpreter.js";
 import { detectSensitiveAction } from "./sensitiveActionGuard.js";
-import { discoverAgentOnboarding, listSupportedConnectorTemplates, listTrustedOnboardedAgents, startAgentOnboarding } from "./agentOnboarding.js";
+import { discoverAgentOnboarding, listSupportedConnectorTemplates, listTrustedOnboardedAgentsForOwner, startAgentOnboarding } from "./agentOnboarding.js";
+import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
 import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting.js";
 import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime.js";
 import { requestConnectorActionPlan } from "./connectorActionPlanner.js";
@@ -354,7 +355,9 @@ function buildEffectiveMessageForRouting(state: ConversationState, currentMessag
   ].join("\n");
 }
 
-function explicitPlanningTargetMention(message: string, installedAgents: ReturnType<typeof listTrustedOnboardedAgents>): boolean {
+type InstalledTrustedAgents = TrustedOnboardedAgent[];
+
+function explicitPlanningTargetMention(message: string, installedAgents: InstalledTrustedAgents): boolean {
   const normalized = message.toLowerCase();
   return installedAgents
     .some((agent) => {
@@ -371,7 +374,7 @@ function explicitPlanningTargetMention(message: string, installedAgents: ReturnT
     });
 }
 
-function planningSupported(agent: ReturnType<typeof listTrustedOnboardedAgents>[number]): boolean {
+function planningSupported(agent: TrustedOnboardedAgent): boolean {
   return agent.connectorProfile?.planning?.supported === true;
 }
 
@@ -436,7 +439,7 @@ function resolvedPlanningMessage(originalMessage: string, normalizedAnswer: stri
 function buildPlanningFollowUpResolution(params: {
   state: ConversationState;
   currentMessage: string;
-  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+  installedAgents: InstalledTrustedAgents;
 }): PlanningFollowUpResolution | undefined {
   const pending = params.state.pendingFollowUp;
   if (pending?.type !== "connector_planning_target") {
@@ -469,7 +472,7 @@ function isOtherTargetSelection(message: string): boolean {
   return /\b(other|not listed|another system|unsupported system)\b/i.test(message);
 }
 
-function buildSafeTargetSelection(intentClasses: string[], installedAgents: ReturnType<typeof listTrustedOnboardedAgents>): SafeTargetSelection {
+function buildSafeTargetSelection(intentClasses: string[], installedAgents: InstalledTrustedAgents): SafeTargetSelection {
   const seenSystems = new Set<string>();
   const installedOptions = installedAgents
     .map((agent) => agent.resourceSystem ?? agent.connectorProfile?.resourceSystem)
@@ -1049,7 +1052,7 @@ function isConnectorAccessPlanningRequest(message: string): boolean {
 function planningConnectorTarget(params: {
   message: string;
   connectorRoute?: ConnectorRoutingDecision;
-  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+  installedAgents: InstalledTrustedAgents;
 }): ConnectorPlanningTargetResolution {
   const { message, connectorRoute, installedAgents } = params;
   const normalized = message.toLowerCase();
@@ -1142,7 +1145,7 @@ function detectedPlanningIntentClasses(message: string): string[] {
 function isConnectorPlanningCandidate(params: {
   message: string;
   connectorRoute?: ConnectorRoutingDecision;
-  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+  installedAgents: InstalledTrustedAgents;
 }): boolean {
   if (params.connectorRoute?.fulfillmentCapability) {
     return false;
@@ -1847,18 +1850,18 @@ async function agentCardRegistryKeyForIdentityOrAdmin(request: IncomingMessage, 
 
 async function prepareEndUserDemoEnvironment(ownerKey: string): Promise<{
   ok: boolean;
-  installedAgents: ReturnType<typeof listTrustedOnboardedAgents>;
+  installedAgents: InstalledTrustedAgents;
   prepared: string[];
   skipped: string[];
   errors: string[];
 }> {
-  const existing = listTrustedOnboardedAgents(ownerKey);
+  const existing = await listTrustedOnboardedAgentsForOwner(ownerKey);
   const prepared: string[] = [];
   const skipped: string[] = [];
   const errors: string[] = [];
 
   for (const connector of endUserDemoConnectorRequests) {
-    const alreadyInstalled = listTrustedOnboardedAgents(ownerKey).some((agent) =>
+    const alreadyInstalled = (await listTrustedOnboardedAgentsForOwner(ownerKey)).some((agent) =>
       agent.connectorId === connector.expectedConnectorId ||
       agent.connectorProfile?.connectorId === connector.expectedConnectorId ||
       agent.resourceSystem === connector.expectedResourceSystem ||
@@ -1877,7 +1880,7 @@ async function prepareEndUserDemoEnvironment(ownerKey: string): Promise<{
     prepared.push(connector.expectedConnectorId);
   }
 
-  const installedAgents = listTrustedOnboardedAgents(ownerKey);
+  const installedAgents = await listTrustedOnboardedAgentsForOwner(ownerKey);
   return {
     ok: errors.length === 0 && installedAgents.length >= existing.length,
     installedAgents,
@@ -1951,7 +1954,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
   const conversationState = getOrCreateConversationState(requestBody.conversationId, conversationOwner);
   const responseUserIdentity = safeUserIdentity(sessionToken);
   const requestAgentCards = getExecutableAgentCards();
-  const installedAgents = sessionToken ? listTrustedOnboardedAgents(sessionToken) : [];
+  const installedAgents = sessionToken ? await listTrustedOnboardedAgentsForOwner(sessionToken) : [];
   appendConversationMessage(conversationState, "user", requestBody.message);
   const earlySecurityIntent = detectAdversarialIntent(requestBody.message);
   const pendingInteractionResolution = conversationState.pendingInteraction
@@ -4151,7 +4154,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    sendJson(response, 200, { agents: listTrustedOnboardedAgents(registryKey) }, request);
+    sendJson(response, 200, { agents: await listTrustedOnboardedAgentsForOwner(registryKey) }, request);
     return;
   }
 
@@ -4161,7 +4164,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    const installedAgents = listTrustedOnboardedAgents(registryKey);
+    const installedAgents = await listTrustedOnboardedAgentsForOwner(registryKey);
     const connectorTemplates = listSupportedConnectorTemplates().map((template) => {
       const installedCount = installedAgents.filter((agent) =>
         agent.connectorId === template.connectorId ||
@@ -4220,7 +4223,7 @@ async function start(): Promise<void> {
 
     sendJson(response, 200, {
       ...result,
-      trustedAgents: listTrustedOnboardedAgents(registryKey)
+      trustedAgents: await listTrustedOnboardedAgentsForOwner(registryKey)
     }, request);
     return;
   }

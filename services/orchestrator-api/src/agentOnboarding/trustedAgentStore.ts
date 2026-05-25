@@ -4,13 +4,31 @@ import type { StoredConnectorTrustRecord } from "../state/platformStateStore.js"
 import { platformOwnerKeyHash } from "../state/stateKeyHash.js";
 import { defaultTenantId } from "../tenant/tenantContext.js";
 
-// Local runtime mirror only. Phase 2.1 writes trusted connector records through
-// PlatformStateStore; Phase 2.1b can move the read path async without changing
-// the rest of onboarding in this checkpoint.
+// Local runtime mirror. Writes go through PlatformStateStore, and request-time
+// reads can rehydrate safe metadata records after a process restart.
 const trustedAgentsByOwner = new Map<string, TrustedOnboardedAgent[]>();
 
 export function listTrustedOnboardedAgents(ownerKey: string): TrustedOnboardedAgent[] {
   return [...(trustedAgentsByOwner.get(ownerKey) ?? [])];
+}
+
+export async function listTrustedOnboardedAgentsForOwner(ownerKey: string): Promise<TrustedOnboardedAgent[]> {
+  const current = trustedAgentsByOwner.get(ownerKey) ?? [];
+  if (current.length > 0) {
+    return [...current];
+  }
+
+  try {
+    const records = await getPlatformStateStore().listConnectorTrustRecords(ownerKey);
+    const hydrated = records.map(fromStoredConnectorTrustRecord);
+    if (hydrated.length > 0) {
+      trustedAgentsByOwner.set(ownerKey, hydrated);
+    }
+    return [...hydrated];
+  } catch {
+    console.warn("[connector-trust] Failed to rehydrate trusted connector metadata from platform state store.");
+    return [];
+  }
 }
 
 export function addTrustedOnboardedAgent(ownerKey: string, agent: TrustedOnboardedAgent): TrustedOnboardedAgent {

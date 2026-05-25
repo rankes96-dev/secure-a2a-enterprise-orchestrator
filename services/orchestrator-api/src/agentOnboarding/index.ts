@@ -4,6 +4,7 @@ export {
   addTrustedOnboardedAgent,
   fromStoredConnectorTrustRecord,
   listTrustedOnboardedAgents,
+  listTrustedOnboardedAgentsForOwner,
   persistTrustedOnboardedAgent,
   toStoredConnectorTrustRecord
 } from "./trustedAgentStore.js";
