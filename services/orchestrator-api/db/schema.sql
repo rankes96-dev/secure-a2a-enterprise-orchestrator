@@ -23,7 +23,7 @@ create table if not exists users (
 create table if not exists connector_trust_records (
   id text primary key,
   tenant_id text,
-  owner_key text not null,
+  owner_key_hash text not null,
   connector_id text,
   resource_system text,
   agent_id text not null,
@@ -34,7 +34,8 @@ create table if not exists connector_trust_records (
   external_config_hash text,
   trusted_at timestamptz not null,
   updated_at timestamptz not null,
-  safe_metadata jsonb not null default '{}'::jsonb
+  safe_metadata jsonb not null default '{}'::jsonb,
+  unique (tenant_id, owner_key_hash, agent_id)
 );
 
 create table if not exists audit_events (
@@ -88,8 +89,8 @@ create table if not exists runtime_executions (
 create index if not exists users_tenant_provider_subject_idx
   on users (tenant_id, provider, subject);
 
-create index if not exists connector_trust_records_owner_key_idx
-  on connector_trust_records (owner_key);
+create index if not exists connector_trust_records_owner_key_hash_idx
+  on connector_trust_records (owner_key_hash);
 
 create index if not exists connector_trust_records_tenant_id_idx
   on connector_trust_records (tenant_id);

@@ -1,6 +1,7 @@
 import type { TrustedOnboardedAgent } from "./types.js";
 import { getPlatformStateStore } from "../state/createPlatformStateStore.js";
 import type { StoredConnectorTrustRecord } from "../state/platformStateStore.js";
+import { platformOwnerKeyHash } from "../state/stateKeyHash.js";
 import { defaultTenantId } from "../tenant/tenantContext.js";
 
 // Local runtime mirror only. Phase 2.1 writes trusted connector records through
@@ -36,10 +37,12 @@ function metadataRecord<T>(value: unknown, fallback: T): T {
 
 export function toStoredConnectorTrustRecord(ownerKey: string, agent: TrustedOnboardedAgent): StoredConnectorTrustRecord {
   const now = new Date().toISOString();
+  const tenantId = defaultTenantId();
+  const ownerKeyHash = platformOwnerKeyHash(ownerKey);
   return {
-    id: agent.agentId,
-    tenantId: defaultTenantId(),
-    ownerKey,
+    id: `${tenantId}:${ownerKeyHash}:${agent.agentId}`,
+    tenantId,
+    ownerKeyHash,
     connectorId: agent.connectorId ?? agent.connectorProfile?.connectorId,
     resourceSystem: agent.resourceSystem ?? agent.connectorProfile?.resourceSystem,
     agentId: agent.agentId,

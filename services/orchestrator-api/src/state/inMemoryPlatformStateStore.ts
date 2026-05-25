@@ -1,4 +1,5 @@
 import type { PlatformStateStore, PlatformStateStoreHealth, StoredAuditEvent, StoredConnectorTrustRecord, StoredConversationStateRecord } from "./platformStateStore.js";
+import { platformOwnerKeyHash } from "./stateKeyHash.js";
 
 function deepClone<T>(value: T): T {
   if (typeof structuredClone === "function") {
@@ -30,7 +31,7 @@ function copyConversationState(record: StoredConversationStateRecord): StoredCon
 }
 
 export class InMemoryPlatformStateStore implements PlatformStateStore {
-  private readonly connectorTrustRecordsByOwner = new Map<string, StoredConnectorTrustRecord[]>();
+  private readonly connectorTrustRecordsByOwnerHash = new Map<string, StoredConnectorTrustRecord[]>();
   private readonly auditEvents: StoredAuditEvent[] = [];
   private readonly conversationStates = new Map<string, StoredConversationStateRecord>();
 
@@ -43,20 +44,22 @@ export class InMemoryPlatformStateStore implements PlatformStateStore {
   }
 
   async listConnectorTrustRecords(ownerKey: string): Promise<StoredConnectorTrustRecord[]> {
-    return (this.connectorTrustRecordsByOwner.get(ownerKey) ?? []).map(copyConnectorTrustRecord);
+    const ownerKeyHash = platformOwnerKeyHash(ownerKey);
+    return (this.connectorTrustRecordsByOwnerHash.get(ownerKeyHash) ?? []).map(copyConnectorTrustRecord);
   }
 
   async upsertConnectorTrustRecord(record: StoredConnectorTrustRecord): Promise<void> {
-    const current = this.connectorTrustRecordsByOwner.get(record.ownerKey) ?? [];
+    const current = this.connectorTrustRecordsByOwnerHash.get(record.ownerKeyHash) ?? [];
     const next = current.filter((item) => item.id !== record.id);
     next.push(copyConnectorTrustRecord(record));
-    this.connectorTrustRecordsByOwner.set(record.ownerKey, next);
+    this.connectorTrustRecordsByOwnerHash.set(record.ownerKeyHash, next);
   }
 
   async deleteConnectorTrustRecord(ownerKey: string, id: string): Promise<void> {
-    const current = this.connectorTrustRecordsByOwner.get(ownerKey) ?? [];
-    this.connectorTrustRecordsByOwner.set(
-      ownerKey,
+    const ownerKeyHash = platformOwnerKeyHash(ownerKey);
+    const current = this.connectorTrustRecordsByOwnerHash.get(ownerKeyHash) ?? [];
+    this.connectorTrustRecordsByOwnerHash.set(
+      ownerKeyHash,
       current.filter((item) => item.id !== id)
     );
   }

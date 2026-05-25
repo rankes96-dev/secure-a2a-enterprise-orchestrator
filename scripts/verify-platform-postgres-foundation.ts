@@ -60,6 +60,8 @@ const postgresStore = read("services/orchestrator-api/src/state/postgresPlatform
 const factory = read("services/orchestrator-api/src/state/createPlatformStateStore.ts");
 const config = read("services/orchestrator-api/src/state/postgresConfig.ts");
 const platformTypes = read("services/orchestrator-api/src/state/platformStateStore.ts");
+const stateKeyHash = read("services/orchestrator-api/src/state/stateKeyHash.ts");
+const trustedAgentStore = read("services/orchestrator-api/src/agentOnboarding/trustedAgentStore.ts");
 const tenantContext = read("services/orchestrator-api/src/tenant/tenantContext.ts");
 const packageJson = read("package.json");
 const plan = read("docs/v2-platform-foundation.md");
@@ -79,8 +81,10 @@ for (const table of [
 
 for (const phrase of [
   "safe_metadata jsonb not null default '{}'::jsonb",
+  "owner_key_hash text not null",
+  "unique (tenant_id, owner_key_hash, agent_id)",
   "users_tenant_provider_subject_idx",
-  "connector_trust_records_owner_key_idx",
+  "connector_trust_records_owner_key_hash_idx",
   "connector_trust_records_tenant_id_idx",
   "audit_events_tenant_created_at_idx",
   "audit_events_actor_subject_created_at_idx",
@@ -91,6 +95,9 @@ for (const phrase of [
 }
 
 for (const forbidden of [
+  "owner_key text",
+  "session_token",
+  "raw_session",
   "access_token",
   "refresh_token",
   "authorization_code",
@@ -118,6 +125,14 @@ for (const forbidden of ["console.log(databaseUrl", "console.info(databaseUrl", 
 }
 
 for (const phrase of [
+  'import { createHash } from "node:crypto";',
+  "platformOwnerKeyHash",
+  'createHash("sha256").update(ownerKey).digest("hex")'
+]) {
+  requireIncludes(stateKeyHash, phrase, "platform owner key hashing helper");
+}
+
+for (const phrase of [
   "PostgresPlatformStateStore",
   "health()",
   "appendAuditEvent",
@@ -133,12 +148,20 @@ for (const phrase of [
   "JSON.stringify(record.safeMetadata)",
   "JSON.stringify(event.safeMetadata)",
   "recordFromJson",
-  "arrayFromJson"
+  "arrayFromJson",
+  "platformOwnerKeyHash",
+  "const ownerKeyHash = platformOwnerKeyHash(ownerKey);",
+  "where owner_key_hash = $1",
+  "record.ownerKeyHash",
+  "delete from connector_trust_records where owner_key_hash = $1 and id = $2"
 ]) {
   requireIncludes(postgresStore, phrase, "Postgres platform state store");
 }
 
 for (const forbidden of [
+  "owner_key = $1",
+  "owner_key = excluded.owner_key",
+  "record.ownerKey,",
   " access_token",
   " refresh_token",
   "authorization_code",
@@ -147,6 +170,34 @@ for (const forbidden of [
   "client_assertion"
 ]) {
   requireExcludes(postgresStore, forbidden, "Postgres platform state store");
+}
+
+for (const phrase of [
+  "platformOwnerKeyHash",
+  "const tenantId = defaultTenantId();",
+  "const ownerKeyHash = platformOwnerKeyHash(ownerKey);",
+  "id: `${tenantId}:${ownerKeyHash}:${agent.agentId}`",
+  "ownerKeyHash,"
+]) {
+  requireIncludes(trustedAgentStore, phrase, "trusted agent platform state mapping");
+}
+
+for (const forbidden of [
+  "\n    id: agent.agentId,",
+  "    ownerKey,"
+]) {
+  requireExcludes(trustedAgentStore, forbidden, "trusted agent platform state mapping");
+}
+
+const safeMetadataStart = trustedAgentStore.indexOf("safeMetadata: {");
+const safeMetadataEnd = safeMetadataStart >= 0 ? trustedAgentStore.indexOf("\n    }\n  };", safeMetadataStart) : -1;
+const trustedAgentSafeMetadata = safeMetadataStart >= 0 && safeMetadataEnd > safeMetadataStart
+  ? trustedAgentStore.slice(safeMetadataStart, safeMetadataEnd)
+  : "";
+if (!trustedAgentSafeMetadata) {
+  fail("trusted agent platform state mapping should expose a safeMetadata block for verification");
+} else {
+  requireExcludes(trustedAgentSafeMetadata, "ownerKey", "trusted agent safeMetadata");
 }
 
 for (const phrase of [

@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { InMemoryPlatformStateStore } from "../services/orchestrator-api/src/state/inMemoryPlatformStateStore.js";
 import { getPlatformStateStore, resetPlatformStateStoreForTests } from "../services/orchestrator-api/src/state/createPlatformStateStore.js";
+import { toStoredConnectorTrustRecord } from "../services/orchestrator-api/src/agentOnboarding/trustedAgentStore.js";
+import type { TrustedOnboardedAgent } from "../services/orchestrator-api/src/agentOnboarding/types.js";
 import type { StoredConnectorTrustRecord } from "../services/orchestrator-api/src/state/platformStateStore.js";
+import { platformOwnerKeyHash } from "../services/orchestrator-api/src/state/stateKeyHash.js";
 
 let failed = false;
 
@@ -32,9 +35,11 @@ function requireExcludes(source: string, phrase: string, context: string): void 
 
 async function verifyInMemoryStoreCopies(): Promise<void> {
   const store = new InMemoryPlatformStateStore();
+  const ownerKeyHash = platformOwnerKeyHash("owner-1");
   const record: StoredConnectorTrustRecord = {
-    id: "agent-1",
-    ownerKey: "owner-1",
+    id: `tenant-1:${ownerKeyHash}:agent-1`,
+    tenantId: "tenant-1",
+    ownerKeyHash,
     connectorId: "jira",
     resourceSystem: "jira",
     agentId: "agent-1",
@@ -54,6 +59,9 @@ async function verifyInMemoryStoreCopies(): Promise<void> {
   };
 
   await store.upsertConnectorTrustRecord(record);
+  if (record.ownerKeyHash !== ownerKeyHash || record.id === record.agentId || !record.id.includes(ownerKeyHash)) {
+    fail(`connector trust record should be owner-hash scoped: ${JSON.stringify(record)}`);
+  }
   const firstRead = await store.listConnectorTrustRecords("owner-1");
   const nested = firstRead[0]?.safeMetadata.nested as { proof?: string[] } | undefined;
   nested?.proof?.push("mutated-after-read");
@@ -70,6 +78,45 @@ async function verifyInMemoryStoreCopies(): Promise<void> {
   const storedProof = (thirdRead[0]?.safeMetadata.nested as { proof?: string[] } | undefined)?.proof ?? [];
   if (storedProof.includes("mutated-after-write")) {
     fail("in-memory platform state store should deep-clone nested safeMetadata on writes");
+  }
+}
+
+function verifyGeneratedConnectorTrustRecordId(): void {
+  const ownerKeyHash = platformOwnerKeyHash("owner-2");
+  const agent: TrustedOnboardedAgent = {
+    agentId: "agent-2",
+    issuer: "https://agent.example",
+    clientId: "client-2",
+    audience: "secure-a2a-gateway",
+    requestedScopes: [],
+    requestedApplicationGrants: [],
+    agentDeclaredSkills: [],
+    agentDeclaredCapabilities: [],
+    applicationAccessGrants: [],
+    grantedScopes: [],
+    effectivePermissions: [],
+    deniedPermissions: [],
+    approvedActions: [],
+    blockedActions: [],
+    approvedCapabilities: [],
+    blockedCapabilities: [],
+    connectorProfileVerified: true,
+    connectorDecisionSource: "verification",
+    trustLevel: "trusted_metadata_only",
+    executable: false,
+    executionState: "metadata_only",
+    tokenEndpointAuthMethod: "unknown",
+    oauthApplicationBound: false
+  };
+  const record = toStoredConnectorTrustRecord("owner-2", agent);
+  if (record.ownerKeyHash !== ownerKeyHash) {
+    fail(`generated connector trust record should use ownerKeyHash: ${JSON.stringify(record)}`);
+  }
+  if (record.id === agent.agentId || !record.id.includes(record.tenantId ?? "") || !record.id.includes(ownerKeyHash) || !record.id.endsWith(`:${agent.agentId}`)) {
+    fail(`generated connector trust record id should be tenant/owner/agent scoped: ${record.id}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(record.safeMetadata, "ownerKey")) {
+    fail("generated connector trust record safeMetadata must not include ownerKey");
   }
 }
 
@@ -108,7 +155,10 @@ for (const phrase of [
   "fromStoredConnectorTrustRecord",
   "persistTrustedOnboardedAgent",
   "upsertConnectorTrustRecord",
-  "safeMetadata"
+  "safeMetadata",
+  "platformOwnerKeyHash",
+  "ownerKeyHash",
+  "id: `${tenantId}:${ownerKeyHash}:${agent.agentId}`"
 ]) {
   requireIncludes(trustedAgentStore, phrase, "trusted agent platform state mapping");
 }
@@ -148,6 +198,21 @@ for (const forbidden of ["access_token", "refresh_token", "Authorization", "Bear
   requireExcludes(trustedAgentStore, forbidden, "trusted agent platform state mapping");
 }
 
+for (const forbidden of ["\n    id: agent.agentId,", "    ownerKey,"]) {
+  requireExcludes(trustedAgentStore, forbidden, "trusted agent platform state mapping");
+}
+
+const safeMetadataStart = trustedAgentStore.indexOf("safeMetadata: {");
+const safeMetadataEnd = safeMetadataStart >= 0 ? trustedAgentStore.indexOf("\n    }\n  };", safeMetadataStart) : -1;
+const trustedAgentSafeMetadata = safeMetadataStart >= 0 && safeMetadataEnd > safeMetadataStart
+  ? trustedAgentStore.slice(safeMetadataStart, safeMetadataEnd)
+  : "";
+if (!trustedAgentSafeMetadata) {
+  fail("trusted agent platform state mapping should expose a safeMetadata block for verification");
+} else {
+  requireExcludes(trustedAgentSafeMetadata, "ownerKey", "trusted agent safeMetadata");
+}
+
 const dependencyNames = Object.keys({
   ...(parsedPackageJson.dependencies ?? {}),
   ...(parsedPackageJson.devDependencies ?? {})
@@ -164,6 +229,7 @@ if (!parsedPackageJson.scripts?.["verify:v2-plan"]?.includes("verify:platform-st
 
 async function main(): Promise<void> {
   await verifyInMemoryStoreCopies();
+  verifyGeneratedConnectorTrustRecordId();
   verifySingleton();
 
   if (failed) {

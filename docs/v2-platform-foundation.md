@@ -428,6 +428,8 @@ Initial tenant-aware schema tables:
 
 The schema uses `safe_metadata jsonb` for extensible proof data. It intentionally does not include a Connected Accounts token vault and does not include raw token material. OAuth access tokens, refresh tokens, authorization codes, JWTs, Authorization headers, cookies, private keys, client secrets, and client assertions must not be stored in these tables.
 
+Connector trust records persist `owner_key_hash`, not raw owner keys or session-derived tokens. Their record IDs are scoped as tenant / owner-key-hash / agent so one tenant or owner cannot overwrite another tenant or owner's installed connector trust record for the same `agent_id`. Raw session tokens must never be stored in Postgres platform state or copied into connector trust `safe_metadata`.
+
 The `PostgresPlatformStateStore` implements the existing state boundary for connector trust records, audit events, and conversation snapshots using parameterized queries. Security Timeline still uses the existing read model in this checkpoint; a persisted audit timeline read model remains future work.
 
 ### Phase 3  Connector SDK
@@ -813,6 +815,7 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.6: add `PostgresPlatformStateStore` behind `PLATFORM_STATE_STORE_DRIVER=postgres`
 - [ ] Phase 2.6: keep memory as the default local/dev state store
 - [ ] Phase 2.6: verify schema has no raw token material or token vault columns
+- [ ] Phase 2.6: persist connector trust owner scope as `owner_key_hash` and scope trust IDs by tenant / owner / agent
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

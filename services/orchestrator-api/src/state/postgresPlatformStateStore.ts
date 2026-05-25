@@ -9,11 +9,12 @@ import type {
   StoredConversationStateRecord,
   StoredPendingInteractionRecord
 } from "./platformStateStore.js";
+import { platformOwnerKeyHash } from "./stateKeyHash.js";
 
 type DbConnectorTrustRecord = QueryResultRow & {
   id: string;
   tenant_id: string | null;
-  owner_key: string;
+  owner_key_hash: string;
   connector_id: string | null;
   resource_system: string | null;
   agent_id: string;
@@ -98,7 +99,7 @@ function connectorTrustRecordFromRow(row: DbConnectorTrustRecord): StoredConnect
   return {
     id: row.id,
     tenantId: optional(row.tenant_id),
-    ownerKey: row.owner_key,
+    ownerKeyHash: row.owner_key_hash,
     connectorId: optional(row.connector_id),
     resourceSystem: optional(row.resource_system),
     agentId: row.agent_id,
@@ -178,13 +179,14 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
   }
 
   async listConnectorTrustRecords(ownerKey: string): Promise<StoredConnectorTrustRecord[]> {
+    const ownerKeyHash = platformOwnerKeyHash(ownerKey);
     const result = await this.pool.query<DbConnectorTrustRecord>(
-      `select id, tenant_id, owner_key, connector_id, resource_system, agent_id, issuer, audience,
+      `select id, tenant_id, owner_key_hash, connector_id, resource_system, agent_id, issuer, audience,
         runtime_endpoint, connector_profile_hash, external_config_hash, trusted_at, updated_at, safe_metadata
        from connector_trust_records
-       where owner_key = $1
+       where owner_key_hash = $1
        order by updated_at desc`,
-      [ownerKey]
+      [ownerKeyHash]
     );
     return result.rows.map(connectorTrustRecordFromRow);
   }
@@ -192,12 +194,12 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
   async upsertConnectorTrustRecord(record: StoredConnectorTrustRecord): Promise<void> {
     await this.pool.query(
       `insert into connector_trust_records (
-        id, tenant_id, owner_key, connector_id, resource_system, agent_id, issuer, audience,
+        id, tenant_id, owner_key_hash, connector_id, resource_system, agent_id, issuer, audience,
         runtime_endpoint, connector_profile_hash, external_config_hash, trusted_at, updated_at, safe_metadata
       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
       on conflict (id) do update set
         tenant_id = excluded.tenant_id,
-        owner_key = excluded.owner_key,
+        owner_key_hash = excluded.owner_key_hash,
         connector_id = excluded.connector_id,
         resource_system = excluded.resource_system,
         agent_id = excluded.agent_id,
@@ -212,7 +214,7 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
       [
         record.id,
         record.tenantId ?? null,
-        record.ownerKey,
+        record.ownerKeyHash,
         record.connectorId ?? null,
         record.resourceSystem ?? null,
         record.agentId,
@@ -229,9 +231,10 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
   }
 
   async deleteConnectorTrustRecord(ownerKey: string, id: string): Promise<void> {
+    const ownerKeyHash = platformOwnerKeyHash(ownerKey);
     await this.pool.query(
-      "delete from connector_trust_records where owner_key = $1 and id = $2",
-      [ownerKey, id]
+      "delete from connector_trust_records where owner_key_hash = $1 and id = $2",
+      [ownerKeyHash, id]
     );
   }
 
