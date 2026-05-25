@@ -1712,6 +1712,23 @@ function requireSessionToken(request: IncomingMessage, response: ServerResponse)
   return token;
 }
 
+function requireIdentitySession(request: IncomingMessage, response: ServerResponse): { sessionToken: string; identity: VerifiedUserIdentity } | undefined {
+  const sessionToken = requireSessionToken(request, response);
+  if (!sessionToken) {
+    return undefined;
+  }
+
+  const identity = currentUserIdentity(sessionToken);
+  if (!identity) {
+    sendJson(response, 401, {
+      error: "identity_session_required"
+    }, request);
+    return undefined;
+  }
+
+  return { sessionToken, identity };
+}
+
 function currentUserIdentity(sessionToken?: string): VerifiedUserIdentity | undefined {
   cleanupExpiredUserIdentities();
   return sessionToken ? userIdentitiesBySession.get(sessionToken) : undefined;
@@ -1745,9 +1762,13 @@ function connectorPolicyFinalAnswer(decision: ConnectorRoutingDecision, policy: 
   return undefined;
 }
 
-function agentCardRegistryKey(request: IncomingMessage, response: ServerResponse): string | undefined {
+function agentCardRegistryKey(request: IncomingMessage, response: ServerResponse, options?: { requireIdentity?: boolean }): string | undefined {
   const sessionToken = getSessionToken(request);
   if (sessionToken) {
+    if (options?.requireIdentity && !currentUserIdentity(sessionToken)) {
+      sendJson(response, 401, { error: "identity_session_required" }, request);
+      return undefined;
+    }
     return sessionToken;
   }
 
@@ -3919,16 +3940,38 @@ async function start(): Promise<void> {
       return;
     }
 
-    sendJson(response, 200, publicIdentitySession(userIdentityProvider, currentUserIdentity(sessionToken)), request);
+    const identity = currentUserIdentity(sessionToken);
+    if (!identity) {
+      sendJson(response, 401, { error: "identity_session_required" }, request);
+      return;
+    }
+
+    const tenantId = defaultTenantId();
+    const directoryAccess = await verifyUserDirectoryAccess({ identity, tenantId });
+    if (!directoryAccess.ok) {
+      userIdentitiesBySession.delete(sessionToken);
+      await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId);
+      sendJson(response, directoryAccess.status, {
+        error: "user_directory_access_denied",
+        message: directoryAccess.message
+      }, request);
+      return;
+    }
+
+    const allowedIdentity = identityWithDirectoryRoles(identity, directoryAccess.user.roles);
+    userIdentitiesBySession.set(sessionToken, allowedIdentity);
+    sendJson(response, 200, publicIdentitySession(userIdentityProvider, allowedIdentity), request);
     return;
   }
 
   if (request.method === "GET" && request.url === "/identity/trust-status") {
-    if (!requireClientAccess(request, response)) {
+    const adminView = hasValidClientApiKey(request);
+    const identitySession = adminView ? undefined : requireIdentitySession(request, response);
+    if (!adminView && !identitySession) {
       return;
     }
 
-    sendJson(response, 200, buildTrustStatus(getSessionToken(request), hasValidClientApiKey(request)), request);
+    sendJson(response, 200, buildTrustStatus(identitySession?.sessionToken ?? getSessionToken(request), adminView), request);
     return;
   }
 
@@ -4020,7 +4063,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/demo/end-user-ready") {
-    const registryKey = agentCardRegistryKey(request, response);
+    const registryKey = agentCardRegistryKey(request, response, { requireIdentity: true });
     if (!registryKey) {
       return;
     }
@@ -4046,7 +4089,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/agent-onboarding") {
-    const registryKey = agentCardRegistryKey(request, response);
+    const registryKey = agentCardRegistryKey(request, response, { requireIdentity: true });
     if (!registryKey) {
       return;
     }
@@ -4060,7 +4103,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/agent-onboarding/supported-connectors") {
-    const registryKey = agentCardRegistryKey(request, response);
+    const registryKey = agentCardRegistryKey(request, response, { requireIdentity: true });
     if (!registryKey) {
       return;
     }
@@ -4088,7 +4131,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/agent-onboarding/discover") {
-    if (!agentCardRegistryKey(request, response)) {
+    if (!agentCardRegistryKey(request, response, { requireIdentity: true })) {
       return;
     }
 
@@ -4107,7 +4150,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/agent-onboarding/start") {
-    const registryKey = agentCardRegistryKey(request, response);
+    const registryKey = agentCardRegistryKey(request, response, { requireIdentity: true });
     if (!registryKey) {
       return;
     }

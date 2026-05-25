@@ -356,7 +356,9 @@ for (const phrase of [
   "internal endpoint",
   "`${url.protocol}//${url.host}/...`",
   "admin_access_required",
-  "buildTrustStatus(getSessionToken(request), hasValidClientApiKey(request))"
+  "const adminView = hasValidClientApiKey(request)",
+  "const identitySession = adminView ? undefined : requireIdentitySession(request, response)",
+  "buildTrustStatus(identitySession?.sessionToken ?? getSessionToken(request), adminView)"
 ]) {
   requireIncludes(orchestrator, phrase, "trust status and debug hardening");
 }

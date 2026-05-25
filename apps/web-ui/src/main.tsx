@@ -8,6 +8,9 @@ import { cleanAuth0CallbackUrl, completeAuth0Redirect, discardAuth0RedirectResul
 import { frontendAuthProviderLabel, readFrontendAuthConfig } from "./auth/authConfig";
 import { postBearerIdentitySession, postIdentityLogout, postMockDemoLogin } from "./auth/mockAuthClient";
 import type { IdentitySessionResponse } from "./auth/authTypes";
+import { AccessDeniedScreen } from "./components/auth/AccessDeniedScreen";
+import { LoginScreen } from "./components/auth/LoginScreen";
+import { advancedScenarios, enrichConnectorTemplate, fallbackSupportedConnectorGuardrails, quickScenarios, scenarios, type SupportedConnectorGuardrail } from "./demoContent";
 
 const DemoGuideTab = lazy(() => import("./components/demo-guide/DemoGuideTab").then((module) => ({ default: module.DemoGuideTab })));
 const RunTaskTab = lazy(() => import("./components/run-task/RunTaskTab").then((module) => ({ default: module.RunTaskTab })));
@@ -21,80 +24,13 @@ const frontendAuthConfig = readFrontendAuthConfig();
 const sampleMessage = "Jira issue creation fails with 403 when creating issues in FIN project";
 const endUserSampleMessage = "What is the status of my ticket INC0010245?";
 
-type Scenario = {
-  label: string;
-  message: string;
-  subtitle: string;
-  purpose?: string;
-  proves: string;
-  badge?: string;
-};
-
-const scenarios: Array<{ category: string; items: Scenario[] }> = [
-  {
-    category: "Connector-first orchestration",
-    items: [
-      {
-        label: "Jira connector approved diagnosis",
-        message: "Jira issue creation fails with 403 when creating issues in FIN project",
-        subtitle: "Approved Jira connector skill when the reference connector agent is installed",
-        purpose: "Routes to the installed Jira connector agent and approved diagnosis skill.",
-        proves: "Diagnostic skills can execute safely without enabling the target create action.",
-        badge: "Approved connector"
-      },
-      {
-        label: "Jira create blocked by grants/permissions",
-        message: "Create a Jira issue in FIN project for this outage",
-        subtitle: "Blocked because the create action lacks grant/permission approval by default",
-        purpose: "Shows why an installed connector agent can be trusted while a specific action is blocked.",
-        proves: "Target write actions remain blocked unless separately granted and permitted.",
-        badge: "Blocked action"
-      },
-      {
-        label: "ServiceNow incident assignment",
-        message: "ServiceNow incident assignment keeps failing for network tickets",
-        subtitle: "Runs when the ServiceNow reference connector agent is installed",
-        purpose: "Routes to the ServiceNow connector profile and incident assignment diagnosis skill.",
-        proves: "Diagnostic runtime is connector-generic while system-specific reasoning stays inside the external connector.",
-        badge: "ServiceNow"
-      },
-      {
-        label: "ServiceNow catalog request",
-        message: "ServiceNow catalog request RITM keeps failing during approval",
-        subtitle: "Catalog request diagnosis through the ServiceNow connector",
-        purpose: "Shows another ServiceNow skill selected from the same connector profile.",
-        proves: "Diagnostic runtime is connector-generic while system-specific reasoning stays inside the external connector.",
-        badge: "ServiceNow"
-      },
-      {
-        label: "GitHub repository rate limit",
-        message: "GitHub repository sync is failing after API rate limit",
-        subtitle: "Runs when the GitHub reference connector agent is installed",
-        purpose: "Routes to the GitHub connector profile and rate-limit diagnosis skill.",
-        proves: "Diagnostic runtime is connector-generic while system-specific reasoning stays inside the external connector.",
-        badge: "GitHub"
-      },
-      {
-        label: "GitHub pull request access",
-        message: "GitHub pull request checks cannot read the repository",
-        subtitle: "Pull request access diagnosis through the GitHub connector",
-        purpose: "Shows connector-specific runtime diagnosis without Gateway-specific GitHub logic.",
-        proves: "Diagnostic runtime is connector-generic while system-specific reasoning stays inside the external connector.",
-        badge: "GitHub"
-      },
-      {
-        label: "Unsupported request",
-        message: "The warehouse robot arm calibration failed",
-        subtitle: "No supported connector profile in this demo",
-        purpose: "Offers a support ticket handoff instead of pretending a connector exists.",
-        proves: "Unsupported systems do not get fake routes.",
-        badge: "Unsupported"
-      }
-    ]
-  }
-];
-
 type ActiveTab = "demo-guide" | "run-task" | "agent-registry" | "connector-test-center" | "trust-identity" | "security-timeline";
+type AppAuthState =
+  | "checking"
+  | "anonymous"
+  | "authenticated"
+  | "access_denied"
+  | "error";
 type PersonaMode = "end_user" | "technical";
 type ResolveA2ATask = NonNullable<ResolveResponse["a2aTasks"]>[number];
 type GuidedFocusTarget =
@@ -170,103 +106,6 @@ const activePageHeaders: Record<ActiveTab, { title: string; subtitle: string }> 
 const localConnectorPresets = buildLocalConnectorPresets(import.meta.env);
 const defaultConnectorPreset = localConnectorPresets[0];
 
-const fallbackSupportedConnectorGuardrails: SupportedConnectorGuardrail[] = [
-  {
-    resourceSystem: "jira",
-    connectorId: "jira-reference",
-    displayName: "Jira Cloud Reference Connector",
-    status: "available",
-    source: "local_reference",
-    description: "Reference connector template for Jira issue diagnostics, permission inspection, and controlled issue creation demos.",
-    category: "Work Management",
-    publisher: "Secure A2A Reference",
-    templateVersion: "1.0.0",
-    authModel: "oauth_application_with_service_account",
-    runtimeSupport: "supported",
-    riskLevel: "medium",
-    tags: ["jira", "issues", "permissions", "work-management"],
-    setupRequirements: ["External agent discovery endpoint", "Gateway public registration", "OAuth application grants", "Service account permission attestation"],
-    installed: false,
-    installedCount: 0
-  },
-  {
-    resourceSystem: "servicenow",
-    connectorId: "servicenow-reference",
-    displayName: "ServiceNow Reference Connector",
-    status: "available",
-    source: "local_reference",
-    description: "Reference connector template for ServiceNow incident, catalog request, role, and ACL diagnostics.",
-    category: "ITSM",
-    publisher: "Secure A2A Reference",
-    templateVersion: "1.0.0",
-    authModel: "oauth_application_with_service_account",
-    runtimeSupport: "supported",
-    riskLevel: "medium",
-    tags: ["servicenow", "incident", "catalog", "itsm", "acl"],
-    setupRequirements: ["External agent discovery endpoint", "Gateway public registration", "OAuth application grants", "Service account role and ACL attestation"],
-    installed: false,
-    installedCount: 0
-  },
-  {
-    resourceSystem: "github",
-    connectorId: "github-reference",
-    displayName: "GitHub Reference Connector",
-    status: "available",
-    source: "local_reference",
-    description: "Reference connector template for GitHub repository, pull request, installation access, and rate-limit diagnostics.",
-    category: "DevOps",
-    publisher: "Secure A2A Reference",
-    templateVersion: "1.0.0",
-    authModel: "oauth_application_with_service_account",
-    runtimeSupport: "supported",
-    riskLevel: "medium",
-    tags: ["github", "repository", "pull-request", "rate-limit", "devops"],
-    setupRequirements: ["External agent discovery endpoint", "Gateway public registration", "App installation access attestation", "Repository permission attestation"],
-    installed: false,
-    installedCount: 0
-  },
-  {
-    resourceSystem: "custom",
-    connectorId: "custom-sdk",
-    displayName: "Custom Connector SDK",
-    status: "planned",
-    source: "custom_sdk",
-    description: "Build your own connector using the Secure A2A connector contract. Planned for V2.",
-    category: "Custom",
-    publisher: "Customer / Vendor",
-    templateVersion: "planned",
-    authModel: "custom_sdk_contract",
-    runtimeSupport: "planned",
-    riskLevel: "medium",
-    tags: ["custom", "sdk", "bring-your-own-connector"],
-    setupRequirements: ["Discovery document", "Connector profile", "Public JWKS", "Signed onboarding response", "Scoped runtime endpoint"],
-    installed: false,
-    installedCount: 0
-  }
-];
-
-const fallbackConnectorTemplateById = new Map(fallbackSupportedConnectorGuardrails.map((template) => [template.connectorId, template]));
-
-function enrichConnectorTemplate(template: SupportedConnectorGuardrail): SupportedConnectorGuardrail {
-  return {
-    ...fallbackConnectorTemplateById.get(template.connectorId),
-    ...template
-  };
-}
-
-const quickScenarioLabels = new Set([
-  "Jira connector approved diagnosis",
-  "Jira create blocked by grants/permissions",
-  "ServiceNow incident assignment",
-  "ServiceNow catalog request",
-  "GitHub repository rate limit",
-  "GitHub pull request access",
-  "Unsupported request"
-]);
-
-const allScenarios: Scenario[] = scenarios.flatMap((group) => group.items);
-const quickScenarios = allScenarios.filter((scenario) => quickScenarioLabels.has(scenario.label));
-const advancedScenarios = allScenarios.filter((scenario) => !quickScenarioLabels.has(scenario.label));
 const infrastructureAgentIds = new Set(["mock-identity-provider"]);
 const installedConnectorLifecycleLabels = {
   runtime_ready: "Runtime ready",
@@ -1613,26 +1452,6 @@ type GatewayRegistrationMetadata = {
   supportedOnboardingMethods: string[];
 };
 
-type SupportedConnectorGuardrail = {
-  resourceSystem: string;
-  connectorId: string;
-  displayName: string;
-  status: "available" | "coming_soon" | "planned";
-  source?: "local_reference" | "custom_sdk";
-  description?: string;
-  category?: "ITSM" | "DevOps" | "Work Management" | "Custom";
-  publisher?: string;
-  templateVersion?: string;
-  authModel?: "oauth_application_with_service_account" | "custom_sdk_contract";
-  runtimeSupport?: "supported" | "planned" | "not_supported";
-  riskLevel?: "low" | "medium" | "high";
-  tags?: string[];
-  docsUrl?: string;
-  setupRequirements?: string[];
-  installed?: boolean;
-  installedCount?: number;
-};
-
 type AgentDiscoveryMetadata = {
   agentId: string;
   issuer: string;
@@ -1887,6 +1706,8 @@ function App() {
   const [zeroTrustError, setZeroTrustError] = useState("");
   const [zeroTrustCopyMessage, setZeroTrustCopyMessage] = useState("");
   const [gatewayRegistrationMetadata, setGatewayRegistrationMetadata] = useState<GatewayRegistrationMetadata | null>(null);
+  const [appAuthState, setAppAuthState] = useState<AppAuthState>("checking");
+  const [accessDeniedIdentity, setAccessDeniedIdentity] = useState<{ email?: string; provider?: string } | null>(null);
   const [connectionAudience, setConnectionAudience] = useState<ConnectionAudience>("bizapps");
   const [connectionWizardStep, setConnectionWizardStep] = useState<ConnectionWizardStep>("overview");
   const [connectionWizardCollapsedAfterSuccess, setConnectionWizardCollapsedAfterSuccess] = useState(false);
@@ -2006,7 +1827,7 @@ function App() {
     Boolean(task.context.actor?.email)
   ));
   const latestActorRoles = latestResponse?.userIdentity.roles?.join(", ") ?? "none";
-  const isUserAuthenticated = identitySession?.authenticated === true || trustStatus?.userIdentity.authenticated === true;
+  const isUserAuthenticated = appAuthState === "authenticated" && identitySession?.authenticated === true;
   const isEndUserMode = persona === "end_user";
   const isTechnicalMode = persona === "technical";
   const connectorTemplateCount = supportedConnectorGuardrails.length;
@@ -2125,6 +1946,53 @@ function App() {
     return hasBlockedSkill(connectorId, skillId) ? "ready" : "runtime_blocked";
   }
 
+  function clearAuthenticatedUiState() {
+    setIdentitySession(null);
+    setTrustStatus(null);
+    setMessages([]);
+    setConversationId(undefined);
+    setZeroTrustOnboardedAgents([]);
+    setZeroTrustDiscovery(null);
+    setZeroTrustResult(null);
+    setZeroTrustError("");
+    setSecurityTimelineFilter("all");
+  }
+
+  function transitionToAnonymous(message?: string) {
+    clearAuthenticatedUiState();
+    setAccessDeniedIdentity(null);
+    setAppAuthState("anonymous");
+    if (message) {
+      setIdentityError(message);
+    }
+  }
+
+  async function transitionToAccessDenied(response?: Response) {
+    const safeEmail = identitySession?.user?.email;
+    clearAuthenticatedUiState();
+    setAccessDeniedIdentity(safeEmail ? { email: safeEmail } : null);
+    setAppAuthState("access_denied");
+    setIdentityError("Access denied. Your user is not enabled for this gateway.");
+    if (response) {
+      await response.text().catch(() => "");
+    }
+  }
+
+  async function handleProtectedResponse(response: Response, fallbackMessage: string): Promise<boolean> {
+    if (response.ok) {
+      return true;
+    }
+    if (response.status === 401) {
+      transitionToAnonymous("Sign in to continue.");
+      return false;
+    }
+    if (response.status === 403) {
+      await transitionToAccessDenied(response);
+      return false;
+    }
+    throw new Error(await friendlyApiError(response, fallbackMessage));
+  }
+
   async function checkAgentHealth() {
     setHealthError("");
     setIsHealthLoading(true);
@@ -2136,8 +2004,8 @@ function App() {
         credentials: "include"
       });
 
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to check agent health"));
+      if (!await handleProtectedResponse(response, "Failed to check agent health")) {
+        return;
       }
 
       setHealth((await response.json()) as AgentsHealthResponse);
@@ -2149,12 +2017,69 @@ function App() {
   }
 
   useEffect(() => {
+    void loadGatewayRegistrationMetadata();
+  }, []);
+
+  useEffect(() => {
+    if (isAuth0CallbackRoute()) {
+      return;
+    }
+
+    let cancelled = false;
+    async function checkCurrentGatewayIdentity() {
+      setAppAuthState("checking");
+      setIdentityError("");
+      try {
+        const response = await fetch(`${API_URL}/identity/session`, {
+          method: "GET",
+          credentials: "include"
+        });
+        if (cancelled) {
+          return;
+        }
+        if (response.status === 401) {
+          transitionToAnonymous();
+          return;
+        }
+        if (response.status === 403) {
+          await transitionToAccessDenied(response);
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(await friendlyApiError(response, "Failed to load identity session"));
+        }
+        const session = (await response.json()) as IdentitySessionResponse;
+        if (!session.authenticated) {
+          transitionToAnonymous();
+          return;
+        }
+        setIdentitySession(session);
+        setAccessDeniedIdentity(null);
+        setAppAuthState("authenticated");
+      } catch (caughtError) {
+        if (!cancelled) {
+          clearAuthenticatedUiState();
+          setAppAuthState("error");
+          setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to load identity session");
+        }
+      }
+    }
+
+    void checkCurrentGatewayIdentity();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (appAuthState !== "authenticated") {
+      return;
+    }
     void loadZeroTrustOnboardedAgents();
     void checkAgentHealth();
     void loadTrustStatus();
-    void loadGatewayRegistrationMetadata();
     void loadSupportedConnectorGuardrails();
-  }, []);
+  }, [appAuthState]);
 
   useEffect(() => {
     if (!isAuth0CallbackRoute()) {
@@ -2162,6 +2087,7 @@ function App() {
     }
     if (frontendAuthConfig.provider !== "auth0" || !frontendAuthConfig.isConfigured) {
       discardAuth0RedirectResult();
+      setAppAuthState("error");
       setIdentityError("Auth0 login is not configured for this deployment.");
       return;
     }
@@ -2170,6 +2096,7 @@ function App() {
     let cancelled = false;
     async function completeLogin() {
       setIdentityError(""); setIdentityMessage("");
+      setAppAuthState("checking");
       setIsIdentityLoading(true);
       try {
         const result = await completeAuth0Redirect(auth0Config);
@@ -2179,20 +2106,37 @@ function App() {
         await ensureSession();
         const session = await postBearerIdentitySession(API_URL, result.accessToken).catch(async (error: unknown) => {
           if (error instanceof Response) {
-            const detail = await friendlyApiError(error, "Failed to attach Auth0 identity");
-            throw new Error(`Gateway rejected Auth0 identity: ${detail}`);
+            if (error.status === 403) {
+              cleanAuth0CallbackUrl("/");
+              await transitionToAccessDenied(error);
+              return null;
+            }
+            if (error.status === 401) {
+              cleanAuth0CallbackUrl("/");
+              transitionToAnonymous("Sign in to continue.");
+              return null;
+            }
+            throw new Error(await friendlyApiError(error, "Failed to attach Auth0 identity"));
           }
           throw error;
         });
+        if (!session) {
+          return;
+        }
         if (cancelled) {
           return;
         }
 
         setIdentitySession(session);
+        setAccessDeniedIdentity(null);
+        setAppAuthState("authenticated");
         setIdentityMessage("Auth0 identity verified and attached to this gateway session.");
         await loadTrustStatus();
       } catch (caughtError) {
         if (!cancelled) {
+          cleanAuth0CallbackUrl("/");
+          clearAuthenticatedUiState();
+          setAppAuthState("error");
           setIdentityError(caughtError instanceof Error ? caughtError.message : "Auth0 login failed. Please try again.");
         }
       } finally {
@@ -2209,6 +2153,9 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (appAuthState !== "authenticated") {
+      return;
+    }
     if (activeTab === "demo-guide") {
       void loadZeroTrustOnboardedAgents();
       void loadSupportedConnectorGuardrails();
@@ -2221,7 +2168,7 @@ function App() {
     if (activeTab === "trust-identity") {
       void loadTrustStatus();
     }
-  }, [activeTab]);
+  }, [activeTab, appAuthState]);
 
   useEffect(() => {
     if (persona !== "end_user") {
@@ -2330,25 +2277,6 @@ function App() {
     }
   }
 
-  async function loadIdentitySession() {
-    setIdentityError("");
-    try {
-      await ensureSession();
-      const response = await fetch(`${API_URL}/identity/session`, {
-        method: "GET",
-        credentials: "include"
-      });
-
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to load identity session"));
-      }
-
-      setIdentitySession((await response.json()) as IdentitySessionResponse);
-    } catch (caughtError) {
-      setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to load identity session");
-    }
-  }
-
   async function loadTrustStatus() {
     setIdentityError("");
     try {
@@ -2358,8 +2286,8 @@ function App() {
         credentials: "include"
       });
 
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to load trust status"));
+      if (!await handleProtectedResponse(response, "Failed to load trust status")) {
+        return;
       }
 
       const body = (await response.json()) as TrustStatusResponse;
@@ -2370,6 +2298,7 @@ function App() {
         issuer: body.userIdentity.issuer,
         audience: body.userIdentity.audience
       });
+      setAppAuthState(body.userIdentity.authenticated ? "authenticated" : "anonymous");
     } catch (caughtError) {
       setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to load trust status");
     }
@@ -2387,11 +2316,24 @@ function App() {
       await ensureSession();
       const body = await postMockDemoLogin(API_URL, selectedDemoUserEmail).catch(async (error: unknown) => {
         if (error instanceof Response) {
+          if (error.status === 403) {
+            await transitionToAccessDenied(error);
+            return null;
+          }
+          if (error.status === 401) {
+            transitionToAnonymous("Sign in to continue.");
+            return null;
+          }
           throw new Error(await friendlyApiError(error, "Failed to login as demo user"));
         }
         throw error;
       });
+      if (!body) {
+        return;
+      }
       setIdentitySession(body);
+      setAccessDeniedIdentity(null);
+      setAppAuthState("authenticated");
       if (!options?.silent) {
         setIdentityMessage("Demo user identity verified and attached to this gateway session.");
       }
@@ -2433,13 +2375,19 @@ function App() {
       await ensureSession();
       const body = await postIdentityLogout(API_URL).catch(async (error: unknown) => {
         if (error instanceof Response) {
+          if (error.status === 401 || error.status === 403) {
+            await error.text().catch(() => "");
+            return null;
+          }
           throw new Error(await friendlyApiError(error, "Failed to logout user"));
         }
         throw error;
       });
-      setIdentitySession(body);
+      if (body) {
+        setIdentitySession(body);
+      }
+      transitionToAnonymous();
       setIdentityMessage("User identity cleared from this gateway session.");
-      await loadTrustStatus();
     } catch (caughtError) {
       setIdentityError(caughtError instanceof Error ? caughtError.message : "Failed to logout user");
     } finally {
@@ -2454,8 +2402,8 @@ function App() {
         method: "GET",
         credentials: "include"
       });
-      if (!response.ok) {
-        throw new Error(await friendlyApiError(response, "Failed to load zero-trust onboarded agents"));
+      if (!await handleProtectedResponse(response, "Failed to load zero-trust onboarded agents")) {
+        return;
       }
       const body = await response.json() as { agents: TrustedOnboardedAgent[] };
       setZeroTrustOnboardedAgents(body.agents);
@@ -2485,10 +2433,11 @@ function App() {
         method: "GET",
         credentials: "include"
       });
-      if (response.ok) {
-        const body = await response.json() as { connectorTemplates?: SupportedConnectorGuardrail[]; connectors: SupportedConnectorGuardrail[] };
-        setSupportedConnectorGuardrails((body.connectorTemplates ?? body.connectors).map(enrichConnectorTemplate));
+      if (!await handleProtectedResponse(response, "Failed to load supported connector guardrails")) {
+        return;
       }
+      const body = await response.json() as { connectorTemplates?: SupportedConnectorGuardrail[]; connectors: SupportedConnectorGuardrail[] };
+      setSupportedConnectorGuardrails((body.connectorTemplates ?? body.connectors).map(enrichConnectorTemplate));
     } catch {
       setSupportedConnectorGuardrails(fallbackSupportedConnectorGuardrails);
     }
@@ -2509,15 +2458,16 @@ function App() {
         method: "POST",
         credentials: "include"
       });
-      if (response.ok) {
-        const body = await response.json() as { installedAgents?: TrustedOnboardedAgent[] };
-        if (body.installedAgents) {
-          setZeroTrustOnboardedAgents(body.installedAgents);
-        } else {
-          await loadZeroTrustOnboardedAgents();
-        }
-        await loadSupportedConnectorGuardrails();
+      if (!await handleProtectedResponse(response, "Failed to prepare demo environment")) {
+        return;
       }
+      const body = await response.json() as { installedAgents?: TrustedOnboardedAgent[] };
+      if (body.installedAgents) {
+        setZeroTrustOnboardedAgents(body.installedAgents);
+      } else {
+        await loadZeroTrustOnboardedAgents();
+      }
+      await loadSupportedConnectorGuardrails();
     } catch {
       // End-user mode still works for security and handoff flows if local connector
       // agents are not running; the chat will explain unavailable connectors.
@@ -2586,6 +2536,10 @@ function App() {
         })
       });
       const body = await response.json() as AgentOnboardingDiscoveryResult | { discovered: false; details?: string[]; error?: string };
+      if (response.status === 401 || response.status === 403) {
+        await handleProtectedResponse(response, "Discovery failed");
+        return;
+      }
       if (!response.ok || !("discovered" in body) || body.discovered !== true) {
         const details = "details" in body && body.details?.length
           ? body.details.join(" ")
@@ -2641,6 +2595,10 @@ function App() {
         })
       });
       const body = await response.json() as AgentOnboardingResult | { error: string; details?: string[]; checks?: AgentOnboardingResult["checks"] };
+      if (response.status === 401 || response.status === 403) {
+        await handleProtectedResponse(response, "Zero-trust onboarding failed");
+        return;
+      }
       if (!response.ok) {
         const details = "details" in body && body.details?.length ? ` ${body.details.join(" ")}` : "";
         throw new Error(`Zero-trust onboarding failed.${details}`);
@@ -2710,6 +2668,10 @@ function App() {
         body: JSON.stringify({ message: trimmedIssueText, conversationId })
       });
 
+      if (apiResponse.status === 401 || apiResponse.status === 403) {
+        await handleProtectedResponse(apiResponse, "Secure execution requires verified user identity");
+        throw new Error("Sign in to continue.");
+      }
       if (!apiResponse.ok) {
         throw new Error(`Orchestrator returned ${apiResponse.status} with body ${await apiResponse.text()}`);
       }
@@ -2834,6 +2796,40 @@ function App() {
     }
   }
 
+  if (appAuthState === "checking") {
+    return (
+      <main className="auth-shell">
+        <section className="auth-panel minimal-auth-panel" role="status" aria-live="polite">
+          <p className="eyebrow">Secure A2A Gateway</p>
+          <h1>Checking identity</h1>
+        </section>
+      </main>
+    );
+  }
+
+  if (appAuthState === "anonymous" || appAuthState === "error") {
+    return (
+      <LoginScreen
+        authConfig={frontendAuthConfig}
+        error={identityError}
+        isLoading={isIdentityLoading}
+        onAuth0Login={() => void loginAuth0User()}
+        onDemoLogin={() => void loginDemoUser()}
+      />
+    );
+  }
+
+  if (appAuthState === "access_denied") {
+    return (
+      <AccessDeniedScreen
+        email={accessDeniedIdentity?.email}
+        provider={accessDeniedIdentity?.provider}
+        isLoading={isIdentityLoading}
+        onLogout={() => void logoutIdentity()}
+      />
+    );
+  }
+
   const activePageHeader = activePageHeaders[activeTab];
 
   return (
@@ -2905,6 +2901,9 @@ function App() {
               </div>
               <div className="topbar-actions end-user-topbar-actions">
                 <div className="status user-status authenticated">{userBadgeLabel}</div>
+                <button type="button" className="secondary-button" onClick={() => void logoutIdentity()} disabled={isIdentityLoading}>
+                  Logout
+                </button>
                 <button type="button" className="secondary-button" onClick={changePersonaView}>
                   Change view
                 </button>
@@ -2926,7 +2925,12 @@ function App() {
               </div>
               <div className="topbar-actions">
                 {isUserAuthenticated ? (
-                  <div className="status user-status authenticated">{userBadgeLabel}</div>
+                  <>
+                    <div className="status user-status authenticated">{userBadgeLabel}</div>
+                    <button type="button" className="secondary-button" onClick={() => void logoutIdentity()} disabled={isIdentityLoading}>
+                      Logout
+                    </button>
+                  </>
                 ) : (
                   <button type="button" className="status user-status anonymous clickable-status" onClick={goToTrustIdentity}>
                     {userBadgeLabel}

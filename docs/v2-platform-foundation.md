@@ -466,6 +466,16 @@ npm.cmd run db:seed-platform-user
 
 After seeding, `ran@gateway.com` starts with `provider`, `issuer`, and `subject` unset. The first successful Auth0 login binds those identity fields to that directory row.
 
+### Phase 2.8  Authenticated App Shell / Required Login
+
+The browser UI now starts in an authenticated app shell state. The main control plane is hidden until `GET /identity/session` confirms that Gateway identity is attached to the browser session. While the current identity is being checked, the UI shows only a minimal loading state. Anonymous users see the login screen. Directory-denied users see the safe Access Denied screen.
+
+Auth0 authentication and Gateway access are separate checks. Auth0 login can succeed, but Gateway access is denied unless the local passwordless `users` table has an enabled matching user. `ran@gateway.com` is the first seeded local demo user for Postgres-backed Auth0 testing. Missing, disabled, or mismatched users receive the safe browser copy: `Access denied. Your user is not enabled for this gateway.`
+
+Frontend gating is UX only. The orchestrator still enforces session and identity checks for protected runtime actions, connector onboarding, connector test flows, trust operations, demo environment preparation, and routes that mutate `PlatformStateStore`. Public health, Gateway metadata, and JWKS endpoints remain public where intentionally documented.
+
+The app does not expose raw Auth0 access tokens, JWTs, OAuth callback `code` / `state` / `code_verifier` values, or internal session tokens. Login tokens are not stored in `localStorage`; the frontend only uses the Gateway session cookie and safe public identity response.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
@@ -855,6 +865,9 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.7: support email allowlist first and provider/issuer/subject binding after first login
 - [ ] Phase 2.7: deny missing, disabled, and mismatched users safely
 - [ ] Phase 2.7: keep mock demo available unless configured otherwise
+- [ ] Phase 2.8: hide the main app until Gateway identity is attached
+- [ ] Phase 2.8: keep backend protected routes enforcing session and identity
+- [ ] Phase 2.8: keep Auth0 tokens and callback parameters out of UI and localStorage
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users
