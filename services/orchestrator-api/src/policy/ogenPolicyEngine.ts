@@ -66,6 +66,16 @@ export const mandatoryOgenPolicyGuardrails: OgenPolicyRule[] = [
   }
 ];
 
+export const defaultDenyRule: OgenPolicyRule = {
+  id: "default-deny",
+  name: "Default deny",
+  description: "Requests that do not match an allow rule are blocked by default.",
+  effect: "block",
+  priority: 1000,
+  enabled: true,
+  match: {}
+};
+
 export const defaultTenantOgenPolicyRules: OgenPolicyRule[] = [
   {
     id: "allow-readonly-approved-runtime",
@@ -78,15 +88,7 @@ export const defaultTenantOgenPolicyRules: OgenPolicyRule[] = [
       routeStatuses: ["connector_skill_approved"]
     }
   },
-  {
-    id: "default-deny",
-    name: "Default deny",
-    description: "Requests that do not match an allow rule are blocked by default.",
-    effect: "block",
-    priority: 1000,
-    enabled: true,
-    match: {}
-  }
+  defaultDenyRule
 ];
 
 export const defaultOgenPolicyRules: OgenPolicyRule[] = [
@@ -247,7 +249,9 @@ function ruleMatches(input: OgenPolicyInput, rule: OgenPolicyRule): boolean {
   return true;
 }
 
-function ruleSummary(rule: OgenPolicyRule, source: "guardrail" | "tenant"): OgenPolicyMatchedRuleSummary {
+type MatchedRuleSource = "guardrail" | "tenant" | "default";
+
+function ruleSummary(rule: OgenPolicyRule, source: MatchedRuleSource): OgenPolicyMatchedRuleSummary {
   return {
     id: rule.id,
     name: rule.name,
@@ -262,10 +266,19 @@ function primaryRule(params: {
   guardrailRules: OgenPolicyRule[];
   tenantRules: OgenPolicyRule[];
   deniedByDefault: boolean;
-}): { rule?: OgenPolicyRule; source?: "guardrail" | "tenant" | "default" } {
+  primaryRule?: OgenPolicyRule;
+  primaryRuleSource?: MatchedRuleSource;
+}): { rule?: OgenPolicyRule; source?: MatchedRuleSource } {
+  if (params.primaryRule && params.primaryRuleSource) {
+    return {
+      rule: params.primaryRule,
+      source: params.primaryRuleSource
+    };
+  }
+
   if (params.deniedByDefault) {
     return {
-      rule: params.tenantRules.find((rule) => rule.id === "default-deny"),
+      rule: params.tenantRules.find((rule) => rule.id === "default-deny") ?? defaultDenyRule,
       source: "default"
     };
   }
@@ -284,6 +297,8 @@ function reasonFromMatchedRules(params: {
   guardrailRules: OgenPolicyRule[];
   tenantRules: OgenPolicyRule[];
   deniedByDefault: boolean;
+  primaryRule?: OgenPolicyRule;
+  primaryRuleSource?: MatchedRuleSource;
 }): string {
   if (params.deniedByDefault) {
     return "Ogen policy denied the request by default because no tenant allow rule matched.";
@@ -323,29 +338,47 @@ function buildDecision(params: {
   guardrailRules: OgenPolicyRule[];
   tenantRules: OgenPolicyRule[];
   deniedByDefault: boolean;
+  primaryRule?: OgenPolicyRule;
+  primaryRuleSource?: MatchedRuleSource;
   reason?: string;
 }): OgenPolicyDecision {
   const { input, effect, guardrailRules, tenantRules, deniedByDefault } = params;
   const summary = safeInputSummary(input);
   const matchedGuardrailRuleIds = guardrailRules.map((rule) => rule.id);
   const matchedTenantRuleIds = tenantRules.map((rule) => rule.id);
-  const matchedRuleIds = [...matchedGuardrailRuleIds, ...matchedTenantRuleIds];
-  const primary = primaryRule({ effect, guardrailRules, tenantRules, deniedByDefault });
+  const primary = primaryRule({
+    effect,
+    guardrailRules,
+    tenantRules,
+    deniedByDefault,
+    primaryRule: params.primaryRule,
+    primaryRuleSource: params.primaryRuleSource
+  });
+  const matchedRuleSummaries = [
+    ...guardrailRules.map((rule) => ruleSummary(rule, "guardrail")),
+    ...tenantRules.map((rule) => ruleSummary(rule, "tenant")),
+    ...(primary.rule && primary.source === "default" ? [ruleSummary(primary.rule, "default")] : [])
+  ];
+  const matchedRuleIds = Array.from(new Set(matchedRuleSummaries.map((rule) => rule.id)));
   return {
     decisionId: randomUUID(),
     tenantId: input.tenantId,
     policyVersion: input.policyVersion,
     effect,
-    reason: params.reason ?? reasonFromMatchedRules({ effect, guardrailRules, tenantRules, deniedByDefault }),
+    reason: params.reason ?? reasonFromMatchedRules({
+      effect,
+      guardrailRules,
+      tenantRules,
+      deniedByDefault,
+      primaryRule: params.primaryRule,
+      primaryRuleSource: params.primaryRuleSource
+    }),
     primaryRuleId: primary.rule?.id,
     primaryRuleSource: primary.source,
     matchedRuleIds,
     matchedGuardrailRuleIds,
     matchedTenantRuleIds,
-    matchedRuleSummaries: [
-      ...guardrailRules.map((rule) => ruleSummary(rule, "guardrail")),
-      ...tenantRules.map((rule) => ruleSummary(rule, "tenant"))
-    ],
+    matchedRuleSummaries,
     deniedByDefault,
     requiresApproval: effect === "needs_approval",
     createdAt: new Date().toISOString(),
@@ -379,7 +412,9 @@ export function evaluateOgenPolicy(input: OgenPolicyInput, rules = defaultOgenPo
         guardrailRules: [rule],
         tenantRules: [],
         deniedByDefault: false,
-        reason: `Required policy role is missing for guardrail ${rule.name}. ${rule.description}`
+        primaryRule: rule,
+        primaryRuleSource: "guardrail",
+        reason: `Required policy role is missing for Ogen guardrail ${rule.name}. ${rule.description}`
       });
     }
 
@@ -412,6 +447,8 @@ export function evaluateOgenPolicy(input: OgenPolicyInput, rules = defaultOgenPo
         guardrailRules: guardrailApprovalRules,
         tenantRules: [rule],
         deniedByDefault: false,
+        primaryRule: rule,
+        primaryRuleSource: "tenant",
         reason: `Required policy role is missing for tenant policy ${rule.name}. ${rule.description}`
       });
     }
@@ -452,12 +489,14 @@ export function evaluateOgenPolicy(input: OgenPolicyInput, rules = defaultOgenPo
     });
   }
 
-  const defaultRule = enabledTenantRules.find((rule) => rule.id === "default-deny");
+  const defaultRule = enabledTenantRules.find((rule) => rule.id === "default-deny") ?? defaultDenyRule;
   return buildDecision({
     input,
     effect: "block",
     guardrailRules: [],
-    tenantRules: defaultRule ? [defaultRule] : [],
-    deniedByDefault: true
+    tenantRules: [],
+    deniedByDefault: true,
+    primaryRule: defaultRule,
+    primaryRuleSource: "default"
   });
 }

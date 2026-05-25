@@ -63,6 +63,8 @@ Tenant policy can restrict. Ogen guardrails cannot be bypassed.
 
 Ogen does not just block. It explains which guardrail or tenant policy made the decision.
 
+Every Ogen decision explains the exact rule, guardrail, or default-deny path that produced it.
+
 ## Public copy direction
 
 Ogen should sound like a product, not a protocol name.

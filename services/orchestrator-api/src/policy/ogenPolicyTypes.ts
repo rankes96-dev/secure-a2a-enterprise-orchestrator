@@ -82,7 +82,7 @@ export type OgenPolicyMatchedRuleSummary = {
   id: string;
   name: string;
   effect: OgenPolicyEffect;
-  source: "guardrail" | "tenant";
+  source: "guardrail" | "tenant" | "default";
   description: string;
 };
 

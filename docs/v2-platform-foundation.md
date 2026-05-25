@@ -518,6 +518,8 @@ Ogen separates mandatory platform guardrails from tenant/configurable policy rul
 
 Policy decisions include explainable matched rule summaries. Ogen reports whether a decision came from a mandatory guardrail, tenant rule, or default deny. Policy reasons are human-readable and audit-safe. Rule summaries never include raw prompt or token material.
 
+Every policy decision has complete proof. Default-deny decisions always include a default rule summary, even when custom tenant rules omit a default-deny rule. Role requirement failures identify the exact guardrail or tenant policy rule that required the missing role.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

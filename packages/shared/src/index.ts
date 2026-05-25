@@ -692,7 +692,7 @@ export interface ResolveResponse {
       id: string;
       name: string;
       effect: "allow" | "block" | "needs_approval";
-      source: "guardrail" | "tenant";
+      source: "guardrail" | "tenant" | "default";
       description: string;
     }>;
     policyVersion?: string;

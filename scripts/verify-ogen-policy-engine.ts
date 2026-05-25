@@ -168,10 +168,14 @@ const productIdentityDocs = read("docs/ogen-product-identity.md");
 
 requireIncludes(policyTypes, "export type OgenPolicyInput", "Ogen policy types exist");
 requireIncludes(policyTypes, "export type OgenPolicyMatchedRuleSummary", "Ogen policy matched rule summary exists");
+requireIncludes(policyTypes, 'source: "guardrail" | "tenant" | "default";', "matched rule summary source includes default");
 requireIncludes(policyTypes, "export type OgenPolicyDecision", "Ogen policy decision type exists");
 requireIncludes(policyEngine, "export function evaluateOgenPolicy", "Ogen policy engine exists");
 requireIncludes(policyEngine, "function ruleSummary", "policy engine builds matched rule summaries");
 requireIncludes(policyEngine, "function reasonFromMatchedRules", "policy engine builds explainable reasons");
+requireIncludes(policyEngine, "export const defaultDenyRule", "policy engine has canonical default deny fallback");
+requireIncludes(policyEngine, "primaryRule?: OgenPolicyRule", "buildDecision supports explicit primary rule override");
+requireIncludes(policyEngine, "primaryRuleSource?: MatchedRuleSource", "buildDecision supports explicit primary rule source override");
 requireIncludes(policyEngine, "mandatoryOgenPolicyGuardrails", "Ogen policy engine defines mandatory guardrails");
 requireIncludes(policyEngine, "defaultTenantOgenPolicyRules", "Ogen policy engine defines tenant rules");
 requireIncludes(policyEngine, "defaultOgenPolicyRules", "Ogen policy engine defines default rules");
@@ -217,6 +221,7 @@ for (const phrase of [
   requireIncludes(policyTypes, phrase, "policy decision includes proof field");
   requireIncludes(shared, phrase, "shared response type includes policy proof field");
 }
+requireIncludes(shared, 'source: "guardrail" | "tenant" | "default";', "shared matched rule summary source includes default");
 
 requireIncludes(connectorPolicy, "evaluateOgenPolicy(policyInput)", "connectorPolicy wraps Ogen policy engine");
 requireIncludes(connectorPolicy, "primaryRuleId: decision.primaryRuleId", "connectorPolicy returns primary rule id");
@@ -442,7 +447,53 @@ const defaultDenyRule: OgenPolicyRule = {
   enabled: true,
   match: {}
 };
-assertEffect("missing required role blocks role-required action", baseInput({ subject: { roles: ["it-support"] } }), "block", [adminRoleRule, defaultDenyRule]);
+const tenantRoleDenied = assertEffect("missing required role blocks role-required action", baseInput({ subject: { roles: ["it-support"] } }), "block", [adminRoleRule, defaultDenyRule]);
+if (
+  tenantRoleDenied?.primaryRuleId !== "allow-admin-readonly-runtime" ||
+  tenantRoleDenied.primaryRuleSource !== "tenant" ||
+  !tenantRoleDenied.matchedTenantRuleIds.includes("allow-admin-readonly-runtime") ||
+  !tenantRoleDenied.matchedRuleSummaries.some((rule) => rule.id === "allow-admin-readonly-runtime" && rule.source === "tenant") ||
+  !tenantRoleDenied.reason.includes("Required policy role is missing")
+) {
+  fail("missing tenant role decision should identify the exact tenant rule requiring the role");
+} else {
+  ok("missing tenant role decision includes complete tenant rule proof");
+}
+
+const lowConfidenceGuardrail = mandatoryOgenPolicyGuardrails.find((rule) => rule.id === "block-low-confidence-interpretation");
+if (!lowConfidenceGuardrail) {
+  fail("low-confidence guardrail should exist for role proof verification");
+} else {
+  const previousRequiredRolesAny = lowConfidenceGuardrail.match.requiredRolesAny;
+  try {
+    lowConfidenceGuardrail.match.requiredRolesAny = ["admin"];
+    const guardrailRoleDenied = assertEffect("missing required guardrail role blocks action", baseInput({
+      interpretation: {
+        confidence: "low"
+      },
+      subject: {
+        roles: ["it-support"]
+      }
+    }), "block");
+    if (
+      guardrailRoleDenied?.primaryRuleId !== "block-low-confidence-interpretation" ||
+      guardrailRoleDenied.primaryRuleSource !== "guardrail" ||
+      !guardrailRoleDenied.matchedGuardrailRuleIds.includes("block-low-confidence-interpretation") ||
+      !guardrailRoleDenied.matchedRuleSummaries.some((rule) => rule.id === "block-low-confidence-interpretation" && rule.source === "guardrail") ||
+      !guardrailRoleDenied.reason.includes("Required policy role is missing for Ogen guardrail")
+    ) {
+      fail("missing guardrail role decision should identify the exact guardrail requiring the role");
+    } else {
+      ok("missing guardrail role decision includes complete guardrail proof");
+    }
+  } finally {
+    if (previousRequiredRolesAny) {
+      lowConfidenceGuardrail.match.requiredRolesAny = previousRequiredRolesAny;
+    } else {
+      delete lowConfidenceGuardrail.match.requiredRolesAny;
+    }
+  }
+}
 
 const lowConfidenceDecision = evaluateOgenPolicy(baseInput({
   interpretation: {
@@ -467,11 +518,31 @@ if (defaultDenied.effect !== "block" || defaultDenied.deniedByDefault !== true |
 } else if (
   defaultDenied.primaryRuleSource !== "default" ||
   defaultDenied.primaryRuleId !== "default-deny" ||
-  !defaultDenied.reason.includes("denied the request by default")
+  !defaultDenied.reason.includes("denied the request by default") ||
+  !defaultDenied.matchedRuleSummaries.some((rule) => rule.id === "default-deny" && rule.source === "default")
 ) {
   fail("default deny decision should include default primary source and explainable reason");
 } else {
   ok("default unmatched policy input is blocked");
+}
+
+const customRulesWithoutDefaultDeny = evaluateOgenPolicy(baseInput({
+  connectorRoute: {
+    connectorId: "github-reference",
+    resourceSystem: "github"
+  }
+}), [tenantBlockRule]);
+if (
+  customRulesWithoutDefaultDeny.effect !== "block" ||
+  customRulesWithoutDefaultDeny.deniedByDefault !== true ||
+  customRulesWithoutDefaultDeny.primaryRuleId !== "default-deny" ||
+  customRulesWithoutDefaultDeny.primaryRuleSource !== "default" ||
+  !customRulesWithoutDefaultDeny.matchedRuleIds.includes("default-deny") ||
+  !customRulesWithoutDefaultDeny.matchedRuleSummaries.some((rule) => rule.id === "default-deny" && rule.source === "default")
+) {
+  fail("custom tenant rules without default-deny should still produce complete default-deny proof");
+} else {
+  ok("custom tenant rules without default-deny still include complete default-deny proof");
 }
 
 const allowRule: OgenPolicyRule = {
