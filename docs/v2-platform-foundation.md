@@ -478,6 +478,16 @@ The app does not expose raw Auth0 access tokens, JWTs, OAuth callback `code` / `
 
 Browser session is not authentication. A `/session` cookie only identifies a browser session; protected operational endpoints require attached Gateway identity or an admin API key. In-memory attached identity is not a permanent authorization decision: attached Gateway identity is revalidated against the user directory on protected routes. Disabling a user in the local `users` table invalidates future protected route access and clears the attached session identity. A denied identity attach clears any previously attached Gateway identity for that browser session, preventing stale identity confusion when switching Auth0 users. `/agents/health` requires identity/admin access because it can expose operational state. `/debug/ai-config` is admin/API-key only by default, with any identity-based debug access limited to explicit non-production local override. Health checks do not return upstream response bodies.
 
+### Phase 2.9  Versioned Platform DB Migrations
+
+Platform Postgres schema changes now have a small versioned migration path in `services/orchestrator-api/db/migrations`. `scripts/apply-platform-migrations.ts` applies SQL files in filename order and records each migration in `platform_schema_migrations` with an id, name, SHA-256 checksum, and applied timestamp.
+
+The runner fails closed on checksum mismatch instead of silently accepting edited migration history. Each migration runs in a transaction, and re-running already applied migrations skips files whose stored checksum still matches.
+
+schema.sql remains an idempotent bootstrap/reference schema. `db:apply-platform-schema` is still useful for local reset/bootstrap flows, but migrations are the preferred path for staging and production before enabling `PLATFORM_STATE_STORE_DRIVER=postgres`.
+
+The initial migrations preserve the current safe platform model: tenant-aware users, connector trust, audit events, conversation state, and runtime executions. Existing local DBs that already applied `schema.sql` can run the idempotent migrations safely. The migration set intentionally has no token or password columns and does not add a connected-account token vault.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
@@ -801,6 +811,7 @@ V2 verification should layer new checks without weakening V1:
 - `npm run verify:platform-state-foundation`
 - `npm run verify:platform-state-onboarding`
 - `npm run verify:platform-audit-write-through`
+- `npm run verify:platform-db-migrations`
 - `npm run verify:user-directory-access-gate`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
 - Phase 2.6 adds the first opt-in Postgres schema and `PostgresPlatformStateStore`; future persistence verification should cover full restart-surviving runtime read paths
@@ -874,6 +885,9 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.8: hide the main app until Gateway identity is attached
 - [ ] Phase 2.8: keep backend protected routes enforcing session and identity
 - [ ] Phase 2.8: keep Auth0 tokens and callback parameters out of UI and localStorage
+- [ ] Phase 2.9: add versioned Postgres migrations with checksum tracking
+- [ ] Phase 2.9: keep `schema.sql` as bootstrap/reference while preferring migrations for staging/production
+- [ ] Phase 2.9: keep migrations free of token and password columns
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users
