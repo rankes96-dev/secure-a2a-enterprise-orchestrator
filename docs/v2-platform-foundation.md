@@ -484,7 +484,7 @@ Platform Postgres schema changes now have a small versioned migration path in `s
 
 The runner fails closed on checksum mismatch instead of silently accepting edited migration history. Each migration runs in a transaction, and re-running already applied migrations skips files whose stored checksum still matches.
 
-schema.sql remains an idempotent bootstrap/reference schema. `db:apply-platform-schema` is still useful for local reset/bootstrap flows, but migrations are the preferred path for staging and production before enabling `PLATFORM_STATE_STORE_DRIVER=postgres`.
+schema.sql remains an idempotent bootstrap/reference schema. `db:apply-platform-schema` is still useful for local reset/bootstrap flows, but migrations are the preferred path for staging and production before enabling `PLATFORM_STATE_STORE_DRIVER=postgres`. Applying `schema.sql` after migrations is not the normal controlled path.
 
 The initial migrations preserve the current safe platform model: tenant-aware users, connector trust, audit events, conversation state, and runtime executions. Existing local DBs that already applied `schema.sql` can run the idempotent migrations safely. The migration set intentionally has no token or password columns and does not add a connected-account token vault.
 

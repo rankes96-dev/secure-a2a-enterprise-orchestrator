@@ -203,7 +203,7 @@ ORCHESTRATOR_ALLOWED_AUTH_METHODS=private_key_jwt
 
 Use `ALLOWED_ORIGINS` for the browser origin. Set at least one of `GATEWAY_ISSUER` or `ORCHESTRATOR_PUBLIC_URL` to the orchestrator's real public HTTPS Railway URL; this value is published in Gateway metadata, used for the Gateway JWKS URI, and signs onboarding challenges as the issuer. `EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS` controls Agent Registry discovery and onboarding server-side fetches. `CONNECTOR_RUNTIME_ALLOWED_ORIGINS` controls `/a2a/task` execution after an agent is trusted. Both allowlists must contain only public connector origins. These entries are origins only, with scheme and host and no path, query, or fragment. If `EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS` is unset, onboarding falls back to `CONNECTOR_RUNTIME_ALLOWED_ORIGINS`. Use `STATE_STORE_DRIVER=upstash` with `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for replay and security state, not browser sessions. `PLATFORM_STATE_STORE_DRIVER=postgres` is optional V2 platform persistence and requires `DATABASE_URL`; keep `PLATFORM_STATE_STORE_DRIVER=memory` for V1/local demo behavior. Do not put raw OAuth tokens, JWTs, Authorization headers, private keys, client secrets, or client assertions in Postgres platform-state tables.
 
-For Railway Postgres, set `DATABASE_URL` from Railway Postgres and set `DATABASE_SSL=true` if required by the deployment. Run `npm.cmd run db:apply-platform-migrations` before enabling `PLATFORM_STATE_STORE_DRIVER=postgres`. The versioned migrations are preferred for staging and production; `services/orchestrator-api/db/schema.sql` remains an idempotent bootstrap/reference schema, and `npm.cmd run db:apply-platform-schema` remains useful for local reset/bootstrap.
+For Railway Postgres, set `DATABASE_URL` from Railway Postgres and set `DATABASE_SSL=true` if required by the deployment. Run `npm.cmd run db:apply-platform-migrations` before enabling `PLATFORM_STATE_STORE_DRIVER=postgres`. The versioned migrations are preferred for staging and production. `services/orchestrator-api/db/schema.sql` remains an idempotent bootstrap/reference schema, and `npm.cmd run db:apply-platform-schema` remains useful for local reset/bootstrap only.
 
 Use `ORCHESTRATOR_API_KEY` for admin/internal debug access such as `/debug/ai-config`. Do not enable identity-based debug config in production. `ALLOW_DEBUG_AI_CONFIG_WITH_IDENTITY=true` is only for explicit local non-production diagnostics; keep it `false` by default.
 
@@ -215,7 +215,6 @@ Local Postgres user-directory flow:
 $env:DATABASE_URL="postgresql://a2a:a2a@localhost:5432/secure_a2a_dev"
 $env:DATABASE_SSL="false"
 npm.cmd run db:apply-platform-migrations
-npm.cmd run db:apply-platform-schema
 
 $env:PLATFORM_USER_EMAIL="ran@gateway.com"
 $env:PLATFORM_USER_TENANT_ID="default"

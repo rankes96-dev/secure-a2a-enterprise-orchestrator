@@ -86,6 +86,9 @@ create table if not exists runtime_executions (
   safe_metadata jsonb not null default '{}'::jsonb
 );
 
+alter table connector_trust_records
+  add column if not exists owner_key_hash text;
+
 create unique index if not exists users_tenant_email_idx
   on users (tenant_id, lower(email));
 

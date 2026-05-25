@@ -46,6 +46,26 @@ function requireNotIncludes(source: string, phrase: string, context: string): vo
   ok(context);
 }
 
+function requireBefore(source: string, first: string, second: string, context: string): void {
+  const firstIndex = source.indexOf(first);
+  const secondIndex = source.indexOf(second);
+  if (firstIndex < 0 || secondIndex < 0 || firstIndex > secondIndex) {
+    fail(`${context} should contain ${first} before ${second}`);
+    return;
+  }
+  ok(context);
+}
+
+function blockBetween(source: string, startMarker: string, endMarker: string): string {
+  const start = source.indexOf(startMarker);
+  if (start < 0) {
+    fail(`missing block start: ${startMarker}`);
+    return "";
+  }
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  return end < 0 ? source.slice(start) : source.slice(start, end);
+}
+
 function verifyStatic(): void {
   const migrationsDir = join(process.cwd(), "services", "orchestrator-api", "db", "migrations");
   if (!existsSync(migrationsDir)) {
@@ -83,11 +103,19 @@ function verifyStatic(): void {
     "create table if not exists audit_events",
     "create table if not exists conversation_states",
     "create table if not exists runtime_executions",
+    "alter table connector_trust_records",
+    "add column if not exists owner_key_hash text",
     "owner_key_hash text not null",
     "unique (tenant_id, owner_key_hash, agent_id)"
   ]) {
     requireIncludes(initial, phrase, "initial migration current platform schema");
   }
+  requireBefore(
+    initial,
+    "add column if not exists owner_key_hash text",
+    "connector_trust_records_owner_key_hash_idx",
+    "initial migration prepares owner_key_hash before dependent index"
+  );
 
   for (const forbidden of [
     "access_token",
@@ -151,6 +179,7 @@ function verifyStatic(): void {
     "checksum mismatch",
     "schema.sql remains an idempotent bootstrap/reference schema",
     "migrations are the preferred path for staging and production",
+    "Applying `schema.sql` after migrations is not the normal controlled path",
     "no token or password columns"
   ]) {
     requireIncludes(platformDocs, phrase, "platform docs cover versioned migrations");
@@ -163,6 +192,10 @@ function verifyStatic(): void {
   ]) {
     requireIncludes(deploymentDocs, phrase, "deployment docs cover platform migrations");
   }
+  const localPostgresFlow = blockBetween(deploymentDocs, "Local Postgres user-directory flow:", "Then run the orchestrator with:");
+  requireIncludes(localPostgresFlow, "npm.cmd run db:apply-platform-migrations", "local flow uses platform migrations");
+  requireNotIncludes(localPostgresFlow, "npm.cmd run db:apply-platform-schema", "normal local flow does not run schema after migrations");
+  requireIncludes(deploymentDocs, "local reset/bootstrap only", "deployment docs scope schema.sql to local reset/bootstrap");
 }
 
 async function verifyRuntimeIfConfigured(): Promise<void> {
@@ -222,6 +255,21 @@ async function verifyRuntimeIfConfigured(): Promise<void> {
       } else {
         ok(`${key} exists after migrations`);
       }
+    }
+
+    const legacyOwnerKey = await pool.query(
+      `
+        select 1
+        from information_schema.columns
+        where table_schema = current_schema()
+          and table_name = 'connector_trust_records'
+          and column_name = 'owner_key'
+      `
+    );
+    if (legacyOwnerKey.rowCount) {
+      fail("connector_trust_records.owner_key should not exist after migrations");
+    } else {
+      ok("connector_trust_records.owner_key is absent after migrations");
     }
 
     const forbiddenColumns = await pool.query<{ table_name: string; column_name: string }>(
