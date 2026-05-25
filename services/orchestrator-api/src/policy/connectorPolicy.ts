@@ -1,9 +1,8 @@
 import type { ConnectorRoutingDecision } from "../connectorRouting.js";
+import { evaluateOgenPolicy, OGEN_POLICY_VERSION } from "./ogenPolicyEngine.js";
+import type { OgenPolicyAction, OgenPolicyDecision, OgenPolicyEffect, OgenPolicyInput, OgenPolicyResource, OgenPolicySubject } from "./ogenPolicyTypes.js";
 
-export type ConnectorPolicyEffect =
-  | "allow"
-  | "block"
-  | "needs_approval";
+export type ConnectorPolicyEffect = OgenPolicyEffect;
 
 export type ConnectorPolicyRule = {
   id: string;
@@ -27,13 +26,19 @@ export type ConnectorPolicyEvaluation = {
   effect: ConnectorPolicyEffect;
   reason: string;
   matchedRuleIds: string[];
+  policyVersion: string;
+  decisionId: string;
+  inputHash: string;
+  deniedByDefault: boolean;
+  requiresApproval: boolean;
+  safeInputSummary: Record<string, unknown>;
 };
 
 export const defaultConnectorPolicyRules: ConnectorPolicyRule[] = [
   {
-    id: "allow-readonly-diagnostics",
-    name: "Allow read-only diagnostics",
-    description: "Read-only diagnostic skills are allowed after connector trust verification.",
+    id: "allow-readonly-approved-runtime",
+    name: "Allow read-only approved runtime",
+    description: "Read-only approved connector skills are allowed only through the Ogen policy engine.",
     effect: "allow",
     appliesTo: {
       riskLevels: ["low", "medium"]
@@ -43,16 +48,16 @@ export const defaultConnectorPolicyRules: ConnectorPolicyRule[] = [
     }
   },
   {
-    id: "block-unknown-or-unapproved-skills",
-    name: "Block unknown or unapproved skills",
-    description: "Skills not approved by connector decision are blocked.",
+    id: "block-unapproved-route",
+    name: "Block unapproved routes",
+    description: "Skills not approved by connector routing are blocked by the Ogen policy engine.",
     effect: "block",
     appliesTo: {}
   },
   {
-    id: "high-risk-skills-need-approval",
-    name: "High-risk skills need approval",
-    description: "High-risk connector skills are modeled as approval-required for V2 policy management.",
+    id: "approval-required-for-write-or-sensitive",
+    name: "Require approval for write or sensitive actions",
+    description: "High-risk, sensitive, write, or approval-marked connector actions need governed approval.",
     effect: "needs_approval",
     appliesTo: {
       riskLevels: ["high", "sensitive"]
@@ -63,49 +68,89 @@ export const defaultConnectorPolicyRules: ConnectorPolicyRule[] = [
   }
 ];
 
-// V1 policy evaluation is intentionally minimal. Gateway connector route
-// decision remains authoritative. V2 will enforce rule matching by connector,
-// skill, risk level, user role, approval state, and business conditions.
-export function evaluateConnectorPolicy(input: {
+export type ConnectorPolicyInput = {
   connectorRouteStatus: ConnectorRoutingDecision["status"];
+  runtimeMode?: ConnectorRoutingDecision["runtimeMode"];
+  connectorId?: string;
+  resourceSystem?: string;
+  skillId?: string;
+  skillLabel?: string;
+  tenantId?: string;
+  requestId?: string;
+  conversationId?: string;
+  interpretation?: OgenPolicyInput["interpretation"];
+  subject?: Partial<OgenPolicySubject> & { roles?: string[] };
+  resource?: Partial<OgenPolicyResource>;
+  action?: Partial<OgenPolicyAction>;
   riskLevel?: "low" | "medium" | "high" | "sensitive";
   executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
   requiresApproval?: boolean;
   sensitivity?: "standard" | "sensitive";
-}): ConnectorPolicyEvaluation {
-  if (input.connectorRouteStatus !== "connector_skill_approved") {
-    return {
-      effect: "block",
-      reason: "Skill was not eligible for runtime execution because Gateway action decision blocked it.",
-      matchedRuleIds: ["block-unknown-or-unapproved-skills"]
-    };
-  }
+};
 
-  if (
-    input.requiresApproval === true ||
-    input.executionType === "write_action" ||
-    input.riskLevel === "high" ||
-    input.riskLevel === "sensitive" ||
-    input.sensitivity === "sensitive"
-  ) {
-    return {
-      effect: "needs_approval",
-      reason: "Gateway policy requires approval before this high-risk or sensitive connector skill can execute.",
-      matchedRuleIds: ["high-risk-skills-need-approval"]
-    };
-  }
-
-  if (input.connectorRouteStatus === "connector_skill_approved") {
-    return {
-      effect: "allow",
-      reason: "Default connector policy allowed this approved connector skill.",
-      matchedRuleIds: ["allow-readonly-diagnostics"]
-    };
-  }
-
+function toConnectorPolicyEvaluation(decision: OgenPolicyDecision): ConnectorPolicyEvaluation {
   return {
-    effect: "block",
-    reason: "Skill was not eligible for runtime execution because Gateway action decision blocked it.",
-    matchedRuleIds: ["block-unknown-or-unapproved-skills"]
+    effect: decision.effect,
+    reason: decision.reason,
+    matchedRuleIds: decision.matchedRuleIds,
+    policyVersion: decision.policyVersion,
+    decisionId: decision.decisionId,
+    inputHash: decision.inputHash,
+    deniedByDefault: decision.deniedByDefault,
+    requiresApproval: decision.requiresApproval,
+    safeInputSummary: decision.safeInputSummary
   };
+}
+
+// Compatibility wrapper: existing callers still receive the connector policy
+// shape, while authorization is decided by the versioned Ogen policy engine.
+export function evaluateConnectorPolicy(input: ConnectorPolicyInput): ConnectorPolicyEvaluation {
+  const tenantId = input.tenantId ?? input.subject?.tenantId ?? "default";
+  const connectorId = input.connectorId ?? input.resource?.connectorId;
+  const resourceSystem = input.resourceSystem ?? input.resource?.resourceSystem;
+  const skillId = input.skillId ?? input.action?.skillId;
+  const skillLabel = input.skillLabel ?? input.action?.skillLabel;
+  const policyInput: OgenPolicyInput = {
+    tenantId,
+    policyVersion: OGEN_POLICY_VERSION,
+    requestId: input.requestId,
+    conversationId: input.conversationId,
+    interpretation: input.interpretation,
+    connectorRoute: {
+      status: input.connectorRouteStatus,
+      connectorId,
+      resourceSystem,
+      skillId,
+      skillLabel,
+      runtimeMode: input.runtimeMode ?? (input.connectorRouteStatus === "connector_skill_approved" ? "external_runtime_available" : "not_available")
+    },
+    subject: {
+      tenantId,
+      userId: input.subject?.userId,
+      provider: input.subject?.provider,
+      issuer: input.subject?.issuer,
+      subject: input.subject?.subject,
+      email: input.subject?.email,
+      roles: input.subject?.roles ?? [],
+      groups: input.subject?.groups
+    },
+    resource: {
+      connectorId,
+      resourceSystem,
+      resourceId: input.resource?.resourceId,
+      resourceType: input.resource?.resourceType,
+      environment: input.resource?.environment ?? "unknown"
+    },
+    action: {
+      skillId,
+      skillLabel,
+      executionType: input.executionType ?? input.action?.executionType,
+      riskLevel: input.riskLevel ?? input.action?.riskLevel,
+      sensitivity: input.sensitivity ?? input.action?.sensitivity,
+      requiresApproval: input.requiresApproval ?? input.action?.requiresApproval,
+      requestedScopes: input.action?.requestedScopes
+    }
+  };
+
+  return toConnectorPolicyEvaluation(evaluateOgenPolicy(policyInput));
 }

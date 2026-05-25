@@ -51,6 +51,12 @@ External agents execute only approved actions.
 Audit proves what happened.
 ```
 
+Product principle:
+
+```text
+AI can interpret. Ogen decides. Runtime executes only approved actions. Audit proves what happened.
+```
+
 ## Public copy direction
 
 Ogen should sound like a product, not a protocol name.

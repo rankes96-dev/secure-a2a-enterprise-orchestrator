@@ -1,0 +1,328 @@
+import { existsSync, readFileSync } from "node:fs";
+import { evaluateOgenPolicy, OGEN_POLICY_VERSION, defaultOgenPolicyRules } from "../services/orchestrator-api/src/policy/ogenPolicyEngine.js";
+import type { OgenPolicyInput, OgenPolicyRule } from "../services/orchestrator-api/src/policy/ogenPolicyTypes.js";
+
+let failed = false;
+
+function fail(message: string): void {
+  failed = true;
+  console.error(`FAIL: ${message}`);
+}
+
+function ok(message: string): void {
+  console.log(`ok - ${message}`);
+}
+
+function read(path: string): string {
+  if (!existsSync(path)) {
+    fail(`${path} should exist`);
+    return "";
+  }
+  return readFileSync(path, "utf8");
+}
+
+function requireIncludes(source: string, phrase: string, context: string): void {
+  if (!source.includes(phrase)) {
+    fail(`${context} missing required phrase: ${phrase}`);
+    return;
+  }
+  ok(context);
+}
+
+function requireNotIncludes(source: string, phrase: string, context: string): void {
+  if (source.includes(phrase)) {
+    fail(`${context} should not include forbidden phrase: ${phrase}`);
+    return;
+  }
+  ok(context);
+}
+
+function requireRule(id: string): void {
+  if (!defaultOgenPolicyRules.some((rule) => rule.id === id)) {
+    fail(`default Ogen policy rules should include ${id}`);
+    return;
+  }
+  ok(`default Ogen policy rules include ${id}`);
+}
+
+type OgenPolicyInputOverrides = Partial<Omit<OgenPolicyInput, "interpretation" | "connectorRoute" | "subject" | "resource" | "action">> & {
+  interpretation?: Partial<NonNullable<OgenPolicyInput["interpretation"]>>;
+  connectorRoute?: Partial<OgenPolicyInput["connectorRoute"]>;
+  subject?: Partial<OgenPolicyInput["subject"]>;
+  resource?: Partial<OgenPolicyInput["resource"]>;
+  action?: Partial<OgenPolicyInput["action"]>;
+};
+
+function baseInput(overrides: OgenPolicyInputOverrides = {}): OgenPolicyInput {
+  const base: OgenPolicyInput = {
+    tenantId: "default",
+    policyVersion: OGEN_POLICY_VERSION,
+    requestId: "smoke-request",
+    conversationId: "smoke-conversation",
+    interpretation: {
+      interpretationSource: "ai",
+      scope: "enterprise_support",
+      intentType: "connector_runtime_action",
+      requestedCapability: "jira.issue.status.lookup",
+      confidence: "high"
+    },
+    connectorRoute: {
+      status: "connector_skill_approved",
+      connectorId: "jira-reference",
+      resourceSystem: "jira",
+      skillId: "jira.issue.status.lookup",
+      skillLabel: "Look up Jira issue status",
+      runtimeMode: "external_runtime_available"
+    },
+    subject: {
+      tenantId: "default",
+      provider: "auth0",
+      issuer: "https://issuer.example/",
+      subject: "user-subject",
+      email: "ran@gateway.com",
+      roles: ["it-support"]
+    },
+    resource: {
+      connectorId: "jira-reference",
+      resourceSystem: "jira",
+      environment: "unknown"
+    },
+    action: {
+      skillId: "jira.issue.status.lookup",
+      skillLabel: "Look up Jira issue status",
+      executionType: "diagnostic_read_only",
+      riskLevel: "low",
+      sensitivity: "standard",
+      requiresApproval: false,
+      requestedScopes: ["a2a:task.execute"]
+    }
+  };
+
+  return {
+    ...base,
+    ...overrides,
+    interpretation: {
+      ...base.interpretation,
+      ...overrides.interpretation
+    },
+    connectorRoute: {
+      ...base.connectorRoute,
+      ...overrides.connectorRoute
+    },
+    subject: {
+      ...base.subject,
+      ...overrides.subject
+    },
+    resource: {
+      ...base.resource,
+      ...overrides.resource
+    },
+    action: {
+      ...base.action,
+      ...overrides.action
+    }
+  };
+}
+
+function assertEffect(name: string, input: OgenPolicyInput, expected: "allow" | "block" | "needs_approval", rules?: OgenPolicyRule[]): void {
+  const decision = evaluateOgenPolicy(input, rules);
+  if (decision.effect !== expected) {
+    fail(`${name} expected ${expected}, got ${decision.effect}: ${decision.reason}`);
+    return;
+  }
+  if (!decision.policyVersion || !decision.decisionId || !decision.inputHash || !decision.safeInputSummary) {
+    fail(`${name} should include policy proof fields`);
+    return;
+  }
+  ok(name);
+}
+
+const policyTypes = read("services/orchestrator-api/src/policy/ogenPolicyTypes.ts");
+const policyEngine = read("services/orchestrator-api/src/policy/ogenPolicyEngine.ts");
+const connectorPolicy = read("services/orchestrator-api/src/policy/connectorPolicy.ts");
+const backend = read("services/orchestrator-api/src/index.ts");
+const executionGateStack = read("services/orchestrator-api/src/executionGateStack.ts");
+const auditEvents = read("services/orchestrator-api/src/audit/auditEvents.ts");
+const shared = read("packages/shared/src/index.ts");
+const packageJson = read("package.json");
+const platformDocs = read("docs/v2-platform-foundation.md");
+const productIdentityDocs = read("docs/ogen-product-identity.md");
+
+requireIncludes(policyTypes, "export type OgenPolicyInput", "Ogen policy types exist");
+requireIncludes(policyTypes, "export type OgenPolicyDecision", "Ogen policy decision type exists");
+requireIncludes(policyEngine, "export function evaluateOgenPolicy", "Ogen policy engine exists");
+requireIncludes(policyEngine, "defaultOgenPolicyRules", "Ogen policy engine defines default rules");
+
+for (const id of [
+  "block-unapproved-route",
+  "block-metadata-only-runtime",
+  "approval-required-for-write-or-sensitive",
+  "allow-readonly-approved-runtime",
+  "default-deny"
+]) {
+  requireRule(id);
+  requireIncludes(policyEngine, id, "Ogen policy engine source includes default rule");
+}
+
+for (const phrase of [
+  "policyVersion",
+  "decisionId",
+  "matchedRuleIds",
+  "inputHash",
+  "deniedByDefault",
+  "safeInputSummary"
+]) {
+  requireIncludes(policyTypes, phrase, "policy decision includes proof field");
+  requireIncludes(shared, phrase, "shared response type includes policy proof field");
+}
+
+requireIncludes(connectorPolicy, "evaluateOgenPolicy(policyInput)", "connectorPolicy wraps Ogen policy engine");
+requireIncludes(connectorPolicy, "OGEN_POLICY_VERSION", "connectorPolicy uses versioned policy");
+requireIncludes(backend, "policyProof", "runtime evidence includes policy proof fields");
+requireIncludes(executionGateStack, "policyDecisionId", "execution gate evidence includes policy decision id");
+requireIncludes(executionGateStack, "policyInputHash", "execution gate evidence includes policy input hash");
+requireIncludes(auditEvents, 'POLICY_DECISION_EVALUATED: "policy.decision.evaluated"', "policy decision audit event exists");
+requireIncludes(backend, "appendConnectorPolicyDecisionAuditEvent", "backend appends policy decision audit proof");
+
+for (const marker of [
+  "access" + "_token",
+  "refresh" + "_token",
+  "authorization" + "_code",
+  "client" + "_secret",
+  "private" + "_key",
+  "client" + "_assertion",
+  "rawPrompt",
+  "rawToken",
+  "Authorization"
+]) {
+  requireNotIncludes(`${policyTypes}\n${policyEngine}\n${connectorPolicy}`, marker, "policy boundary source");
+}
+
+assertEffect("approved read-only external runtime is allowed", baseInput(), "allow");
+assertEffect("unapproved route is blocked", baseInput({
+  connectorRoute: {
+    status: "connector_skill_blocked"
+  }
+}), "block");
+assertEffect("metadata-only runtime is blocked", baseInput({
+  connectorRoute: {
+    runtimeMode: "metadata_only"
+  }
+}), "block");
+assertEffect("write action needs approval", baseInput({
+  action: {
+    executionType: "write_action"
+  }
+}), "needs_approval");
+assertEffect("high-risk action needs approval", baseInput({
+  action: {
+    riskLevel: "high"
+  }
+}), "needs_approval");
+assertEffect("sensitive action needs approval", baseInput({
+  action: {
+    sensitivity: "sensitive"
+  }
+}), "needs_approval");
+
+const adminRoleRule: OgenPolicyRule = {
+  id: "allow-admin-readonly-runtime",
+  name: "Allow admin read-only runtime",
+  description: "Test rule requiring an admin role.",
+  effect: "allow",
+  priority: 10,
+  enabled: true,
+  match: {
+    routeStatuses: ["connector_skill_approved"],
+    requiredRolesAny: ["admin"]
+  }
+};
+const defaultDenyRule: OgenPolicyRule = {
+  id: "default-deny",
+  name: "Default deny",
+  description: "Test default deny rule.",
+  effect: "block",
+  priority: 1000,
+  enabled: true,
+  match: {}
+};
+assertEffect("missing required role blocks role-required action", baseInput({ subject: { roles: ["it-support"] } }), "block", [adminRoleRule, defaultDenyRule]);
+
+const lowConfidenceDecision = evaluateOgenPolicy(baseInput({
+  interpretation: {
+    confidence: "low"
+  }
+}));
+if (lowConfidenceDecision.effect === "allow") {
+  fail("low confidence AI interpretation must not allow runtime execution");
+} else {
+  ok("low confidence AI interpretation does not allow runtime execution");
+}
+
+const defaultDenied = evaluateOgenPolicy(baseInput({
+  action: {
+    executionType: "unsupported",
+    riskLevel: undefined,
+    sensitivity: "standard"
+  }
+}));
+if (defaultDenied.effect !== "block" || defaultDenied.deniedByDefault !== true || !defaultDenied.matchedRuleIds.includes("default-deny")) {
+  fail("default unmatched policy input should be denied by default");
+} else {
+  ok("default unmatched policy input is blocked");
+}
+
+const allowRule: OgenPolicyRule = {
+  id: "allow-test",
+  name: "Allow test",
+  description: "Allow test route.",
+  effect: "allow",
+  priority: 20,
+  enabled: true,
+  match: {
+    routeStatuses: ["connector_skill_approved"]
+  }
+};
+const blockRule: OgenPolicyRule = {
+  id: "block-test",
+  name: "Block test",
+  description: "Block test route.",
+  effect: "block",
+  priority: 30,
+  enabled: true,
+  match: {
+    routeStatuses: ["connector_skill_approved"]
+  }
+};
+assertEffect("block rule overrides allow rule", baseInput(), "block", [allowRule, blockRule, defaultDenyRule]);
+
+const parsedPackageJson = JSON.parse(packageJson) as { scripts?: Record<string, string> };
+if (parsedPackageJson.scripts?.["verify:ogen-policy-engine"] !== "tsx scripts/verify-ogen-policy-engine.ts") {
+  fail("package.json should include verify:ogen-policy-engine");
+} else {
+  ok("package.json includes verify:ogen-policy-engine");
+}
+if (!parsedPackageJson.scripts?.["verify:v2-plan"]?.includes("verify:ogen-policy-engine")) {
+  fail("verify:v2-plan should include verify:ogen-policy-engine");
+} else {
+  ok("verify:v2-plan includes verify:ogen-policy-engine");
+}
+
+for (const phrase of [
+  "Phase 2.11  Ogen Policy Engine Boundary",
+  "AI interpretation is advisory",
+  "deny-by-default",
+  "policy decisions are audit proof",
+  "metadata-only connector trust cannot execute runtime",
+  "tenant-scoped policy storage"
+]) {
+  requireIncludes(platformDocs, phrase, "platform docs cover Ogen policy engine boundary");
+}
+
+requireIncludes(productIdentityDocs, "AI can interpret. Ogen decides. Runtime executes only approved actions. Audit proves what happened.", "product identity docs include Ogen policy principle");
+
+if (failed) {
+  process.exitCode = 1;
+} else {
+  console.log("Ogen policy engine verification passed.");
+}

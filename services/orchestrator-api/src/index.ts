@@ -54,7 +54,7 @@ import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation.js"
 import { AuditEvents } from "./audit/auditEvents.js";
 import { appendPlatformAuditEvent } from "./audit/platformAuditStore.js";
 import { defaultTenantId } from "./tenant/tenantContext.js";
-import { evaluateConnectorPolicy } from "./policy/connectorPolicy.js";
+import { evaluateConnectorPolicy, type ConnectorPolicyEvaluation } from "./policy/connectorPolicy.js";
 import { detectAdversarialIntent } from "./adversarialIntent.js";
 import { buildExecutionGateStack } from "./executionGateStack.js";
 import { resolvePendingInteraction } from "./pendingInteractionResolver.js";
@@ -949,6 +949,41 @@ async function appendSecurityBlockedAuditEvent(params: {
   });
 }
 
+async function appendConnectorPolicyDecisionAuditEvent(params: {
+  connectorRouting: ConnectorRoutingDecision;
+  connectorPolicy: ConnectorPolicyEvaluation;
+  actor?: VerifiedUserIdentity;
+}): Promise<void> {
+  const { connectorRouting, connectorPolicy, actor } = params;
+  await appendPlatformAuditEvent({
+    actorProvider: actor?.provider,
+    actorSubject: actor?.subject,
+    actorEmail: actor?.email,
+    eventType: AuditEvents.POLICY_DECISION_EVALUATED,
+    resourceType: "connector",
+    resourceId: connectorRouting.connectorId,
+    safeMetadata: {
+      decisionId: connectorPolicy.decisionId,
+      policyVersion: connectorPolicy.policyVersion,
+      effect: connectorPolicy.effect,
+      matchedRuleIds: connectorPolicy.matchedRuleIds,
+      inputHash: connectorPolicy.inputHash,
+      deniedByDefault: connectorPolicy.deniedByDefault,
+      requiresApproval: connectorPolicy.requiresApproval,
+      reason: connectorPolicy.reason,
+      connectorId: connectorRouting.connectorId,
+      resourceSystem: connectorRouting.resourceSystem,
+      skillId: connectorRouting.skillId,
+      riskLevel: connectorRouting.riskLevel,
+      executionType: connectorRouting.executionType,
+      runtimeMode: connectorRouting.runtimeMode,
+      protectedMaterialExposed: false,
+      tokenMaterialStored: false,
+      promptTextStored: false
+    }
+  });
+}
+
 async function appendConnectorRuntimeAuditEvents(params: {
   connectorRouting: ConnectorRoutingDecision;
   connectorRuntime: ConnectorRuntimeResult;
@@ -1801,14 +1836,14 @@ function safeUserIdentity(sessionToken?: string): UserIdentitySummary {
   return userIdentityProvider.publicIdentity(currentUserIdentity(sessionToken));
 }
 
-function canExecuteConnectorRuntime(decision: ConnectorRoutingDecision, policy: ReturnType<typeof evaluateConnectorPolicy>): boolean {
+function canExecuteConnectorRuntime(decision: ConnectorRoutingDecision, policy: ConnectorPolicyEvaluation): boolean {
   return decision.status === "connector_skill_approved" &&
     decision.runtimeMode === "external_runtime_available" &&
     policy.effect === "allow" &&
     decision.requiresApproval !== true;
 }
 
-function connectorPolicyFinalAnswer(decision: ConnectorRoutingDecision, policy: ReturnType<typeof evaluateConnectorPolicy>): string | undefined {
+function connectorPolicyFinalAnswer(decision: ConnectorRoutingDecision, policy: ConnectorPolicyEvaluation): string | undefined {
   const skill = decision.skillLabel ?? decision.skillId ?? "requested connector skill";
   if (policy.effect === "needs_approval") {
     return `Approval required: Gateway policy stopped ${skill} before runtime execution. ${policy.reason} No runtime token was issued and no external connector runtime was called.`;
@@ -3117,14 +3152,65 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
 
   if (connectorRouting.status !== "needs_more_info") {
     const connectorStatus = connectorRoutingStatusLabel(connectorRouting.status);
+    const policyInterpretation = incidentInterpretation ?? routingDecision.requestInterpretation;
     const connectorPolicy = evaluateConnectorPolicy({
+      tenantId: defaultTenantId(),
+      conversationId,
       connectorRouteStatus: connectorRouting.status,
+      runtimeMode: connectorRouting.runtimeMode,
+      connectorId: connectorRouting.connectorId,
+      resourceSystem: connectorRouting.resourceSystem,
+      skillId: connectorRouting.skillId,
+      skillLabel: connectorRouting.skillLabel,
+      interpretation: policyInterpretation
+        ? {
+            interpretationSource: policyInterpretation.interpretationSource,
+            scope: policyInterpretation.scope,
+            intentType: policyInterpretation.intentType,
+            requestedCapability: policyInterpretation.requestedCapability,
+            confidence: policyInterpretation.confidence
+          }
+        : undefined,
+      subject: {
+        tenantId: defaultTenantId(),
+        provider: verifiedUser?.provider,
+        issuer: verifiedUser?.issuer,
+        subject: verifiedUser?.subject,
+        email: verifiedUser?.email,
+        roles: verifiedUser?.roles ?? []
+      },
+      resource: {
+        connectorId: connectorRouting.connectorId,
+        resourceSystem: connectorRouting.resourceSystem,
+        resourceId: connectorRouting.targetResourceName,
+        resourceType: connectorRouting.targetResourceSystem,
+        environment: "unknown"
+      },
+      action: {
+        skillId: connectorRouting.skillId,
+        skillLabel: connectorRouting.skillLabel
+      },
       riskLevel: connectorRouting.riskLevel,
       executionType: connectorRouting.executionType,
       requiresApproval: connectorRouting.requiresApproval,
       sensitivity: connectorRouting.sensitivity
     });
+    await appendConnectorPolicyDecisionAuditEvent({
+      connectorRouting,
+      connectorPolicy,
+      actor: verifiedUser
+    });
     const runtimeExecutable = canExecuteConnectorRuntime(connectorRouting, connectorPolicy);
+    const policyProof = {
+      policyVersion: connectorPolicy.policyVersion,
+      decisionId: connectorPolicy.decisionId,
+      effect: connectorPolicy.effect,
+      matchedRuleIds: connectorPolicy.matchedRuleIds,
+      inputHash: connectorPolicy.inputHash,
+      deniedByDefault: connectorPolicy.deniedByDefault,
+      requiresApproval: connectorPolicy.requiresApproval,
+      reason: connectorPolicy.reason
+    };
     const connectorRuntime = runtimeExecutable
       ? await executeApprovedConnectorSkill({
           message: effectiveMessage,
@@ -3154,7 +3240,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           sensitivity: connectorRouting.sensitivity,
           runtimeMode: connectorRouting.runtimeMode,
           runtimeExecution: runtimeExecutable ? "external_runtime_available" : "not_executed",
-          policy: connectorPolicy
+          policy: connectorPolicy,
+          policyProof
         }
       }
     ];

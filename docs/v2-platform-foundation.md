@@ -504,6 +504,14 @@ The smoke writes safe synthetic records and then recreates the `PlatformStateSto
 
 Connector trust metadata survives restart as restart-surviving metadata, but rehydrated connector trust remains metadata-only. Runtime execution after restart still requires fresh runtime validation or re-onboarding before a persisted connector can execute. The smoke does not store raw tokens, raw prompts, passwords, password hashes, raw owner keys, or secrets.
 
+### Phase 2.11  Ogen Policy Engine Boundary
+
+Ogen now has a formal, explainable, versioned policy engine boundary. AI interpretation is advisory, not authoritative: normalized AI/fallback interpretation can inform policy input, but it cannot authorize an action. Connector profiles remain contracts, user identity is the subject, policy is the authority, and audit is the proof.
+
+Policy is deny-by-default. Each decision has a policy version, decision ID, matched rule IDs, input hash, safe input summary, and default-deny proof. The invariant is: policy decisions are audit proof and are carried in safe runtime evidence without raw prompts, raw tokens, Authorization headers, or secrets.
+
+The runtime rule is: metadata-only connector trust cannot execute runtime. Write, high-risk, sensitive, or explicitly approval-marked actions require governed approval. Read-only connector runtime execution requires an approved connector route, external runtime availability, current user identity, connector runtime allowlist, scoped JWT issuance, and an allow decision from policy. Future tenant-scoped policy storage will move rule definitions into Postgres without changing the policy decision proof shape.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

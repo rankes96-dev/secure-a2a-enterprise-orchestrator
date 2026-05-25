@@ -35,6 +35,7 @@ const conversationOwnership = read("services/orchestrator-api/src/conversation/c
 const connectorRuntime = read("services/orchestrator-api/src/connectorRuntime.ts");
 const requireA2AAuth = read("packages/shared/src/auth/requireA2AAuth.ts");
 const connectorPolicy = read("services/orchestrator-api/src/policy/connectorPolicy.ts");
+const ogenPolicyEngine = read("services/orchestrator-api/src/policy/ogenPolicyEngine.ts");
 const executionGateStack = read("services/orchestrator-api/src/executionGateStack.ts");
 const agentCards = read("services/orchestrator-api/src/agentCards.ts");
 const onboardingUtils = read("services/orchestrator-api/src/agentOnboarding/utils.ts");
@@ -94,10 +95,11 @@ for (const phrase of [
   "executionType",
   "requiresApproval",
   "policy.effect === \"allow\"",
-  "Gateway policy requires approval before this high-risk or sensitive connector skill can execute",
+  "approval-required-for-write-or-sensitive",
+  "Ogen policy requires governed approval before this write, high-risk, or sensitive connector action can execute",
   "Gateway stopped the request because connector policy requires governed approval before runtime execution"
 ]) {
-  requireIncludes(connectorPolicy + executionGateStack + orchestrator, phrase, "connector policy approval enforcement");
+  requireIncludes(connectorPolicy + ogenPolicyEngine + executionGateStack + orchestrator, phrase, "connector policy approval enforcement");
 }
 
 const highRiskPolicy = evaluateConnectorPolicy({

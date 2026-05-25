@@ -684,6 +684,12 @@ export interface ResolveResponse {
     effect: "allow" | "block" | "needs_approval";
     reason: string;
     matchedRuleIds: string[];
+    policyVersion?: string;
+    decisionId?: string;
+    inputHash?: string;
+    deniedByDefault?: boolean;
+    requiresApproval?: boolean;
+    safeInputSummary?: Record<string, unknown>;
   };
   connectorRuntime?: {
     executed: boolean;
