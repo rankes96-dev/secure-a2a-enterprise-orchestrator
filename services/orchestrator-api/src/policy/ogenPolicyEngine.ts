@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { OgenPolicyDecision, OgenPolicyEffect, OgenPolicyInput, OgenPolicyRule } from "./ogenPolicyTypes.js";
+import type { OgenPolicyDecision, OgenPolicyEffect, OgenPolicyInput, OgenPolicyMatchedRuleSummary, OgenPolicyRule } from "./ogenPolicyTypes.js";
 
 export const OGEN_POLICY_VERSION = "ogen.policy.v1";
 
@@ -247,53 +247,111 @@ function ruleMatches(input: OgenPolicyInput, rule: OgenPolicyRule): boolean {
   return true;
 }
 
-function buildDecision(
-  input: OgenPolicyInput,
-  effect: OgenPolicyEffect,
-  reason: string,
-  matchedGuardrailRuleIds: string[],
-  matchedTenantRuleIds: string[],
-  deniedByDefault: boolean
-): OgenPolicyDecision {
+function ruleSummary(rule: OgenPolicyRule, source: "guardrail" | "tenant"): OgenPolicyMatchedRuleSummary {
+  return {
+    id: rule.id,
+    name: rule.name,
+    effect: rule.effect,
+    source,
+    description: rule.description
+  };
+}
+
+function primaryRule(params: {
+  effect: OgenPolicyEffect;
+  guardrailRules: OgenPolicyRule[];
+  tenantRules: OgenPolicyRule[];
+  deniedByDefault: boolean;
+}): { rule?: OgenPolicyRule; source?: "guardrail" | "tenant" | "default" } {
+  if (params.deniedByDefault) {
+    return {
+      rule: params.tenantRules.find((rule) => rule.id === "default-deny"),
+      source: "default"
+    };
+  }
+
+  const guardrail = params.guardrailRules.find((rule) => rule.effect === params.effect);
+  if (guardrail) {
+    return { rule: guardrail, source: "guardrail" };
+  }
+
+  const tenant = params.tenantRules.find((rule) => rule.effect === params.effect);
+  return tenant ? { rule: tenant, source: "tenant" } : {};
+}
+
+function reasonFromMatchedRules(params: {
+  effect: OgenPolicyEffect;
+  guardrailRules: OgenPolicyRule[];
+  tenantRules: OgenPolicyRule[];
+  deniedByDefault: boolean;
+}): string {
+  if (params.deniedByDefault) {
+    return "Ogen policy denied the request by default because no tenant allow rule matched.";
+  }
+
+  const primary = primaryRule(params);
+  if (!primary.rule || !primary.source) {
+    return "Ogen policy denied the request by default because no tenant allow rule matched.";
+  }
+
+  if (primary.source === "guardrail" && params.effect === "block") {
+    return `Ogen guardrail blocked the request: ${primary.rule.name}. ${primary.rule.description}`;
+  }
+
+  if (primary.source === "tenant" && params.effect === "block") {
+    return `Tenant policy blocked the request: ${primary.rule.name}. ${primary.rule.description}`;
+  }
+
+  if (primary.source === "guardrail" && params.effect === "needs_approval") {
+    return `Ogen guardrail requires approval: ${primary.rule.name}. ${primary.rule.description}`;
+  }
+
+  if (primary.source === "tenant" && params.effect === "needs_approval") {
+    return `Tenant policy requires approval: ${primary.rule.name}. ${primary.rule.description}`;
+  }
+
+  if (primary.source === "tenant" && params.effect === "allow") {
+    return `Tenant policy allowed the request: ${primary.rule.name}. ${primary.rule.description}`;
+  }
+
+  return `${primary.rule.name}. ${primary.rule.description}`;
+}
+
+function buildDecision(params: {
+  input: OgenPolicyInput;
+  effect: OgenPolicyEffect;
+  guardrailRules: OgenPolicyRule[];
+  tenantRules: OgenPolicyRule[];
+  deniedByDefault: boolean;
+  reason?: string;
+}): OgenPolicyDecision {
+  const { input, effect, guardrailRules, tenantRules, deniedByDefault } = params;
   const summary = safeInputSummary(input);
+  const matchedGuardrailRuleIds = guardrailRules.map((rule) => rule.id);
+  const matchedTenantRuleIds = tenantRules.map((rule) => rule.id);
   const matchedRuleIds = [...matchedGuardrailRuleIds, ...matchedTenantRuleIds];
+  const primary = primaryRule({ effect, guardrailRules, tenantRules, deniedByDefault });
   return {
     decisionId: randomUUID(),
     tenantId: input.tenantId,
     policyVersion: input.policyVersion,
     effect,
-    reason,
+    reason: params.reason ?? reasonFromMatchedRules({ effect, guardrailRules, tenantRules, deniedByDefault }),
+    primaryRuleId: primary.rule?.id,
+    primaryRuleSource: primary.source,
     matchedRuleIds,
     matchedGuardrailRuleIds,
     matchedTenantRuleIds,
+    matchedRuleSummaries: [
+      ...guardrailRules.map((rule) => ruleSummary(rule, "guardrail")),
+      ...tenantRules.map((rule) => ruleSummary(rule, "tenant"))
+    ],
     deniedByDefault,
     requiresApproval: effect === "needs_approval",
     createdAt: new Date().toISOString(),
     inputHash: inputHash(summary),
     safeInputSummary: summary
   };
-}
-
-function reasonFor(effect: OgenPolicyEffect, matchedRuleIds: string[]): string {
-  if (matchedRuleIds.includes("block-unapproved-route")) {
-    return "Connector route is not approved for runtime execution.";
-  }
-  if (matchedRuleIds.includes("block-low-confidence-interpretation")) {
-    return "Request interpretation confidence is too low for runtime execution.";
-  }
-  if (matchedRuleIds.includes("block-metadata-only-runtime")) {
-    return "Connector trust metadata is metadata-only; runtime execution requires fresh runtime validation.";
-  }
-  if (matchedRuleIds.includes("block-missing-action-risk-metadata")) {
-    return "Connector action is missing explicit execution type or risk classification.";
-  }
-  if (effect === "needs_approval") {
-    return "Ogen policy requires governed approval before this write, high-risk, or sensitive connector action can execute.";
-  }
-  if (effect === "allow") {
-    return "Ogen policy allowed this approved read-only connector runtime action.";
-  }
-  return "Ogen policy denied the request by default.";
 }
 
 export function evaluateOgenPolicy(input: OgenPolicyInput, rules = defaultOgenPolicyRules): OgenPolicyDecision {
@@ -315,14 +373,14 @@ export function evaluateOgenPolicy(input: OgenPolicyInput, rules = defaultOgenPo
     }
 
     if (!roleRequirementSatisfied(input, rule)) {
-      return buildDecision(
+      return buildDecision({
         input,
-        "block",
-        `Required policy role is missing for rule ${rule.id}.`,
-        [rule.id],
-        [],
-        false
-      );
+        effect: "block",
+        guardrailRules: [rule],
+        tenantRules: [],
+        deniedByDefault: false,
+        reason: `Required policy role is missing for guardrail ${rule.name}. ${rule.description}`
+      });
     }
 
     matchedGuardrails.push(rule);
@@ -330,8 +388,13 @@ export function evaluateOgenPolicy(input: OgenPolicyInput, rules = defaultOgenPo
 
   const guardrailBlocks = matchedGuardrails.filter((rule) => rule.effect === "block");
   if (guardrailBlocks.length > 0) {
-    const matchedRuleIds = guardrailBlocks.map((rule) => rule.id);
-    return buildDecision(input, "block", reasonFor("block", matchedRuleIds), matchedRuleIds, [], false);
+    return buildDecision({
+      input,
+      effect: "block",
+      guardrailRules: guardrailBlocks,
+      tenantRules: [],
+      deniedByDefault: false
+    });
   }
 
   const guardrailApprovalRules = matchedGuardrails.filter((rule) => rule.effect === "needs_approval");
@@ -343,14 +406,14 @@ export function evaluateOgenPolicy(input: OgenPolicyInput, rules = defaultOgenPo
     }
 
     if (!roleRequirementSatisfied(input, rule)) {
-      return buildDecision(
+      return buildDecision({
         input,
-        "block",
-        `Required policy role is missing for rule ${rule.id}.`,
-        guardrailApprovalRuleIds,
-        [rule.id],
-        false
-      );
+        effect: "block",
+        guardrailRules: guardrailApprovalRules,
+        tenantRules: [rule],
+        deniedByDefault: false,
+        reason: `Required policy role is missing for tenant policy ${rule.name}. ${rule.description}`
+      });
     }
 
     matchedTenantRules.push(rule);
@@ -358,36 +421,43 @@ export function evaluateOgenPolicy(input: OgenPolicyInput, rules = defaultOgenPo
 
   const tenantBlocks = matchedTenantRules.filter((rule) => rule.effect === "block");
   if (tenantBlocks.length > 0) {
-    const matchedTenantRuleIds = tenantBlocks.map((rule) => rule.id);
-    return buildDecision(input, "block", reasonFor("block", matchedTenantRuleIds), guardrailApprovalRuleIds, matchedTenantRuleIds, false);
+    return buildDecision({
+      input,
+      effect: "block",
+      guardrailRules: guardrailApprovalRules,
+      tenantRules: tenantBlocks,
+      deniedByDefault: false
+    });
   }
 
   const tenantApprovalRules = matchedTenantRules.filter((rule) => rule.effect === "needs_approval");
   if (guardrailApprovalRules.length > 0 || tenantApprovalRules.length > 0) {
-    const matchedTenantRuleIds = tenantApprovalRules.map((rule) => rule.id);
-    return buildDecision(
+    return buildDecision({
       input,
-      "needs_approval",
-      reasonFor("needs_approval", [...guardrailApprovalRuleIds, ...matchedTenantRuleIds]),
-      guardrailApprovalRuleIds,
-      matchedTenantRuleIds,
-      false
-    );
+      effect: "needs_approval",
+      guardrailRules: guardrailApprovalRules,
+      tenantRules: tenantApprovalRules,
+      deniedByDefault: false
+    });
   }
 
   const tenantAllowRules = matchedTenantRules.filter((rule) => rule.effect === "allow");
   if (tenantAllowRules.length > 0) {
-    const matchedTenantRuleIds = tenantAllowRules.map((rule) => rule.id);
-    return buildDecision(input, "allow", reasonFor("allow", matchedTenantRuleIds), [], matchedTenantRuleIds, false);
+    return buildDecision({
+      input,
+      effect: "allow",
+      guardrailRules: [],
+      tenantRules: tenantAllowRules,
+      deniedByDefault: false
+    });
   }
 
   const defaultRule = enabledTenantRules.find((rule) => rule.id === "default-deny");
-  return buildDecision(
+  return buildDecision({
     input,
-    "block",
-    "Ogen policy denied the request by default because no allow rule matched.",
-    [],
-    defaultRule ? [defaultRule.id] : [],
-    true
-  );
+    effect: "block",
+    guardrailRules: [],
+    tenantRules: defaultRule ? [defaultRule] : [],
+    deniedByDefault: true
+  });
 }

@@ -96,7 +96,8 @@ for (const phrase of [
   "requiresApproval",
   "policy.effect === \"allow\"",
   "approval-required-for-write-or-sensitive",
-  "Ogen policy requires governed approval before this write, high-risk, or sensitive connector action can execute",
+  "Ogen guardrail requires approval",
+  "Require approval for write or sensitive actions",
   "Gateway stopped the request because connector policy requires governed approval before runtime execution"
 ]) {
   requireIncludes(connectorPolicy + ogenPolicyEngine + executionGateStack + orchestrator, phrase, "connector policy approval enforcement");

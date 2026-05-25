@@ -683,9 +683,18 @@ export interface ResolveResponse {
   connectorPolicy?: {
     effect: "allow" | "block" | "needs_approval";
     reason: string;
+    primaryRuleId?: string;
+    primaryRuleSource?: "guardrail" | "tenant" | "default";
     matchedRuleIds: string[];
     matchedGuardrailRuleIds?: string[];
     matchedTenantRuleIds?: string[];
+    matchedRuleSummaries?: Array<{
+      id: string;
+      name: string;
+      effect: "allow" | "block" | "needs_approval";
+      source: "guardrail" | "tenant";
+      description: string;
+    }>;
     policyVersion?: string;
     decisionId?: string;
     inputHash?: string;

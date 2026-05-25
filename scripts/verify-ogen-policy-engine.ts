@@ -167,8 +167,11 @@ const platformDocs = read("docs/v2-platform-foundation.md");
 const productIdentityDocs = read("docs/ogen-product-identity.md");
 
 requireIncludes(policyTypes, "export type OgenPolicyInput", "Ogen policy types exist");
+requireIncludes(policyTypes, "export type OgenPolicyMatchedRuleSummary", "Ogen policy matched rule summary exists");
 requireIncludes(policyTypes, "export type OgenPolicyDecision", "Ogen policy decision type exists");
 requireIncludes(policyEngine, "export function evaluateOgenPolicy", "Ogen policy engine exists");
+requireIncludes(policyEngine, "function ruleSummary", "policy engine builds matched rule summaries");
+requireIncludes(policyEngine, "function reasonFromMatchedRules", "policy engine builds explainable reasons");
 requireIncludes(policyEngine, "mandatoryOgenPolicyGuardrails", "Ogen policy engine defines mandatory guardrails");
 requireIncludes(policyEngine, "defaultTenantOgenPolicyRules", "Ogen policy engine defines tenant rules");
 requireIncludes(policyEngine, "defaultOgenPolicyRules", "Ogen policy engine defines default rules");
@@ -201,9 +204,12 @@ requireIncludes(policyEngine, "guardrailApprovalRules.length > 0 || tenantApprov
 for (const phrase of [
   "policyVersion",
   "decisionId",
+  "primaryRuleId",
+  "primaryRuleSource",
   "matchedRuleIds",
   "matchedGuardrailRuleIds",
   "matchedTenantRuleIds",
+  "matchedRuleSummaries",
   "inputHash",
   "deniedByDefault",
   "safeInputSummary"
@@ -213,11 +219,17 @@ for (const phrase of [
 }
 
 requireIncludes(connectorPolicy, "evaluateOgenPolicy(policyInput)", "connectorPolicy wraps Ogen policy engine");
+requireIncludes(connectorPolicy, "primaryRuleId: decision.primaryRuleId", "connectorPolicy returns primary rule id");
+requireIncludes(connectorPolicy, "primaryRuleSource: decision.primaryRuleSource", "connectorPolicy returns primary rule source");
+requireIncludes(connectorPolicy, "matchedRuleSummaries: decision.matchedRuleSummaries", "connectorPolicy returns matched rule summaries");
 requireIncludes(connectorPolicy, "OGEN_POLICY_VERSION", "connectorPolicy uses versioned policy");
 requireIncludes(connectorPolicy, 'runtimeMode: input.runtimeMode ?? "not_available"', "connectorPolicy defaults missing runtime mode to not available");
 requireNotIncludes(connectorPolicy, '? "external_runtime_available" : "not_available"', "connectorPolicy does not infer runtime availability from approved route");
 requireIncludes(backend, "policyProof", "runtime evidence includes policy proof fields");
 requireIncludes(executionGateStack, "policyDecisionId", "execution gate evidence includes policy decision id");
+requireIncludes(executionGateStack, "policyPrimaryRuleId", "execution gate evidence includes primary rule id");
+requireIncludes(executionGateStack, "policyPrimaryRuleSource", "execution gate evidence includes primary rule source");
+requireIncludes(executionGateStack, "policyMatchedRuleSummaries", "execution gate evidence includes matched rule summaries");
 requireIncludes(executionGateStack, "policyInputHash", "execution gate evidence includes policy input hash");
 requireIncludes(executionGateStack, "policyMatchedGuardrailRuleIds", "execution gate evidence includes guardrail rule ids");
 requireIncludes(executionGateStack, "policyMatchedTenantRuleIds", "execution gate evidence includes tenant rule ids");
@@ -225,6 +237,9 @@ requireIncludes(auditEvents, 'POLICY_DECISION_EVALUATED: "policy.decision.evalua
 requireIncludes(backend, "appendConnectorPolicyDecisionAuditEvent", "backend appends policy decision audit proof");
 requireIncludes(backend, "matchedGuardrailRuleIds: connectorPolicy.matchedGuardrailRuleIds", "audit/runtime proof includes guardrail rule ids");
 requireIncludes(backend, "matchedTenantRuleIds: connectorPolicy.matchedTenantRuleIds", "audit/runtime proof includes tenant rule ids");
+requireIncludes(backend, "primaryRuleId: connectorPolicy.primaryRuleId", "audit/runtime proof includes primary rule id");
+requireIncludes(backend, "primaryRuleSource: connectorPolicy.primaryRuleSource", "audit/runtime proof includes primary rule source");
+requireIncludes(backend, "matchedRuleSummaries: connectorPolicy.matchedRuleSummaries", "audit/runtime proof includes matched rule summaries");
 
 for (const marker of [
   "access" + "_token",
@@ -245,9 +260,13 @@ requireNotIncludes(policyEngine, 'input.action.riskLevel === undefined', "allow 
 const approvedReadonlyDecision = assertEffect("approved read-only external runtime is allowed", baseInput(), "allow");
 if (
   !approvedReadonlyDecision?.matchedTenantRuleIds.includes("allow-readonly-approved-runtime") ||
-  approvedReadonlyDecision.matchedGuardrailRuleIds.length !== 0
+  approvedReadonlyDecision.matchedGuardrailRuleIds.length !== 0 ||
+  approvedReadonlyDecision.primaryRuleId !== "allow-readonly-approved-runtime" ||
+  approvedReadonlyDecision.primaryRuleSource !== "tenant" ||
+  !approvedReadonlyDecision.reason.includes("Tenant policy allowed the request") ||
+  !approvedReadonlyDecision.matchedRuleSummaries.some((rule) => rule.id === "allow-readonly-approved-runtime" && rule.source === "tenant")
 ) {
-  fail("approved read-only decision should be allowed by tenant rule after guardrails pass");
+  fail("approved read-only decision should be explainably allowed by tenant rule after guardrails pass");
 } else {
   ok("approved read-only decision separates tenant allow from guardrails");
 }
@@ -322,6 +341,14 @@ const bypassMetadataOnly = assertEffect("tenant allow cannot bypass metadata-onl
 if (!bypassMetadataOnly?.matchedGuardrailRuleIds.includes("block-metadata-only-runtime")) {
   fail("metadata-only bypass attempt should be blocked by mandatory guardrail");
 }
+if (
+  bypassMetadataOnly?.primaryRuleId !== "block-metadata-only-runtime" ||
+  bypassMetadataOnly.primaryRuleSource !== "guardrail" ||
+  !bypassMetadataOnly.reason.includes("Ogen guardrail blocked the request") ||
+  !bypassMetadataOnly.matchedRuleSummaries.some((rule) => rule.id === "block-metadata-only-runtime" && rule.source === "guardrail")
+) {
+  fail("metadata-only guardrail decision should include explainable guardrail proof");
+}
 const bypassMissingRuntime = assertEffect("tenant allow cannot bypass missing runtimeMode guardrail", baseInput({
   connectorRoute: {
     runtimeMode: undefined
@@ -354,6 +381,13 @@ const bypassWrite = assertEffect("tenant allow cannot bypass write approval guar
 if (!bypassWrite?.matchedGuardrailRuleIds.includes("approval-required-for-write-or-sensitive")) {
   fail("write bypass attempt should require approval by mandatory guardrail");
 }
+if (
+  bypassWrite?.primaryRuleId !== "approval-required-for-write-or-sensitive" ||
+  bypassWrite.primaryRuleSource !== "guardrail" ||
+  !bypassWrite.reason.includes("Ogen guardrail requires approval")
+) {
+  fail("write approval decision should include explainable guardrail approval proof");
+}
 const bypassHighRisk = assertEffect("tenant allow cannot bypass high-risk approval guardrail", baseInput({
   action: {
     riskLevel: "high"
@@ -377,6 +411,14 @@ const tenantBlockRule: OgenPolicyRule = {
 const tenantBlocked = assertEffect("tenant block rule blocks otherwise valid read-only request", baseInput(), "block", [tenantBlockRule, tenantAllowEverythingRule]);
 if (!tenantBlocked?.matchedTenantRuleIds.includes("tenant-block-jira")) {
   fail("tenant block decision should record matched tenant rule id");
+}
+if (
+  tenantBlocked?.primaryRuleId !== "tenant-block-jira" ||
+  tenantBlocked.primaryRuleSource !== "tenant" ||
+  !tenantBlocked.reason.includes("Tenant policy blocked the request: Tenant block Jira.") ||
+  !tenantBlocked.matchedRuleSummaries.some((rule) => rule.id === "tenant-block-jira" && rule.name === "Tenant block Jira" && rule.effect === "block" && rule.source === "tenant")
+) {
+  fail("tenant block decision should include explainable tenant rule proof");
 }
 
 const adminRoleRule: OgenPolicyRule = {
@@ -422,6 +464,12 @@ const defaultDenied = evaluateOgenPolicy(baseInput({
 }));
 if (defaultDenied.effect !== "block" || defaultDenied.deniedByDefault !== true || !defaultDenied.matchedRuleIds.includes("default-deny")) {
   fail("default unmatched policy input should be denied by default");
+} else if (
+  defaultDenied.primaryRuleSource !== "default" ||
+  defaultDenied.primaryRuleId !== "default-deny" ||
+  !defaultDenied.reason.includes("denied the request by default")
+) {
+  fail("default deny decision should include default primary source and explainable reason");
 } else {
   ok("default unmatched policy input is blocked");
 }
@@ -476,6 +524,10 @@ for (const phrase of [
   "Ogen separates mandatory platform guardrails from tenant/configurable policy rules.",
   "Tenant policies can restrict further but cannot override core Ogen safety guardrails.",
   "Decision proof records matched guardrail rules and matched tenant rules separately.",
+  "Policy decisions include explainable matched rule summaries.",
+  "Ogen reports whether a decision came from a mandatory guardrail, tenant rule, or default deny.",
+  "Policy reasons are human-readable and audit-safe.",
+  "Rule summaries never include raw prompt or token material.",
   "tenant-scoped policy storage"
 ]) {
   requireIncludes(platformDocs, phrase, "platform docs cover Ogen policy engine boundary");
@@ -483,6 +535,7 @@ for (const phrase of [
 
 requireIncludes(productIdentityDocs, "AI can interpret. Ogen decides. Runtime executes only approved actions. Audit proves what happened.", "product identity docs include Ogen policy principle");
 requireIncludes(productIdentityDocs, "Tenant policy can restrict. Ogen guardrails cannot be bypassed.", "product identity docs include non-overridable guardrail principle");
+requireIncludes(productIdentityDocs, "Ogen does not just block. It explains which guardrail or tenant policy made the decision.", "product identity docs include explainability principle");
 
 if (failed) {
   process.exitCode = 1;

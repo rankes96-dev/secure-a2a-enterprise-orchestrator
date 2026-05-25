@@ -61,6 +61,8 @@ Ogen does not infer safety from missing metadata.
 
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.
 
+Ogen does not just block. It explains which guardrail or tenant policy made the decision.
+
 ## Public copy direction
 
 Ogen should sound like a product, not a protocol name.

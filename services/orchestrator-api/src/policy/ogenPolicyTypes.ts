@@ -78,15 +78,26 @@ export type OgenPolicyRule = {
   };
 };
 
+export type OgenPolicyMatchedRuleSummary = {
+  id: string;
+  name: string;
+  effect: OgenPolicyEffect;
+  source: "guardrail" | "tenant";
+  description: string;
+};
+
 export type OgenPolicyDecision = {
   decisionId: string;
   tenantId: string;
   policyVersion: string;
   effect: OgenPolicyEffect;
   reason: string;
+  primaryRuleId?: string;
+  primaryRuleSource?: "guardrail" | "tenant" | "default";
   matchedRuleIds: string[];
   matchedGuardrailRuleIds: string[];
   matchedTenantRuleIds: string[];
+  matchedRuleSummaries: OgenPolicyMatchedRuleSummary[];
   deniedByDefault: boolean;
   requiresApproval: boolean;
   createdAt: string;

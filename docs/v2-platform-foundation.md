@@ -516,6 +516,8 @@ Runtime execution requires explicit runtime availability. Runtime execution requ
 
 Ogen separates mandatory platform guardrails from tenant/configurable policy rules. Tenant policies can restrict further but cannot override core Ogen safety guardrails. Metadata-only runtime, missing runtime availability, missing action/risk metadata, low confidence interpretation, and approval-required actions are platform-level guardrails. Decision proof records matched guardrail rules and matched tenant rules separately.
 
+Policy decisions include explainable matched rule summaries. Ogen reports whether a decision came from a mandatory guardrail, tenant rule, or default deny. Policy reasons are human-readable and audit-safe. Rule summaries never include raw prompt or token material.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

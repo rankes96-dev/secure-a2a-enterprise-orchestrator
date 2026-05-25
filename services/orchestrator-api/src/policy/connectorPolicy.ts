@@ -1,6 +1,6 @@
 import type { ConnectorRoutingDecision } from "../connectorRouting.js";
 import { evaluateOgenPolicy, OGEN_POLICY_VERSION } from "./ogenPolicyEngine.js";
-import type { OgenPolicyAction, OgenPolicyDecision, OgenPolicyEffect, OgenPolicyInput, OgenPolicyResource, OgenPolicySubject } from "./ogenPolicyTypes.js";
+import type { OgenPolicyAction, OgenPolicyDecision, OgenPolicyEffect, OgenPolicyInput, OgenPolicyMatchedRuleSummary, OgenPolicyResource, OgenPolicySubject } from "./ogenPolicyTypes.js";
 
 export type ConnectorPolicyEffect = OgenPolicyEffect;
 
@@ -25,9 +25,12 @@ export type ConnectorPolicyRule = {
 export type ConnectorPolicyEvaluation = {
   effect: ConnectorPolicyEffect;
   reason: string;
+  primaryRuleId?: string;
+  primaryRuleSource?: "guardrail" | "tenant" | "default";
   matchedRuleIds: string[];
   matchedGuardrailRuleIds: string[];
   matchedTenantRuleIds: string[];
+  matchedRuleSummaries: OgenPolicyMatchedRuleSummary[];
   policyVersion: string;
   decisionId: string;
   inputHash: string;
@@ -94,9 +97,12 @@ function toConnectorPolicyEvaluation(decision: OgenPolicyDecision): ConnectorPol
   return {
     effect: decision.effect,
     reason: decision.reason,
+    primaryRuleId: decision.primaryRuleId,
+    primaryRuleSource: decision.primaryRuleSource,
     matchedRuleIds: decision.matchedRuleIds,
     matchedGuardrailRuleIds: decision.matchedGuardrailRuleIds,
     matchedTenantRuleIds: decision.matchedTenantRuleIds,
+    matchedRuleSummaries: decision.matchedRuleSummaries,
     policyVersion: decision.policyVersion,
     decisionId: decision.decisionId,
     inputHash: decision.inputHash,
