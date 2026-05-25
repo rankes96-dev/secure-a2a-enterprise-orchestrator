@@ -476,6 +476,8 @@ Frontend gating is UX only. The orchestrator still enforces session and identity
 
 The app does not expose raw Auth0 access tokens, JWTs, OAuth callback `code` / `state` / `code_verifier` values, or internal session tokens. Login tokens are not stored in `localStorage`; the frontend only uses the Gateway session cookie and safe public identity response.
 
+Browser session is not authentication. A `/session` cookie only identifies a browser session; protected operational endpoints require attached Gateway identity or an admin API key. `/agents/health` requires identity/admin access because it can expose operational state. `/debug/ai-config` is admin/API-key only by default, with any identity-based debug access limited to explicit non-production local override. Health checks do not return upstream response bodies.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
@@ -725,7 +727,7 @@ P2 findings:
 - partially fixed: token-not-issued state is shown as successful. P0 connector policy paths avoid issuing runtime tokens for blocked/approval-required execution; UI polish remains future hardening.
 - pending: malformed agent trace can crash Security Timeline UI.
 - future hardening: replay verification can leak access tokens in logs.
-- partially fixed: debug AI config endpoint exposed via self-issued sessions. Production access now requires admin/API-key access; local diagnostic behavior remains for development.
+- fixed: debug AI config endpoint exposed via self-issued sessions. Debug AI config is admin/API-key only by default; the optional identity-based diagnostic override is explicit and non-production only.
 - pending: malformed Agent Card scope can crash routing.
 - pending: composer clears messages that were not accepted.
 
@@ -748,6 +750,8 @@ P2 findings:
 - User-delegated external application authorization must use per-user connected accounts when the vendor action requires user OAuth.
 - Public `.well-known/*` metadata is okay.
 - `/admin` and debug endpoints must remain disabled or token-protected in production.
+- Browser session is not authentication; protected operational endpoints require attached Gateway identity or admin/API-key access.
+- Health checks must not echo upstream response bodies.
 - Onboarding URL allowlist protects against SSRF.
 - Runtime URL allowlist protects against untrusted runtime execution.
 - `private_key_jwt` remains preferred over `client_secret_post`.

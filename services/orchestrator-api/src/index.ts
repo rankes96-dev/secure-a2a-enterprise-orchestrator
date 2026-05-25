@@ -1665,7 +1665,7 @@ async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
           healthEndpoint: "/health",
           agentCardAvailable: false
         },
-        error: `Health endpoint returned ${response.status}${body ? ` with body ${body}` : ""}`
+        error: `Health endpoint returned ${response.status}`
       };
     }
 
@@ -1682,7 +1682,7 @@ async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
         healthEndpoint: "/health",
         agentCardAvailable: false
       },
-      error: status === "degraded" ? `Unexpected health payload: ${body}` : undefined
+      error: status === "degraded" ? "Unexpected health payload." : undefined
     };
   } catch (error) {
     return {
@@ -1695,7 +1695,7 @@ async function checkMockIdentityProviderHealth(): Promise<AgentHealthCheck> {
         healthEndpoint: "/health",
         agentCardAvailable: false
       },
-      error: error instanceof Error ? error.message : "Unknown health check failure"
+      error: "Health check failed."
     };
   } finally {
     clearTimeout(timeout);
@@ -1727,6 +1727,26 @@ function requireIdentitySession(request: IncomingMessage, response: ServerRespon
   }
 
   return { sessionToken, identity };
+}
+
+function requireIdentityOrAdminAccess(
+  request: IncomingMessage,
+  response: ServerResponse
+): { kind: "admin" } | { kind: "identity"; sessionToken: string; identity: VerifiedUserIdentity } | undefined {
+  if (hasValidClientApiKey(request)) {
+    return { kind: "admin" };
+  }
+
+  const identitySession = requireIdentitySession(request, response);
+  if (!identitySession) {
+    return undefined;
+  }
+
+  return {
+    kind: "identity",
+    sessionToken: identitySession.sessionToken,
+    identity: identitySession.identity
+  };
 }
 
 function currentUserIdentity(sessionToken?: string): VerifiedUserIdentity | undefined {
@@ -3886,7 +3906,7 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/agents/health") {
-    if (!requireClientAccess(request, response)) {
+    if (!requireIdentityOrAdminAccess(request, response)) {
       return;
     }
 
@@ -3899,12 +3919,19 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/debug/ai-config") {
-    if (process.env.NODE_ENV === "production" && !hasValidClientApiKey(request)) {
-      sendJson(response, 403, { error: "admin_access_required" }, request);
-      return;
+    if (!hasValidClientApiKey(request)) {
+      if (process.env.NODE_ENV !== "production" && process.env.ALLOW_DEBUG_AI_CONFIG_WITH_IDENTITY === "true") {
+        if (!requireIdentityOrAdminAccess(request, response)) {
+          return;
+        }
+      } else {
+        sendJson(response, 403, { error: "admin_access_required" }, request);
+        return;
+      }
     }
 
-    if (!requireClientAccess(request, response)) {
+    if (process.env.NODE_ENV === "production" && !hasValidClientApiKey(request)) {
+      sendJson(response, 403, { error: "admin_access_required" }, request);
       return;
     }
 

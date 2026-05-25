@@ -29,6 +29,23 @@ function requireRegex(source: string, pattern: RegExp, label: string): void {
   ok(label);
 }
 
+function requireNotIncludes(source: string, needle: string, label: string): void {
+  if (source.includes(needle)) {
+    fail(`${label} should not include: ${needle}`);
+  }
+  ok(label);
+}
+
+function routeBlock(source: string, method: string, path: string): string {
+  const marker = `request.method === "${method}" && request.url === "${path}"`;
+  const start = source.indexOf(marker);
+  if (start === -1) {
+    fail(`route block missing: ${method} ${path}`);
+  }
+  const next = source.indexOf("\n  if (request.method", start + marker.length);
+  return next === -1 ? source.slice(start) : source.slice(start, next);
+}
+
 function verifyFrontend(): void {
   const main = read("apps/web-ui/src/main.tsx");
   const login = read("apps/web-ui/src/components/auth/LoginScreen.tsx");
@@ -86,6 +103,22 @@ function verifyBackend(): void {
   requireRegex(backend, /\/agent-onboarding\/discover"[\s\S]*requireIdentity: true/, "backend onboarding discovery requires identity");
   requireRegex(backend, /\/agent-onboarding\/start"[\s\S]*requireIdentity: true/, "backend onboarding start requires identity");
   requireRegex(backend, /\/demo\/end-user-ready"[\s\S]*requireIdentity: true/, "backend demo preparation requires identity");
+
+  requireIncludes(backend, "function requireIdentityOrAdminAccess", "backend has identity/admin access helper");
+  const agentsHealthRoute = routeBlock(backend, "GET", "/agents/health");
+  requireIncludes(agentsHealthRoute, "requireIdentityOrAdminAccess(request, response)", "backend /agents/health uses identity/admin access");
+  requireNotIncludes(agentsHealthRoute, "requireClientAccess", "backend /agents/health avoids raw-session access helper");
+
+  const debugRoute = routeBlock(backend, "GET", "/debug/ai-config");
+  requireNotIncludes(debugRoute, "requireClientAccess", "backend /debug/ai-config avoids raw-session access helper");
+  requireIncludes(debugRoute, "hasValidClientApiKey(request)", "backend /debug/ai-config checks API key");
+  requireIncludes(debugRoute, "ALLOW_DEBUG_AI_CONFIG_WITH_IDENTITY", "backend /debug/ai-config has explicit non-production identity override");
+  requireIncludes(debugRoute, "process.env.NODE_ENV !== \"production\"", "backend /debug/ai-config override is non-production only");
+  requireIncludes(debugRoute, "admin_access_required", "backend /debug/ai-config denies missing admin access");
+
+  requireNotIncludes(backend, "with body ${body}", "backend health output avoids upstream response bodies");
+  requireNotIncludes(backend, "Unexpected health payload: ${body}", "backend health output avoids upstream unexpected payload body");
+
   requireRegex(backend, /request\.url === "\/\.well-known\/a2a-gateway\.json"[\s\S]*sendJson\(response, 200, gatewayMetadata/, "gateway metadata remains public");
   requireRegex(backend, /request\.url === "\/\.well-known\/jwks\.json"[\s\S]*sendJson\(response, 200, await gatewayPublicJwks/, "gateway JWKS remains public");
 }
@@ -101,6 +134,12 @@ function verifyDocs(): void {
   requireIncludes(deployment, "npm.cmd run db:apply-platform-schema", "deployment docs include platform schema apply");
   requireIncludes(deployment, "npm.cmd run db:seed-platform-user", "deployment docs include platform user seed");
   requireIncludes(deployment, "AUTH0_REQUIRE_USER_DIRECTORY=true", "deployment docs include Auth0 directory gate");
+  requireIncludes(platform, "Browser session is not authentication", "platform docs distinguish session from authentication");
+  requireIncludes(platform, "`/agents/health` requires identity/admin access", "platform docs cover health endpoint access");
+  requireIncludes(platform, "`/debug/ai-config` is admin/API-key only by default", "platform docs cover debug endpoint access");
+  requireIncludes(platform, "Health checks do not return upstream response bodies", "platform docs cover health body sanitization");
+  requireIncludes(deployment, "ALLOW_DEBUG_AI_CONFIG_WITH_IDENTITY=false", "deployment docs include debug identity override default");
+  requireIncludes(deployment, "Do not enable identity-based debug config in production", "deployment docs warn against production debug override");
 }
 
 verifyFrontend();

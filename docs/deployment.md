@@ -185,6 +185,10 @@ AUTH_PROVIDER=mock
 # MOCK_REQUIRE_USER_DIRECTORY=false
 # PLATFORM_ALLOWED_USER_EMAILS=
 
+# Admin/internal diagnostics:
+ORCHESTRATOR_API_KEY=<long-random-admin-api-key>
+ALLOW_DEBUG_AI_CONFIG_WITH_IDENTITY=false
+
 A2A_AUTH_MODE=oauth2_client_credentials_jwt
 REQUIRE_SECURE_A2A_AUTH=true
 A2A_IDP_URL=https://<mock-idp>.railway.app
@@ -198,6 +202,8 @@ ORCHESTRATOR_ALLOWED_AUTH_METHODS=private_key_jwt
 ```
 
 Use `ALLOWED_ORIGINS` for the browser origin. Set at least one of `GATEWAY_ISSUER` or `ORCHESTRATOR_PUBLIC_URL` to the orchestrator's real public HTTPS Railway URL; this value is published in Gateway metadata, used for the Gateway JWKS URI, and signs onboarding challenges as the issuer. `EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS` controls Agent Registry discovery and onboarding server-side fetches. `CONNECTOR_RUNTIME_ALLOWED_ORIGINS` controls `/a2a/task` execution after an agent is trusted. Both allowlists must contain only public connector origins. These entries are origins only, with scheme and host and no path, query, or fragment. If `EXTERNAL_AGENT_ONBOARDING_ALLOWED_ORIGINS` is unset, onboarding falls back to `CONNECTOR_RUNTIME_ALLOWED_ORIGINS`. Use `STATE_STORE_DRIVER=upstash` with `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for replay and security state, not browser sessions. `PLATFORM_STATE_STORE_DRIVER=postgres` is optional V2 platform persistence and requires `DATABASE_URL`; keep `PLATFORM_STATE_STORE_DRIVER=memory` for V1/local demo behavior. Do not put raw OAuth tokens, JWTs, Authorization headers, private keys, client secrets, or client assertions in Postgres platform-state tables.
+
+Use `ORCHESTRATOR_API_KEY` for admin/internal debug access such as `/debug/ai-config`. Do not enable identity-based debug config in production. `ALLOW_DEBUG_AI_CONFIG_WITH_IDENTITY=true` is only for explicit local non-production diagnostics; keep it `false` by default.
 
 For Auth0 browser login, set `AUTH0_REQUIRE_USER_DIRECTORY=true` in production so Auth0 authentication only attaches Gateway identity after the local users directory authorizes the email. The required login shell hides the main app until Gateway identity is attached. The directory stores no passwords and no raw token material, and browser login tokens are not stored in `localStorage`. In memory mode, `PLATFORM_ALLOWED_USER_EMAILS=` can seed local allowed users; if it is empty, the directory gate remains disabled unless explicitly required.
 

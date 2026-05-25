@@ -41,6 +41,17 @@ function requireOrder(source: string, first: string, second: string, context: st
   }
 }
 
+function routeBlock(source: string, method: string, path: string): string {
+  const marker = `request.method === "${method}" && request.url === "${path}"`;
+  const start = source.indexOf(marker);
+  if (start < 0) {
+    fail(`route block missing: ${method} ${path}`);
+    return "";
+  }
+  const next = source.indexOf("\n  if (request.method", start + marker.length);
+  return next < 0 ? source.slice(start) : source.slice(start, next);
+}
+
 function withEnv<T>(env: Record<string, string | undefined>, action: () => T): T {
   const previous = new Map<string, string | undefined>();
   for (const [key, value] of Object.entries(env)) {
@@ -356,12 +367,28 @@ for (const phrase of [
   "internal endpoint",
   "`${url.protocol}//${url.host}/...`",
   "admin_access_required",
+  "function requireIdentityOrAdminAccess",
   "const adminView = hasValidClientApiKey(request)",
   "const identitySession = adminView ? undefined : requireIdentitySession(request, response)",
   "buildTrustStatus(identitySession?.sessionToken ?? getSessionToken(request), adminView)"
 ]) {
   requireIncludes(orchestrator, phrase, "trust status and debug hardening");
 }
+
+const agentsHealthRoute = routeBlock(orchestrator, "GET", "/agents/health");
+requireIncludes(agentsHealthRoute, "requireIdentityOrAdminAccess(request, response)", "agents health access hardening");
+requireExcludes(agentsHealthRoute, "requireClientAccess", "agents health access hardening");
+
+const debugAiConfigRoute = routeBlock(orchestrator, "GET", "/debug/ai-config");
+for (const phrase of [
+  "hasValidClientApiKey(request)",
+  "ALLOW_DEBUG_AI_CONFIG_WITH_IDENTITY",
+  "process.env.NODE_ENV !== \"production\"",
+  "admin_access_required"
+]) {
+  requireIncludes(debugAiConfigRoute, phrase, "debug AI config access hardening");
+}
+requireExcludes(debugAiConfigRoute, "requireClientAccess", "debug AI config access hardening");
 
 for (const phrase of [
   "dangerousRuntimeResponseString",
