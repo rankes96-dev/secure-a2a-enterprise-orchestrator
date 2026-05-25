@@ -31,6 +31,26 @@ function requireExcludes(source: string, phrase: string, context: string): void 
   }
 }
 
+function routeBlock(source: string, method: string, path: string): string {
+  const marker = `request.method === "${method}" && request.url === "${path}"`;
+  const start = source.indexOf(marker);
+  if (start < 0) {
+    fail(`route block missing: ${method} ${path}`);
+    return "";
+  }
+
+  const nextRoute = source.indexOf("\n  if (request.method", start + marker.length);
+  return nextRoute < 0 ? source.slice(start) : source.slice(start, nextRoute);
+}
+
+function requireBefore(source: string, first: string, second: string, context: string): void {
+  const firstIndex = source.indexOf(first);
+  const secondIndex = source.indexOf(second);
+  if (firstIndex < 0 || secondIndex < 0 || firstIndex > secondIndex) {
+    fail(`${context} should contain ${first} before ${second}`);
+  }
+}
+
 function auth0Identity(email: string, subject = "auth0|user-1"): VerifiedUserIdentity {
   return {
     provider: "auth0",
@@ -272,6 +292,22 @@ requireIncludes(index, "await requireFreshIdentitySession(request, response)", "
 requireIncludes(index, "await appendIdentityDeniedAuditEvent(identitySession.identity, directoryAccess.reason, tenantId)", "fresh session denied audit");
 requireIncludes(index, "sendJson(response, directoryAccess.status", "fresh session safe denied status");
 requireIncludes(index, "message: directoryAccess.message", "fresh session safe denied message");
+
+const identityAttachRoute = routeBlock(index, "POST", "/identity/session");
+const demoLoginRoute = routeBlock(index, "POST", "/identity/demo-login");
+
+for (const [route, context] of [
+  [identityAttachRoute, "POST /identity/session denied attach"],
+  [demoLoginRoute, "POST /identity/demo-login denied attach"]
+] as const) {
+  requireBefore(route, "userIdentitiesBySession.delete(sessionToken)", "await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId)", context);
+  requireBefore(route, "userIdentitiesBySession.delete(sessionToken)", 'error: "user_directory_access_denied"', context);
+  requireIncludes(route, 'error: "user_directory_access_denied"', context);
+  requireIncludes(route, "message: directoryAccess.message", context);
+  requireIncludes(route, "await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId)", context);
+  requireExcludes(route, "console.log", context);
+  requireExcludes(route, "console.error", context);
+}
 
 for (const phrase of [
   "USER_IDENTITY_DENIED",

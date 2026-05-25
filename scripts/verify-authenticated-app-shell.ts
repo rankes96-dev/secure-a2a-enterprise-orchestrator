@@ -108,6 +108,14 @@ function verifyBackend(): void {
   const identitySessionRoute = routeBlock(backend, "GET", "/identity/session");
   requireIncludes(identitySessionRoute, "await requireFreshIdentitySession(request, response)", "backend current identity uses fresh directory revalidation");
 
+  for (const [method, path] of [
+    ["POST", "/identity/session"],
+    ["POST", "/identity/demo-login"]
+  ] as const) {
+    const route = routeBlock(backend, method, path);
+    requireRegex(route, /userIdentitiesBySession\.delete\(sessionToken\)[\s\S]*user_directory_access_denied/, `backend ${path} clears stale identity on denied attach`);
+  }
+
   const resolveRoute = routeBlock(backend, "POST", "/resolve");
   requireIncludes(resolveRoute, "await requireFreshIdentitySession(request, response)", "backend /resolve uses fresh directory revalidation");
 

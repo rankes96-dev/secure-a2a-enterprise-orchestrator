@@ -4043,6 +4043,7 @@ async function start(): Promise<void> {
       const tenantId = defaultTenantId();
       const directoryAccess = await verifyUserDirectoryAccess({ identity, tenantId });
       if (!directoryAccess.ok) {
+        userIdentitiesBySession.delete(sessionToken);
         await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId);
         sendJson(response, directoryAccess.status, {
           error: "user_directory_access_denied",
@@ -4092,6 +4093,7 @@ async function start(): Promise<void> {
       const tenantId = defaultTenantId();
       const directoryAccess = await verifyUserDirectoryAccess({ identity, tenantId });
       if (!directoryAccess.ok) {
+        userIdentitiesBySession.delete(sessionToken);
         await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId);
         sendJson(response, directoryAccess.status, {
           error: "user_directory_access_denied",
