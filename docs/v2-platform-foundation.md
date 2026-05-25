@@ -492,9 +492,9 @@ The initial migrations preserve the current safe platform model: tenant-aware us
 
 Connector trust records are persisted through `PlatformStateStore` and can now be read back into the orchestrator runtime mirror after restart. The runtime mirror can rehydrate from the store after restart. Request paths that list installed connectors, prepare demo connectors, or route `/resolve` use async read-through from the store when the process-local mirror is empty.
 
-Rehydrated connector trust records are safe metadata records. They preserve connector identity, resource system, connector profile metadata, approved actions, and blocked actions without requiring raw owner/session keys or raw token material.
+Rehydrated connector trust records are safe metadata records and use `runtimeTrustSource: "stored_metadata"`. Stored metadata can show installed connector state, support routing, and preserve connector identity, resource system, connector profile metadata, approved actions, and blocked actions without requiring raw owner/session keys or raw token material.
 
-Rehydration does not make a connector automatically executable. Stored connector records remain metadata-only unless a future safe runtime revalidation path proves current executable trust. The runtime execution still requires policy, approved skill, runtime allowlist, scoped JWT, and current Gateway user identity. Memory mode remains available for local/demo use and remains compatible with the same read-through API.
+Rehydration does not make a connector automatically executable. Stored connector records remain metadata-only unless a future safe runtime revalidation path proves current executable trust. Stored metadata cannot execute runtime until fresh runtime validation or re-onboarding occurs. Live onboarding remains the path that can enable runtime execution. The runtime execution still requires policy, approved skill, runtime allowlist, scoped JWT, and current Gateway user identity. Memory mode remains available for local/demo use and remains compatible with the same read-through API.
 
 ### Phase 3  Connector SDK
 

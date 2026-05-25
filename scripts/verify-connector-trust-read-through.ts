@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
+import { decideConnectorRoute } from "../services/orchestrator-api/src/connectorRouting.js";
+import type { TrustedOnboardedAgent } from "../services/orchestrator-api/src/agentOnboarding/types.js";
 
 let failed = false;
 
@@ -56,12 +58,21 @@ function routeBlock(source: string, method: string, path: string): string {
 
 const trustedStore = read("services/orchestrator-api/src/agentOnboarding/trustedAgentStore.ts");
 const onboardingIndex = read("services/orchestrator-api/src/agentOnboarding/index.ts");
+const types = read("services/orchestrator-api/src/agentOnboarding/types.ts");
+const responseMapper = read("services/orchestrator-api/src/agentOnboarding/responseMapper.ts");
+const connectorRouting = read("services/orchestrator-api/src/connectorRouting.ts");
 const backend = read("services/orchestrator-api/src/index.ts");
 const packageJson = read("package.json");
 const platformDocs = read("docs/v2-platform-foundation.md");
 const stateInventory = read("docs/v2-state-inventory.md");
 
 requireIncludes(trustedStore, "export async function listTrustedOnboardedAgentsForOwner", "trusted store exports async read-through helper");
+requireIncludes(types, 'runtimeTrustSource?: "live_onboarding" | "stored_metadata"', "trusted agent type includes runtime trust source marker");
+requireIncludes(types, "rehydratedFromStore?: boolean", "trusted agent type includes rehydration marker");
+requireIncludes(responseMapper, 'runtimeTrustSource: "live_onboarding"', "live onboarding marks runtime trust source");
+requireIncludes(responseMapper, "rehydratedFromStore: false", "live onboarding marks non-rehydrated trust");
+requireIncludes(trustedStore, 'runtimeTrustSource: "stored_metadata"', "stored trust hydration marks stored metadata trust");
+requireIncludes(trustedStore, "rehydratedFromStore: true", "stored trust hydration marks rehydrated records");
 requireIncludes(onboardingIndex, "listTrustedOnboardedAgentsForOwner", "agent onboarding barrel exports read-through helper");
 requireIncludes(trustedStore, "getPlatformStateStore().listConnectorTrustRecords(ownerKey)", "read-through helper loads persisted trust records by owner key");
 requireIncludes(trustedStore, "records.map(fromStoredConnectorTrustRecord)", "read-through helper hydrates stored trust records safely");
@@ -89,6 +100,12 @@ requireRegex(trustedStore, /fromStoredConnectorTrustRecord[\s\S]*executionState:
 requireRegex(trustedStore, /fromStoredConnectorTrustRecord[\s\S]*approvedActions/, "hydrated records preserve approved actions");
 requireRegex(trustedStore, /fromStoredConnectorTrustRecord[\s\S]*blockedActions/, "hydrated records preserve blocked actions");
 requireRegex(trustedStore, /fromStoredConnectorTrustRecord[\s\S]*connectorProfile/, "hydrated records preserve connector profile");
+requireIncludes(connectorRouting, 'agent.runtimeTrustSource === "stored_metadata"', "connector routing checks stored metadata trust source");
+requireIncludes(connectorRouting, "agent.rehydratedFromStore === true", "connector routing checks rehydration marker");
+requireRegex(connectorRouting, /const runtimeAvailable = !persistedMetadataOnly && isConnectorRuntimeEndpointAllowed\(onboarded\.runtimeEndpoint\)/, "connector routing blocks stored metadata from external runtime availability");
+requireRegex(connectorRouting, /trustedRuntimeEndpoint: runtimeAvailable \? onboarded\.runtimeEndpoint : undefined/, "connector routing avoids trusted runtime endpoint for stored metadata");
+requireIncludes(connectorRouting, 'runtimeMode: runtimeAvailable ? "external_runtime_available" : "metadata_only"', "connector routing keeps stored metadata runtime mode metadata_only");
+requireIncludes(connectorRouting, "Connector trust metadata was restored from persisted state, but runtime execution requires fresh runtime validation.", "connector routing explains stored metadata runtime revalidation");
 
 const demoReadyBlock = routeBlock(backend, "POST", "/demo/end-user-ready");
 requireIncludes(demoReadyBlock, "await agentCardRegistryKeyForIdentityOrAdmin(request, response)", "/demo/end-user-ready still requires fresh identity/admin access");
@@ -108,6 +125,93 @@ for (const [method, path] of [
 requireIncludes(backend, "const installedAgents = sessionToken ? await listTrustedOnboardedAgentsForOwner(sessionToken) : []", "resolve path uses connector trust read-through");
 requireIncludes(backend, "await requireFreshIdentitySession(request, response)", "protected backend routes still revalidate user directory");
 requireNotIncludes(backend, "requireIdentity: true", "session-only registry identity checks are not reintroduced");
+
+const baseAgent: TrustedOnboardedAgent = {
+  agentId: "external-jira-agent",
+  issuer: "https://agent.example",
+  clientId: "jira-agent-client",
+  audience: "secure-a2a-gateway",
+  runtimeEndpoint: "http://localhost:4201/a2a/task",
+  connectorId: "jira-reference",
+  resourceSystem: "jira",
+  connectorDisplayName: "Jira",
+  requestedScopes: [],
+  requestedApplicationGrants: [],
+  agentDeclaredSkills: ["jira.issue.status.lookup"],
+  agentDeclaredCapabilities: ["jira.issue.status.lookup"],
+  applicationAccessGrants: [],
+  grantedScopes: [],
+  effectivePermissions: [],
+  deniedPermissions: [],
+  approvedActions: [{
+    capability: "jira.issue.status.lookup",
+    label: "Look up Jira issue status",
+    reason: "Allowed in test."
+  }],
+  blockedActions: [],
+  approvedCapabilities: [{
+    capability: "jira.issue.status.lookup",
+    label: "Look up Jira issue status",
+    reason: "Allowed in test."
+  }],
+  blockedCapabilities: [],
+  connectorProfile: {
+    connectorId: "jira-reference",
+    resourceSystem: "jira",
+    displayName: "Jira",
+    version: "test",
+    profileSource: "built_in_reference"
+  },
+  connectorProfileVerified: true,
+  connectorDecisionSource: "test",
+  trustLevel: "trusted_metadata_only",
+  executable: false,
+  executionState: "metadata_only",
+  tokenEndpointAuthMethod: "private-key-jwt",
+  oauthApplicationBound: true
+};
+
+const storedMetadataDecision = decideConnectorRoute({
+  targetSystem: "jira",
+  connectorId: "jira-reference",
+  requestedSkillId: "jira.issue.status.lookup",
+  confidence: "high",
+  reason: "runtime verification test"
+}, [{
+  ...baseAgent,
+  runtimeTrustSource: "stored_metadata",
+  rehydratedFromStore: true
+}]);
+if (
+  storedMetadataDecision.status !== "connector_skill_approved" ||
+  storedMetadataDecision.runtimeMode !== "metadata_only" ||
+  storedMetadataDecision.trustedRuntimeEndpoint
+) {
+  fail("rehydrated stored metadata must approve metadata only without executable runtime endpoint");
+} else {
+  ok("rehydrated stored metadata stays metadata_only and non-executable");
+}
+
+const liveOnboardingDecision = decideConnectorRoute({
+  targetSystem: "jira",
+  connectorId: "jira-reference",
+  requestedSkillId: "jira.issue.status.lookup",
+  confidence: "high",
+  reason: "runtime verification test"
+}, [{
+  ...baseAgent,
+  runtimeTrustSource: "live_onboarding",
+  rehydratedFromStore: false
+}]);
+if (
+  liveOnboardingDecision.status !== "connector_skill_approved" ||
+  liveOnboardingDecision.runtimeMode !== "external_runtime_available" ||
+  liveOnboardingDecision.trustedRuntimeEndpoint !== "http://localhost:4201/a2a/task"
+) {
+  fail("live onboarding trust should keep allowlisted external runtime availability");
+} else {
+  ok("live onboarding trust can use allowlisted external runtime");
+}
 
 const parsedPackageJson = JSON.parse(packageJson) as { scripts?: Record<string, string> };
 if (parsedPackageJson.scripts?.["verify:connector-trust-read-through"] !== "tsx scripts/verify-connector-trust-read-through.ts") {

@@ -137,6 +137,8 @@ export function fromStoredConnectorTrustRecord(record: StoredConnectorTrustRecor
     trustLevel: metadataString(metadata.trustLevel) === "trusted_metadata_only" ? "trusted_metadata_only" : "trusted_metadata_only",
     executable: false,
     executionState: "metadata_only",
+    runtimeTrustSource: "stored_metadata",
+    rehydratedFromStore: true,
     tokenEndpointAuthMethod: tokenEndpointAuthMethod === "private-key-jwt" || tokenEndpointAuthMethod === "client-secret-post" ? tokenEndpointAuthMethod : "unknown",
     oauthApplicationBound: metadataBoolean(metadata.oauthApplicationBound)
   };

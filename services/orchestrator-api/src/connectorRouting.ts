@@ -224,6 +224,10 @@ function ambiguousResourceSystemMatch(supported: SupportedConnectorIdentity, onb
   return uniqueAgents(onboardedAgents.filter((agent) => resourceSystemMatch(agent, supported.resourceSystem))).length > 1;
 }
 
+function isPersistedMetadataOnlyTrust(agent: TrustedOnboardedAgent): boolean {
+  return agent.runtimeTrustSource === "stored_metadata" || agent.rehydratedFromStore === true;
+}
+
 export function inferConnectorRoutingIntent(message: string): ConnectorRoutingIntent {
   const fulfillmentIntent = inferAccessServiceRequestIntent(message);
   if (fulfillmentIntent) {
@@ -364,7 +368,8 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
   const approvedActions = onboarded.approvedActions ?? onboarded.approvedCapabilities;
   const approved = approvedActions.find((item) => item.capability === skillId);
   if (approved) {
-    const runtimeAvailable = isConnectorRuntimeEndpointAllowed(onboarded.runtimeEndpoint);
+    const persistedMetadataOnly = isPersistedMetadataOnlyTrust(onboarded);
+    const runtimeAvailable = !persistedMetadataOnly && isConnectorRuntimeEndpointAllowed(onboarded.runtimeEndpoint);
     // In V1, the selected runtime endpoint is the trusted runtime endpoint stored during onboarding.
     // Future policy routing may choose among multiple trusted runtime endpoints.
     return {
@@ -375,7 +380,7 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       skillId,
       skillLabel: approved.label ?? skillId,
       runtimeEndpoint: onboarded.runtimeEndpoint,
-      trustedRuntimeEndpoint: onboarded.runtimeEndpoint,
+      trustedRuntimeEndpoint: runtimeAvailable ? onboarded.runtimeEndpoint : undefined,
       audience: onboarded.audience,
       externalConfigHash: onboarded.externalConfigHash,
       connectorProfileHash: onboarded.connectorProfileHash,
@@ -386,8 +391,12 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       requiresApproval: approved.requiresApproval,
       sensitivity: approved.sensitivity,
       runtimeMode: runtimeAvailable ? "external_runtime_available" : "metadata_only",
-      reason: "Connector is onboarded and the requested skill is approved by application access grants and effective permissions.",
-      recommendedNextStep: intent.fulfillmentCapability ? "Use connector-backed request preparation flow." : "Use connector-backed diagnosis flow.",
+      reason: persistedMetadataOnly
+        ? "Connector trust metadata was restored from persisted state, but runtime execution requires fresh runtime validation."
+        : "Connector is onboarded and the requested skill is approved by application access grants and effective permissions.",
+      recommendedNextStep: persistedMetadataOnly
+        ? "Re-run connector onboarding or runtime revalidation before execution."
+        : intent.fulfillmentCapability ? "Use connector-backed request preparation flow." : "Use connector-backed diagnosis flow.",
       intentClass: intent.intentClass,
       targetResourceSystem: intent.targetResourceSystem,
       targetResourceName: intent.targetResourceName,

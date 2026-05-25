@@ -147,6 +147,8 @@ export function buildTrustedAgent(params: {
     trustLevel: "trusted_metadata_only",
     executable: false,
     executionState: "metadata_only",
+    runtimeTrustSource: "live_onboarding",
+    rehydratedFromStore: false,
     tokenEndpointAuthMethod: publicTokenEndpointAuthMethod(trustResponse.tokenEndpointAuthMethod),
     oauthApplicationBound: true
   };

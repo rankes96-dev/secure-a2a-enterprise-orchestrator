@@ -155,6 +155,8 @@ export type TrustedOnboardedAgent = {
   trustLevel: AgentTrustLevel;
   executable: false;
   executionState: "metadata_only";
+  runtimeTrustSource?: "live_onboarding" | "stored_metadata";
+  rehydratedFromStore?: boolean;
   tokenEndpointAuthMethod: "private-key-jwt" | "client-secret-post" | "unknown";
   oauthApplicationBound: boolean;
 };
