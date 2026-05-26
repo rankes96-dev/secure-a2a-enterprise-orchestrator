@@ -102,6 +102,7 @@ export function startJsonServer(
   handler: (request: IncomingMessage, response: ServerResponse) => Promise<void> | void,
   options: JsonServerOptions = {}
 ): void {
+  // Retained for the current V1/V2 server path and mock-agent helpers while Ogen adopts Fastify gradually.
   createServer(async (request, response) => {
     if (request.method === "OPTIONS") {
       sendJson(response, 204, {}, request);

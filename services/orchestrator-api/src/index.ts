@@ -30,6 +30,7 @@ import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/h
 import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards.js";
 import { routeWithAIWithProof } from "./aiRouter.js";
 import { getSafeAiConfigSummary } from "./config/aiConfig.js";
+import { startOgenFastifyServer } from "./http/startOgenFastifyServer.js";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine.js";
 import { getA2AAccessToken } from "./security/tokenClient.js";
 import {
@@ -4136,6 +4137,11 @@ async function start(): Promise<void> {
   await discoverAgentCards();
   for (const warning of validateExecutableAgentCards()) {
     console.warn(`[agent-cards] ${warning}`);
+  }
+
+  if (process.env.ORCHESTRATOR_HTTP_FRAMEWORK === "fastify") {
+    await startOgenFastifyServer(port, process.env.HOST ?? "127.0.0.1");
+    return;
   }
 
   startJsonServer(port, async (request, response) => {

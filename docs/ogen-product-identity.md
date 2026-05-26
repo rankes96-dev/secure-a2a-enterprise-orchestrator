@@ -71,6 +71,8 @@ Ogen can use explicit connector metadata to prove a read-only action is safe, bu
 
 Ogen policy is strict. The SDK makes connector metadata complete. Certification proves the connector is safe to run.
 
+Ogen APIs should be schema-first so SDKs can be generated and verified.
+
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.
 
 Ogen guardrails are immutable platform safety rules.

@@ -552,6 +552,12 @@ No SDK implementation is built in this phase. SDK readiness contracts are define
 
 The future connector SDK will generate connector profiles, safe routing views, runtime response contracts, and certification checks. Ogen policy remains strict; SDK makes metadata complete. Missing risk or execution metadata still fails closed, and the SDK contract makes explicit metadata the connector author's responsibility.
 
+### Phase 2.14  Fastify API Contract Boundary
+
+startJsonServer remains available for current V1/V2 behavior and mock agents. Fastify is introduced as a gradual schema-first HTTP boundary, not a backend rewrite.
+
+Only public metadata/health routes are migrated initially. Future protected APIs will migrate route by route. This preserves Auth0, user directory, policy, runtime safety, and audit proof behavior while preparing Ogen for OpenAPI and SDK generation.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
