@@ -71,6 +71,8 @@ function actionCatalog(value: unknown) {
           input.executionType === "unsupported"
             ? input.executionType
             : undefined;
+        const sensitivity: ConnectorActionRequirement["sensitivity"] =
+          input.sensitivity === "standard" || input.sensitivity === "sensitive" ? input.sensitivity : undefined;
         const capabilityIds = stringArray(input.capabilityIds);
         return {
           id: cleanString(input.id),
@@ -81,6 +83,8 @@ function actionCatalog(value: unknown) {
           capabilityIds: capabilityIds.length ? capabilityIds : undefined,
           riskLevel,
           executionType,
+          requiresApproval: input.requiresApproval === true || input.requiresApproval === false ? input.requiresApproval : undefined,
+          sensitivity,
           diagnosesActionId: cleanString(input.diagnosesActionId) || undefined,
           diagnosesActionLabel: cleanString(input.diagnosesActionLabel) || undefined
         };

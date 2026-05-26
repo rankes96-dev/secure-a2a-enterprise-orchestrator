@@ -13,6 +13,8 @@ export type ConnectorActionRequirement = {
   capabilityIds?: string[];
   riskLevel?: "low" | "medium" | "high" | "sensitive";
   executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
+  requiresApproval?: boolean;
+  sensitivity?: "standard" | "sensitive";
   diagnosesActionId?: string;
   diagnosesActionLabel?: string;
 };

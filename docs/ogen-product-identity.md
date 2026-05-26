@@ -69,6 +69,8 @@ Ogen does not infer safety from missing metadata.
 
 Ogen can use explicit connector metadata to prove a read-only action is safe, but it never guesses safety from missing metadata.
 
+Ogen policy is strict. The SDK makes connector metadata complete. Certification proves the connector is safe to run.
+
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.
 
 Ogen guardrails are immutable platform safety rules.

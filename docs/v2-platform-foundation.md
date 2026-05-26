@@ -546,6 +546,12 @@ AI routing proof hashes the safe routing input context, not only the message. Th
 
 Secondary AI routing receives a safe Agent Card routing view, not full Agent Cards. The safe view excludes endpoint/auth/description/secret-like metadata. Routing proof binds agent-to-skill mappings through agentSkillPairs. The routing proof hashes the safe routing view.
 
+### Phase 2.13  SDK Readiness Contracts
+
+No SDK implementation is built in this phase. SDK readiness contracts are defined now to avoid future rewrites of connector profiles, action metadata, safe routing views, runtime responses, policy proof, or AI proof boundaries.
+
+The future connector SDK will generate connector profiles, safe routing views, runtime response contracts, and certification checks. Ogen policy remains strict; SDK makes metadata complete. Missing risk or execution metadata still fails closed, and the SDK contract makes explicit metadata the connector author's responsibility.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
