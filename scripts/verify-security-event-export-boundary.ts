@@ -30,6 +30,14 @@ function requireExcludes(source: string, phrase: string, context: string): void 
   }
 }
 
+function requireOrder(source: string, first: string, second: string, context: string): void {
+  const firstIndex = source.indexOf(first);
+  const secondIndex = source.indexOf(second);
+  if (firstIndex < 0 || secondIndex < 0 || firstIndex > secondIndex) {
+    fail(`${context} should order "${first}" before "${second}"`);
+  }
+}
+
 function assertEqual(actual: unknown, expected: unknown, message: string): void {
   if (actual !== expected) {
     fail(`${message}: expected ${String(expected)}, got ${String(actual)}`);
@@ -287,6 +295,17 @@ if (runtimeAuthorizeRouteStart < 0) {
   requireIncludes(runtimeRoute, "if (!requireRequestedTenantAllowed(tenantContext))", "runtime tenant denial branch");
   requireIncludes(runtimeRoute, "await appendTenantAccessDeniedAuditEvent", "runtime tenant denial exports tenant.access.denied");
   requireIncludes(runtimeRoute, 'route: "/runtime/authorize"', "runtime tenant denial export route metadata");
+  requireIncludes(runtimeRoute, "sendTenantAccessDenied(response, request, tenantContext)", "runtime tenant denial sends tenant access denied response");
+  requireOrder(runtimeRoute, "await appendTenantAccessDeniedAuditEvent", "sendTenantAccessDenied(response, request, tenantContext)", "runtime tenant denial exports before response");
+  requireOrder(runtimeRoute, "sendTenantAccessDenied(response, request, tenantContext)", "requireGatewayCapability", "runtime tenant denial rejects before gateway RBAC");
+  requireOrder(runtimeRoute, "sendTenantAccessDenied(response, request, tenantContext)", "evaluateRuntimeAuthorization", "runtime tenant denial rejects before policy evaluation");
+  const tenantDeniedBranchStart = runtimeRoute.indexOf("if (!requireRequestedTenantAllowed(tenantContext))");
+  const tenantDeniedBranchEnd = runtimeRoute.indexOf("return;", tenantDeniedBranchStart);
+  const tenantDeniedBranch = tenantDeniedBranchStart >= 0 && tenantDeniedBranchEnd > tenantDeniedBranchStart
+    ? runtimeRoute.slice(tenantDeniedBranchStart, tenantDeniedBranchEnd)
+    : "";
+  requireExcludes(tenantDeniedBranch, "appendRuntimeAuthorizationEvaluatedAuditEvent", "runtime tenant denial branch must not export success/info evaluation");
+  requireExcludes(tenantDeniedBranch, "evaluateRuntimeAuthorization", "runtime tenant denial branch must not evaluate runtime policy");
   if (runtimeRoute.includes("appendRuntimeAuthorizationTenantDeniedAuditEvent")) {
     fail("runtime tenant denial must not export only as runtime.authorization.evaluated");
   }

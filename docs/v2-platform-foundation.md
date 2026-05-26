@@ -578,7 +578,7 @@ tenantId is resolved by Ogen. client-supplied tenantId is a hint, not authority.
 
 Auth0 organization claims such as `org_id` or `organization` must survive verified identity mapping so tenant resolution can use them as the authoritative tenant context without exposing raw JWT material to the browser.
 
-Malformed tenant and conversation hints fail safely instead of crashing request handling or entering conversation state. Tenant switching attempts through `/resolve` and `/runtime/authorize` are audited as tenant access denied with tenant resolution metadata and without raw prompts or token material.
+Malformed tenant and conversation hints fail safely instead of crashing request handling or entering conversation state. Tenant switching attempts through `/resolve` and `/runtime/authorize` are audited as tenant access denied with tenant resolution metadata and without raw prompts or token material. `/runtime/authorize` emits `tenant.access.denied` before gateway RBAC or runtime policy evaluation when the requested tenant is not accepted.
 
 Tenant denial audit records only validated string identifiers. Tenant access denials are exported as blocked security events.
 
@@ -589,6 +589,8 @@ Gateway operations are protected by role/capability checks. Roles come from veri
 RBAC is tenant-aware: gateway authorization decisions include the Ogen-resolved tenant context and fail closed when the verified identity lacks a required role for the requested capability. Connector runtime action policy remains separate from gateway RBAC; Ogen Policy Engine still decides whether a connector/runtime action is allowed, blocked, or approval-required.
 
 Connector onboarding read is a read-only bootstrap and inventory capability. UI bootstrap reads for installed connector state and supported connector readiness are available to roles that can otherwise use the gateway, including the default demo `it-support` role; connector onboarding discover and start remain admin capabilities restricted to connector, gateway, tenant, or platform admins.
+
+Mock demo role labels are mapped to canonical GatewayRole values before they become verified session roles: `read-only` maps to `security_viewer`, and `identity-admin` maps to `admin`. Alias labels are not gateway roles and do not authorize capabilities directly.
 
 Denied gateway authorization is audited with safe decision proof and exported as a blocked security event. Audit metadata includes capability, route, method, required roles, actor roles, matched role, and decision reason, without raw prompts or token material.
 

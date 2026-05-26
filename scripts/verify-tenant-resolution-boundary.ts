@@ -3,6 +3,7 @@ import type { RuntimeAuthorizationRequest } from "../packages/shared/src/index.j
 import { runtimeAuthorizationResponseSchema } from "../services/orchestrator-api/src/http/schemas/runtimeAuthorizationSchemas.js";
 import { evaluateRuntimeAuthorization } from "../services/orchestrator-api/src/runtimeAuthorization/runtimeAuthorizationEvaluator.js";
 import type { VerifiedUserIdentity } from "../services/orchestrator-api/src/security/userIdentity.js";
+import { outcomeForEventType, severityForEventType } from "../services/orchestrator-api/src/securityEvents/securityEventClassification.js";
 import { resolveTenantContext } from "../services/orchestrator-api/src/tenant/tenantResolution.js";
 
 let failed = false;
@@ -28,6 +29,26 @@ function read(path: string): string {
 function requireIncludes(source: string, phrase: string, context: string): void {
   if (!source.includes(phrase)) {
     fail(`${context} missing required phrase: ${phrase}`);
+    return;
+  }
+
+  ok(context);
+}
+
+function requireExcludes(source: string, phrase: string, context: string): void {
+  if (source.includes(phrase)) {
+    fail(`${context} should not include forbidden phrase: ${phrase}`);
+    return;
+  }
+
+  ok(context);
+}
+
+function requireOrder(source: string, first: string, second: string, context: string): void {
+  const firstIndex = source.indexOf(first);
+  const secondIndex = source.indexOf(second);
+  if (firstIndex < 0 || secondIndex < 0 || firstIndex > secondIndex) {
+    fail(`${context} should order "${first}" before "${second}"`);
     return;
   }
 
@@ -121,16 +142,18 @@ for (const phrase of [
 ]) {
   requireIncludes(runtimeRoute, phrase, "runtime authorization route uses resolved tenant and rejects unauthorized requested tenant");
 }
-const runtimeDeniedHelperStart = indexSource.indexOf("async function appendRuntimeAuthorizationTenantDeniedAuditEvent");
-const runtimeDeniedHelperEnd = indexSource.indexOf("async function appendTenantAccessDeniedAuditEvent", runtimeDeniedHelperStart);
-const runtimeDeniedHelper = runtimeDeniedHelperStart >= 0 && runtimeDeniedHelperEnd > runtimeDeniedHelperStart
-  ? indexSource.slice(runtimeDeniedHelperStart, runtimeDeniedHelperEnd)
+requireOrder(runtimeRoute, "await appendTenantAccessDeniedAuditEvent", "sendTenantAccessDenied(response, request, tenantContext)", "/runtime/authorize audits tenant denial before response");
+requireOrder(runtimeRoute, "sendTenantAccessDenied(response, request, tenantContext)", "requireGatewayCapability", "/runtime/authorize rejects unauthorized tenant before gateway RBAC");
+requireOrder(runtimeRoute, "sendTenantAccessDenied(response, request, tenantContext)", "evaluateRuntimeAuthorization", "/runtime/authorize rejects unauthorized tenant before runtime policy evaluation");
+const runtimeTenantDeniedBranchStart = runtimeRoute.indexOf("if (!requireRequestedTenantAllowed(tenantContext))");
+const runtimeTenantDeniedBranchEnd = runtimeRoute.indexOf("return;", runtimeTenantDeniedBranchStart);
+const runtimeTenantDeniedBranch = runtimeTenantDeniedBranchStart >= 0 && runtimeTenantDeniedBranchEnd > runtimeTenantDeniedBranchStart
+  ? runtimeRoute.slice(runtimeTenantDeniedBranchStart, runtimeTenantDeniedBranchEnd)
   : "";
-if (runtimeRoute.includes("appendRuntimeAuthorizationTenantDeniedAuditEvent") && !runtimeDeniedHelper.includes("AuditEvents.TENANT_ACCESS_DENIED")) {
-  fail("/runtime/authorize tenant denial must not rely on runtime.authorization.evaluated");
-} else {
-  ok("/runtime/authorize tenant denial emits tenant.access.denied");
-}
+requireIncludes(runtimeTenantDeniedBranch, "await appendTenantAccessDeniedAuditEvent", "/runtime/authorize tenant denial branch emits tenant.access.denied");
+requireExcludes(runtimeTenantDeniedBranch, "evaluateRuntimeAuthorization", "/runtime/authorize tenant denial branch does not evaluate runtime policy");
+requireExcludes(runtimeTenantDeniedBranch, "appendRuntimeAuthorizationEvaluatedAuditEvent", "/runtime/authorize tenant denial branch does not emit success/info runtime evaluation");
+requireExcludes(runtimeRoute, "appendRuntimeAuthorizationTenantDeniedAuditEvent", "/runtime/authorize does not use legacy runtime tenant-denial helper");
 
 const resolveRoute = indexSource.slice(resolveRouteStart);
 for (const phrase of [
@@ -189,6 +212,27 @@ for (const phrase of [
 ]) {
   requireIncludes(indexSource, phrase, "tenant denied audit metadata is safe");
 }
+const tenantDeniedAuditHelperStart = indexSource.indexOf("async function appendTenantAccessDeniedAuditEvent");
+const tenantDeniedAuditHelperEnd = indexSource.indexOf("\nasync function", tenantDeniedAuditHelperStart + 1);
+const tenantDeniedAuditHelper = tenantDeniedAuditHelperStart >= 0 && tenantDeniedAuditHelperEnd > tenantDeniedAuditHelperStart
+  ? indexSource.slice(tenantDeniedAuditHelperStart, tenantDeniedAuditHelperEnd)
+  : "";
+for (const forbidden of [
+  "requestBody.message",
+  "message:",
+  "access_token",
+  "refresh_token",
+  "Authorization",
+  "Bearer",
+  "client_assertion",
+  "private_key",
+  "client_secret",
+  "authorization_code",
+  "cookie",
+  "jwt"
+]) {
+  requireExcludes(tenantDeniedAuditHelper, forbidden, "tenant denied audit helper avoids protected material");
+}
 if (indexSource.includes("conversationId: requestBody.conversationId")) {
   fail("/resolve tenant denial must not audit raw requestBody.conversationId");
 } else {
@@ -206,6 +250,16 @@ for (const phrase of [
   'return "high"'
 ]) {
   requireIncludes(securityEventClassificationSource, phrase, "tenant access denied security event classification");
+}
+if (outcomeForEventType("tenant.access.denied") !== "blocked") {
+  fail("tenant.access.denied must classify as blocked");
+} else {
+  ok("tenant.access.denied classifies as blocked");
+}
+if (severityForEventType("tenant.access.denied") === "info") {
+  fail("tenant.access.denied severity must not classify as info");
+} else {
+  ok("tenant.access.denied severity is warning-or-higher");
 }
 
 for (const phrase of [

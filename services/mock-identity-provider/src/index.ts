@@ -25,10 +25,23 @@ type DemoUserProfile = {
   roles: string[];
 };
 
+type DemoRoleAlias = "it-support" | "read-only" | "identity-admin";
+type DemoGatewayRole = "it-support" | "security_viewer" | "admin";
+
+const demoRoleAliasToGatewayRole: Record<DemoRoleAlias, DemoGatewayRole> = {
+  "it-support": "it-support",
+  "read-only": "security_viewer",
+  "identity-admin": "admin"
+};
+
+function demoGatewayRoles(alias: DemoRoleAlias): DemoGatewayRole[] {
+  return [demoRoleAliasToGatewayRole[alias]];
+}
+
 const demoUserProfiles = new Map<string, DemoUserProfile>([
-  ["ran@company.com", { email: "ran@company.com", name: "Ran Keselman", roles: ["it-support"] }],
-  ["analyst@company.com", { email: "analyst@company.com", name: "Security Analyst", roles: ["read-only"] }],
-  ["admin@company.com", { email: "admin@company.com", name: "Identity Admin", roles: ["identity-admin"] }]
+  ["ran@company.com", { email: "ran@company.com", name: "Ran Keselman", roles: demoGatewayRoles("it-support") }],
+  ["analyst@company.com", { email: "analyst@company.com", name: "Security Analyst", roles: demoGatewayRoles("read-only") }],
+  ["admin@company.com", { email: "admin@company.com", name: "Identity Admin", roles: demoGatewayRoles("identity-admin") }]
 ]);
 
 type TokenRequest = {

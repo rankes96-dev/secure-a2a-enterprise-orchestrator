@@ -81,6 +81,8 @@ const packageJsonPath = "package.json";
 const platformDocsPath = "docs/v2-platform-foundation.md";
 const sdkDocsPath = "docs/sdk-readiness-contracts.md";
 const productIdentityDocsPath = "docs/ogen-product-identity.md";
+const mockIdpPath = "services/mock-identity-provider/src/index.ts";
+const frontendMainPath = "apps/web-ui/src/main.tsx";
 
 const typesSource = read(typesPath);
 const policySource = read(policyPath);
@@ -93,6 +95,21 @@ const packageJsonSource = read(packageJsonPath);
 const platformDocs = read(platformDocsPath);
 const sdkDocs = read(sdkDocsPath);
 const productIdentityDocs = read(productIdentityDocsPath);
+const mockIdpSource = read(mockIdpPath);
+const frontendMainSource = read(frontendMainPath);
+
+const connectorOnboardingReadRoles = [
+  "end_user",
+  "operator",
+  "admin",
+  "it-support",
+  "connector_admin",
+  "security_viewer",
+  "gateway_admin",
+  "tenant_admin"
+];
+const connectorOnboardingAdminRoles = ["connector_admin", "gateway_admin", "tenant_admin", "admin"];
+const nonAdminOnboardingRoles = ["end_user", "operator", "it-support", "security_viewer"];
 
 const requiredCapabilities: GatewayCapability[] = [
   "gateway.resolve",
@@ -130,6 +147,9 @@ for (const phrase of [
 ]) {
   requireIncludes(typesSource, phrase, "gateway authorization types");
 }
+for (const alias of ['"read-only"', '"identity-admin"']) {
+  requireExcludes(typesSource, alias, "gateway authorization type excludes UI/demo role aliases");
+}
 
 for (const capability of requiredCapabilities) {
   requireIncludes(typesSource, `"${capability}"`, "gateway capability type includes required capability");
@@ -157,9 +177,20 @@ for (const phrase of [
 const connectorOnboardingReadPolicy = policyEntryBlock(policySource, "connector.onboarding.read");
 const connectorOnboardingDiscoverPolicy = policyEntryBlock(policySource, "connector.onboarding.discover");
 const connectorOnboardingStartPolicy = policyEntryBlock(policySource, "connector.onboarding.start");
-requireIncludes(connectorOnboardingReadPolicy, '"it-support"', "connector onboarding read includes default demo role");
-requireExcludes(connectorOnboardingDiscoverPolicy, '"it-support"', "connector onboarding discover excludes default demo role");
-requireExcludes(connectorOnboardingStartPolicy, '"it-support"', "connector onboarding start excludes default demo role");
+for (const role of connectorOnboardingReadRoles) {
+  requireIncludes(connectorOnboardingReadPolicy, `"${role}"`, `connector onboarding read includes ${role}`);
+}
+for (const role of connectorOnboardingAdminRoles) {
+  requireIncludes(connectorOnboardingDiscoverPolicy, `"${role}"`, `connector onboarding discover includes admin role ${role}`);
+  requireIncludes(connectorOnboardingStartPolicy, `"${role}"`, `connector onboarding start includes admin role ${role}`);
+}
+for (const role of nonAdminOnboardingRoles) {
+  requireExcludes(connectorOnboardingDiscoverPolicy, `"${role}"`, `connector onboarding discover excludes non-admin role ${role}`);
+  requireExcludes(connectorOnboardingStartPolicy, `"${role}"`, `connector onboarding start excludes non-admin role ${role}`);
+}
+for (const alias of ['"read-only"', '"identity-admin"']) {
+  requireExcludes(policySource, alias, "gateway RBAC policy excludes UI/demo role aliases");
+}
 
 for (const phrase of [
   "export function evaluateGatewayAuthorization",
@@ -330,6 +361,36 @@ for (const phrase of [
   requireIncludes(sdkDocs, phrase, "SDK docs cover gateway RBAC boundary");
 }
 requireIncludes(productIdentityDocs, "Ogen separates gateway administration permissions from connector runtime policy.", "product identity docs cover gateway RBAC principle");
+for (const phrase of [
+  "demoRoleAliasToGatewayRole",
+  '"it-support": "it-support"',
+  '"read-only": "security_viewer"',
+  '"identity-admin": "admin"',
+  'roles: demoGatewayRoles("it-support")',
+  'roles: demoGatewayRoles("read-only")',
+  'roles: demoGatewayRoles("identity-admin")'
+]) {
+  requireIncludes(mockIdpSource, phrase, "mock demo role aliases map to canonical gateway roles");
+}
+for (const forbidden of [
+  'roles: ["read-only"]',
+  'roles: ["identity-admin"]'
+]) {
+  requireExcludes(mockIdpSource, forbidden, "mock demo tokens must not issue UI/demo role aliases");
+}
+for (const phrase of [
+  'roleLabel: "read-only"',
+  'roleLabel: "identity-admin"'
+]) {
+  requireIncludes(frontendMainSource, phrase, "frontend demo role labels remain display-only aliases");
+}
+for (const phrase of [
+  "Mock demo role labels are mapped to canonical GatewayRole values",
+  "`read-only` maps to `security_viewer`",
+  "`identity-admin` maps to `admin`"
+]) {
+  requireIncludes(platformDocs, phrase, "platform docs cover demo role alias mapping");
+}
 
 function evaluate(capability: GatewayCapability, roles: string[], source: "browser_session" | "api_key" = "browser_session") {
   return evaluateGatewayAuthorization({
@@ -360,45 +421,43 @@ if (evaluate("runtime.authorize", ["end_user"]).effect !== "allow") {
 } else {
   ok("end_user can runtime.authorize");
 }
-if (evaluate("connector.onboarding.read", ["it-support"]).effect !== "allow") {
-  fail("it-support should be allowed to read connector onboarding state");
-} else {
-  ok("it-support can connector.onboarding.read");
+for (const role of connectorOnboardingReadRoles) {
+  if (evaluate("connector.onboarding.read", [role]).effect !== "allow") {
+    fail(`${role} should be allowed to read connector onboarding state`);
+  } else {
+    ok(`${role} can connector.onboarding.read`);
+  }
 }
-if (evaluate("connector.onboarding.read", ["end_user"]).effect !== "allow") {
-  fail("end_user should be allowed to read connector onboarding state");
-} else {
-  ok("end_user can connector.onboarding.read");
+for (const role of nonAdminOnboardingRoles) {
+  if (evaluate("connector.onboarding.discover", [role]).effect !== "block") {
+    fail(`${role} should not be allowed to discover connector onboarding candidates`);
+  } else {
+    ok(`${role} cannot connector.onboarding.discover`);
+  }
+  if (evaluate("connector.onboarding.start", [role]).effect !== "block") {
+    fail(`${role} should not be allowed to start connector onboarding`);
+  } else {
+    ok(`${role} cannot connector.onboarding.start`);
+  }
 }
-if (evaluate("connector.onboarding.read", ["operator"]).effect !== "allow") {
-  fail("operator should be allowed to read connector onboarding state");
-} else {
-  ok("operator can connector.onboarding.read");
+for (const role of connectorOnboardingAdminRoles) {
+  if (evaluate("connector.onboarding.discover", [role]).effect !== "allow") {
+    fail(`${role} should be allowed to discover connector onboarding candidates`);
+  } else {
+    ok(`${role} can connector.onboarding.discover`);
+  }
+  if (evaluate("connector.onboarding.start", [role]).effect !== "allow") {
+    fail(`${role} should be allowed to start connector onboarding`);
+  } else {
+    ok(`${role} can connector.onboarding.start`);
+  }
 }
-if (evaluate("connector.onboarding.read", ["security_viewer"]).effect !== "allow") {
-  fail("security_viewer should be allowed to read connector onboarding state");
-} else {
-  ok("security_viewer can connector.onboarding.read");
-}
-if (evaluate("connector.onboarding.start", ["it-support"]).effect !== "block") {
-  fail("it-support should not be allowed to start connector onboarding");
-} else {
-  ok("it-support cannot connector.onboarding.start");
-}
-if (evaluate("connector.onboarding.start", ["end_user"]).effect !== "block") {
-  fail("end_user should not be allowed to start connector onboarding");
-} else {
-  ok("end_user cannot connector.onboarding.start");
-}
-if (evaluate("connector.onboarding.start", ["operator"]).effect !== "block") {
-  fail("operator should not be allowed to start connector onboarding");
-} else {
-  ok("operator cannot connector.onboarding.start");
-}
-if (evaluate("connector.onboarding.start", ["connector_admin"]).effect !== "allow") {
-  fail("connector_admin should be allowed to start connector onboarding");
-} else {
-  ok("connector_admin can connector.onboarding.start");
+for (const alias of ["read-only", "identity-admin"]) {
+  if (evaluate("connector.onboarding.read", [alias]).effect !== "block" || evaluate("connector.onboarding.start", [alias]).effect !== "block") {
+    fail(`UI/demo role alias ${alias} must not authorize gateway capabilities without canonical mapping`);
+  } else {
+    ok(`UI/demo role alias ${alias} does not authorize directly`);
+  }
 }
 if (evaluate("audit.read", ["security_viewer"]).effect !== "allow" || evaluate("identity.trust_status.read", ["security_viewer"]).effect !== "allow") {
   fail("security_viewer should be allowed to read audit and trust status");
