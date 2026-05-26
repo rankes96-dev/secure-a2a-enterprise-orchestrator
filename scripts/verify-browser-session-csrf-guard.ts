@@ -4,9 +4,11 @@ import {
   CSRF_COOKIE_NAME,
   CSRF_HEADER_NAME,
   createCsrfToken,
+  createCsrfTokenForSession,
   csrfCookieHeader,
   shouldBypassCsrfForTrustedInternalRequest,
-  verifyCsrfRequest
+  verifyCsrfRequest,
+  verifyCsrfRequestForSession
 } from "../services/orchestrator-api/src/security/csrfProtection.js";
 
 let failed = false;
@@ -70,9 +72,16 @@ for (const phrase of [
   'CSRF_COOKIE_NAME = "ogen_csrf"',
   'CSRF_HEADER_NAME = "x-ogen-csrf-token"',
   "randomBytes(32)",
+  "createCsrfTokenForSession",
+  "verifyCsrfRequestForSession",
+  "sessionHash(sessionToken)",
+  "createHmac(\"sha256\"",
+  "CSRF_SIGNING_SECRET",
+  "CSRF_TOKEN_TTL_SECONDS",
   "timingSafeEqual",
   "SameSite=Lax",
   'process.env.NODE_ENV === "production" ? "Secure"',
+  "CSRF_SIGNING_SECRET is required in production",
   "verifyCsrfRequest",
   "shouldBypassCsrfForTrustedInternalRequest"
 ]) {
@@ -100,12 +109,27 @@ if (bypassSource.includes("authorization")) {
 }
 
 for (const phrase of [
-  "createCsrfToken",
+  "createSessionToken",
+  "createSessionCookieForToken",
+  "createCsrfTokenForSession(existingSessionToken)",
+  "createCsrfTokenForSession(sessionToken)",
   "csrfCookieHeader",
   "{ ok: true, csrfToken }",
-  '"set-cookie": [createSessionCookie(), csrfCookieHeader(csrfToken)]'
+  '"set-cookie": [createSessionCookieForToken(sessionToken), csrfCookieHeader(csrfToken)]'
 ]) {
   requireIncludes(indexSource, phrase, "POST /session issues CSRF token and cookie");
+}
+
+for (const phrase of [
+  "const sessionToken = getSessionToken(request)",
+  "verifyCsrfRequestForSession(request, sessionToken)"
+]) {
+  requireIncludes(indexSource, phrase, "protected browser CSRF guard uses session-bound verification");
+}
+if (indexSource.includes("|| verifyCsrfRequest(request)")) {
+  fail("protected browser CSRF guard must not use plain cookie/header equality");
+} else {
+  ok("protected browser CSRF guard does not use plain cookie/header equality");
 }
 
 const sessionRoute = routeBlock(indexSource, "/session");
@@ -171,18 +195,24 @@ for (const phrase of [
   "POST /session",
   "Internal API-key/service-token calls can bypass",
   "Authorization bearer alone does not bypass",
-  "GET/public routes do not require CSRF"
+  "GET/public routes do not require CSRF",
+  "CSRF tokens are signed and session-bound",
+  "CSRF tokens expire"
 ]) {
   requireIncludes(platformDocs, phrase, "platform docs cover browser session CSRF guard");
 }
 for (const phrase of [
   "CSRF cookie",
   "Secure cookie in production",
-  "x-ogen-csrf-token"
+  "x-ogen-csrf-token",
+  "CSRF_SIGNING_SECRET",
+  "CSRF_TOKEN_TTL_SECONDS",
+  "signed/session-bound"
 ]) {
   requireIncludes(deploymentDocs, phrase, "deployment docs cover CSRF behavior");
 }
 requireIncludes(productIdentityDocs, "Ogen browser sessions require CSRF proof for mutating actions.", "product identity docs cover CSRF proof");
+requireIncludes(productIdentityDocs, "Ogen CSRF tokens are bound to the browser session", "product identity docs cover session-bound CSRF");
 
 const token = createCsrfToken();
 if (!/^[A-Za-z0-9_-]+$/.test(token) || token.length < 32) {
@@ -218,8 +248,59 @@ if (!verifyCsrfRequest(fakeRequest({
 const originalApiKey = process.env.ORCHESTRATOR_API_KEY;
 const originalInternalToken = process.env.INTERNAL_SERVICE_TOKEN;
 const originalNodeEnv = process.env.NODE_ENV;
+const originalCsrfSecret = process.env.CSRF_SIGNING_SECRET;
+const originalCsrfTtl = process.env.CSRF_TOKEN_TTL_SECONDS;
+const originalDateNow = Date.now;
+process.env.CSRF_SIGNING_SECRET = "expected-csrf-signing-secret";
 process.env.ORCHESTRATOR_API_KEY = "expected-api-key";
 process.env.INTERNAL_SERVICE_TOKEN = "expected-internal-token";
+
+const sessionA = "session-a";
+const sessionB = "session-b";
+const signedToken = createCsrfTokenForSession(sessionA);
+if (!signedToken.startsWith("v1.") || signedToken.split(".").length !== 5) {
+  fail("signed CSRF token should use v1 nonce sessionHash exp signature format");
+} else {
+  ok("signed CSRF token uses v1 format");
+}
+if (!verifyCsrfRequestForSession(fakeRequest({
+  cookie: `${CSRF_COOKIE_NAME}=${signedToken}`,
+  [CSRF_HEADER_NAME]: signedToken
+}), sessionA)) {
+  fail("session-bound CSRF token should verify for its session");
+} else {
+  ok("session-bound CSRF token verifies for its session");
+}
+if (verifyCsrfRequestForSession(fakeRequest({
+  cookie: `${CSRF_COOKIE_NAME}=${signedToken}`,
+  [CSRF_HEADER_NAME]: signedToken
+}), sessionB)) {
+  fail("session-bound CSRF token must not verify for another session");
+} else {
+  ok("session-bound CSRF token cannot be reused for another session");
+}
+const tamperedToken = `${signedToken.slice(0, -1)}${signedToken.endsWith("A") ? "B" : "A"}`;
+if (verifyCsrfRequestForSession(fakeRequest({
+  cookie: `${CSRF_COOKIE_NAME}=${tamperedToken}`,
+  [CSRF_HEADER_NAME]: tamperedToken
+}), sessionA)) {
+  fail("tampered signed CSRF token should fail");
+} else {
+  ok("tampered signed CSRF token fails");
+}
+process.env.CSRF_TOKEN_TTL_SECONDS = "1";
+Date.now = () => 1_000_000;
+const expiringToken = createCsrfTokenForSession(sessionA);
+Date.now = () => 3_000_000;
+if (verifyCsrfRequestForSession(fakeRequest({
+  cookie: `${CSRF_COOKIE_NAME}=${expiringToken}`,
+  [CSRF_HEADER_NAME]: expiringToken
+}), sessionA)) {
+  fail("expired signed CSRF token should fail");
+} else {
+  ok("expired signed CSRF token fails");
+}
+Date.now = originalDateNow;
 
 if (shouldBypassCsrfForTrustedInternalRequest(fakeRequest({ "x-api-key": "wrong" }))) {
   fail("wrong API key must not bypass CSRF");
@@ -243,6 +324,15 @@ if (shouldBypassCsrfForTrustedInternalRequest(fakeRequest({ authorization: "Bear
 }
 
 process.env.NODE_ENV = "production";
+delete process.env.CSRF_SIGNING_SECRET;
+delete process.env.ORCHESTRATOR_API_KEY;
+delete process.env.INTERNAL_SERVICE_TOKEN;
+try {
+  createCsrfTokenForSession("production-session");
+  fail("production CSRF token creation should fail without CSRF_SIGNING_SECRET");
+} catch {
+  ok("production CSRF token creation fails without CSRF_SIGNING_SECRET");
+}
 const productionCookie = csrfCookieHeader("cookie-token");
 if (!productionCookie.includes("Secure") || productionCookie.includes("HttpOnly") || !productionCookie.includes("SameSite=Lax")) {
   fail("production CSRF cookie should be Secure, SameSite=Lax, and readable by frontend");
@@ -250,9 +340,31 @@ if (!productionCookie.includes("Secure") || productionCookie.includes("HttpOnly"
   ok("production CSRF cookie is secure and frontend-readable");
 }
 
-process.env.ORCHESTRATOR_API_KEY = originalApiKey;
-process.env.INTERNAL_SERVICE_TOKEN = originalInternalToken;
-process.env.NODE_ENV = originalNodeEnv;
+if (originalApiKey === undefined) {
+  delete process.env.ORCHESTRATOR_API_KEY;
+} else {
+  process.env.ORCHESTRATOR_API_KEY = originalApiKey;
+}
+if (originalInternalToken === undefined) {
+  delete process.env.INTERNAL_SERVICE_TOKEN;
+} else {
+  process.env.INTERNAL_SERVICE_TOKEN = originalInternalToken;
+}
+if (originalCsrfSecret === undefined) {
+  delete process.env.CSRF_SIGNING_SECRET;
+} else {
+  process.env.CSRF_SIGNING_SECRET = originalCsrfSecret;
+}
+if (originalCsrfTtl === undefined) {
+  delete process.env.CSRF_TOKEN_TTL_SECONDS;
+} else {
+  process.env.CSRF_TOKEN_TTL_SECONDS = originalCsrfTtl;
+}
+if (originalNodeEnv === undefined) {
+  delete process.env.NODE_ENV;
+} else {
+  process.env.NODE_ENV = originalNodeEnv;
+}
 
 if (failed) {
   process.exitCode = 1;

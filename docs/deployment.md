@@ -8,7 +8,7 @@ Production backend runtime uses compiled JavaScript from `dist`. Local developme
 
 Ogen requires Node.js >= 20. Railway/runtime should be configured for Node 20 or newer.
 
-Browser-session mutating requests use a double-submit CSRF cookie. `POST /session` issues the `ogen_csrf` CSRF cookie and the browser frontend must echo it in the `x-ogen-csrf-token` header for session-backed POST routes. The CSRF cookie is readable by the frontend by design, uses `SameSite=Lax`, and is a Secure cookie in production. API-key and internal-service-token calls can bypass CSRF only when their configured secret matches; Authorization bearer alone is not a CSRF bypass.
+Browser-session mutating requests use a signed/session-bound double-submit CSRF cookie. `POST /session` issues the `ogen_csrf` CSRF cookie and the browser frontend must echo it in the `x-ogen-csrf-token` header for session-backed POST routes. The CSRF cookie remains readable by the frontend by design, uses `SameSite=Lax`, and is a Secure cookie in production. Set `CSRF_SIGNING_SECRET` in production; `CSRF_TOKEN_TTL_SECONDS` optionally controls token lifetime. API-key and internal-service-token calls can bypass CSRF only when their configured secret matches; Authorization bearer alone is not a CSRF bypass.
 
 Do not commit or expose raw JWTs, access tokens, refresh tokens, Authorization headers, client assertions, client secrets, private keys, API keys, cookies, Upstash tokens, or the OpenRouter API key.
 

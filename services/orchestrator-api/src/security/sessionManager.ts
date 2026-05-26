@@ -51,11 +51,15 @@ function sessionTokenFromRequest(request: IncomingMessage): string | undefined {
   return cookies.get(sessionCookieName);
 }
 
-export function createSessionCookie(): string {
+export function createSessionToken(): string {
   cleanupExpiredSessions();
   const token = randomUUID();
-  const maxAgeSeconds = Math.floor(sessionTtlMs() / 1000);
   sessions.set(token, { expiresAt: Date.now() + sessionTtlMs() });
+  return token;
+}
+
+export function createSessionCookieForToken(token: string): string {
+  const maxAgeSeconds = Math.floor(sessionTtlMs() / 1000);
 
   return [
     `${sessionCookieName}=${token}`,
@@ -67,6 +71,10 @@ export function createSessionCookie(): string {
   ]
     .filter(Boolean)
     .join("; ");
+}
+
+export function createSessionCookie(): string {
+  return createSessionCookieForToken(createSessionToken());
 }
 
 export function getSessionToken(request: IncomingMessage): string | undefined {

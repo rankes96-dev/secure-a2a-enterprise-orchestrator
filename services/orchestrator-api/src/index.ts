@@ -44,8 +44,8 @@ import { publicIdentitySession } from "./identity/userIdentityMapper.js";
 import { verifyUserDirectoryAccess } from "./identity/userDirectoryAccess.js";
 import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext.js";
 import { interpretFollowUp } from "./followUpInterpreter.js";
-import { cleanupExpiredSessions, createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager.js";
-import { createCsrfToken, csrfCookieHeader, shouldBypassCsrfForTrustedInternalRequest, verifyCsrfRequest } from "./security/csrfProtection.js";
+import { cleanupExpiredSessions, createSessionCookieForToken, createSessionToken, getSessionToken, hasValidSession } from "./security/sessionManager.js";
+import { createCsrfTokenForSession, csrfCookieHeader, shouldBypassCsrfForTrustedInternalRequest, verifyCsrfRequestForSession } from "./security/csrfProtection.js";
 import { gatewayMetadata, gatewayPublicJwks } from "./security/gatewayIdentity.js";
 import { buildManualWorkflowAnswer } from "./requestInterpreter.js";
 import { detectSensitiveAction } from "./sensitiveActionGuard.js";
@@ -176,7 +176,12 @@ function allowByRateLimit(request: Parameters<typeof clientIp>[0], response: Par
 }
 
 function requireCsrfForBrowserMutation(request: IncomingMessage, response: ServerResponse): boolean {
-  if (shouldBypassCsrfForTrustedInternalRequest(request) || verifyCsrfRequest(request)) {
+  if (shouldBypassCsrfForTrustedInternalRequest(request)) {
+    return true;
+  }
+
+  const sessionToken = getSessionToken(request);
+  if (sessionToken && verifyCsrfRequestForSession(request, sessionToken)) {
     return true;
   }
 
@@ -4301,21 +4306,24 @@ async function start(): Promise<void> {
       return;
     }
 
-    const csrfToken = createCsrfToken();
-    if (getSessionToken(request)) {
+    const existingSessionToken = getSessionToken(request);
+    if (existingSessionToken) {
+      const csrfToken = createCsrfTokenForSession(existingSessionToken);
       sendJson(response, 200, { ok: true, csrfToken }, request, {
         "set-cookie": csrfCookieHeader(csrfToken)
       });
       return;
     }
 
+    const sessionToken = createSessionToken();
+    const csrfToken = createCsrfTokenForSession(sessionToken);
     sendJson(
       response,
       200,
       { ok: true, csrfToken },
       request,
       {
-        "set-cookie": [createSessionCookie(), csrfCookieHeader(csrfToken)]
+        "set-cookie": [createSessionCookieForToken(sessionToken), csrfCookieHeader(csrfToken)]
       }
     );
     return;

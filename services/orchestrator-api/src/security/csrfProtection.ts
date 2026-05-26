@@ -1,8 +1,10 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage } from "node:http";
 
 export const CSRF_COOKIE_NAME = "ogen_csrf";
 export const CSRF_HEADER_NAME = "x-ogen-csrf-token";
+const CSRF_TOKEN_VERSION = "v1";
+const defaultCsrfTokenTtlSeconds = 2 * 60 * 60;
 
 function headerString(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -19,8 +21,52 @@ function configuredSecretMatches(value: string | undefined, expected: string | u
   return Boolean(value && expected && safeEquals(value, expected));
 }
 
+function csrfTokenTtlSeconds(): number {
+  const configured = Number(process.env.CSRF_TOKEN_TTL_SECONDS ?? defaultCsrfTokenTtlSeconds);
+  return Number.isFinite(configured) && configured > 0 ? configured : defaultCsrfTokenTtlSeconds;
+}
+
+function csrfSigningSecret(): string | undefined {
+  const explicit = process.env.CSRF_SIGNING_SECRET?.trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    return undefined;
+  }
+
+  return process.env.INTERNAL_SERVICE_TOKEN?.trim() || process.env.ORCHESTRATOR_API_KEY?.trim() || undefined;
+}
+
+function requireCsrfSigningSecret(): string {
+  const secret = csrfSigningSecret();
+  if (secret) {
+    return secret;
+  }
+
+  throw new Error(process.env.NODE_ENV === "production"
+    ? "CSRF_SIGNING_SECRET is required in production"
+    : "CSRF_SIGNING_SECRET, INTERNAL_SERVICE_TOKEN, or ORCHESTRATOR_API_KEY is required to sign CSRF tokens");
+}
+
+function sessionHash(sessionToken: string): string {
+  return createHash("sha256").update(sessionToken).digest("hex");
+}
+
+function signCsrfPayload(payload: string, secret: string): string {
+  return createHmac("sha256", secret).update(payload).digest("base64url");
+}
+
 export function createCsrfToken(): string {
   return randomBytes(32).toString("base64url");
+}
+
+export function createCsrfTokenForSession(sessionToken: string): string {
+  const nonce = createCsrfToken();
+  const exp = String(Math.floor(Date.now() / 1000) + csrfTokenTtlSeconds());
+  const payload = `${CSRF_TOKEN_VERSION}.${nonce}.${sessionHash(sessionToken)}.${exp}`;
+  return `${payload}.${signCsrfPayload(payload, requireCsrfSigningSecret())}`;
 }
 
 export function csrfCookieHeader(token: string): string {
@@ -66,6 +112,40 @@ export function verifyCsrfRequest(request: IncomingMessage): boolean {
   const headerToken = csrfHeaderValue(request.headers);
 
   return Boolean(cookieToken && headerToken && safeEquals(cookieToken, headerToken));
+}
+
+export function verifyCsrfRequestForSession(request: IncomingMessage, sessionToken: string): boolean {
+  if (!verifyCsrfRequest(request)) {
+    return false;
+  }
+
+  const token = csrfHeaderValue(request.headers);
+  const parts = token?.split(".") ?? [];
+  if (parts.length !== 5) {
+    return false;
+  }
+
+  const [version, nonce, tokenSessionHash, exp, signature] = parts;
+  if (version !== CSRF_TOKEN_VERSION || !nonce || !tokenSessionHash || !exp || !signature) {
+    return false;
+  }
+
+  const expiresAt = Number(exp);
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)) {
+    return false;
+  }
+
+  if (!safeEquals(tokenSessionHash, sessionHash(sessionToken))) {
+    return false;
+  }
+
+  const secret = csrfSigningSecret();
+  if (!secret) {
+    return false;
+  }
+
+  const payload = `${version}.${nonce}.${tokenSessionHash}.${exp}`;
+  return safeEquals(signature, signCsrfPayload(payload, secret));
 }
 
 export function shouldBypassCsrfForTrustedInternalRequest(request: IncomingMessage): boolean {

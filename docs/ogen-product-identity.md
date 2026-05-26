@@ -77,6 +77,8 @@ External agents can ask Ogen for authorization, but Ogen remains the authority.
 
 Ogen browser sessions require CSRF proof for mutating actions.
 
+Ogen CSRF tokens are bound to the browser session, not just echoed by the client.
+
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.
 
 Ogen guardrails are immutable platform safety rules.
