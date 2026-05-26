@@ -282,6 +282,24 @@ if (rejectedRequested.tenantId !== "default" || rejectedRequested.requestedTenan
   ok("different requested tenant is rejected and does not switch tenant");
 }
 
+const auth0OrgRequested = resolveTenantContext({
+  identity: {
+    provider: "auth0",
+    email: "org-user@example.com",
+    roles: ["end_user"],
+    issuer: "https://idp.ogen.local",
+    audience: "ogen-gateway",
+    subject: "auth0|org-user",
+    org_id: "org_enterprise"
+  },
+  requestedTenantId: "org_enterprise"
+});
+if (auth0OrgRequested.tenantId !== "org_enterprise" || auth0OrgRequested.source !== "auth0_org" || !auth0OrgRequested.requestedTenantAccepted) {
+  fail("Auth0 org claim should resolve and accept the matching org tenant");
+} else {
+  ok("Auth0 org claim resolves and accepts matching org tenant");
+}
+
 let malformedTenantHint: ReturnType<typeof resolveTenantContext> | undefined;
 try {
   malformedTenantHint = resolveTenantContext({ requestedTenantId: 123 as unknown });

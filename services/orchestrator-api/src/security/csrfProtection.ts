@@ -50,6 +50,24 @@ function requireCsrfSigningSecret(): string {
     : "CSRF_SIGNING_SECRET, INTERNAL_SERVICE_TOKEN, or ORCHESTRATOR_API_KEY is required to sign CSRF tokens");
 }
 
+function csrfCookieSameSite(): "Lax" | "Strict" | "None" {
+  const configured = (process.env.CSRF_COOKIE_SAMESITE ?? process.env.SESSION_COOKIE_SAMESITE ?? "Lax").trim().toLowerCase();
+  if (configured === "none") {
+    return "None";
+  }
+  if (configured === "strict") {
+    return "Strict";
+  }
+  return "Lax";
+}
+
+function csrfCookieSecure(sameSite: "Lax" | "Strict" | "None"): boolean {
+  return sameSite === "None" ||
+    process.env.CSRF_COOKIE_SECURE === "true" ||
+    process.env.SESSION_COOKIE_SECURE === "true" ||
+    process.env.NODE_ENV === "production";
+}
+
 function sessionHash(sessionToken: string): string {
   return createHash("sha256").update(sessionToken).digest("hex");
 }
@@ -70,11 +88,12 @@ export function createCsrfTokenForSession(sessionToken: string): string {
 }
 
 export function csrfCookieHeader(token: string): string {
+  const sameSite = csrfCookieSameSite();
   return [
     `${CSRF_COOKIE_NAME}=${encodeURIComponent(token)}`,
     "Path=/",
-    "SameSite=Lax",
-    process.env.NODE_ENV === "production" ? "Secure" : ""
+    `SameSite=${sameSite}`,
+    csrfCookieSecure(sameSite) ? "Secure" : ""
   ]
     .filter(Boolean)
     .join("; ");

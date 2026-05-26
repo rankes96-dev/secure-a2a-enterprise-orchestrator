@@ -129,6 +129,9 @@ export function mapOidcUserIdentityPayload(params: {
     roles,
     issuer,
     audience,
-    subject
+    subject,
+    org_id: claimString(payload, "org_id"),
+    organization: claimString(payload, "organization"),
+    orgId: claimString(payload, "orgId")
   };
 }

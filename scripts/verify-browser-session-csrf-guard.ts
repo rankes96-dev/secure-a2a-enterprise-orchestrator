@@ -78,9 +78,12 @@ for (const phrase of [
   "createHmac(\"sha256\"",
   "CSRF_SIGNING_SECRET",
   "CSRF_TOKEN_TTL_SECONDS",
+  "CSRF_COOKIE_SAMESITE",
+  "SESSION_COOKIE_SAMESITE",
+  "SESSION_COOKIE_SECURE",
   "timingSafeEqual",
-  "SameSite=Lax",
-  'process.env.NODE_ENV === "production" ? "Secure"',
+  "function csrfCookieSameSite",
+  "function csrfCookieSecure",
   "CSRF_SIGNING_SECRET is required in production",
   "verifyCsrfRequest",
   "shouldBypassCsrfForTrustedInternalRequest"
@@ -250,6 +253,10 @@ const originalInternalToken = process.env.INTERNAL_SERVICE_TOKEN;
 const originalNodeEnv = process.env.NODE_ENV;
 const originalCsrfSecret = process.env.CSRF_SIGNING_SECRET;
 const originalCsrfTtl = process.env.CSRF_TOKEN_TTL_SECONDS;
+const originalCsrfCookieSameSite = process.env.CSRF_COOKIE_SAMESITE;
+const originalSessionCookieSameSite = process.env.SESSION_COOKIE_SAMESITE;
+const originalCsrfCookieSecure = process.env.CSRF_COOKIE_SECURE;
+const originalSessionCookieSecure = process.env.SESSION_COOKIE_SECURE;
 const originalDateNow = Date.now;
 process.env.CSRF_SIGNING_SECRET = "expected-csrf-signing-secret";
 process.env.ORCHESTRATOR_API_KEY = "expected-api-key";
@@ -327,6 +334,10 @@ process.env.NODE_ENV = "production";
 delete process.env.CSRF_SIGNING_SECRET;
 delete process.env.ORCHESTRATOR_API_KEY;
 delete process.env.INTERNAL_SERVICE_TOKEN;
+delete process.env.CSRF_COOKIE_SAMESITE;
+delete process.env.SESSION_COOKIE_SAMESITE;
+delete process.env.CSRF_COOKIE_SECURE;
+delete process.env.SESSION_COOKIE_SECURE;
 try {
   createCsrfTokenForSession("production-session");
   fail("production CSRF token creation should fail without CSRF_SIGNING_SECRET");
@@ -335,9 +346,23 @@ try {
 }
 const productionCookie = csrfCookieHeader("cookie-token");
 if (!productionCookie.includes("Secure") || productionCookie.includes("HttpOnly") || !productionCookie.includes("SameSite=Lax")) {
-  fail("production CSRF cookie should be Secure, SameSite=Lax, and readable by frontend");
+  fail("default production CSRF cookie should be Secure, SameSite=Lax, and readable by frontend");
 } else {
-  ok("production CSRF cookie is secure and frontend-readable");
+  ok("default production CSRF cookie is secure and frontend-readable");
+}
+process.env.SESSION_COOKIE_SAMESITE = "None";
+const crossSiteCookie = csrfCookieHeader("cookie-token");
+if (!crossSiteCookie.includes("Secure") || crossSiteCookie.includes("HttpOnly") || !crossSiteCookie.includes("SameSite=None")) {
+  fail("cross-site CSRF cookie should follow session SameSite=None, be Secure, and remain frontend-readable");
+} else {
+  ok("cross-site CSRF cookie follows session SameSite=None and remains frontend-readable");
+}
+process.env.CSRF_COOKIE_SAMESITE = "Strict";
+const explicitCsrfCookie = csrfCookieHeader("cookie-token");
+if (!explicitCsrfCookie.includes("SameSite=Strict")) {
+  fail("explicit CSRF_COOKIE_SAMESITE should override session SameSite");
+} else {
+  ok("explicit CSRF_COOKIE_SAMESITE overrides session SameSite");
 }
 
 if (originalApiKey === undefined) {
@@ -359,6 +384,26 @@ if (originalCsrfTtl === undefined) {
   delete process.env.CSRF_TOKEN_TTL_SECONDS;
 } else {
   process.env.CSRF_TOKEN_TTL_SECONDS = originalCsrfTtl;
+}
+if (originalCsrfCookieSameSite === undefined) {
+  delete process.env.CSRF_COOKIE_SAMESITE;
+} else {
+  process.env.CSRF_COOKIE_SAMESITE = originalCsrfCookieSameSite;
+}
+if (originalSessionCookieSameSite === undefined) {
+  delete process.env.SESSION_COOKIE_SAMESITE;
+} else {
+  process.env.SESSION_COOKIE_SAMESITE = originalSessionCookieSameSite;
+}
+if (originalCsrfCookieSecure === undefined) {
+  delete process.env.CSRF_COOKIE_SECURE;
+} else {
+  process.env.CSRF_COOKIE_SECURE = originalCsrfCookieSecure;
+}
+if (originalSessionCookieSecure === undefined) {
+  delete process.env.SESSION_COOKIE_SECURE;
+} else {
+  process.env.SESSION_COOKIE_SECURE = originalSessionCookieSecure;
 }
 if (originalNodeEnv === undefined) {
   delete process.env.NODE_ENV;

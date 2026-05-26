@@ -11,6 +11,9 @@ export type VerifiedGatewayUserIdentity = {
   issuer: string;
   audience: string;
   subject: string;
+  org_id?: string;
+  organization?: string;
+  orgId?: string;
 };
 
 export type IdentityProviderAdapter = {

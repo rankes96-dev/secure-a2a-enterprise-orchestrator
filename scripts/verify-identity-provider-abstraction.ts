@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { createIdentityProvider } from "../services/orchestrator-api/src/identity/identityConfig";
 import { mapMockUserIdentityPayload, mapOidcUserIdentityPayload } from "../services/orchestrator-api/src/identity/userIdentityMapper";
 import { buildExecutionGateStack } from "../services/orchestrator-api/src/executionGateStack";
+import { resolveTenantContext } from "../services/orchestrator-api/src/tenant/tenantResolution";
 import type { Classification } from "../packages/shared/src";
 
 function assert(condition: unknown, message: string): void {
@@ -117,6 +118,25 @@ assert(auth0IdentityWithoutRoles.email === "user@example.com", "Auth0 email clai
 assert(auth0Provider.publicIdentity(auth0IdentityWithoutRoles).provider === "auth0", "Auth0 public identity should include safe provider name");
 assert(!JSON.stringify(auth0Provider.publicIdentity(auth0IdentityWithoutRoles)).includes("auth0|user-123"), "Auth0 public identity should not expose raw subject");
 assert(auth0IdentityWithoutRoles.roles.length === 0, "missing Auth0 roles claim should map to empty roles");
+
+const auth0OrgIdentity = mapOidcUserIdentityPayload({
+  provider: "auth0",
+  payload: {
+    sub: "auth0|org-user-123",
+    email: "OrgUser@example.com",
+    org_id: "org_enterprise"
+  },
+  issuer: auth0Provider.issuer,
+  audience: auth0Provider.audience,
+  emailClaim: "email",
+  rolesClaim: "https://secure-a2a.dev/roles"
+});
+assert(auth0OrgIdentity.org_id === "org_enterprise", "Auth0 org_id claim should be preserved on verified identity");
+assert(!JSON.stringify(auth0Provider.publicIdentity(auth0OrgIdentity)).includes("org_enterprise"), "Auth0 public identity should not expose org claim");
+const auth0OrgTenant = resolveTenantContext({ identity: auth0OrgIdentity, requestedTenantId: "org_enterprise" });
+assert(auth0OrgTenant.tenantId === "org_enterprise", "Auth0 org identity should resolve to org tenant");
+assert(auth0OrgTenant.source === "auth0_org", "Auth0 org identity should use auth0_org tenant resolution source");
+assert(auth0OrgTenant.requestedTenantAccepted === true, "Auth0 org requested tenant should be accepted when it matches org_id");
 
 assertThrows(
   "Auth0 malformed roles claim",

@@ -8,6 +8,7 @@ import { cleanAuth0CallbackUrl, completeAuth0Redirect, discardAuth0RedirectResul
 import { frontendAuthProviderLabel, readFrontendAuthConfig } from "./auth/authConfig";
 import { postBearerIdentitySession, postIdentityLogout, postMockDemoLogin } from "./auth/mockAuthClient";
 import { csrfHeaders } from "./api/csrf";
+import { apiErrorMessage, directoryAccessDeniedMessage, friendlyApiError, isDirectoryAccessDenied, readApiErrorPayload } from "./api/errors";
 import { createBrowserSession } from "./api/session";
 import type { IdentitySessionResponse } from "./auth/authTypes";
 import { AccessDeniedScreen } from "./components/auth/AccessDeniedScreen";
@@ -1618,29 +1619,6 @@ const demoUserOptions = [
   { email: "admin@company.com", label: "Identity Admin", roleLabel: "identity-admin" }
 ];
 
-async function friendlyApiError(response: Response, fallback: string): Promise<string> {
-  const text = await response.text();
-  let body: { error?: string; message?: string; details?: string[]; limit?: number } | undefined;
-  try {
-    body = text ? JSON.parse(text) as { error?: string; message?: string; details?: string[]; limit?: number } : undefined;
-  } catch {
-    body = undefined;
-  }
-  if (response.status === 429 || body?.error === "Too many requests") {
-    return "Too many requests. Wait a minute and try again.";
-  }
-  if (body?.error === "Session required") {
-    return "Your browser session expired. Refresh the page and try again.";
-  }
-  if (response.status === 403 && body?.message === "Access denied. Your user is not enabled for this gateway.") {
-    return body.message;
-  }
-  if (body?.error) {
-    return `${fallback}: ${body.error}`;
-  }
-  return text ? `${fallback}: ${text}` : `${fallback} (${response.status})`;
-}
-
 function createMessageId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -1974,7 +1952,7 @@ function App() {
     clearAuthenticatedUiState();
     setAccessDeniedIdentity(safeEmail ? { email: safeEmail } : null);
     setAppAuthState("access_denied");
-    setIdentityError("Access denied. Your user is not enabled for this gateway.");
+    setIdentityError(directoryAccessDeniedMessage);
     if (response) {
       await response.text().catch(() => "");
     }
@@ -1988,11 +1966,15 @@ function App() {
       transitionToAnonymous("Sign in to continue.");
       return false;
     }
+    const payload = await readApiErrorPayload(response);
     if (response.status === 403) {
-      await transitionToAccessDenied(response);
-      return false;
+      if (isDirectoryAccessDenied(payload.body)) {
+        await transitionToAccessDenied();
+        return false;
+      }
+      throw new Error(apiErrorMessage(payload, response.status, fallbackMessage));
     }
-    throw new Error(await friendlyApiError(response, fallbackMessage));
+    throw new Error(apiErrorMessage(payload, response.status, fallbackMessage));
   }
 
   async function checkAgentHealth() {
@@ -2039,16 +2021,8 @@ function App() {
         if (cancelled) {
           return;
         }
-        if (response.status === 401) {
-          transitionToAnonymous();
+        if (!await handleProtectedResponse(response, "Failed to load identity session")) {
           return;
-        }
-        if (response.status === 403) {
-          await transitionToAccessDenied(response);
-          return;
-        }
-        if (!response.ok) {
-          throw new Error(await friendlyApiError(response, "Failed to load identity session"));
         }
         const session = (await response.json()) as IdentitySessionResponse;
         if (!session.authenticated) {
@@ -2108,17 +2082,11 @@ function App() {
         await ensureSession();
         const session = await postBearerIdentitySession(API_URL, result.accessToken).catch(async (error: unknown) => {
           if (error instanceof Response) {
-            if (error.status === 403) {
+            if (!await handleProtectedResponse(error, "Failed to attach Auth0 identity")) {
               cleanAuth0CallbackUrl("/");
-              await transitionToAccessDenied(error);
               return null;
             }
-            if (error.status === 401) {
-              cleanAuth0CallbackUrl("/");
-              transitionToAnonymous("Sign in to continue.");
-              return null;
-            }
-            throw new Error(await friendlyApiError(error, "Failed to attach Auth0 identity"));
+            return null;
           }
           throw error;
         });
@@ -2314,15 +2282,10 @@ function App() {
       await ensureSession();
       const body = await postMockDemoLogin(API_URL, selectedDemoUserEmail).catch(async (error: unknown) => {
         if (error instanceof Response) {
-          if (error.status === 403) {
-            await transitionToAccessDenied(error);
+          if (!await handleProtectedResponse(error, "Failed to login as demo user")) {
             return null;
           }
-          if (error.status === 401) {
-            transitionToAnonymous("Sign in to continue.");
-            return null;
-          }
-          throw new Error(await friendlyApiError(error, "Failed to login as demo user"));
+          return null;
         }
         throw error;
       });
@@ -2534,11 +2497,11 @@ function App() {
           ...(zeroTrustExpectedConnectorId ? { expectedConnectorId: zeroTrustExpectedConnectorId } : {})
         })
       });
-      const body = await response.json() as AgentOnboardingDiscoveryResult | { discovered: false; details?: string[]; error?: string };
       if (response.status === 401 || response.status === 403) {
         await handleProtectedResponse(response, "Discovery failed");
         return;
       }
+      const body = await response.json() as AgentOnboardingDiscoveryResult | { discovered: false; details?: string[]; error?: string };
       if (!response.ok || !("discovered" in body) || body.discovered !== true) {
         const details = "details" in body && body.details?.length
           ? body.details.join(" ")
@@ -2593,11 +2556,11 @@ function App() {
           ...(zeroTrustExpectedConnectorId ? { expectedConnectorId: zeroTrustExpectedConnectorId } : {})
         })
       });
-      const body = await response.json() as AgentOnboardingResult | { error: string; details?: string[]; checks?: AgentOnboardingResult["checks"] };
       if (response.status === 401 || response.status === 403) {
         await handleProtectedResponse(response, "Zero-trust onboarding failed");
         return;
       }
+      const body = await response.json() as AgentOnboardingResult | { error: string; details?: string[]; checks?: AgentOnboardingResult["checks"] };
       if (!response.ok) {
         const details = "details" in body && body.details?.length ? ` ${body.details.join(" ")}` : "";
         throw new Error(`Zero-trust onboarding failed.${details}`);

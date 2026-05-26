@@ -55,7 +55,8 @@ function verifyFrontend(): void {
   const login = read("apps/web-ui/src/components/auth/LoginScreen.tsx");
   const accessDenied = read("apps/web-ui/src/components/auth/AccessDeniedScreen.tsx");
   const auth0Client = read("apps/web-ui/src/auth/auth0Client.ts");
-  const frontend = `${main}\n${login}\n${accessDenied}\n${auth0Client}`;
+  const apiErrors = read("apps/web-ui/src/api/errors.ts");
+  const frontend = `${main}\n${login}\n${accessDenied}\n${auth0Client}\n${apiErrors}`;
 
   for (const state of ["checking", "anonymous", "authenticated", "access_denied", "error"]) {
     requireRegex(main, new RegExp(`type\\s+AppAuthState[\\s\\S]*"${state}"`), `frontend auth state ${state}`);
@@ -75,7 +76,9 @@ function verifyFrontend(): void {
   requireRegex(main, /const activePageHeader = activePageHeaders\[activeTab\];[\s\S]*return \(\s*<main className=\{`shell control-plane-shell/, "main app renders only after auth gates");
 
   requireRegex(main, /response\.status === 401[\s\S]*setAppAuthState\("anonymous"\)|response\.status === 401[\s\S]*transitionToAnonymous/, "frontend handles 401 as anonymous");
-  requireRegex(main, /response\.status === 403[\s\S]*setAppAuthState\("access_denied"\)|response\.status === 403[\s\S]*transitionToAccessDenied/, "frontend handles 403 as access denied");
+  requireIncludes(apiErrors, 'body?.error === "user_directory_access_denied"', "frontend detects directory access denial response");
+  requireRegex(main, /response\.status === 403[\s\S]*isDirectoryAccessDenied\(payload\.body\)[\s\S]*transitionToAccessDenied/, "frontend handles directory 403 as access denied");
+  requireRegex(main, /response\.status === 403[\s\S]*throw new Error\(apiErrorMessage\(payload, response\.status, fallbackMessage\)\)/, "frontend keeps capability 403 as local operation error");
   requireIncludes(frontend, "/auth/callback", "frontend still uses Auth0 callback route");
   requireIncludes(main, "postBearerIdentitySession(API_URL, result.accessToken)", "frontend posts Auth0 token to Gateway identity session");
 

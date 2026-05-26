@@ -570,11 +570,13 @@ The endpoint does not execute runtime, does not issue a runtime token, and does 
 
 Browser-session POST routes require the `x-ogen-csrf-token` header. `POST /session` bootstraps the browser session and issues the readable CSRF cookie, so it does not require CSRF itself. Internal API-key/service-token calls can bypass CSRF only when the configured secret matches. Authorization bearer alone does not bypass CSRF. GET/public routes do not require CSRF.
 
-CSRF tokens are signed and session-bound. A token for one browser session cannot be reused for another browser session, and CSRF tokens expire. Internal service/API-key bypass remains available for trusted non-browser flows.
+CSRF tokens are signed and session-bound. A token for one browser session cannot be reused for another browser session, and CSRF tokens expire. The readable CSRF cookie follows cross-site session cookie settings so Vercel-to-Railway browser sessions can send both cookies on credentialed POSTs. Internal service/API-key bypass remains available for trusted non-browser flows.
 
 ### Phase 2.17  Tenant Resolution Boundary
 
-tenantId is resolved by Ogen. client-supplied tenantId is a hint, not authority. Current local/default mode supports only the configured default tenant, while future Auth0 org/domain mapping can resolve tenant context from verified identity. policy, audit, user directory, connector trust, and runtime authorization should use the resolved tenant.
+tenantId is resolved by Ogen. client-supplied tenantId is a hint, not authority. Current local/default mode supports the configured default tenant, while Auth0 org/domain mapping can resolve tenant context from verified identity. policy, audit, user directory, connector trust, and runtime authorization should use the resolved tenant.
+
+Auth0 organization claims such as `org_id` or `organization` must survive verified identity mapping so tenant resolution can use them as the authoritative tenant context without exposing raw JWT material to the browser.
 
 Malformed tenant and conversation hints fail safely instead of crashing request handling or entering conversation state. Tenant switching attempts through `/resolve` and `/runtime/authorize` are audited as tenant access denied with tenant resolution metadata and without raw prompts or token material.
 
