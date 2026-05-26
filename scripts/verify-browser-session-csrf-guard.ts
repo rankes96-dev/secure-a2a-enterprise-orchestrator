@@ -10,6 +10,7 @@ import {
   verifyCsrfRequest,
   verifyCsrfRequestForSession
 } from "../services/orchestrator-api/src/security/csrfProtection.js";
+import { createSessionCookieForToken } from "../services/orchestrator-api/src/security/sessionManager.js";
 
 let failed = false;
 
@@ -56,6 +57,7 @@ function fakeRequest(headers: IncomingMessage["headers"]): IncomingMessage {
 }
 
 const csrfSource = read("services/orchestrator-api/src/security/csrfProtection.ts");
+const sessionSource = read("services/orchestrator-api/src/security/sessionManager.ts");
 const indexSource = read("services/orchestrator-api/src/index.ts");
 const sharedHttpSource = read("packages/shared/src/http.ts");
 const fastifySource = read("services/orchestrator-api/src/http/createOgenFastifyApp.ts");
@@ -95,6 +97,21 @@ if (csrfSource.includes("HttpOnly")) {
   fail("CSRF cookie must not be HttpOnly because the UI must echo it in a header");
 } else {
   ok("CSRF cookie is not HttpOnly");
+}
+
+for (const phrase of [
+  'function sameSite(): "Lax" | "Strict" | "None"',
+  "SESSION_COOKIE_SAMESITE",
+  'configured === "none"',
+  'configured === "strict"',
+  "function cookieSecure(): boolean",
+  'sameSite() === "None"',
+  'process.env.SESSION_COOKIE_SECURE === "true"',
+  'process.env.NODE_ENV === "production"',
+  '"HttpOnly"',
+  "`SameSite=${sameSite()}`"
+]) {
+  requireIncludes(sessionSource, phrase, "session cookie helper exists");
 }
 
 const bypassStart = csrfSource.indexOf("export function shouldBypassCsrfForTrustedInternalRequest");
@@ -210,6 +227,9 @@ for (const phrase of [
   "x-ogen-csrf-token",
   "CSRF_SIGNING_SECRET",
   "CSRF_TOKEN_TTL_SECONDS",
+  "SESSION_COOKIE_SAMESITE=None",
+  "session cookie becomes Secure automatically",
+  "backend must be served over HTTPS",
   "signed/session-bound"
 ]) {
   requireIncludes(deploymentDocs, phrase, "deployment docs cover CSRF behavior");
@@ -363,6 +383,24 @@ if (!explicitCsrfCookie.includes("SameSite=Strict")) {
   fail("explicit CSRF_COOKIE_SAMESITE should override session SameSite");
 } else {
   ok("explicit CSRF_COOKIE_SAMESITE overrides session SameSite");
+}
+process.env.NODE_ENV = "development";
+delete process.env.CSRF_COOKIE_SAMESITE;
+delete process.env.CSRF_COOKIE_SECURE;
+delete process.env.SESSION_COOKIE_SECURE;
+process.env.SESSION_COOKIE_SAMESITE = "None";
+const crossSiteSessionCookie = createSessionCookieForToken("test-session");
+if (!crossSiteSessionCookie.includes("HttpOnly") || !crossSiteSessionCookie.includes("SameSite=None") || !crossSiteSessionCookie.includes("Secure")) {
+  fail("cross-site session cookie should be HttpOnly, SameSite=None, and Secure");
+} else {
+  ok("cross-site session cookie is HttpOnly, SameSite=None, and Secure");
+}
+delete process.env.SESSION_COOKIE_SAMESITE;
+const localSessionCookie = createSessionCookieForToken("test-session");
+if (!localSessionCookie.includes("HttpOnly") || !localSessionCookie.includes("SameSite=Lax") || localSessionCookie.includes("Secure")) {
+  fail("default local session cookie should be HttpOnly, SameSite=Lax, and not force Secure");
+} else {
+  ok("default local session cookie remains local-dev compatible");
 }
 
 if (originalApiKey === undefined) {

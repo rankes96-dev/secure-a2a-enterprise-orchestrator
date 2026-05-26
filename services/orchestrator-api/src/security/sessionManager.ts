@@ -12,12 +12,21 @@ function sessionTtlMs(): number {
   return Number(process.env.SESSION_TTL_MS ?? 60 * 60 * 1000);
 }
 
-function cookieSecure(): boolean {
-  return process.env.SESSION_COOKIE_SECURE === "true";
+function sameSite(): "Lax" | "Strict" | "None" {
+  const configured = (process.env.SESSION_COOKIE_SAMESITE ?? "Lax").trim().toLowerCase();
+  if (configured === "none") {
+    return "None";
+  }
+  if (configured === "strict") {
+    return "Strict";
+  }
+  return "Lax";
 }
 
-function sameSite(): string {
-  return process.env.SESSION_COOKIE_SAMESITE ?? "Lax";
+function cookieSecure(): boolean {
+  return sameSite() === "None" ||
+    process.env.SESSION_COOKIE_SECURE === "true" ||
+    process.env.NODE_ENV === "production";
 }
 
 export function cleanupExpiredSessions(): string[] {
