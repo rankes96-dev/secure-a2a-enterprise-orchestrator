@@ -107,6 +107,9 @@ Future SDKs can call `POST /runtime/authorize` to ask Ogen whether an action is 
 Rules:
 
 - SDK can call Ogen to ask if an action is allowed.
+- SDK may send tenantId as context hint.
+- Ogen resolves the authoritative tenant.
+- SDK must not assume tenant selection is accepted.
 - Actor context may be supplied as a hint.
 - Ogen verified identity session is authoritative.
 - SDK must not rely on caller-supplied actor for authorization.

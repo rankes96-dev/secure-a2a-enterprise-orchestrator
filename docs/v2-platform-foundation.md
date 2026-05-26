@@ -572,6 +572,10 @@ Browser-session POST routes require the `x-ogen-csrf-token` header. `POST /sessi
 
 CSRF tokens are signed and session-bound. A token for one browser session cannot be reused for another browser session, and CSRF tokens expire. Internal service/API-key bypass remains available for trusted non-browser flows.
 
+### Phase 2.17  Tenant Resolution Boundary
+
+tenantId is resolved by Ogen. client-supplied tenantId is a hint, not authority. Current local/default mode supports only the configured default tenant, while future Auth0 org/domain mapping can resolve tenant context from verified identity. policy, audit, user directory, connector trust, and runtime authorization should use the resolved tenant.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

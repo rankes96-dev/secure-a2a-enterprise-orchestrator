@@ -389,7 +389,7 @@ for (const phrase of [
   "verifyUserDirectoryAccess",
   "userIdentitiesBySession.delete(identitySession.sessionToken)",
   "user_directory_access_denied",
-  "appendIdentityDeniedAuditEvent(identitySession.identity, directoryAccess.reason, tenantId)"
+  "appendIdentityDeniedAuditEvent(identitySession.identity, directoryAccess.reason, tenantContext)"
 ]) {
   requireIncludes(orchestrator, phrase, "stale in-memory identity directory revalidation");
 }

@@ -183,7 +183,7 @@ for (const phrase of [
   "appendIdentityVerifiedAuditEvent",
   "AuditEvents.USER_IDENTITY_VERIFIED",
   "userIdentitiesBySession.set(sessionToken, allowedIdentity)",
-  "await appendIdentityVerifiedAuditEvent(allowedIdentity)",
+  "await appendIdentityVerifiedAuditEvent(allowedIdentity, tenantContext)",
   "appendConnectorRuntimeAuditEvents",
   "AuditEvents.CONNECTOR_RUNTIME_TOKEN_ISSUED",
   "AuditEvents.CONNECTOR_RUNTIME_SUCCEEDED",

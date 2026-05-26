@@ -59,7 +59,7 @@ import { AuditEvents } from "./audit/auditEvents.js";
 import { appendPlatformAuditEvent } from "./audit/platformAuditStore.js";
 import type { OgenInterpretationProof } from "./interpretation/interpretationTypes.js";
 import type { OgenAiRoutingProof } from "./interpretation/routingProofTypes.js";
-import { defaultTenantId } from "./tenant/tenantContext.js";
+import { requireRequestedTenantAllowed, resolveTenantContext, type ResolvedTenantContext } from "./tenant/tenantResolution.js";
 import { evaluateConnectorPolicy, type ConnectorPolicyEvaluation } from "./policy/connectorPolicy.js";
 import { evaluateRuntimeAuthorization } from "./runtimeAuthorization/runtimeAuthorizationEvaluator.js";
 import { detectAdversarialIntent } from "./adversarialIntent.js";
@@ -194,6 +194,44 @@ function requireCsrfForBrowserMutation(request: IncomingMessage, response: Serve
 
 function objectRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function stringHint(value: unknown): string | undefined {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed || undefined;
+}
+
+function requestedTenantIdFromBody(value: unknown): string | undefined {
+  return stringHint(objectRecord(value)?.tenantId);
+}
+
+function requestMayHaveJsonBody(request: IncomingMessage): boolean {
+  const contentLength = Array.isArray(request.headers["content-length"]) ? request.headers["content-length"][0] : request.headers["content-length"];
+  return Boolean(request.headers["transfer-encoding"] || (contentLength && Number(contentLength) > 0));
+}
+
+async function readOptionalJsonBody<T>(request: IncomingMessage): Promise<T | undefined> {
+  if (!requestMayHaveJsonBody(request)) {
+    return undefined;
+  }
+
+  return readJsonBody<T>(request);
+}
+
+function tenantContextForRequest(identity?: VerifiedUserIdentity, requestedTenantId?: string): ResolvedTenantContext {
+  return resolveTenantContext({ identity, requestedTenantId });
+}
+
+function sendTenantAccessDenied(response: ServerResponse, request: IncomingMessage, tenantContext: ResolvedTenantContext): void {
+  sendJson(response, 403, {
+    error: "tenant_access_denied",
+    message: "Requested tenant is not available for this identity.",
+    tenantResolution: {
+      source: tenantContext.source,
+      requestedTenantId: tenantContext.requestedTenantId,
+      requestedTenantAccepted: tenantContext.requestedTenantAccepted
+    }
+  }, request);
 }
 
 function validateRuntimeAuthorizationRequest(value: unknown): string | undefined {
@@ -949,8 +987,9 @@ function connectorRuntimeResolutionStatus(decision: ConnectorRoutingDecision, ru
   return connectorRoutingResolutionStatus(decision);
 }
 
-async function appendIdentityVerifiedAuditEvent(identity: VerifiedUserIdentity): Promise<void> {
+async function appendIdentityVerifiedAuditEvent(identity: VerifiedUserIdentity, tenantContext: ResolvedTenantContext): Promise<void> {
   await appendPlatformAuditEvent({
+    tenantId: tenantContext.tenantId,
     actorProvider: identity.provider,
     actorSubject: identity.subject,
     actorEmail: identity.email,
@@ -963,15 +1002,18 @@ async function appendIdentityVerifiedAuditEvent(identity: VerifiedUserIdentity):
       audience: identity.audience,
       email: identity.email,
       roles: identity.roles,
+      tenantResolutionSource: tenantContext.source,
+      requestedTenantId: tenantContext.requestedTenantId,
+      requestedTenantAccepted: tenantContext.requestedTenantAccepted,
       protectedMaterialExposed: false,
       tokenMaterialStored: false
     }
   });
 }
 
-async function appendIdentityDeniedAuditEvent(identity: VerifiedUserIdentity, reason: string, tenantId: string): Promise<void> {
+async function appendIdentityDeniedAuditEvent(identity: VerifiedUserIdentity, reason: string, tenantContext: ResolvedTenantContext): Promise<void> {
   await appendPlatformAuditEvent({
-    tenantId,
+    tenantId: tenantContext.tenantId,
     actorProvider: identity.provider,
     actorSubject: identity.subject,
     actorEmail: identity.email,
@@ -982,7 +1024,10 @@ async function appendIdentityDeniedAuditEvent(identity: VerifiedUserIdentity, re
       provider: identity.provider,
       email: identity.email,
       reason,
-      tenantId,
+      tenantId: tenantContext.tenantId,
+      tenantResolutionSource: tenantContext.source,
+      requestedTenantId: tenantContext.requestedTenantId,
+      requestedTenantAccepted: tenantContext.requestedTenantAccepted,
       protectedMaterialExposed: false,
       tokenMaterialStored: false
     }
@@ -1094,9 +1139,11 @@ async function appendConnectorPolicyDecisionAuditEvent(params: {
   connectorRouting: ConnectorRoutingDecision;
   connectorPolicy: ConnectorPolicyEvaluation;
   actor?: VerifiedUserIdentity;
+  tenantContext?: ResolvedTenantContext;
 }): Promise<void> {
-  const { connectorRouting, connectorPolicy, actor } = params;
+  const { connectorRouting, connectorPolicy, actor, tenantContext } = params;
   await appendPlatformAuditEvent({
+    tenantId: tenantContext?.tenantId,
     actorProvider: actor?.provider,
     actorSubject: actor?.subject,
     actorEmail: actor?.email,
@@ -1124,6 +1171,9 @@ async function appendConnectorPolicyDecisionAuditEvent(params: {
       executionType: connectorRouting.executionType,
       actionMetadataSource: connectorRouting.actionMetadataSource,
       runtimeMode: connectorRouting.runtimeMode,
+      tenantResolutionSource: tenantContext?.source,
+      requestedTenantId: tenantContext?.requestedTenantId,
+      requestedTenantAccepted: tenantContext?.requestedTenantAccepted,
       protectedMaterialExposed: false,
       tokenMaterialStored: false,
       promptTextStored: false
@@ -1135,8 +1185,9 @@ async function appendRuntimeAuthorizationEvaluatedAuditEvent(params: {
   authorization: RuntimeAuthorizationResponse;
   requestBody: RuntimeAuthorizationRequest;
   actor: VerifiedUserIdentity;
+  tenantContext: ResolvedTenantContext;
 }): Promise<void> {
-  const { authorization, requestBody, actor } = params;
+  const { authorization, requestBody, actor, tenantContext } = params;
   await appendPlatformAuditEvent({
     tenantId: authorization.tenantId,
     actorProvider: actor.provider,
@@ -1158,6 +1209,43 @@ async function appendRuntimeAuthorizationEvaluatedAuditEvent(params: {
       skillId: requestBody.action.skillId,
       connectorId: requestBody.connectorRoute?.connectorId ?? requestBody.targetAgent?.connectorId ?? requestBody.resource?.connectorId,
       resourceSystem: requestBody.connectorRoute?.resourceSystem ?? requestBody.targetAgent?.resourceSystem ?? requestBody.resource?.resourceSystem,
+      tenantResolutionSource: tenantContext.source,
+      requestedTenantId: tenantContext.requestedTenantId,
+      requestedTenantAccepted: tenantContext.requestedTenantAccepted,
+      runtimeTokenIssued: false,
+      externalRuntimeCalled: false,
+      protectedMaterialExposed: false,
+      tokenMaterialStored: false,
+      rawPromptStored: false
+    }
+  });
+}
+
+async function appendRuntimeAuthorizationTenantDeniedAuditEvent(params: {
+  requestBody: RuntimeAuthorizationRequest;
+  actor: VerifiedUserIdentity;
+  tenantContext: ResolvedTenantContext;
+}): Promise<void> {
+  const { requestBody, actor, tenantContext } = params;
+  await appendPlatformAuditEvent({
+    tenantId: tenantContext.tenantId,
+    actorProvider: actor.provider,
+    actorSubject: actor.subject,
+    actorEmail: actor.email,
+    eventType: AuditEvents.RUNTIME_AUTHORIZATION_EVALUATED,
+    resourceType: "runtime_authorization",
+    resourceId: requestBody.requestId ?? requestBody.action.skillId,
+    safeMetadata: {
+      requestId: requestBody.requestId,
+      conversationId: requestBody.conversationId,
+      effect: "block",
+      reason: "tenant_access_denied",
+      skillId: requestBody.action.skillId,
+      connectorId: requestBody.connectorRoute?.connectorId ?? requestBody.targetAgent?.connectorId ?? requestBody.resource?.connectorId,
+      resourceSystem: requestBody.connectorRoute?.resourceSystem ?? requestBody.targetAgent?.resourceSystem ?? requestBody.resource?.resourceSystem,
+      tenantResolutionSource: tenantContext.source,
+      requestedTenantId: tenantContext.requestedTenantId,
+      requestedTenantAccepted: tenantContext.requestedTenantAccepted,
       runtimeTokenIssued: false,
       externalRuntimeCalled: false,
       protectedMaterialExposed: false,
@@ -1953,21 +2041,21 @@ function requireIdentitySession(request: IncomingMessage, response: ServerRespon
 async function requireFreshIdentitySession(
   request: IncomingMessage,
   response: ServerResponse
-): Promise<{ sessionToken: string; identity: VerifiedUserIdentity } | undefined> {
+): Promise<{ sessionToken: string; identity: VerifiedUserIdentity; tenantContext: ResolvedTenantContext } | undefined> {
   const identitySession = requireIdentitySession(request, response);
   if (!identitySession) {
     return undefined;
   }
 
-  const tenantId = defaultTenantId();
+  const tenantContext = tenantContextForRequest(identitySession.identity);
   const directoryAccess = await verifyUserDirectoryAccess({
     identity: identitySession.identity,
-    tenantId
+    tenantId: tenantContext.tenantId
   });
 
   if (!directoryAccess.ok) {
     userIdentitiesBySession.delete(identitySession.sessionToken);
-    await appendIdentityDeniedAuditEvent(identitySession.identity, directoryAccess.reason, tenantId);
+    await appendIdentityDeniedAuditEvent(identitySession.identity, directoryAccess.reason, tenantContext);
     sendJson(response, directoryAccess.status, {
       error: "user_directory_access_denied",
       message: directoryAccess.message
@@ -1980,7 +2068,8 @@ async function requireFreshIdentitySession(
 
   return {
     sessionToken: identitySession.sessionToken,
-    identity: allowedIdentity
+    identity: allowedIdentity,
+    tenantContext
   };
 }
 
@@ -2185,7 +2274,7 @@ async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
   };
 }
 
-async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string): Promise<ResolveResponse> {
+async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, tenantContext = tenantContextForRequest(currentUserIdentity(sessionToken))): Promise<ResolveResponse> {
   const verifiedUser = currentUserIdentity(sessionToken);
   const conversationOwner = conversationOwnerContext({ sessionToken, actor: verifiedUser });
   const conversationState = getOrCreateConversationState(requestBody.conversationId, conversationOwner);
@@ -3367,7 +3456,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     const connectorStatus = connectorRoutingStatusLabel(connectorRouting.status);
     const policyInterpretation = incidentInterpretation ?? routingDecision.requestInterpretation;
     const connectorPolicy = evaluateConnectorPolicy({
-      tenantId: defaultTenantId(),
+      tenantId: tenantContext.tenantId,
       conversationId,
       connectorRouteStatus: connectorRouting.status,
       runtimeMode: connectorRouting.runtimeMode,
@@ -3389,7 +3478,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           }
         : undefined,
       subject: {
-        tenantId: defaultTenantId(),
+        tenantId: tenantContext.tenantId,
         provider: verifiedUser?.provider,
         issuer: verifiedUser?.issuer,
         subject: verifiedUser?.subject,
@@ -3415,7 +3504,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     await appendConnectorPolicyDecisionAuditEvent({
       connectorRouting,
       connectorPolicy,
-      actor: verifiedUser
+      actor: verifiedUser,
+      tenantContext
     });
     const runtimeExecutable = canExecuteConnectorRuntime(connectorRouting, connectorPolicy);
     const policyProof = {
@@ -4366,13 +4456,20 @@ async function start(): Promise<void> {
       return;
     }
 
+    const requestBody = await readOptionalJsonBody<{ tenantId?: unknown }>(request);
     try {
       const identity = await userIdentityProvider.validateBearerToken(token);
-      const tenantId = defaultTenantId();
-      const directoryAccess = await verifyUserDirectoryAccess({ identity, tenantId });
+      const tenantContext = tenantContextForRequest(identity, requestedTenantIdFromBody(requestBody));
+      if (!requireRequestedTenantAllowed(tenantContext)) {
+        await appendIdentityDeniedAuditEvent(identity, "tenant_access_denied", tenantContext);
+        sendTenantAccessDenied(response, request, tenantContext);
+        return;
+      }
+
+      const directoryAccess = await verifyUserDirectoryAccess({ identity, tenantId: tenantContext.tenantId });
       if (!directoryAccess.ok) {
         userIdentitiesBySession.delete(sessionToken);
-        await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId);
+        await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantContext);
         sendJson(response, directoryAccess.status, {
           error: "user_directory_access_denied",
           message: directoryAccess.message
@@ -4382,7 +4479,7 @@ async function start(): Promise<void> {
 
       const allowedIdentity = identityWithDirectoryRoles(identity, directoryAccess.user.roles);
       userIdentitiesBySession.set(sessionToken, allowedIdentity);
-      await appendIdentityVerifiedAuditEvent(allowedIdentity);
+      await appendIdentityVerifiedAuditEvent(allowedIdentity, tenantContext);
       sendJson(response, 200, publicIdentitySession(userIdentityProvider, allowedIdentity), request);
     } catch (error) {
       sendJson(response, 401, {
@@ -4407,7 +4504,7 @@ async function start(): Promise<void> {
       return;
     }
 
-    const body = await readJsonBody<{ email?: unknown }>(request);
+    const body = await readJsonBody<{ email?: unknown; tenantId?: unknown }>(request);
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     if (!email) {
       sendJson(response, 400, { error: "invalid_demo_user_email" }, request);
@@ -4422,11 +4519,17 @@ async function start(): Promise<void> {
     try {
       const { accessToken } = await requestDemoUserToken(email);
       const identity = await userIdentityProvider.validateBearerToken(accessToken);
-      const tenantId = defaultTenantId();
-      const directoryAccess = await verifyUserDirectoryAccess({ identity, tenantId });
+      const tenantContext = tenantContextForRequest(identity, requestedTenantIdFromBody(body));
+      if (!requireRequestedTenantAllowed(tenantContext)) {
+        await appendIdentityDeniedAuditEvent(identity, "tenant_access_denied", tenantContext);
+        sendTenantAccessDenied(response, request, tenantContext);
+        return;
+      }
+
+      const directoryAccess = await verifyUserDirectoryAccess({ identity, tenantId: tenantContext.tenantId });
       if (!directoryAccess.ok) {
         userIdentitiesBySession.delete(sessionToken);
-        await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId);
+        await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantContext);
         sendJson(response, directoryAccess.status, {
           error: "user_directory_access_denied",
           message: directoryAccess.message
@@ -4436,7 +4539,7 @@ async function start(): Promise<void> {
 
       const allowedIdentity = identityWithDirectoryRoles(identity, directoryAccess.user.roles);
       userIdentitiesBySession.set(sessionToken, allowedIdentity);
-      await appendIdentityVerifiedAuditEvent(allowedIdentity);
+      await appendIdentityVerifiedAuditEvent(allowedIdentity, tenantContext);
       sendJson(response, 200, publicIdentitySession(userIdentityProvider, allowedIdentity), request);
     } catch (error) {
       sendJson(response, 400, {
@@ -4598,15 +4701,28 @@ async function start(): Promise<void> {
     }
 
     const requestBody = requestBodyUnknown as RuntimeAuthorizationRequest;
+    const tenantContext = tenantContextForRequest(identitySession.identity, requestBody.tenantId);
+    if (!requireRequestedTenantAllowed(tenantContext)) {
+      await appendRuntimeAuthorizationTenantDeniedAuditEvent({
+        requestBody,
+        actor: identitySession.identity,
+        tenantContext
+      });
+      sendTenantAccessDenied(response, request, tenantContext);
+      return;
+    }
+
     const authorization = evaluateRuntimeAuthorization({
       request: requestBody,
       identity: identitySession.identity,
-      tenantId: defaultTenantId()
+      tenantId: tenantContext.tenantId,
+      tenantResolution: tenantContext
     });
     await appendRuntimeAuthorizationEvaluatedAuditEvent({
       authorization,
       requestBody,
-      actor: identitySession.identity
+      actor: identitySession.identity,
+      tenantContext
     });
 
     sendJson(response, 200, authorization, request);
@@ -4638,7 +4754,13 @@ async function start(): Promise<void> {
     return;
   }
 
-  sendJson(response, 200, await resolveIssue(requestBody, identitySession.sessionToken));
+  const tenantContext = tenantContextForRequest(identitySession.identity, requestedTenantIdFromBody(requestBody));
+  if (!requireRequestedTenantAllowed(tenantContext)) {
+    sendTenantAccessDenied(response, request, tenantContext);
+    return;
+  }
+
+  sendJson(response, 200, await resolveIssue(requestBody, identitySession.sessionToken, tenantContext));
   });
 }
 

@@ -732,6 +732,11 @@ export type RuntimeAuthorizationResponse = {
   requiresApproval: boolean;
   reason: string;
   tenantId: string;
+  tenantResolution?: {
+    source: string;
+    requestedTenantId?: string;
+    requestedTenantAccepted: boolean;
+  };
   policy: {
     policyVersion: string;
     decisionId: string;

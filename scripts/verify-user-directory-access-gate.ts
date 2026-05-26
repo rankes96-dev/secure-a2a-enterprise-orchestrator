@@ -289,7 +289,7 @@ if (freshVerifyCall > freshSessionSet) {
   fail("requireFreshIdentitySession should call verifyUserDirectoryAccess before refreshing userIdentitiesBySession");
 }
 requireIncludes(index, "await requireFreshIdentitySession(request, response)", "protected routes fresh directory revalidation");
-requireIncludes(index, "await appendIdentityDeniedAuditEvent(identitySession.identity, directoryAccess.reason, tenantId)", "fresh session denied audit");
+requireIncludes(index, "await appendIdentityDeniedAuditEvent(identitySession.identity, directoryAccess.reason, tenantContext)", "fresh session denied audit");
 requireIncludes(index, "sendJson(response, directoryAccess.status", "fresh session safe denied status");
 requireIncludes(index, "message: directoryAccess.message", "fresh session safe denied message");
 
@@ -300,11 +300,11 @@ for (const [route, context] of [
   [identityAttachRoute, "POST /identity/session denied attach"],
   [demoLoginRoute, "POST /identity/demo-login denied attach"]
 ] as const) {
-  requireBefore(route, "userIdentitiesBySession.delete(sessionToken)", "await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId)", context);
+  requireBefore(route, "userIdentitiesBySession.delete(sessionToken)", "await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantContext)", context);
   requireBefore(route, "userIdentitiesBySession.delete(sessionToken)", 'error: "user_directory_access_denied"', context);
   requireIncludes(route, 'error: "user_directory_access_denied"', context);
   requireIncludes(route, "message: directoryAccess.message", context);
-  requireIncludes(route, "await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantId)", context);
+  requireIncludes(route, "await appendIdentityDeniedAuditEvent(identity, directoryAccess.reason, tenantContext)", context);
   requireExcludes(route, "console.log", context);
   requireExcludes(route, "console.error", context);
 }

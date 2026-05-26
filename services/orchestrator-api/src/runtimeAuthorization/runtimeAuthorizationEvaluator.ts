@@ -2,6 +2,7 @@ import type { RuntimeAuthorizationRequest, RuntimeAuthorizationResponse } from "
 import type { ConnectorRoutingDecision } from "../connectorRouting.js";
 import { evaluateConnectorPolicy } from "../policy/connectorPolicy.js";
 import type { VerifiedUserIdentity } from "../security/userIdentity.js";
+import type { ResolvedTenantContext } from "../tenant/tenantResolution.js";
 
 type RuntimeMode = NonNullable<RuntimeAuthorizationRequest["connectorRoute"]>["runtimeMode"];
 type ConnectorRouteStatus = ConnectorRoutingDecision["status"];
@@ -55,8 +56,9 @@ export function evaluateRuntimeAuthorization(input: {
   request: RuntimeAuthorizationRequest;
   identity: VerifiedUserIdentity;
   tenantId: string;
+  tenantResolution?: ResolvedTenantContext;
 }): RuntimeAuthorizationResponse {
-  const { request, identity, tenantId } = input;
+  const { request, identity, tenantId, tenantResolution } = input;
   const evaluatedConnectorId = connectorId(request);
   const evaluatedResourceSystem = resourceSystem(request);
   const policy = evaluateConnectorPolicy({
@@ -111,6 +113,13 @@ export function evaluateRuntimeAuthorization(input: {
     requiresApproval: policy.effect === "needs_approval",
     reason: policy.reason,
     tenantId,
+    tenantResolution: tenantResolution
+      ? {
+          source: tenantResolution.source,
+          requestedTenantId: tenantResolution.requestedTenantId,
+          requestedTenantAccepted: tenantResolution.requestedTenantAccepted
+        }
+      : undefined,
     policy: {
       policyVersion: policy.policyVersion,
       decisionId: policy.decisionId,
