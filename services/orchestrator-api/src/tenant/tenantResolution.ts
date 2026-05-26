@@ -9,7 +9,7 @@ export type TenantResolutionSource =
 
 export type TenantResolutionInput = {
   identity?: VerifiedUserIdentity;
-  requestedTenantId?: string;
+  requestedTenantId?: unknown;
 };
 
 export type ResolvedTenantContext = {
@@ -20,8 +20,8 @@ export type ResolvedTenantContext = {
   reason: string;
 };
 
-function cleanTenantId(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
+function cleanTenantId(value: unknown): string | undefined {
+  const trimmed = typeof value === "string" ? value.trim() : "";
   return trimmed || undefined;
 }
 

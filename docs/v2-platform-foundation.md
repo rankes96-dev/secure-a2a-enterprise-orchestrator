@@ -576,6 +576,8 @@ CSRF tokens are signed and session-bound. A token for one browser session cannot
 
 tenantId is resolved by Ogen. client-supplied tenantId is a hint, not authority. Current local/default mode supports only the configured default tenant, while future Auth0 org/domain mapping can resolve tenant context from verified identity. policy, audit, user directory, connector trust, and runtime authorization should use the resolved tenant.
 
+Malformed tenant hints fail safely instead of crashing request handling. Tenant switching attempts are audited safely with tenant resolution metadata and without raw prompts or token material.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

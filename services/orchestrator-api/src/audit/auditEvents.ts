@@ -42,6 +42,7 @@ export const AuditEvents = {
   AI_ROUTING_EVALUATED: "ai.routing.evaluated",
 
   RUNTIME_AUTHORIZATION_EVALUATED: "runtime.authorization.evaluated",
+  TENANT_ACCESS_DENIED: "tenant.access.denied",
 
   CONNECTOR_ONBOARDING_TRUSTED: "connector.onboarding.trusted",
   SECURITY_REQUEST_BLOCKED: "security.request.blocked"

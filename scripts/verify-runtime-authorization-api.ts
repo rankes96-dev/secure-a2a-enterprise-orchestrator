@@ -121,11 +121,19 @@ for (const phrase of [
   "runtimeAuthorizationRequestSchema",
   "runtimeAuthorizationResponseSchema",
   'required: ["action"]',
+  "tenantResolution",
   "runtimeTokenIssued",
   "externalRuntimeCalled",
   "runtime.authorization.evaluated"
 ]) {
   requireIncludes(fastifySchemas, phrase, "Fastify schema placeholder exists");
+}
+for (const phrase of [
+  "tenantResolution:",
+  'required: ["source", "requestedTenantAccepted"]',
+  "requestedTenantAccepted"
+]) {
+  requireIncludes(fastifySchemas, phrase, "runtime authorization response schema includes tenant resolution");
 }
 if (fastifySchemas.includes('required: ["actor", "action"]')) {
   fail("Runtime authorization request schema must not require actor");

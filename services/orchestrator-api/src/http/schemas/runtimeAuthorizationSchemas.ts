@@ -114,6 +114,16 @@ export const runtimeAuthorizationResponseSchema = {
     requiresApproval: { type: "boolean" },
     reason: { type: "string" },
     tenantId: { type: "string" },
+    tenantResolution: {
+      type: "object",
+      additionalProperties: false,
+      required: ["source", "requestedTenantAccepted"],
+      properties: {
+        source: { type: "string" },
+        requestedTenantId: { type: "string" },
+        requestedTenantAccepted: { type: "boolean" }
+      }
+    },
     policy: {
       type: "object",
       additionalProperties: false,

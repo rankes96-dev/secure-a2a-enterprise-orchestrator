@@ -218,7 +218,7 @@ async function readOptionalJsonBody<T>(request: IncomingMessage): Promise<T | un
   return readJsonBody<T>(request);
 }
 
-function tenantContextForRequest(identity?: VerifiedUserIdentity, requestedTenantId?: string): ResolvedTenantContext {
+function tenantContextForRequest(identity?: VerifiedUserIdentity, requestedTenantId?: unknown): ResolvedTenantContext {
   return resolveTenantContext({ identity, requestedTenantId });
 }
 
@@ -238,6 +238,10 @@ function validateRuntimeAuthorizationRequest(value: unknown): string | undefined
   const body = objectRecord(value);
   if (!body) {
     return "request body must be an object";
+  }
+
+  if ("tenantId" in body && body.tenantId !== undefined && typeof body.tenantId !== "string") {
+    return "tenantId must be a string when provided";
   }
 
   const action = objectRecord(body.action);
@@ -1248,6 +1252,38 @@ async function appendRuntimeAuthorizationTenantDeniedAuditEvent(params: {
       requestedTenantAccepted: tenantContext.requestedTenantAccepted,
       runtimeTokenIssued: false,
       externalRuntimeCalled: false,
+      protectedMaterialExposed: false,
+      tokenMaterialStored: false,
+      rawPromptStored: false
+    }
+  });
+}
+
+async function appendTenantAccessDeniedAuditEvent(params: {
+  actor: VerifiedUserIdentity;
+  tenantContext: ResolvedTenantContext;
+  route: string;
+  requestId?: string;
+  conversationId?: string;
+}): Promise<void> {
+  const { actor, tenantContext, route, requestId, conversationId } = params;
+  await appendPlatformAuditEvent({
+    tenantId: tenantContext.tenantId,
+    actorProvider: actor.provider,
+    actorSubject: actor.subject,
+    actorEmail: actor.email,
+    eventType: AuditEvents.TENANT_ACCESS_DENIED,
+    resourceType: "tenant",
+    resourceId: tenantContext.tenantId,
+    safeMetadata: {
+      route,
+      requestId,
+      conversationId,
+      tenantId: tenantContext.tenantId,
+      tenantResolutionSource: tenantContext.source,
+      requestedTenantId: tenantContext.requestedTenantId,
+      requestedTenantAccepted: tenantContext.requestedTenantAccepted,
+      reason: "tenant_access_denied",
       protectedMaterialExposed: false,
       tokenMaterialStored: false,
       rawPromptStored: false
@@ -4756,6 +4792,12 @@ async function start(): Promise<void> {
 
   const tenantContext = tenantContextForRequest(identitySession.identity, requestedTenantIdFromBody(requestBody));
   if (!requireRequestedTenantAllowed(tenantContext)) {
+    await appendTenantAccessDeniedAuditEvent({
+      actor: identitySession.identity,
+      tenantContext,
+      route: "/resolve",
+      conversationId: requestBody.conversationId
+    });
     sendTenantAccessDenied(response, request, tenantContext);
     return;
   }

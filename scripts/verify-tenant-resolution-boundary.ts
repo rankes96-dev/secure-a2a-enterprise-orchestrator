@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { RuntimeAuthorizationRequest } from "../packages/shared/src/index.js";
+import { runtimeAuthorizationResponseSchema } from "../services/orchestrator-api/src/http/schemas/runtimeAuthorizationSchemas.js";
 import { evaluateRuntimeAuthorization } from "../services/orchestrator-api/src/runtimeAuthorization/runtimeAuthorizationEvaluator.js";
 import type { VerifiedUserIdentity } from "../services/orchestrator-api/src/security/userIdentity.js";
 import { resolveTenantContext } from "../services/orchestrator-api/src/tenant/tenantResolution.js";
@@ -37,6 +38,8 @@ const tenantResolutionSource = read("services/orchestrator-api/src/tenant/tenant
 const indexSource = read("services/orchestrator-api/src/index.ts");
 const runtimeEvaluatorSource = read("services/orchestrator-api/src/runtimeAuthorization/runtimeAuthorizationEvaluator.ts");
 const sharedTypes = read("packages/shared/src/index.ts");
+const auditEventsSource = read("services/orchestrator-api/src/audit/auditEvents.ts");
+const runtimeAuthorizationSchemasSource = read("services/orchestrator-api/src/http/schemas/runtimeAuthorizationSchemas.ts");
 const packageJsonSource = read("package.json");
 const platformDocs = read("docs/v2-platform-foundation.md");
 const sdkDocs = read("docs/sdk-readiness-contracts.md");
@@ -49,6 +52,8 @@ for (const phrase of [
   "requestedTenantId",
   "requestedTenantAccepted",
   "Requested tenant is not authorized",
+  "function cleanTenantId(value: unknown)",
+  'typeof value === "string"',
   "defaultTenantId()",
   "auth0_org",
   "email_domain_mapping"
@@ -61,7 +66,9 @@ for (const phrase of [
   "resolveTenantContext({ identity, requestedTenantId })",
   "sendTenantAccessDenied",
   "appendRuntimeAuthorizationTenantDeniedAuditEvent",
+  "appendTenantAccessDeniedAuditEvent",
   "tenant_access_denied",
+  "tenantId must be a string when provided",
   "verifyUserDirectoryAccess({ identity, tenantId: tenantContext.tenantId",
   "identity: identitySession.identity",
   "tenantId: tenantContext.tenantId",
@@ -89,9 +96,16 @@ const resolveRoute = indexSource.slice(resolveRouteStart);
 for (const phrase of [
   "tenantContextForRequest(identitySession.identity, requestedTenantIdFromBody(requestBody))",
   "if (!requireRequestedTenantAllowed(tenantContext))",
+  "await appendTenantAccessDeniedAuditEvent",
   "await resolveIssue(requestBody, identitySession.sessionToken, tenantContext)"
 ]) {
   requireIncludes(resolveRoute, phrase, "/resolve uses resolved tenant context");
+}
+
+if (resolveRoute.indexOf("await appendTenantAccessDeniedAuditEvent") > resolveRoute.indexOf("sendTenantAccessDenied(response, request, tenantContext)")) {
+  fail("/resolve should audit tenant denial before sending tenant access denied response");
+} else {
+  ok("/resolve audits tenant denial before response");
 }
 
 if (indexSource.includes("tenantId: requestBody.tenantId") || indexSource.includes("tenantId: body.tenantId")) {
@@ -110,6 +124,29 @@ for (const phrase of [
   "requestedTenantAccepted"
 ]) {
   requireIncludes(sharedTypes, phrase, "shared runtime authorization response exposes safe tenant resolution summary");
+}
+
+requireIncludes(auditEventsSource, 'TENANT_ACCESS_DENIED: "tenant.access.denied"', "tenant access denied audit event exists");
+
+for (const phrase of [
+  "AuditEvents.TENANT_ACCESS_DENIED",
+  "route",
+  "tenantResolutionSource",
+  "requestedTenantId",
+  "requestedTenantAccepted",
+  "protectedMaterialExposed: false",
+  "tokenMaterialStored: false",
+  "rawPromptStored: false"
+]) {
+  requireIncludes(indexSource, phrase, "tenant denied audit metadata is safe");
+}
+
+for (const phrase of [
+  "tenantResolution:",
+  'required: ["source", "requestedTenantAccepted"]',
+  "requestedTenantAccepted"
+]) {
+  requireIncludes(runtimeAuthorizationSchemasSource, phrase, "runtime authorization response schema includes tenant resolution");
 }
 
 for (const phrase of [
@@ -172,6 +209,36 @@ if (rejectedRequested.tenantId !== "default" || rejectedRequested.requestedTenan
   fail("different requested tenant should be rejected and resolved to configured default");
 } else {
   ok("different requested tenant is rejected and does not switch tenant");
+}
+
+let malformedTenantHint: ReturnType<typeof resolveTenantContext> | undefined;
+try {
+  malformedTenantHint = resolveTenantContext({ requestedTenantId: 123 as unknown });
+} catch (error) {
+  fail(`malformed requested tenant should not throw: ${error instanceof Error ? error.message : String(error)}`);
+}
+if (malformedTenantHint && (malformedTenantHint.tenantId !== "default" || !malformedTenantHint.requestedTenantAccepted)) {
+  fail("non-string requested tenant should be ignored by tenant resolution");
+} else if (malformedTenantHint) {
+  ok("non-string requested tenant is ignored safely by tenant resolution");
+}
+
+const responseSchemaProperties = (runtimeAuthorizationResponseSchema as {
+  properties?: Record<string, unknown>;
+}).properties;
+const tenantResolutionSchema = responseSchemaProperties?.tenantResolution as {
+  required?: string[];
+  properties?: Record<string, unknown>;
+} | undefined;
+if (
+  !tenantResolutionSchema ||
+  !tenantResolutionSchema.required?.includes("source") ||
+  !tenantResolutionSchema.required?.includes("requestedTenantAccepted") ||
+  !tenantResolutionSchema.properties?.requestedTenantId
+) {
+  fail("runtime authorization response schema should accept tenantResolution summary");
+} else {
+  ok("runtime authorization response schema accepts tenantResolution summary");
 }
 
 const identity: VerifiedUserIdentity = {
