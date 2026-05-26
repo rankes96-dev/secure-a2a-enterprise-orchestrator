@@ -155,6 +155,45 @@ function assertEffect(name: string, input: OgenPolicyInput, expected: "allow" | 
   return decision;
 }
 
+function assertFrozenRules(name: string, rules: ReadonlyArray<Readonly<OgenPolicyRule>>): void {
+  if (!Object.isFrozen(rules)) {
+    fail(`${name} array should be frozen`);
+    return;
+  }
+
+  const arrayFields: ReadonlyArray<keyof OgenPolicyRule["match"]> = [
+    "connectorIds",
+    "resourceSystems",
+    "skillIds",
+    "executionTypes",
+    "riskLevels",
+    "sensitivities",
+    "requiredRolesAny",
+    "requiredRolesAll",
+    "environments",
+    "routeStatuses"
+  ];
+
+  for (const rule of rules) {
+    if (!Object.isFrozen(rule)) {
+      fail(`${name} rule ${rule.id} should be frozen`);
+      return;
+    }
+    if (!Object.isFrozen(rule.match)) {
+      fail(`${name} rule ${rule.id} match should be frozen`);
+      return;
+    }
+    for (const field of arrayFields) {
+      const values = rule.match[field];
+      if (values && !Object.isFrozen(values)) {
+        fail(`${name} rule ${rule.id} match.${field} should be frozen`);
+        return;
+      }
+    }
+  }
+  ok(`${name} are deeply frozen`);
+}
+
 const policyTypes = read("services/orchestrator-api/src/policy/ogenPolicyTypes.ts");
 const policyEngine = read("services/orchestrator-api/src/policy/ogenPolicyEngine.ts");
 const connectorPolicy = read("services/orchestrator-api/src/policy/connectorPolicy.ts");
@@ -176,6 +215,10 @@ requireIncludes(policyEngine, "function reasonFromMatchedRules", "policy engine 
 requireIncludes(policyEngine, "export const defaultDenyRule", "policy engine has canonical default deny fallback");
 requireIncludes(policyEngine, "primaryRule?: OgenPolicyRule", "buildDecision supports explicit primary rule override");
 requireIncludes(policyEngine, "primaryRuleSource?: MatchedRuleSource", "buildDecision supports explicit primary rule source override");
+requireIncludes(policyEngine, "function deepFreeze", "policy engine has deep freeze helper");
+requireIncludes(policyEngine, "function freezeRules", "policy engine has immutable rule helper");
+requireIncludes(policyEngine, "mandatoryOgenPolicyGuardrailsDefinition", "policy engine keeps raw guardrail definitions local");
+requireIncludes(policyEngine, "defaultTenantOgenPolicyRulesDefinition", "policy engine keeps raw tenant rule definitions local");
 requireIncludes(policyEngine, "mandatoryOgenPolicyGuardrails", "Ogen policy engine defines mandatory guardrails");
 requireIncludes(policyEngine, "defaultTenantOgenPolicyRules", "Ogen policy engine defines tenant rules");
 requireIncludes(policyEngine, "defaultOgenPolicyRules", "Ogen policy engine defines default rules");
@@ -198,6 +241,38 @@ for (const id of [
   requireTenantRule(id);
   requireRule(id);
   requireIncludes(policyEngine, id, "Ogen policy engine source includes default rule");
+}
+
+assertFrozenRules("mandatory Ogen policy guardrails", mandatoryOgenPolicyGuardrails);
+assertFrozenRules("default tenant Ogen policy rules", defaultTenantOgenPolicyRules);
+assertFrozenRules("default Ogen policy rules", defaultOgenPolicyRules);
+
+const firstMandatoryGuardrail = mandatoryOgenPolicyGuardrails[0];
+if (!firstMandatoryGuardrail) {
+  fail("mandatory Ogen policy guardrails should have a first rule for immutability verification");
+} else {
+  const originalEnabled = firstMandatoryGuardrail.enabled;
+  try {
+    (firstMandatoryGuardrail as OgenPolicyRule).enabled = !originalEnabled;
+  } catch {}
+  if (firstMandatoryGuardrail.enabled !== originalEnabled) {
+    fail("mandatory Ogen guardrail enabled flag should not be mutable");
+  } else {
+    ok("mandatory Ogen guardrail enabled flag is immutable");
+  }
+
+  const routeStatuses = firstMandatoryGuardrail.match.routeStatuses;
+  if (routeStatuses) {
+    const originalLength = routeStatuses.length;
+    try {
+      (routeStatuses as string[]).push("unsafe");
+    } catch {}
+    if (routeStatuses.length !== originalLength) {
+      fail("mandatory Ogen guardrail routeStatuses should not be mutable");
+    } else {
+      ok("mandatory Ogen guardrail nested match arrays are immutable");
+    }
+  }
 }
 
 requireIncludes(policyEngine, "const enabledGuardrails = [...mandatoryOgenPolicyGuardrails]", "policy engine always evaluates mandatory guardrails");
@@ -460,41 +535,6 @@ if (
   ok("missing tenant role decision includes complete tenant rule proof");
 }
 
-const lowConfidenceGuardrail = mandatoryOgenPolicyGuardrails.find((rule) => rule.id === "block-low-confidence-interpretation");
-if (!lowConfidenceGuardrail) {
-  fail("low-confidence guardrail should exist for role proof verification");
-} else {
-  const previousRequiredRolesAny = lowConfidenceGuardrail.match.requiredRolesAny;
-  try {
-    lowConfidenceGuardrail.match.requiredRolesAny = ["admin"];
-    const guardrailRoleDenied = assertEffect("missing required guardrail role blocks action", baseInput({
-      interpretation: {
-        confidence: "low"
-      },
-      subject: {
-        roles: ["it-support"]
-      }
-    }), "block");
-    if (
-      guardrailRoleDenied?.primaryRuleId !== "block-low-confidence-interpretation" ||
-      guardrailRoleDenied.primaryRuleSource !== "guardrail" ||
-      !guardrailRoleDenied.matchedGuardrailRuleIds.includes("block-low-confidence-interpretation") ||
-      !guardrailRoleDenied.matchedRuleSummaries.some((rule) => rule.id === "block-low-confidence-interpretation" && rule.source === "guardrail") ||
-      !guardrailRoleDenied.reason.includes("Required policy role is missing for Ogen guardrail")
-    ) {
-      fail("missing guardrail role decision should identify the exact guardrail requiring the role");
-    } else {
-      ok("missing guardrail role decision includes complete guardrail proof");
-    }
-  } finally {
-    if (previousRequiredRolesAny) {
-      lowConfidenceGuardrail.match.requiredRolesAny = previousRequiredRolesAny;
-    } else {
-      delete lowConfidenceGuardrail.match.requiredRolesAny;
-    }
-  }
-}
-
 const lowConfidenceDecision = evaluateOgenPolicy(baseInput({
   interpretation: {
     confidence: "low"
@@ -543,6 +583,37 @@ if (
   fail("custom tenant rules without default-deny should still produce complete default-deny proof");
 } else {
   ok("custom tenant rules without default-deny still include complete default-deny proof");
+}
+
+const mutationProbeRules: OgenPolicyRule[] = [
+  {
+    id: "tenant-default-deny-probe",
+    name: "Tenant default deny probe",
+    description: "Default deny probe for mutation verification.",
+    effect: "block",
+    priority: 1000,
+    enabled: true,
+    match: {}
+  },
+  {
+    id: "tenant-allow-mutation-probe",
+    name: "Tenant allow mutation probe",
+    description: "Allow rule probe for mutation verification.",
+    effect: "allow",
+    priority: 20,
+    enabled: true,
+    match: {
+      routeStatuses: ["connector_skill_approved"],
+      connectorIds: ["jira-reference"]
+    }
+  }
+];
+const mutationProbeBefore = JSON.parse(JSON.stringify(mutationProbeRules)) as OgenPolicyRule[];
+evaluateOgenPolicy(baseInput(), mutationProbeRules);
+if (JSON.stringify(mutationProbeRules) !== JSON.stringify(mutationProbeBefore)) {
+  fail("evaluateOgenPolicy should not mutate caller-provided tenant rules");
+} else {
+  ok("evaluateOgenPolicy leaves caller-provided tenant rules unchanged");
 }
 
 const allowRule: OgenPolicyRule = {
@@ -599,6 +670,9 @@ for (const phrase of [
   "Ogen reports whether a decision came from a mandatory guardrail, tenant rule, or default deny.",
   "Policy reasons are human-readable and audit-safe.",
   "Rule summaries never include raw prompt or token material.",
+  "Mandatory Ogen guardrails are immutable runtime definitions.",
+  "Tenant policies can be dynamic, but platform safety guardrails are frozen and cannot be mutated by policy loading.",
+  "Policy evaluation does not mutate tenant rule inputs.",
   "tenant-scoped policy storage"
 ]) {
   requireIncludes(platformDocs, phrase, "platform docs cover Ogen policy engine boundary");
@@ -607,6 +681,7 @@ for (const phrase of [
 requireIncludes(productIdentityDocs, "AI can interpret. Ogen decides. Runtime executes only approved actions. Audit proves what happened.", "product identity docs include Ogen policy principle");
 requireIncludes(productIdentityDocs, "Tenant policy can restrict. Ogen guardrails cannot be bypassed.", "product identity docs include non-overridable guardrail principle");
 requireIncludes(productIdentityDocs, "Ogen does not just block. It explains which guardrail or tenant policy made the decision.", "product identity docs include explainability principle");
+requireIncludes(productIdentityDocs, "Ogen guardrails are immutable platform safety rules.", "product identity docs include immutable guardrail principle");
 
 if (failed) {
   process.exitCode = 1;

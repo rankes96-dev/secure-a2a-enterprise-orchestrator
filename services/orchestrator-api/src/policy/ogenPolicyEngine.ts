@@ -3,7 +3,42 @@ import type { OgenPolicyDecision, OgenPolicyEffect, OgenPolicyInput, OgenPolicyM
 
 export const OGEN_POLICY_VERSION = "ogen.policy.v1";
 
-export const mandatoryOgenPolicyGuardrails: OgenPolicyRule[] = [
+function deepFreeze<T>(value: T): Readonly<T> {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      if (nested && typeof nested === "object" && !Object.isFrozen(nested)) {
+        deepFreeze(nested);
+      }
+    }
+  }
+  return value as Readonly<T>;
+}
+
+function cloneRule(rule: OgenPolicyRule): OgenPolicyRule {
+  return {
+    ...rule,
+    match: {
+      ...rule.match,
+      connectorIds: rule.match.connectorIds ? [...rule.match.connectorIds] : undefined,
+      resourceSystems: rule.match.resourceSystems ? [...rule.match.resourceSystems] : undefined,
+      skillIds: rule.match.skillIds ? [...rule.match.skillIds] : undefined,
+      executionTypes: rule.match.executionTypes ? [...rule.match.executionTypes] : undefined,
+      riskLevels: rule.match.riskLevels ? [...rule.match.riskLevels] : undefined,
+      sensitivities: rule.match.sensitivities ? [...rule.match.sensitivities] : undefined,
+      requiredRolesAny: rule.match.requiredRolesAny ? [...rule.match.requiredRolesAny] : undefined,
+      requiredRolesAll: rule.match.requiredRolesAll ? [...rule.match.requiredRolesAll] : undefined,
+      environments: rule.match.environments ? [...rule.match.environments] : undefined,
+      routeStatuses: rule.match.routeStatuses ? [...rule.match.routeStatuses] : undefined
+    }
+  };
+}
+
+function freezeRules<T extends readonly OgenPolicyRule[]>(rules: T): ReadonlyArray<Readonly<OgenPolicyRule>> {
+  return deepFreeze(rules.map((rule) => cloneRule(rule)));
+}
+
+const mandatoryOgenPolicyGuardrailsDefinition: OgenPolicyRule[] = [
   {
     id: "block-unapproved-route",
     name: "Block unapproved connector route",
@@ -66,7 +101,7 @@ export const mandatoryOgenPolicyGuardrails: OgenPolicyRule[] = [
   }
 ];
 
-export const defaultDenyRule: OgenPolicyRule = {
+const defaultDenyRuleDefinition: OgenPolicyRule = {
   id: "default-deny",
   name: "Default deny",
   description: "Requests that do not match an allow rule are blocked by default.",
@@ -76,7 +111,7 @@ export const defaultDenyRule: OgenPolicyRule = {
   match: {}
 };
 
-export const defaultTenantOgenPolicyRules: OgenPolicyRule[] = [
+const defaultTenantOgenPolicyRulesDefinition: OgenPolicyRule[] = [
   {
     id: "allow-readonly-approved-runtime",
     name: "Allow read-only approved runtime",
@@ -88,13 +123,19 @@ export const defaultTenantOgenPolicyRules: OgenPolicyRule[] = [
       routeStatuses: ["connector_skill_approved"]
     }
   },
-  defaultDenyRule
+  defaultDenyRuleDefinition
 ];
 
-export const defaultOgenPolicyRules: OgenPolicyRule[] = [
+export const mandatoryOgenPolicyGuardrails: ReadonlyArray<Readonly<OgenPolicyRule>> = freezeRules(mandatoryOgenPolicyGuardrailsDefinition);
+
+export const defaultDenyRule: Readonly<OgenPolicyRule> = deepFreeze(cloneRule(defaultDenyRuleDefinition));
+
+export const defaultTenantOgenPolicyRules: ReadonlyArray<Readonly<OgenPolicyRule>> = freezeRules(defaultTenantOgenPolicyRulesDefinition);
+
+export const defaultOgenPolicyRules: ReadonlyArray<Readonly<OgenPolicyRule>> = freezeRules([
   ...mandatoryOgenPolicyGuardrails,
   ...defaultTenantOgenPolicyRules
-];
+]);
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -263,8 +304,8 @@ function ruleSummary(rule: OgenPolicyRule, source: MatchedRuleSource): OgenPolic
 
 function primaryRule(params: {
   effect: OgenPolicyEffect;
-  guardrailRules: OgenPolicyRule[];
-  tenantRules: OgenPolicyRule[];
+  guardrailRules: readonly OgenPolicyRule[];
+  tenantRules: readonly OgenPolicyRule[];
   deniedByDefault: boolean;
   primaryRule?: OgenPolicyRule;
   primaryRuleSource?: MatchedRuleSource;
@@ -294,8 +335,8 @@ function primaryRule(params: {
 
 function reasonFromMatchedRules(params: {
   effect: OgenPolicyEffect;
-  guardrailRules: OgenPolicyRule[];
-  tenantRules: OgenPolicyRule[];
+  guardrailRules: readonly OgenPolicyRule[];
+  tenantRules: readonly OgenPolicyRule[];
   deniedByDefault: boolean;
   primaryRule?: OgenPolicyRule;
   primaryRuleSource?: MatchedRuleSource;
@@ -335,8 +376,8 @@ function reasonFromMatchedRules(params: {
 function buildDecision(params: {
   input: OgenPolicyInput;
   effect: OgenPolicyEffect;
-  guardrailRules: OgenPolicyRule[];
-  tenantRules: OgenPolicyRule[];
+  guardrailRules: readonly OgenPolicyRule[];
+  tenantRules: readonly OgenPolicyRule[];
   deniedByDefault: boolean;
   primaryRule?: OgenPolicyRule;
   primaryRuleSource?: MatchedRuleSource;
@@ -387,7 +428,7 @@ function buildDecision(params: {
   };
 }
 
-export function evaluateOgenPolicy(input: OgenPolicyInput, rules = defaultOgenPolicyRules): OgenPolicyDecision {
+export function evaluateOgenPolicy(input: OgenPolicyInput, rules: readonly OgenPolicyRule[] = defaultOgenPolicyRules): OgenPolicyDecision {
   const enabledGuardrails = [...mandatoryOgenPolicyGuardrails]
     .filter((rule) => rule.enabled)
     .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));

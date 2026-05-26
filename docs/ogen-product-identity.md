@@ -61,6 +61,8 @@ Ogen does not infer safety from missing metadata.
 
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.
 
+Ogen guardrails are immutable platform safety rules.
+
 Ogen does not just block. It explains which guardrail or tenant policy made the decision.
 
 Every Ogen decision explains the exact rule, guardrail, or default-deny path that produced it.
