@@ -224,6 +224,9 @@ export type AiRoutingProofSummary = {
     interpretationRisks?: string[];
     agentCardIds: string[];
     agentCardSkillIds: string[];
+    agentSkillPairs: string[];
+    agentRoutingViewHash: string;
+    agentRoutingViewCount: number;
     agentCardCount: number;
   };
   outputHash: string;

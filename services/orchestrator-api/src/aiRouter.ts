@@ -16,6 +16,7 @@ import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
 import type { OgenInterpretationProof } from "./interpretation/interpretationTypes.js";
 import { createAiRoutingProof } from "./interpretation/routingProof.js";
 import type { OgenAiRoutingProof, OgenAiRoutingSource, OgenAiRoutingValidationStatus } from "./interpretation/routingProofTypes.js";
+import { safeAgentRoutingView, type SafeAgentRoutingView } from "./interpretation/safeAgentRoutingView.js";
 import { callOpenRouterJson } from "./openRouterClient.js";
 import { interpretRequestWithProof } from "./requestInterpreter.js";
 
@@ -45,15 +46,15 @@ const routerPrompt = `You are the Secure Agent Orchestration Gateway route plann
 You are a secondary route planner. Primary routing is capability-based and already attempted.
 
 Rules:
-- Use only agent IDs and skill IDs present in the provided Agent Cards.
+- Use only agent IDs and skill IDs present in the provided safe Agent Routing Views.
 - selectedAgents[].skillId is REQUIRED for every selected agent.
-- Match the user's request to Agent Card skill capabilities and descriptions.
-- Agent selection should be based on Agent Card skill capabilities. Do not infer permissions or authorization.
+- Match the user's request to safe Agent Routing View systems, skill IDs, and skill names.
+- Agent selection should be based on safe routing metadata only. Do not infer permissions or authorization.
 - Never invent, paraphrase, rename, or omit skillId.
 - Do not select unrelated agents.
 - Do not decide authorization. The deterministic policy engine decides Allowed, Blocked, or NeedsApproval.
 - Do not claim that any access/provisioning/security action was executed.
-- For vague enterprise_support requests where no specialist capability clearly matches, select end-user-triage-agent with skillId end_user.triage if that Agent Card skill is available. Do not do this for out_of_scope, manual access/provisioning workflows, or sensitive security requests.
+- For vague enterprise_support requests where no specialist capability clearly matches, select end-user-triage-agent with skillId end_user.triage if that safe routing view skill is available. Do not do this for out_of_scope, manual access/provisioning workflows, or sensitive security requests.
 
 Return JSON only:
 {
@@ -589,7 +590,7 @@ function validateRoutingDecision(decision: RoutingDecision, fallback: RoutingDec
   };
 }
 
-async function callOpenRouter(message: string, interpretation: RequestInterpretation, agentCards: AgentCard[], apiKey: string, baseURL: string, model: string): Promise<string | undefined> {
+async function callOpenRouter(message: string, interpretation: RequestInterpretation, agentRoutingViews: SafeAgentRoutingView[], apiKey: string, baseURL: string, model: string): Promise<string | undefined> {
   return callOpenRouterJson({
     apiKey,
     baseURL,
@@ -601,7 +602,7 @@ async function callOpenRouter(message: string, interpretation: RequestInterpreta
         content: JSON.stringify({
           message,
           requestInterpretation: interpretation,
-          agentCards
+          agentRoutingViews
         })
       }
     ]
@@ -614,6 +615,7 @@ export async function routeWithAIWithProof(message: string, context: RoutingCont
   routingProof: OgenAiRoutingProof;
 }> {
   const executableAgentCards = getExecutableAgentCards(cardsForContext(context));
+  const agentRoutingViews = safeAgentRoutingView(executableAgentCards);
   const routingContext: RoutingContext = { agentCards: executableAgentCards };
   const { interpretation: requestInterpretation, proof: interpretationProof } = await interpretRequestWithProof(message);
   const fallback = routeWithRules(message, "Capability routing fallback was used.", requestInterpretation, routingContext);
@@ -628,6 +630,7 @@ export async function routeWithAIWithProof(message: string, context: RoutingCont
       inputText: message,
       interpretationProof,
       agentCards: executableAgentCards,
+      agentRoutingViews,
       ...params
     });
   const forceSecondaryAiRouter = process.env.FORCE_SECONDARY_AI_ROUTER === "true";
@@ -672,7 +675,7 @@ export async function routeWithAIWithProof(message: string, context: RoutingCont
 
   try {
     console.info("[router] calling secondary AI router");
-    const content = await callOpenRouter(message, requestInterpretation, executableAgentCards, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model);
+    const content = await callOpenRouter(message, requestInterpretation, agentRoutingViews, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model);
 
     if (!content) {
       console.warn("[router] secondary AI router returned empty content; using capability fallback");

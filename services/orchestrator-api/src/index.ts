@@ -1003,6 +1003,8 @@ async function appendAiRoutingEvaluatedAuditEvent(params: {
       inputHash: proof.inputHash,
       messageHash: proof.messageHash,
       inputContextHash: proof.inputContextHash,
+      agentSkillPairs: proof.safeInputContextSummary.agentSkillPairs,
+      agentRoutingViewHash: proof.safeInputContextSummary.agentRoutingViewHash,
       safeInputContextSummary: proof.safeInputContextSummary,
       outputHash: proof.outputHash,
       validationStatus: proof.validationStatus,

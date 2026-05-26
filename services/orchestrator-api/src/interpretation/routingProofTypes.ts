@@ -20,6 +20,9 @@ export type OgenAiRoutingSafeInputContextSummary = {
   interpretationRisks?: string[];
   agentCardIds: string[];
   agentCardSkillIds: string[];
+  agentSkillPairs: string[];
+  agentRoutingViewHash: string;
+  agentRoutingViewCount: number;
   agentCardCount: number;
 };
 

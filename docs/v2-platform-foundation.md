@@ -542,6 +542,8 @@ Routing proof makes validation explicit: rules fallback is marked as rules fallb
 
 AI routing proof hashes the safe routing input context, not only the message. The safe context includes interpretation proof reference and agent card IDs/skill IDs. Raw prompts and raw agent card text are not stored.
 
+Secondary AI routing receives a safe Agent Card routing view, not full Agent Cards. The safe view excludes endpoint/auth/description/secret-like metadata. Routing proof binds agent-to-skill mappings through agentSkillPairs. The routing proof hashes the safe routing view.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

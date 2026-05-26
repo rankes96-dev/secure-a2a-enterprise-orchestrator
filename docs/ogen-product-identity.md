@@ -63,6 +63,8 @@ AI can suggest routing. Ogen validates and authorizes.
 
 Ogen proves not only what AI suggested, but the safe context it was allowed to see.
 
+Ogen gives AI routing only the safe context it needs, then proves that context.
+
 Ogen does not infer safety from missing metadata.
 
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.
