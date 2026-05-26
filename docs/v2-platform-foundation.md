@@ -518,6 +518,8 @@ Ogen separates mandatory platform guardrails from tenant/configurable policy rul
 
 Mandatory Ogen guardrails are immutable runtime definitions. Tenant policies can be dynamic, but platform safety guardrails are frozen and cannot be mutated by policy loading. Policy evaluation does not mutate tenant rule inputs.
 
+Ogen rule IDs for mandatory guardrails and default-deny are reserved. Tenant policies cannot redefine reserved Ogen rule IDs. Default-deny proof always uses the canonical Ogen default deny rule.
+
 Policy decisions include explainable matched rule summaries. Ogen reports whether a decision came from a mandatory guardrail, tenant rule, or default deny. Policy reasons are human-readable and audit-safe. Rule summaries never include raw prompt or token material.
 
 Every policy decision has complete proof. Default-deny decisions always include a default rule summary, even when custom tenant rules omit a default-deny rule. Role requirement failures identify the exact guardrail or tenant policy rule that required the missing role.

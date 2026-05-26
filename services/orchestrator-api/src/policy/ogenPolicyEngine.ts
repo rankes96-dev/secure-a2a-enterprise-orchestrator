@@ -132,6 +132,13 @@ export const defaultDenyRule: Readonly<OgenPolicyRule> = deepFreeze(cloneRule(de
 
 export const defaultTenantOgenPolicyRules: ReadonlyArray<Readonly<OgenPolicyRule>> = freezeRules(defaultTenantOgenPolicyRulesDefinition);
 
+export const reservedOgenPolicyRuleIds: ReadonlyArray<string> = Object.freeze([
+  ...mandatoryOgenPolicyGuardrails.map((rule) => rule.id),
+  defaultDenyRule.id
+]);
+
+const reservedOgenPolicyRuleIdSet = new Set(reservedOgenPolicyRuleIds);
+
 export const defaultOgenPolicyRules: ReadonlyArray<Readonly<OgenPolicyRule>> = freezeRules([
   ...mandatoryOgenPolicyGuardrails,
   ...defaultTenantOgenPolicyRules
@@ -319,7 +326,7 @@ function primaryRule(params: {
 
   if (params.deniedByDefault) {
     return {
-      rule: params.tenantRules.find((rule) => rule.id === "default-deny") ?? defaultDenyRule,
+      rule: defaultDenyRule,
       source: "default"
     };
   }
@@ -433,7 +440,7 @@ export function evaluateOgenPolicy(input: OgenPolicyInput, rules: readonly OgenP
     .filter((rule) => rule.enabled)
     .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));
 
-  const tenantRules = rules.filter((rule) => !mandatoryOgenPolicyGuardrails.some((guardrail) => guardrail.id === rule.id));
+  const tenantRules = rules.filter((rule) => !reservedOgenPolicyRuleIdSet.has(rule.id));
   const enabledTenantRules = tenantRules
     .filter((rule) => rule.enabled)
     .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));
@@ -530,14 +537,13 @@ export function evaluateOgenPolicy(input: OgenPolicyInput, rules: readonly OgenP
     });
   }
 
-  const defaultRule = enabledTenantRules.find((rule) => rule.id === "default-deny") ?? defaultDenyRule;
   return buildDecision({
     input,
     effect: "block",
     guardrailRules: [],
     tenantRules: [],
     deniedByDefault: true,
-    primaryRule: defaultRule,
+    primaryRule: defaultDenyRule,
     primaryRuleSource: "default"
   });
 }
