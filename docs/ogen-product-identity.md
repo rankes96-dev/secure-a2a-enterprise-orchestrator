@@ -83,6 +83,10 @@ Ogen resolves tenant context; clients cannot choose arbitrary tenants.
 
 Ogen separates gateway administration permissions from connector runtime policy.
 
+Ogen exposes persisted audit proof only through tenant-scoped, RBAC-protected views.
+
+Ogen audit views project safe event summaries; raw prompts, tokens, secrets, and stored metadata payloads stay server-side.
+
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.
 
 Ogen guardrails are immutable platform safety rules.

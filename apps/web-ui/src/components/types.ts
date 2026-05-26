@@ -1,4 +1,4 @@
-import type { AgentsHealthResponse, ResolveResponse } from "@a2a/shared";
+import type { AgentsHealthResponse, AuditEventsResponse, ResolveResponse } from "@a2a/shared";
 import type { Dispatch, FormEvent, MutableRefObject, ReactNode, RefObject, SetStateAction } from "react";
 import type { FrontendAuthConfig } from "../auth/authTypes";
 import type { GuidedFocusTarget, LocalConnectorPreset, TrustedOnboardedAgent } from "./agent-registry/types";
@@ -60,6 +60,17 @@ export type SecurityTimelineEvent = {
   actor?: string;
   agentId?: string;
   metadata?: Array<{ label: string; value: string }>;
+};
+
+export type AuditViewerFilters = {
+  page?: number;
+  limit?: number;
+  eventType?: string;
+  outcome?: string;
+  severity?: string;
+  from?: string;
+  to?: string;
+  conversationId?: string;
 };
 
 export type DemoUserOption = {
@@ -150,6 +161,10 @@ export type ExtractedScreenContext = Record<string, unknown> & {
   securityTimelineFilter: SecurityTimelineFilter;
   setSecurityTimelineFilter: Dispatch<SetStateAction<SecurityTimelineFilter>>;
   visibleSecurityTimelineEvents: SecurityTimelineEvent[];
+  auditEventsResponse: AuditEventsResponse | null;
+  auditEventsError: string;
+  isAuditEventsLoading: boolean;
+  loadAuditEvents: (filters?: AuditViewerFilters) => Promise<void>;
   demoUserOptions: DemoUserOption[];
   selectedDemoUserEmail: string;
   setSelectedDemoUserEmail: Dispatch<SetStateAction<string>>;

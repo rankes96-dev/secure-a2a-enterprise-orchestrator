@@ -122,6 +122,10 @@ Rules:
 - SDK callers can ask for runtime authorization, but gateway APIs still enforce Ogen RBAC.
 - SDK-provided actor/role data is not authoritative.
 
+## Persisted Audit Viewer Contract
+
+The browser audit viewer is a Gateway API, not a connector SDK execution path. Future SDKs may correlate with Ogen audit proof through safe identifiers such as requestId, taskId, connectorId, runtimeExecutionId, or conversationId, but they must not depend on raw stored metadata and must not receive raw prompt, token, Authorization header, or secret material from audit viewer responses.
+
 ## Policy Decision Proof Contract
 
 Ogen policy decisions must expose audit-safe proof:

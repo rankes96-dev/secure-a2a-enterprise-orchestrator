@@ -1,16 +1,18 @@
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AgentsHealthResponse, EndUserAnswer, ResolveResponse } from "@a2a/shared";
+import type { AgentsHealthResponse, AuditEventsResponse, EndUserAnswer, ResolveResponse } from "@a2a/shared";
 import "./styles.css";
 import { PageHeader } from "./components/layout/PageHeader";
 import { buildLocalConnectorPresets } from "./connectorPresets";
 import { cleanAuth0CallbackUrl, completeAuth0Redirect, discardAuth0RedirectResult, isAuth0CallbackRoute, startAuth0LoginRedirect } from "./auth/auth0Client";
 import { frontendAuthProviderLabel, readFrontendAuthConfig } from "./auth/authConfig";
 import { postBearerIdentitySession, postIdentityLogout, postMockDemoLogin } from "./auth/mockAuthClient";
+import { fetchAuditEvents } from "./api/auditEvents";
 import { csrfHeaders } from "./api/csrf";
 import { apiErrorMessage, directoryAccessDeniedMessage, friendlyApiError, isDirectoryAccessDenied, readApiErrorPayload } from "./api/errors";
 import { createBrowserSession } from "./api/session";
 import type { IdentitySessionResponse } from "./auth/authTypes";
+import type { AuditViewerFilters } from "./components/types";
 import { AccessDeniedScreen } from "./components/auth/AccessDeniedScreen";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import { advancedScenarios, enrichConnectorTemplate, fallbackSupportedConnectorGuardrails, quickScenarios, scenarios, type SupportedConnectorGuardrail } from "./demoContent";
@@ -1704,6 +1706,9 @@ function App() {
   const [isIdentityLoading, setIsIdentityLoading] = useState(false);
   const [endUserAutoLoginAttempted, setEndUserAutoLoginAttempted] = useState(false);
   const [securityTimelineFilter, setSecurityTimelineFilter] = useState<SecurityTimelineFilter>("all");
+  const [auditEventsResponse, setAuditEventsResponse] = useState<AuditEventsResponse | null>(null);
+  const [auditEventsError, setAuditEventsError] = useState("");
+  const [isAuditEventsLoading, setIsAuditEventsLoading] = useState(false);
   const [pendingFocusTarget, setPendingFocusTarget] = useState<GuidedFocusTarget | null>(null);
   const [guidedStatus, setGuidedStatus] = useState("");
   const demoGuideRootRef = useRef<HTMLElement | null>(null);
@@ -1936,6 +1941,8 @@ function App() {
     setZeroTrustResult(null);
     setZeroTrustError("");
     setSecurityTimelineFilter("all");
+    setAuditEventsResponse(null);
+    setAuditEventsError("");
   }
 
   function transitionToAnonymous(message?: string) {
@@ -2138,6 +2145,9 @@ function App() {
     if (activeTab === "trust-identity") {
       void loadTrustStatus();
     }
+    if (activeTab === "security-timeline") {
+      void loadAuditEvents({ page: 1, limit: auditEventsResponse?.limit ?? 25 });
+    }
   }, [activeTab, appAuthState]);
 
   useEffect(() => {
@@ -2240,6 +2250,27 @@ function App() {
     const response = await createBrowserSession(API_URL);
     if (!response.ok) {
       throw new Error(await friendlyApiError(response, "Failed to create browser session"));
+    }
+  }
+
+  async function loadAuditEvents(filters: AuditViewerFilters = {}) {
+    setAuditEventsError("");
+    setIsAuditEventsLoading(true);
+    try {
+      await ensureSession();
+      const response = await fetchAuditEvents(API_URL, filters, {
+        page: auditEventsResponse?.page ?? 1,
+        limit: auditEventsResponse?.limit ?? 25
+      });
+      if (!await handleProtectedResponse(response, "Failed to load persisted audit events")) {
+        return;
+      }
+      setAuditEventsResponse((await response.json()) as AuditEventsResponse);
+    } catch (caughtError) {
+      setAuditEventsResponse(null);
+      setAuditEventsError(caughtError instanceof Error ? caughtError.message : "Failed to load persisted audit events");
+    } finally {
+      setIsAuditEventsLoading(false);
     }
   }
 
@@ -2715,7 +2746,8 @@ function App() {
     connectionWizardCollapsedAfterSuccess, setConnectionWizardCollapsedAfterSuccess, customConnectorContractOpen, setCustomConnectorContractOpen,
     expandedInstalledAgentIds, setExpandedInstalledAgentIds, selectedInstalledConnectorTemplateId, setSelectedInstalledConnectorTemplateId,
     isZeroTrustDiscovering, isZeroTrustOnboarding, identitySession, trustStatus, selectedDemoUserEmail, setSelectedDemoUserEmail,
-    identityError, identityMessage, isIdentityLoading, securityTimelineFilter, setSecurityTimelineFilter, guidedStatus,
+    identityError, identityMessage, isIdentityLoading, securityTimelineFilter, setSecurityTimelineFilter,
+    auditEventsResponse, auditEventsError, isAuditEventsLoading, loadAuditEvents, guidedStatus,
     demoGuideRootRef, runTaskRootRef, composerRef, taskTextareaRef, gatewayResponseRef, securitySummaryRef, trustIdentityRootRef,
     loginPanelRef, demoUserSelectRef, loginButtonRef, agentRegistryRootRef, connectorCatalogRef, zeroTrustOnboardingRef,
     registeredAgentsRef, legacyAgentsRef, connectorTestCenterRootRef, securityTimelineRootRef, timelineListRef,

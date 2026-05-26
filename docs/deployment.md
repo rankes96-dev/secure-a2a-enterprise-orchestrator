@@ -236,6 +236,10 @@ npm.cmd run verify:postgres-restart-survival
 
 Do not enable the write smoke against production unless intentionally testing a controlled environment. Smoke records use safe synthetic IDs and no secrets.
 
+Persisted audit viewer: when `PLATFORM_STATE_STORE_DRIVER=postgres` is enabled, browser users with the `audit.read` Gateway capability can read tenant-scoped safe audit projections through `GET /audit/events`. The viewer never returns stored `safe_metadata`, raw prompts, OAuth tokens, JWTs, Authorization headers, private keys, client secrets, or client assertions. In local memory mode, audit viewer data is process-local and resets with the orchestrator.
+
+Cross-site browser sessions also affect the audit viewer because it uses the same credentialed browser session as the rest of the app. For Vercel-to-Railway, keep `SESSION_COOKIE_SAMESITE=None`, HTTPS on the backend, and `SESSION_COOKIE_SECURE=true` explicitly or via automatic SameSite=None hardening. CSRF cookie follows session SameSite unless `CSRF_COOKIE_SAMESITE` overrides it.
+
 Use `ORCHESTRATOR_API_KEY` for admin/internal debug access such as `/debug/ai-config`. Do not enable identity-based debug config in production. `ALLOW_DEBUG_AI_CONFIG_WITH_IDENTITY=true` is only for explicit local non-production diagnostics; keep it `false` by default.
 
 For Auth0 browser login, set `AUTH0_REQUIRE_USER_DIRECTORY=true` in production so Auth0 authentication only attaches Gateway identity after the local users directory authorizes the email. The required login shell hides the main app until Gateway identity is attached. The directory stores no passwords and no raw token material, and browser login tokens are not stored in `localStorage`. In memory mode, `PLATFORM_ALLOWED_USER_EMAILS=` can seed local allowed users; if it is empty, the directory gate remains disabled unless explicitly required.

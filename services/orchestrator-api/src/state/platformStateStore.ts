@@ -99,9 +99,14 @@ export type PlatformStateStore = {
   listAuditEvents(params: {
     tenantId?: string;
     actorSubject?: string;
+    eventType?: string;
     resourceType?: string;
     resourceId?: string;
+    from?: string;
+    to?: string;
+    conversationId?: string;
     limit?: number;
+    offset?: number;
   }): Promise<StoredAuditEvent[]>;
 
   // User directory allowlist: local authorization gate for verified browser identities.

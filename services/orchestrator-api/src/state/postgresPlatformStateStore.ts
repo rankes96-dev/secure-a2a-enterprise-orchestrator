@@ -111,6 +111,10 @@ function limitValue(limit: number | undefined): number {
   return typeof limit === "number" && Number.isInteger(limit) && limit >= 0 ? Math.min(limit, 500) : 100;
 }
 
+function offsetValue(offset: number | undefined): number {
+  return typeof offset === "number" && Number.isInteger(offset) && offset >= 0 ? offset : 0;
+}
+
 function connectorTrustRecordFromRow(row: DbConnectorTrustRecord): StoredConnectorTrustRecord {
   return {
     id: row.id,
@@ -298,9 +302,14 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
   async listAuditEvents(params: {
     tenantId?: string;
     actorSubject?: string;
+    eventType?: string;
     resourceType?: string;
     resourceId?: string;
+    from?: string;
+    to?: string;
+    conversationId?: string;
     limit?: number;
+    offset?: number;
   }): Promise<StoredAuditEvent[]> {
     const where: string[] = [];
     const values: unknown[] = [];
@@ -310,17 +319,24 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
     };
     if (params.tenantId) add("tenant_id = ?", params.tenantId);
     if (params.actorSubject) add("actor_subject = ?", params.actorSubject);
+    if (params.eventType) add("event_type = ?", params.eventType);
     if (params.resourceType) add("resource_type = ?", params.resourceType);
     if (params.resourceId) add("resource_id = ?", params.resourceId);
+    if (params.from) add("created_at >= ?", params.from);
+    if (params.to) add("created_at <= ?", params.to);
+    if (params.conversationId) add("safe_metadata ->> 'conversationId' = ?", params.conversationId);
     values.push(limitValue(params.limit));
+    const limitParameter = values.length;
+    values.push(offsetValue(params.offset));
 
     const result = await this.pool.query<DbAuditEvent>(
       `select id, tenant_id, actor_provider, actor_subject, actor_email, event_type,
         resource_type, resource_id, created_at, safe_metadata
        from audit_events
        ${where.length ? `where ${where.join(" and ")}` : ""}
-       order by created_at desc
-       limit $${values.length}`,
+       order by created_at desc, id desc
+       limit $${limitParameter}
+       offset $${values.length}`,
       values
     );
     return result.rows.map(auditEventFromRow);

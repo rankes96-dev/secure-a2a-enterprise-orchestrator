@@ -4,6 +4,7 @@ const path = "docs/v2-platform-foundation.md";
 const stateInventoryPath = "docs/v2-state-inventory.md";
 const sharedPath = "packages/shared/src/index.ts";
 const deploymentPath = "docs/deployment.md";
+const packageJsonPath = "package.json";
 const connectorRuntimePath = "services/orchestrator-api/src/connectorRuntime.ts";
 const orchestratorPath = "services/orchestrator-api/src/index.ts";
 const gateStackPath = "services/orchestrator-api/src/executionGateStack.ts";
@@ -44,6 +45,10 @@ if (!existsSync(path)) {
     "no raw tokens",
     "no raw prompts",
     "Phase 2.5  Connected Accounts / User Delegated OAuth",
+    "Phase 2.19  Persisted Audit Viewer (MVP)",
+    "GET `/audit/events`",
+    "`audit.read`",
+    "tenant.access.denied remains blocked",
     "Phase 3  Connector SDK",
     "Phase 3.5  Real ServiceNow External Agent Adapter",
     "Phase 4  Governed Chat Engine",
@@ -116,7 +121,10 @@ if (!existsSync(sharedPath)) {
     "authorizationRequirement?: ExternalAuthorizationRequirement",
     "actorProvider?: string",
     "actorSubject?: string",
-    "requestedScopes: string[]"
+    "requestedScopes: string[]",
+    "AuditViewerEvent",
+    "AuditEventsResponse",
+    "safeMetadataReturned: false"
   ]) {
     if (!shared.includes(phrase)) {
       fail(`shared contracts missing required phrase: ${phrase}`);
@@ -251,6 +259,18 @@ if (!existsSync(webPath)) {
     if (answerBuilder.includes(forbidden)) {
       fail(`chat authorization-required answer should not expose forbidden token/url marker: ${forbidden}`);
     }
+  }
+}
+
+if (!existsSync(packageJsonPath)) {
+  fail(`${packageJsonPath} should exist`);
+} else {
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { scripts?: Record<string, string> };
+  if (packageJson.scripts?.["verify:audit-viewer-boundary"] !== "tsx scripts/verify-audit-viewer-boundary.ts") {
+    fail("package.json missing verify:audit-viewer-boundary script");
+  }
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:audit-viewer-boundary")) {
+    fail("verify:v2-plan should run verify:audit-viewer-boundary");
   }
 }
 

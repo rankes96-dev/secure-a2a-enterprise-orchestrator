@@ -779,6 +779,76 @@ export type GatewayAuthorizationSummary = {
   matchedRole?: string;
 };
 
+export type AuditEventSeverity =
+  | "info"
+  | "low"
+  | "medium"
+  | "high"
+  | "critical";
+
+export type AuditEventOutcome =
+  | "success"
+  | "failure"
+  | "blocked"
+  | "needs_action";
+
+export type AuditEventSummary = {
+  route?: string;
+  method?: string;
+  capability?: string;
+  reason?: string;
+  resourceType?: string;
+  resourceId?: string;
+};
+
+export type AuditViewerEvent = {
+  id: string;
+  tenantId: string;
+  createdAt: string;
+  eventType: string;
+  severity: AuditEventSeverity;
+  outcome: AuditEventOutcome;
+  actor: {
+    provider?: string;
+    email?: string;
+  };
+  correlation: {
+    conversationId?: string;
+    requestId?: string;
+    taskId?: string;
+    connectorId?: string;
+    runtimeExecutionId?: string;
+  };
+  summary: AuditEventSummary;
+  proof: {
+    protectedMaterialExposed: false;
+    tokenMaterialStored: false;
+    rawPromptStored: false;
+  };
+};
+
+export type AuditEventsResponse = {
+  tenantId: string;
+  page: number;
+  limit: number;
+  nextPage?: number;
+  filters: {
+    eventType?: string;
+    outcome?: AuditEventOutcome;
+    severity?: AuditEventSeverity;
+    from?: string;
+    to?: string;
+    conversationId?: string;
+  };
+  events: AuditViewerEvent[];
+  responseProof: {
+    safeMetadataReturned: false;
+    protectedMaterialExposed: false;
+    tokenMaterialStored: false;
+    rawPromptStored: false;
+  };
+};
+
 export interface ResolveRequest {
   message: string;
   conversationId?: string;

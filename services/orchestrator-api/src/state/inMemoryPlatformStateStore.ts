@@ -116,15 +116,25 @@ export class InMemoryPlatformStateStore implements PlatformStateStore {
   async listAuditEvents(params: {
     tenantId?: string;
     actorSubject?: string;
+    eventType?: string;
     resourceType?: string;
     resourceId?: string;
+    from?: string;
+    to?: string;
+    conversationId?: string;
     limit?: number;
+    offset?: number;
   }): Promise<StoredAuditEvent[]> {
+    const fromTime = params.from ? Date.parse(params.from) : undefined;
+    const toTime = params.to ? Date.parse(params.to) : undefined;
     const filtered = this.auditEvents.filter((event) => {
       if (params.tenantId && event.tenantId !== params.tenantId) {
         return false;
       }
       if (params.actorSubject && event.actorSubject !== params.actorSubject) {
+        return false;
+      }
+      if (params.eventType && event.eventType !== params.eventType) {
         return false;
       }
       if (params.resourceType && event.resourceType !== params.resourceType) {
@@ -133,9 +143,24 @@ export class InMemoryPlatformStateStore implements PlatformStateStore {
       if (params.resourceId && event.resourceId !== params.resourceId) {
         return false;
       }
+      const createdAt = Date.parse(event.createdAt);
+      if (typeof fromTime === "number" && createdAt < fromTime) {
+        return false;
+      }
+      if (typeof toTime === "number" && createdAt > toTime) {
+        return false;
+      }
+      if (params.conversationId && event.safeMetadata.conversationId !== params.conversationId) {
+        return false;
+      }
       return true;
+    }).sort((left, right) => {
+      const createdAtOrder = right.createdAt.localeCompare(left.createdAt);
+      return createdAtOrder || right.id.localeCompare(left.id);
     });
-    const limited = typeof params.limit === "number" && params.limit >= 0 ? filtered.slice(-params.limit) : filtered;
+    const offset = typeof params.offset === "number" && Number.isInteger(params.offset) && params.offset >= 0 ? params.offset : 0;
+    const limit = typeof params.limit === "number" && params.limit >= 0 ? params.limit : filtered.length;
+    const limited = filtered.slice(offset, offset + limit);
     return limited.map(copyAuditEvent);
   }
 

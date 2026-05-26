@@ -1,6 +1,6 @@
-import React from "react";
-import type { ResolveResponse } from "@a2a/shared";
-import type { ExtractedScreenContext, SecurityTimelineEvent } from "../types";
+import React, { useState } from "react";
+import type { AuditViewerEvent, ResolveResponse } from "@a2a/shared";
+import type { AuditViewerFilters, ExtractedScreenContext, SecurityTimelineEvent } from "../types";
 
 type ScreenContext = ExtractedScreenContext;
 
@@ -104,6 +104,10 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
     setSecurityTimelineFilter,
     visibleSecurityTimelineEvents,
     securityTimelineFilters,
+    auditEventsResponse,
+    auditEventsError,
+    isAuditEventsLoading,
+    loadAuditEvents,
     securityTimelineRootRef,
     timelineListRef,
     renderPageHeader,
@@ -114,11 +118,230 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
     JsonBlock,
     safeRawExecutionData
   } = ctx;
+  const [auditFilters, setAuditFilters] = useState<AuditViewerFilters>({
+    page: 1,
+    limit: auditEventsResponse?.limit ?? 25,
+    eventType: auditEventsResponse?.filters.eventType ?? "",
+    outcome: auditEventsResponse?.filters.outcome ?? "",
+    severity: auditEventsResponse?.filters.severity ?? "",
+    from: auditEventsResponse?.filters.from ?? "",
+    to: auditEventsResponse?.filters.to ?? "",
+    conversationId: auditEventsResponse?.filters.conversationId ?? ""
+  });
 
   function openConnectorTestCenter() {
     setActiveTab("connector-test-center");
     showGuidedStatus("Moved to Connector Test Center");
     guideToTarget("connector-test-center");
+  }
+
+  function auditEventSummary(event: AuditViewerEvent): string {
+    const route = [
+      event.summary.method,
+      event.summary.route
+    ].filter(Boolean).join(" ");
+    return [
+      route,
+      event.summary.capability ? `Capability ${event.summary.capability}` : undefined,
+      event.summary.reason ? `Reason ${event.summary.reason}` : undefined
+    ].filter(Boolean).join(" / ") || event.summary.resourceType || "Audit event";
+  }
+
+  function auditActor(event: AuditViewerEvent): string {
+    return event.actor.email ?? event.actor.provider ?? "System";
+  }
+
+  function setAuditFilterValue(key: Exclude<keyof AuditViewerFilters, "page" | "limit">, value: string) {
+    setAuditFilters((current) => ({
+      ...current,
+      [key]: value,
+      page: 1
+    }));
+  }
+
+  function submitAuditFilters(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextFilters = { ...auditFilters, page: 1 };
+    setAuditFilters(nextFilters);
+    void loadAuditEvents(nextFilters);
+  }
+
+  function resetAuditFilters() {
+    const nextFilters: AuditViewerFilters = { page: 1, limit: auditFilters.limit ?? 25 };
+    setAuditFilters(nextFilters);
+    void loadAuditEvents(nextFilters);
+  }
+
+  function loadAuditPage(page: number) {
+    const nextFilters = { ...auditFilters, page };
+    setAuditFilters(nextFilters);
+    void loadAuditEvents(nextFilters);
+  }
+
+  function renderPersistedAuditViewer() {
+    const page = auditEventsResponse?.page ?? auditFilters.page ?? 1;
+    const limit = auditEventsResponse?.limit ?? auditFilters.limit ?? 25;
+    const hasPreviousPage = page > 1;
+    const hasNextPage = Boolean(auditEventsResponse?.nextPage);
+
+    return (
+      <section className="persisted-audit-viewer" aria-label="Persisted audit viewer">
+        <div className="section-heading-row">
+          <div>
+            <p className="active-panel-eyebrow">Persisted audit viewer</p>
+            <h2>Tenant audit events</h2>
+          </div>
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            onClick={() => void loadAuditEvents({ ...auditFilters, page })}
+            disabled={isAuditEventsLoading}
+          >
+            {isAuditEventsLoading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+
+        <form className="audit-filter-grid" onSubmit={submitAuditFilters}>
+          <label>
+            <span>Event type</span>
+            <input
+              value={auditFilters.eventType ?? ""}
+              onChange={(event) => setAuditFilterValue("eventType", event.target.value)}
+              placeholder="tenant.access.denied"
+            />
+          </label>
+          <label>
+            <span>Outcome</span>
+            <select value={auditFilters.outcome ?? ""} onChange={(event) => setAuditFilterValue("outcome", event.target.value)}>
+              <option value="">Any</option>
+              <option value="success">Success</option>
+              <option value="failure">Failure</option>
+              <option value="blocked">Blocked</option>
+              <option value="needs_action">Needs action</option>
+            </select>
+          </label>
+          <label>
+            <span>Severity</span>
+            <select value={auditFilters.severity ?? ""} onChange={(event) => setAuditFilterValue("severity", event.target.value)}>
+              <option value="">Any</option>
+              <option value="info">Info</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </label>
+          <label>
+            <span>From</span>
+            <input
+              type="datetime-local"
+              value={auditFilters.from ?? ""}
+              onChange={(event) => setAuditFilterValue("from", event.target.value)}
+            />
+          </label>
+          <label>
+            <span>To</span>
+            <input
+              type="datetime-local"
+              value={auditFilters.to ?? ""}
+              onChange={(event) => setAuditFilterValue("to", event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Conversation</span>
+            <input
+              value={auditFilters.conversationId ?? ""}
+              onChange={(event) => setAuditFilterValue("conversationId", event.target.value)}
+              placeholder="conversation id"
+            />
+          </label>
+          <label>
+            <span>Limit</span>
+            <select
+              value={String(limit)}
+              onChange={(event) => setAuditFilters((current) => ({
+                ...current,
+                limit: Number(event.target.value),
+                page: 1
+              }))}
+            >
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <div className="audit-filter-actions">
+            <button type="submit" className="scenario-run" disabled={isAuditEventsLoading}>
+              Apply
+            </button>
+            <button type="button" className="secondary-inline-button" onClick={resetAuditFilters} disabled={isAuditEventsLoading}>
+              Reset
+            </button>
+          </div>
+        </form>
+
+        {auditEventsError ? <p className="inline-error">{auditEventsError}</p> : null}
+
+        <div className="audit-viewer-table-wrap">
+          <table className="audit-viewer-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Event</th>
+                <th>Outcome</th>
+                <th>Severity</th>
+                <th>Actor</th>
+                <th>Tenant</th>
+                <th>Route / capability</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditEventsResponse?.events.length ? auditEventsResponse.events.map((event) => (
+                <tr key={event.id}>
+                  <td><time>{new Date(event.createdAt).toLocaleString()}</time></td>
+                  <td>
+                    <strong>{event.eventType}</strong>
+                    {event.correlation.conversationId ? <span>{event.correlation.conversationId}</span> : null}
+                  </td>
+                  <td><span className={`audit-status-badge status-${event.outcome}`}>{event.outcome.replace(/_/g, " ")}</span></td>
+                  <td><span className={`audit-severity-badge severity-${event.severity}`}>{event.severity}</span></td>
+                  <td>{auditActor(event)}</td>
+                  <td>{event.tenantId}</td>
+                  <td>{auditEventSummary(event)}</td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan={7}>{isAuditEventsLoading ? "Loading persisted audit events..." : "No persisted events match the current filters."}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="audit-pagination-row">
+          <span>Page {page}</span>
+          <div>
+            <button
+              type="button"
+              className="secondary-inline-button"
+              onClick={() => loadAuditPage(page - 1)}
+              disabled={!hasPreviousPage || isAuditEventsLoading}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className="secondary-inline-button"
+              onClick={() => loadAuditPage(auditEventsResponse?.nextPage ?? page + 1)}
+              disabled={!hasNextPage || isAuditEventsLoading}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </section>
+    );
   }
 
   function renderProofSummary(response: ResolveResponse) {
@@ -250,6 +473,7 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
           </div>
         </section>
       )}
+      {renderPersistedAuditViewer()}
     </section>
   );
 }

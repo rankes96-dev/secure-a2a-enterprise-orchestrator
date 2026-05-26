@@ -430,7 +430,7 @@ The schema uses `safe_metadata jsonb` for extensible proof data. It intentionall
 
 Connector trust records persist `owner_key_hash`, not raw owner keys or session-derived tokens. Their record IDs are scoped as tenant / owner-key-hash / agent so one tenant or owner cannot overwrite another tenant or owner's installed connector trust record for the same `agent_id`. Raw session tokens must never be stored in Postgres platform state or copied into connector trust `safe_metadata`.
 
-The `PostgresPlatformStateStore` implements the existing state boundary for connector trust records, audit events, and conversation snapshots using parameterized queries. Security Timeline still uses the existing read model in this checkpoint; a persisted audit timeline read model remains future work.
+The `PostgresPlatformStateStore` implements the existing state boundary for connector trust records, audit events, and conversation snapshots using parameterized queries. Phase 2.19 adds the first persisted audit viewer read path over these safe audit events.
 
 ### Phase 2.7  User Directory Access Gate
 
@@ -593,6 +593,14 @@ Connector onboarding read is a read-only bootstrap and inventory capability. UI 
 Mock demo role labels are mapped to canonical GatewayRole values before they become verified session roles: `read-only` maps to `security_viewer`, and `identity-admin` maps to `admin`. Alias labels are not gateway roles and do not authorize capabilities directly.
 
 Denied gateway authorization is audited with safe decision proof and exported as a blocked security event. Audit metadata includes capability, route, method, required roles, actor roles, matched role, and decision reason, without raw prompts or token material.
+
+### Phase 2.19  Persisted Audit Viewer (MVP)
+
+GET `/audit/events` exposes a tenant-scoped persisted audit viewer for browser session users with the `audit.read` Gateway capability. The route requires a fresh verified identity session and user-directory roles. Client-supplied tenantId is accepted only as a hint for Ogen tenant resolution; the query uses the resolved tenant and denies tenant switching attempts before listing stored events.
+
+The response is a schema-first projection of stored audit events: time, event type, outcome, severity, actor provider/email, resolved tenant, route/capability summary, resource summary, and safe correlation IDs. It supports page/limit pagination plus optional `eventType`, `outcome`, `severity`, `from`, `to`, and safe `conversationId` filters. It returns no raw prompt, token, secret, or stored metadata payload.
+
+Audit classification stays consistent with the export boundary. Blocked events remain blocked in the viewer, and tenant.access.denied remains blocked with warning-or-higher severity. The UI adds a read-only persisted audit table inside Security Timeline; per-capability 403s remain local to that panel instead of changing account access state.
 
 ### Phase 3  Connector SDK
 
@@ -919,8 +927,9 @@ V2 verification should layer new checks without weakening V1:
 - `npm run verify:platform-audit-write-through`
 - `npm run verify:platform-db-migrations`
 - `npm run verify:user-directory-access-gate`
+- `npm run verify:audit-viewer-boundary`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
-- Phase 2.6 adds the first opt-in Postgres schema and `PostgresPlatformStateStore`; future persistence verification should cover full restart-surviving runtime read paths
+- Phase 2.6 adds the first opt-in Postgres schema and `PostgresPlatformStateStore`; Phase 2.19 verifies tenant-scoped persisted audit viewer reads
 - future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
 - future SOC/SIEM and observability verification for sanitized vendor-neutral SecurityEventSink exports
 - future SDK verification proving a connector can onboard without Gateway core changes
@@ -994,6 +1003,9 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.9: add versioned Postgres migrations with checksum tracking
 - [ ] Phase 2.9: keep `schema.sql` as bootstrap/reference while preferring migrations for staging/production
 - [ ] Phase 2.9: keep migrations free of token and password columns
+- [ ] Phase 2.19: expose `GET /audit/events` behind verified session `audit.read`
+- [ ] Phase 2.19: keep audit viewer reads tenant-scoped to Ogen-resolved tenant context
+- [ ] Phase 2.19: project persisted audit events without raw prompt, token, secret, or stored metadata payload
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users
