@@ -201,8 +201,16 @@ function stringHint(value: unknown): string | undefined {
   return trimmed || undefined;
 }
 
+function safeOptionalString(value: unknown): string | undefined {
+  return stringHint(value);
+}
+
 function requestedTenantIdFromBody(value: unknown): string | undefined {
-  return stringHint(objectRecord(value)?.tenantId);
+  return safeOptionalString(objectRecord(value)?.tenantId);
+}
+
+function safeConversationIdFromBody(value: unknown): string | undefined {
+  return safeOptionalString(objectRecord(value)?.conversationId);
 }
 
 function requestMayHaveJsonBody(request: IncomingMessage): boolean {
@@ -240,6 +248,14 @@ function validateRuntimeAuthorizationRequest(value: unknown): string | undefined
     return "request body must be an object";
   }
 
+  if ("requestId" in body && body.requestId !== undefined && typeof body.requestId !== "string") {
+    return "requestId must be a string when provided";
+  }
+
+  if ("conversationId" in body && body.conversationId !== undefined && typeof body.conversationId !== "string") {
+    return "conversationId must be a string when provided";
+  }
+
   if ("tenantId" in body && body.tenantId !== undefined && typeof body.tenantId !== "string") {
     return "tenantId must be a string when provided";
   }
@@ -269,6 +285,27 @@ function validateRuntimeAuthorizationRequest(value: unknown): string | undefined
     action.riskLevel !== "sensitive"
   ) {
     return "action.riskLevel is required";
+  }
+
+  return undefined;
+}
+
+function validateResolveRequest(value: unknown): string | undefined {
+  const body = objectRecord(value);
+  if (!body) {
+    return "request body must be an object";
+  }
+
+  if (typeof body.message !== "string" || !body.message.trim()) {
+    return "message must be a non-empty string";
+  }
+
+  if ("conversationId" in body && body.conversationId !== undefined && typeof body.conversationId !== "string") {
+    return "conversationId must be a string when provided";
+  }
+
+  if ("tenantId" in body && body.tenantId !== undefined && typeof body.tenantId !== "string") {
+    return "tenantId must be a string when provided";
   }
 
   return undefined;
@@ -1231,6 +1268,8 @@ async function appendRuntimeAuthorizationTenantDeniedAuditEvent(params: {
   tenantContext: ResolvedTenantContext;
 }): Promise<void> {
   const { requestBody, actor, tenantContext } = params;
+  const safeRequestId = safeOptionalString(requestBody.requestId);
+  const safeConversationId = safeOptionalString(requestBody.conversationId);
   await appendPlatformAuditEvent({
     tenantId: tenantContext.tenantId,
     actorProvider: actor.provider,
@@ -1238,10 +1277,10 @@ async function appendRuntimeAuthorizationTenantDeniedAuditEvent(params: {
     actorEmail: actor.email,
     eventType: AuditEvents.RUNTIME_AUTHORIZATION_EVALUATED,
     resourceType: "runtime_authorization",
-    resourceId: requestBody.requestId ?? requestBody.action.skillId,
+    resourceId: safeRequestId ?? requestBody.action.skillId,
     safeMetadata: {
-      requestId: requestBody.requestId,
-      conversationId: requestBody.conversationId,
+      requestId: safeRequestId,
+      conversationId: safeConversationId,
       effect: "block",
       reason: "tenant_access_denied",
       skillId: requestBody.action.skillId,
@@ -1263,10 +1302,12 @@ async function appendTenantAccessDeniedAuditEvent(params: {
   actor: VerifiedUserIdentity;
   tenantContext: ResolvedTenantContext;
   route: string;
-  requestId?: string;
-  conversationId?: string;
+  requestId?: unknown;
+  conversationId?: unknown;
 }): Promise<void> {
   const { actor, tenantContext, route, requestId, conversationId } = params;
+  const safeRequestId = safeOptionalString(requestId);
+  const safeConversationId = safeOptionalString(conversationId);
   await appendPlatformAuditEvent({
     tenantId: tenantContext.tenantId,
     actorProvider: actor.provider,
@@ -1277,8 +1318,8 @@ async function appendTenantAccessDeniedAuditEvent(params: {
     resourceId: tenantContext.tenantId,
     safeMetadata: {
       route,
-      requestId,
-      conversationId,
+      requestId: safeRequestId,
+      conversationId: safeConversationId,
       tenantId: tenantContext.tenantId,
       tenantResolutionSource: tenantContext.source,
       requestedTenantId: tenantContext.requestedTenantId,
@@ -4783,20 +4824,24 @@ async function start(): Promise<void> {
     return;
   }
 
-  const requestBody = await readJsonBody<ResolveRequest>(request);
-
-  if (!requestBody.message?.trim()) {
-    sendJson(response, 400, { error: "message is required" });
+  const requestBodyUnknown = await readJsonBody<unknown>(request);
+  const resolveValidationError = validateResolveRequest(requestBodyUnknown);
+  if (resolveValidationError) {
+    sendJson(response, 400, {
+      error: "invalid_resolve_request",
+      message: resolveValidationError
+    }, request);
     return;
   }
+  const requestBody = requestBodyUnknown as ResolveRequest;
 
-  const tenantContext = tenantContextForRequest(identitySession.identity, requestedTenantIdFromBody(requestBody));
+  const tenantContext = tenantContextForRequest(identitySession.identity, requestedTenantIdFromBody(requestBodyUnknown));
   if (!requireRequestedTenantAllowed(tenantContext)) {
     await appendTenantAccessDeniedAuditEvent({
       actor: identitySession.identity,
       tenantContext,
       route: "/resolve",
-      conversationId: requestBody.conversationId
+      conversationId: safeConversationIdFromBody(requestBodyUnknown)
     });
     sendTenantAccessDenied(response, request, tenantContext);
     return;

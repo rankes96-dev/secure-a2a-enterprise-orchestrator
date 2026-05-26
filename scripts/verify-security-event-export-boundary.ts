@@ -91,6 +91,7 @@ for (const phrase of [
   "connector.runtime.failed",
   "connector.runtime.authorization_required",
   "security.request.blocked",
+  "tenant.access.denied",
   "eventType.includes(\"blocked\")",
   "eventType.includes(\"failed\")"
 ]) {
@@ -239,7 +240,8 @@ const runtimeCases: Array<[string, string, string]> = [
   ["user.identity.verified", "info", "success"],
   ["connector.runtime.failed", "medium", "failure"],
   ["connector.runtime.authorization_required", "low", "needs_action"],
-  ["security.request.blocked", "high", "blocked"]
+  ["security.request.blocked", "high", "blocked"],
+  ["tenant.access.denied", "high", "blocked"]
 ];
 
 for (const [eventType, expectedSeverity, expectedOutcome] of runtimeCases) {
@@ -257,6 +259,14 @@ for (const [eventType, expectedSeverity, expectedOutcome] of runtimeCases) {
   assertEqual(envelope.runtimeExecutionId, "runtime-1", `${eventType} runtimeExecutionId`);
   assertEqual(envelope.safeMetadata.nested instanceof Object, true, `${eventType} safeMetadata preserved`);
   assertEqual(JSON.stringify(auditEvent.safeMetadata), originalMetadata, `${eventType} source audit event should not mutate`);
+}
+
+const tenantDeniedEnvelope = securityEventFromAuditEvent(fakeAuditEvent("tenant.access.denied"));
+if (tenantDeniedEnvelope.outcome === "success") {
+  fail("tenant.access.denied must not export as success");
+}
+if (tenantDeniedEnvelope.severity === "info") {
+  fail("tenant.access.denied must not export as info severity");
 }
 
 const previousSink = process.env.SECURITY_EVENT_SINK;

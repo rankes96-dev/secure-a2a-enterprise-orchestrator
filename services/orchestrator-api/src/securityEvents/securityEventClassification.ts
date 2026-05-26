@@ -22,6 +22,9 @@ export function severityForEventType(eventType: string): SecurityEventSeverity {
   if (eventType === "security.request.blocked") {
     return "high";
   }
+  if (eventType === "tenant.access.denied") {
+    return "high";
+  }
   if (eventType.includes("blocked")) {
     return "high";
   }
@@ -39,6 +42,9 @@ export function outcomeForEventType(eventType: string): SecurityEventOutcome {
     return "needs_action";
   }
   if (eventType === "security.request.blocked") {
+    return "blocked";
+  }
+  if (eventType === "tenant.access.denied") {
     return "blocked";
   }
   if (eventType.includes("blocked")) {

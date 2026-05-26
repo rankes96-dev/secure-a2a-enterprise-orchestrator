@@ -578,6 +578,8 @@ tenantId is resolved by Ogen. client-supplied tenantId is a hint, not authority.
 
 Malformed tenant hints fail safely instead of crashing request handling. Tenant switching attempts are audited safely with tenant resolution metadata and without raw prompts or token material.
 
+Tenant denial audit records only validated string identifiers. Tenant access denials are exported as blocked security events.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

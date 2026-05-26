@@ -40,6 +40,7 @@ const runtimeEvaluatorSource = read("services/orchestrator-api/src/runtimeAuthor
 const sharedTypes = read("packages/shared/src/index.ts");
 const auditEventsSource = read("services/orchestrator-api/src/audit/auditEvents.ts");
 const runtimeAuthorizationSchemasSource = read("services/orchestrator-api/src/http/schemas/runtimeAuthorizationSchemas.ts");
+const securityEventClassificationSource = read("services/orchestrator-api/src/securityEvents/securityEventClassification.ts");
 const packageJsonSource = read("package.json");
 const platformDocs = read("docs/v2-platform-foundation.md");
 const sdkDocs = read("docs/sdk-readiness-contracts.md");
@@ -67,8 +68,12 @@ for (const phrase of [
   "sendTenantAccessDenied",
   "appendRuntimeAuthorizationTenantDeniedAuditEvent",
   "appendTenantAccessDeniedAuditEvent",
+  "safeOptionalString",
+  "safeConversationIdFromBody",
+  "validateResolveRequest",
   "tenant_access_denied",
   "tenantId must be a string when provided",
+  "conversationId must be a string when provided",
   "verifyUserDirectoryAccess({ identity, tenantId: tenantContext.tenantId",
   "identity: identitySession.identity",
   "tenantId: tenantContext.tenantId",
@@ -94,9 +99,14 @@ for (const phrase of [
 
 const resolveRoute = indexSource.slice(resolveRouteStart);
 for (const phrase of [
-  "tenantContextForRequest(identitySession.identity, requestedTenantIdFromBody(requestBody))",
+  "const requestBodyUnknown = await readJsonBody<unknown>(request)",
+  "const resolveValidationError = validateResolveRequest(requestBodyUnknown)",
+  'error: "invalid_resolve_request"',
+  "const requestBody = requestBodyUnknown as ResolveRequest",
+  "tenantContextForRequest(identitySession.identity, requestedTenantIdFromBody(requestBodyUnknown))",
   "if (!requireRequestedTenantAllowed(tenantContext))",
   "await appendTenantAccessDeniedAuditEvent",
+  "conversationId: safeConversationIdFromBody(requestBodyUnknown)",
   "await resolveIssue(requestBody, identitySession.sessionToken, tenantContext)"
 ]) {
   requireIncludes(resolveRoute, phrase, "/resolve uses resolved tenant context");
@@ -131,6 +141,10 @@ requireIncludes(auditEventsSource, 'TENANT_ACCESS_DENIED: "tenant.access.denied"
 for (const phrase of [
   "AuditEvents.TENANT_ACCESS_DENIED",
   "route",
+  "requestId: safeRequestId",
+  "conversationId: safeConversationId",
+  "safeOptionalString(requestId)",
+  "safeOptionalString(conversationId)",
   "tenantResolutionSource",
   "requestedTenantId",
   "requestedTenantAccepted",
@@ -139,6 +153,19 @@ for (const phrase of [
   "rawPromptStored: false"
 ]) {
   requireIncludes(indexSource, phrase, "tenant denied audit metadata is safe");
+}
+if (indexSource.includes("conversationId: requestBody.conversationId")) {
+  fail("/resolve tenant denial must not audit raw requestBody.conversationId");
+} else {
+  ok("/resolve tenant denial does not audit raw requestBody.conversationId");
+}
+
+for (const phrase of [
+  'eventType === "tenant.access.denied"',
+  'return "blocked"',
+  'return "high"'
+]) {
+  requireIncludes(securityEventClassificationSource, phrase, "tenant access denied security event classification");
 }
 
 for (const phrase of [
@@ -174,7 +201,9 @@ for (const phrase of [
   "client-supplied tenantId is a hint, not authority",
   "configured default tenant",
   "Auth0 org/domain mapping",
-  "policy, audit, user directory, connector trust"
+  "policy, audit, user directory, connector trust",
+  "Tenant denial audit records only validated string identifiers",
+  "Tenant access denials are exported as blocked security events"
 ]) {
   requireIncludes(platformDocs, phrase, "platform docs cover tenant resolution boundary");
 }
