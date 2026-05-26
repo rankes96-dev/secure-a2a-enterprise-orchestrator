@@ -1,7 +1,7 @@
 export const runtimeAuthorizationRequestSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["actor", "action"],
+  required: ["action"],
   properties: {
     requestId: { type: "string" },
     conversationId: { type: "string" },

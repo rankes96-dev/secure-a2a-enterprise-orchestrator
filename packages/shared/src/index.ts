@@ -676,7 +676,8 @@ export type RuntimeAuthorizationRequest = {
   requestId?: string;
   conversationId?: string;
   tenantId?: string;
-  actor: {
+  // Caller-supplied actor is optional context only. The verified session identity is authoritative for authorization.
+  actor?: {
     provider?: string;
     issuer?: string;
     subject?: string;

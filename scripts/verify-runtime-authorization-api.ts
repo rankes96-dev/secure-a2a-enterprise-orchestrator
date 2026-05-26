@@ -44,6 +44,8 @@ for (const phrase of [
   "export type RuntimeAuthorizationEffect",
   "export type RuntimeAuthorizationRequest",
   "export type RuntimeAuthorizationResponse",
+  "actor?:",
+  "verified session identity is authoritative",
   "runtimeExecution:",
   "runtimeTokenIssued: false",
   "externalRuntimeCalled: false",
@@ -70,6 +72,11 @@ for (const forbidden of ["executeApprovedConnectorSkill", "getA2AAccessToken", "
   } else {
     ok(`runtime authorization evaluator does not call ${forbidden}`);
   }
+}
+if (evaluatorSource.includes("request.actor")) {
+  fail("runtime authorization evaluator must not use request.actor as authorization authority");
+} else {
+  ok("runtime authorization evaluator does not use request.actor as authorization authority");
 }
 
 const runtimeAuthorizeRouteStart = indexSource.indexOf('request.url === "/runtime/authorize"');
@@ -113,11 +120,17 @@ for (const phrase of [
 for (const phrase of [
   "runtimeAuthorizationRequestSchema",
   "runtimeAuthorizationResponseSchema",
+  'required: ["action"]',
   "runtimeTokenIssued",
   "externalRuntimeCalled",
   "runtime.authorization.evaluated"
 ]) {
   requireIncludes(fastifySchemas, phrase, "Fastify schema placeholder exists");
+}
+if (fastifySchemas.includes('required: ["actor", "action"]')) {
+  fail("Runtime authorization request schema must not require actor");
+} else {
+  ok("Runtime authorization request schema does not require actor");
 }
 
 const parsedPackageJson = JSON.parse(packageJson) as { scripts?: Record<string, string> };
@@ -140,6 +153,8 @@ for (const phrase of [
   "does not issue a runtime token",
   "does not call an external connector runtime",
   "requires a fresh identity session",
+  "`request.actor` is optional context only",
+  "verified identity session is authoritative",
   "returns policy decision proof",
   "future SDK, MCP proxy, and external agent flows"
 ]) {
@@ -149,6 +164,9 @@ for (const phrase of [
 for (const phrase of [
   "Runtime Authorization API Contract",
   "SDK can call Ogen to ask if an action is allowed",
+  "Actor context may be supplied as a hint",
+  "Ogen verified identity session is authoritative",
+  "SDK must not rely on caller-supplied actor for authorization",
   "SDK must not treat its own local decision as authority",
   "Ogen response includes policy proof",
   "Execution requires a separate future runtime execution path"
@@ -208,6 +226,52 @@ if (readOnly.decision !== "allow" || !readOnly.allowed) {
   fail("read-only authorization response must not execute runtime, issue token, or call external runtime");
 } else {
   ok("read-only low risk external runtime authorization allows without execution");
+}
+
+const withoutActor = request();
+delete withoutActor.actor;
+const noActor = evaluate(withoutActor);
+if (noActor.decision !== "allow") {
+  fail("runtime authorization request without actor should still evaluate");
+} else {
+  ok("runtime authorization request without actor still evaluates");
+}
+
+const actorAdmin = evaluate(request({
+  actor: {
+    email: "caller-supplied@example.com",
+    roles: ["admin"]
+  }
+}));
+const actorViewer = evaluate(request({
+  actor: {
+    email: "different-caller-supplied@example.com",
+    roles: ["viewer"]
+  }
+}));
+if (actorAdmin.policy.inputHash !== actorViewer.policy.inputHash || actorAdmin.decision !== actorViewer.decision) {
+  fail("caller-supplied actor fields should not affect policy input or decision");
+} else {
+  ok("caller-supplied actor fields do not affect policy input or decision");
+}
+
+const identityAdmin = evaluateRuntimeAuthorization({
+  request: request({
+    actor: {
+      email: "caller-supplied@example.com",
+      roles: ["employee"]
+    }
+  }),
+  identity: {
+    ...identity,
+    roles: ["admin"]
+  },
+  tenantId: "default"
+});
+if (identityAdmin.policy.inputHash === actorAdmin.policy.inputHash) {
+  fail("verified identity roles should affect policy input while request actor roles do not");
+} else {
+  ok("verified identity roles are authoritative for policy input");
 }
 
 const writeAction = evaluate(request({

@@ -562,7 +562,7 @@ Node.js >= 20 is required. Fastify mode is public-metadata-only for now. startJs
 
 ### Phase 2.15  Runtime Authorization Decision API
 
-`POST /runtime/authorize` is an authorization-only API for agent actions. It evaluates Ogen policy, returns policy decision proof, and requires a fresh identity session through the User Directory Access Gate.
+`POST /runtime/authorize` is an authorization-only API for agent actions. It evaluates Ogen policy, returns policy decision proof, and requires a fresh identity session through the User Directory Access Gate. `request.actor` is optional context only; the verified identity session is authoritative for authorization.
 
 The endpoint does not execute runtime, does not issue a runtime token, and does not call an external connector runtime. It is intended for future SDK, MCP proxy, and external agent flows that need to ask Ogen whether an action is allowed before using a separate execution path.
 

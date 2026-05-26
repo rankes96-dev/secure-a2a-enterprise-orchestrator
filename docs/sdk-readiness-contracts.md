@@ -107,6 +107,9 @@ Future SDKs can call `POST /runtime/authorize` to ask Ogen whether an action is 
 Rules:
 
 - SDK can call Ogen to ask if an action is allowed.
+- Actor context may be supplied as a hint.
+- Ogen verified identity session is authoritative.
+- SDK must not rely on caller-supplied actor for authorization.
 - SDK must not treat its own local decision as authority.
 - Ogen response includes policy proof.
 - Execution requires a separate future runtime execution path.
