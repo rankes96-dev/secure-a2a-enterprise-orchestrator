@@ -25,7 +25,7 @@ function corsHeaders(request?: IncomingMessage): Record<string, string> {
   return {
     "access-control-allow-origin": allowOrigin,
     "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
-    "access-control-allow-headers": "content-type,x-api-key,x-internal-service-token,authorization",
+    "access-control-allow-headers": "content-type,x-api-key,x-internal-service-token,authorization,x-ogen-csrf-token",
     "access-control-allow-credentials": "true",
     "vary": "origin"
   };

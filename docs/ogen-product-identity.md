@@ -75,6 +75,8 @@ Ogen APIs should be schema-first so SDKs can be generated and verified.
 
 External agents can ask Ogen for authorization, but Ogen remains the authority.
 
+Ogen browser sessions require CSRF proof for mutating actions.
+
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.
 
 Ogen guardrails are immutable platform safety rules.

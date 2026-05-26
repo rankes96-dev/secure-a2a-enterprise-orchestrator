@@ -1,9 +1,10 @@
 import type { IdentitySessionResponse } from "./authTypes";
+import { csrfHeaders } from "../api/csrf";
 
 export async function postMockDemoLogin(apiUrl: string, email: string): Promise<IdentitySessionResponse> {
   const response = await fetch(`${apiUrl}/identity/demo-login`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...csrfHeaders() },
     credentials: "include",
     body: JSON.stringify({ email })
   });
@@ -18,7 +19,7 @@ export async function postMockDemoLogin(apiUrl: string, email: string): Promise<
 export async function postBearerIdentitySession(apiUrl: string, accessToken: string): Promise<IdentitySessionResponse> {
   const response = await fetch(`${apiUrl}/identity/session`, {
     method: "POST",
-    headers: { authorization: `Bearer ${accessToken}` },
+    headers: { authorization: `Bearer ${accessToken}`, ...csrfHeaders() },
     credentials: "include"
   });
 
@@ -32,6 +33,7 @@ export async function postBearerIdentitySession(apiUrl: string, accessToken: str
 export async function postIdentityLogout(apiUrl: string): Promise<IdentitySessionResponse> {
   const response = await fetch(`${apiUrl}/identity/logout`, {
     method: "POST",
+    headers: csrfHeaders(),
     credentials: "include"
   });
 

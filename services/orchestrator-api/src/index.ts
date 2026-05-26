@@ -45,6 +45,7 @@ import { verifyUserDirectoryAccess } from "./identity/userDirectoryAccess.js";
 import { applyFollowUpToIncidentContext, buildIncidentFollowUpQuestion, buildManualIncidentAnswer, extractIncidentContext, mergeIncidentContext, type IncidentContext } from "./incidentContext.js";
 import { interpretFollowUp } from "./followUpInterpreter.js";
 import { cleanupExpiredSessions, createSessionCookie, getSessionToken, hasValidSession } from "./security/sessionManager.js";
+import { createCsrfToken, csrfCookieHeader, shouldBypassCsrfForTrustedInternalRequest, verifyCsrfRequest } from "./security/csrfProtection.js";
 import { gatewayMetadata, gatewayPublicJwks } from "./security/gatewayIdentity.js";
 import { buildManualWorkflowAnswer } from "./requestInterpreter.js";
 import { detectSensitiveAction } from "./sensitiveActionGuard.js";
@@ -172,6 +173,18 @@ function allowByRateLimit(request: Parameters<typeof clientIp>[0], response: Par
 
   bucket.count += 1;
   return true;
+}
+
+function requireCsrfForBrowserMutation(request: IncomingMessage, response: ServerResponse): boolean {
+  if (shouldBypassCsrfForTrustedInternalRequest(request) || verifyCsrfRequest(request)) {
+    return true;
+  }
+
+  sendJson(response, 403, {
+    error: "csrf_required",
+    message: "Missing or invalid CSRF token"
+  }, request);
+  return false;
 }
 
 function objectRecord(value: unknown): Record<string, unknown> | undefined {
@@ -4288,18 +4301,21 @@ async function start(): Promise<void> {
       return;
     }
 
+    const csrfToken = createCsrfToken();
     if (getSessionToken(request)) {
-      sendJson(response, 200, { ok: true }, request);
+      sendJson(response, 200, { ok: true, csrfToken }, request, {
+        "set-cookie": csrfCookieHeader(csrfToken)
+      });
       return;
     }
 
     sendJson(
       response,
       200,
-      { ok: true },
+      { ok: true, csrfToken },
       request,
       {
-        "set-cookie": createSessionCookie()
+        "set-cookie": [createSessionCookie(), csrfCookieHeader(csrfToken)]
       }
     );
     return;
@@ -4327,6 +4343,10 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/identity/session") {
+    if (!requireCsrfForBrowserMutation(request, response)) {
+      return;
+    }
+
     const sessionToken = requireSessionToken(request, response);
     if (!sessionToken) {
       return;
@@ -4366,6 +4386,10 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/identity/demo-login") {
+    if (!requireCsrfForBrowserMutation(request, response)) {
+      return;
+    }
+
     const sessionToken = requireSessionToken(request, response);
     if (!sessionToken) {
       return;
@@ -4416,6 +4440,10 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/demo/end-user-ready") {
+    if (!requireCsrfForBrowserMutation(request, response)) {
+      return;
+    }
+
     const registryKey = await agentCardRegistryKeyForIdentityOrAdmin(request, response);
     if (!registryKey) {
       return;
@@ -4431,6 +4459,10 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/identity/logout") {
+    if (!requireCsrfForBrowserMutation(request, response)) {
+      return;
+    }
+
     const sessionToken = requireSessionToken(request, response);
     if (!sessionToken) {
       return;
@@ -4484,6 +4516,10 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/agent-onboarding/discover") {
+    if (!requireCsrfForBrowserMutation(request, response)) {
+      return;
+    }
+
     if (!await agentCardRegistryKeyForIdentityOrAdmin(request, response)) {
       return;
     }
@@ -4503,6 +4539,10 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/agent-onboarding/start") {
+    if (!requireCsrfForBrowserMutation(request, response)) {
+      return;
+    }
+
     const registryKey = await agentCardRegistryKeyForIdentityOrAdmin(request, response);
     if (!registryKey) {
       return;
@@ -4526,6 +4566,10 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "POST" && request.url === "/runtime/authorize") {
+    if (!requireCsrfForBrowserMutation(request, response)) {
+      return;
+    }
+
     const identitySession = await requireFreshIdentitySession(request, response);
     if (!identitySession) {
       return;
@@ -4563,6 +4607,10 @@ async function start(): Promise<void> {
 
   if (request.method !== "POST" || request.url !== "/resolve") {
     sendJson(response, 404, { error: "Not found" });
+    return;
+  }
+
+  if (!requireCsrfForBrowserMutation(request, response)) {
     return;
   }
 

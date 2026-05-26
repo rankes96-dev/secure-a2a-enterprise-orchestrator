@@ -7,6 +7,8 @@ import { buildLocalConnectorPresets } from "./connectorPresets";
 import { cleanAuth0CallbackUrl, completeAuth0Redirect, discardAuth0RedirectResult, isAuth0CallbackRoute, startAuth0LoginRedirect } from "./auth/auth0Client";
 import { frontendAuthProviderLabel, readFrontendAuthConfig } from "./auth/authConfig";
 import { postBearerIdentitySession, postIdentityLogout, postMockDemoLogin } from "./auth/mockAuthClient";
+import { csrfHeaders } from "./api/csrf";
+import { createBrowserSession } from "./api/session";
 import type { IdentitySessionResponse } from "./auth/authTypes";
 import { AccessDeniedScreen } from "./components/auth/AccessDeniedScreen";
 import { LoginScreen } from "./components/auth/LoginScreen";
@@ -2267,11 +2269,7 @@ function App() {
   }, [guidedStatus]);
 
   async function ensureSession() {
-    const response = await fetch(`${API_URL}/session`, {
-      method: "POST",
-      credentials: "include"
-    });
-
+    const response = await createBrowserSession(API_URL);
     if (!response.ok) {
       throw new Error(await friendlyApiError(response, "Failed to create browser session"));
     }
@@ -2456,6 +2454,7 @@ function App() {
       await ensureSession();
       const response = await fetch(`${API_URL}/demo/end-user-ready`, {
         method: "POST",
+        headers: csrfHeaders(),
         credentials: "include"
       });
       if (!await handleProtectedResponse(response, "Failed to prepare demo environment")) {
@@ -2526,7 +2525,7 @@ function App() {
       await ensureSession();
       const response = await fetch(`${API_URL}/agent-onboarding/discover`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...csrfHeaders() },
         credentials: "include",
         body: JSON.stringify({
           agentBaseUrl: zeroTrustAgentBaseUrl,
@@ -2585,7 +2584,7 @@ function App() {
       await ensureSession();
       const response = await fetch(`${API_URL}/agent-onboarding/start`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...csrfHeaders() },
         credentials: "include",
         body: JSON.stringify({
           agentBaseUrl: zeroTrustAgentBaseUrl,
@@ -2662,7 +2661,8 @@ function App() {
       const apiResponse = await fetch(`${API_URL}/resolve`, {
         method: "POST",
         headers: {
-          "content-type": "application/json"
+          "content-type": "application/json",
+          ...csrfHeaders()
         },
         credentials: "include",
         body: JSON.stringify({ message: trimmedIssueText, conversationId })

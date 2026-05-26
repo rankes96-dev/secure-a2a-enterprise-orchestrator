@@ -39,7 +39,7 @@ export async function createOgenFastifyApp(): Promise<FastifyInstance> {
     origin: allowedOrigins(),
     credentials: true,
     methods: ["GET", "POST", "DELETE", "OPTIONS"],
-    allowedHeaders: ["content-type", "x-api-key", "x-internal-service-token", "authorization"]
+    allowedHeaders: ["content-type", "x-api-key", "x-internal-service-token", "authorization", "x-ogen-csrf-token"]
   });
   await app.register(cookie);
 
