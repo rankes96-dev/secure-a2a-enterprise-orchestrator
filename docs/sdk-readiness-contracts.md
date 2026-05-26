@@ -119,6 +119,8 @@ Rules:
 - Authorization-only responses do not issue runtime tokens.
 - Authorization-only responses do not call external connector runtime.
 - Authorization-only responses do not store raw prompts, raw tokens, or secret material.
+- SDK callers can ask for runtime authorization, but gateway APIs still enforce Ogen RBAC.
+- SDK-provided actor/role data is not authoritative.
 
 ## Policy Decision Proof Contract
 

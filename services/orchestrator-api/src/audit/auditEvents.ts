@@ -41,6 +41,9 @@ export const AuditEvents = {
   AI_INTERPRETATION_EVALUATED: "ai.interpretation.evaluated",
   AI_ROUTING_EVALUATED: "ai.routing.evaluated",
 
+  GATEWAY_AUTHORIZATION_EVALUATED: "gateway.authorization.evaluated",
+  GATEWAY_AUTHORIZATION_DENIED: "gateway.authorization.denied",
+
   RUNTIME_AUTHORIZATION_EVALUATED: "runtime.authorization.evaluated",
   TENANT_ACCESS_DENIED: "tenant.access.denied",
 

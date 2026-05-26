@@ -81,6 +81,8 @@ Ogen CSRF tokens are bound to the browser session, not just echoed by the client
 
 Ogen resolves tenant context; clients cannot choose arbitrary tenants.
 
+Ogen separates gateway administration permissions from connector runtime policy.
+
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.
 
 Ogen guardrails are immutable platform safety rules.

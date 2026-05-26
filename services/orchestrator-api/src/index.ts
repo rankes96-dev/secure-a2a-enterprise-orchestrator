@@ -57,6 +57,8 @@ import { requestConnectorActionPlan } from "./connectorActionPlanner.js";
 import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation.js";
 import { AuditEvents } from "./audit/auditEvents.js";
 import { appendPlatformAuditEvent } from "./audit/platformAuditStore.js";
+import { evaluateGatewayAuthorization, isGatewayAuthorized } from "./authorization/gatewayAuthorization.js";
+import type { GatewayAuthorizationDecision, GatewayCapability } from "./authorization/gatewayAuthorizationTypes.js";
 import type { OgenInterpretationProof } from "./interpretation/interpretationTypes.js";
 import type { OgenAiRoutingProof } from "./interpretation/routingProofTypes.js";
 import { requireRequestedTenantAllowed, resolveTenantContext, type ResolvedTenantContext } from "./tenant/tenantResolution.js";
@@ -106,6 +108,13 @@ type RateLimitConfig = {
   maxRequests: number;
   preferSessionToken?: boolean;
   error?: string;
+};
+
+type FreshIdentitySession = {
+  sessionToken: string;
+  identity: VerifiedUserIdentity;
+  tenantContext: ResolvedTenantContext;
+  gatewayRoles: string[];
 };
 
 const resolveRateLimit: RateLimitConfig = {
@@ -1301,6 +1310,38 @@ async function appendTenantAccessDeniedAuditEvent(params: {
   });
 }
 
+async function appendGatewayAuthorizationAuditEvent(params: {
+  decision: GatewayAuthorizationDecision;
+  actor?: VerifiedUserIdentity;
+}): Promise<void> {
+  const { decision, actor } = params;
+  await appendPlatformAuditEvent({
+    tenantId: decision.tenantId,
+    actorProvider: actor?.provider,
+    actorSubject: actor?.subject,
+    actorEmail: actor?.email,
+    eventType: decision.effect === "allow" ? AuditEvents.GATEWAY_AUTHORIZATION_EVALUATED : AuditEvents.GATEWAY_AUTHORIZATION_DENIED,
+    resourceType: "gateway_authorization",
+    resourceId: decision.decisionId,
+    safeMetadata: {
+      decisionId: decision.decisionId,
+      tenantId: decision.tenantId,
+      route: decision.route,
+      method: decision.method,
+      capability: decision.capability,
+      effect: decision.effect,
+      actorEmail: actor?.email,
+      actorRoles: decision.actorRoles,
+      requiredRolesAny: decision.requiredRolesAny,
+      matchedRole: decision.matchedRole,
+      reason: decision.reason,
+      protectedMaterialExposed: false,
+      tokenMaterialStored: false,
+      rawPromptStored: false
+    }
+  });
+}
+
 async function appendConnectorRuntimeAuditEvents(params: {
   connectorRouting: ConnectorRoutingDecision;
   connectorRuntime: ConnectorRuntimeResult;
@@ -2087,7 +2128,7 @@ function requireIdentitySession(request: IncomingMessage, response: ServerRespon
 async function requireFreshIdentitySession(
   request: IncomingMessage,
   response: ServerResponse
-): Promise<{ sessionToken: string; identity: VerifiedUserIdentity; tenantContext: ResolvedTenantContext } | undefined> {
+): Promise<FreshIdentitySession | undefined> {
   const identitySession = requireIdentitySession(request, response);
   if (!identitySession) {
     return undefined;
@@ -2115,14 +2156,64 @@ async function requireFreshIdentitySession(
   return {
     sessionToken: identitySession.sessionToken,
     identity: allowedIdentity,
-    tenantContext
+    tenantContext,
+    gatewayRoles: directoryAccess.user.roles
   };
+}
+
+async function requireGatewayCapability(params: {
+  request: IncomingMessage;
+  response: ServerResponse;
+  identitySession?: FreshIdentitySession;
+  capability: GatewayCapability;
+  route: string;
+  method: string;
+}): Promise<boolean> {
+  const { request, response, identitySession, capability, route, method } = params;
+  const tenantContext = identitySession?.tenantContext ?? tenantContextForRequest(identitySession?.identity);
+  const source = identitySession
+    ? "browser_session"
+    : hasValidClientApiKey(request)
+      ? "api_key"
+      : shouldBypassCsrfForTrustedInternalRequest(request)
+        ? "internal_service_token"
+        : "browser_session";
+  const actor = identitySession?.identity;
+  const decision = evaluateGatewayAuthorization({
+    tenantId: tenantContext.tenantId,
+    capability,
+    route,
+    method,
+    actor: actor
+      ? {
+          provider: actor.provider,
+          issuer: actor.issuer,
+          subject: actor.subject,
+          email: actor.email,
+          roles: identitySession.gatewayRoles
+        }
+      : undefined,
+    source
+  });
+
+  await appendGatewayAuthorizationAuditEvent({ decision, actor });
+  if (isGatewayAuthorized(decision)) {
+    return true;
+  }
+
+  sendJson(response, 403, {
+    error: "gateway_authorization_denied",
+    message: "This user is not allowed to perform this Ogen gateway operation.",
+    capability: decision.capability,
+    requiredRolesAny: decision.requiredRolesAny
+  }, request);
+  return false;
 }
 
 async function requireIdentityOrAdminAccess(
   request: IncomingMessage,
   response: ServerResponse
-): Promise<{ kind: "admin" } | { kind: "identity"; sessionToken: string; identity: VerifiedUserIdentity } | undefined> {
+): Promise<{ kind: "admin" } | ({ kind: "identity" } & FreshIdentitySession) | undefined> {
   if (hasValidClientApiKey(request)) {
     return { kind: "admin" };
   }
@@ -2135,7 +2226,9 @@ async function requireIdentityOrAdminAccess(
   return {
     kind: "identity",
     sessionToken: identitySession.sessionToken,
-    identity: identitySession.identity
+    identity: identitySession.identity,
+    tenantContext: identitySession.tenantContext,
+    gatewayRoles: identitySession.gatewayRoles
   };
 }
 
@@ -4404,7 +4497,19 @@ async function start(): Promise<void> {
   }
 
   if (request.method === "GET" && request.url === "/agents/health") {
-    if (!await requireIdentityOrAdminAccess(request, response)) {
+    const access = await requireIdentityOrAdminAccess(request, response);
+    if (!access) {
+      return;
+    }
+
+    if (access.kind === "identity" && !await requireGatewayCapability({
+      request,
+      response,
+      identitySession: access,
+      capability: "health.read",
+      route: "/agents/health",
+      method: "GET"
+    })) {
       return;
     }
 
@@ -4419,7 +4524,18 @@ async function start(): Promise<void> {
   if (request.method === "GET" && request.url === "/debug/ai-config") {
     if (!hasValidClientApiKey(request)) {
       if (process.env.NODE_ENV !== "production" && process.env.ALLOW_DEBUG_AI_CONFIG_WITH_IDENTITY === "true") {
-        if (!await requireIdentityOrAdminAccess(request, response)) {
+        const access = await requireIdentityOrAdminAccess(request, response);
+        if (!access) {
+          return;
+        }
+        if (access.kind === "identity" && !await requireGatewayCapability({
+          request,
+          response,
+          identitySession: access,
+          capability: "debug.ai_config.read",
+          route: "/debug/ai-config",
+          method: "GET"
+        })) {
           return;
         }
       } else {
@@ -4479,6 +4595,16 @@ async function start(): Promise<void> {
     const adminView = hasValidClientApiKey(request);
     const identitySession = adminView ? undefined : await requireFreshIdentitySession(request, response);
     if (!adminView && !identitySession) {
+      return;
+    }
+    if (identitySession && !await requireGatewayCapability({
+      request,
+      response,
+      identitySession,
+      capability: "identity.trust_status.read",
+      route: "/identity/trust-status",
+      method: "GET"
+    })) {
       return;
     }
 
@@ -4605,6 +4731,19 @@ async function start(): Promise<void> {
     if (!registryKey) {
       return;
     }
+    if (!hasValidClientApiKey(request)) {
+      const identitySession = await requireFreshIdentitySession(request, response);
+      if (!identitySession || !await requireGatewayCapability({
+        request,
+        response,
+        identitySession,
+        capability: "demo.prepare",
+        route: "/demo/end-user-ready",
+        method: "POST"
+      })) {
+        return;
+      }
+    }
 
     if (!allowByRateLimit(request, response, agentOnboardingRateLimit)) {
       return;
@@ -4635,6 +4774,19 @@ async function start(): Promise<void> {
     if (!registryKey) {
       return;
     }
+    if (!hasValidClientApiKey(request)) {
+      const identitySession = await requireFreshIdentitySession(request, response);
+      if (!identitySession || !await requireGatewayCapability({
+        request,
+        response,
+        identitySession,
+        capability: "connector.onboarding.read",
+        route: "/agent-onboarding",
+        method: "GET"
+      })) {
+        return;
+      }
+    }
 
     if (!allowByRateLimit(request, response, agentOnboardingRateLimit)) {
       return;
@@ -4648,6 +4800,19 @@ async function start(): Promise<void> {
     const registryKey = await agentCardRegistryKeyForIdentityOrAdmin(request, response);
     if (!registryKey) {
       return;
+    }
+    if (!hasValidClientApiKey(request)) {
+      const identitySession = await requireFreshIdentitySession(request, response);
+      if (!identitySession || !await requireGatewayCapability({
+        request,
+        response,
+        identitySession,
+        capability: "connector.onboarding.read",
+        route: "/agent-onboarding/supported-connectors",
+        method: "GET"
+      })) {
+        return;
+      }
     }
 
     const installedAgents = await listTrustedOnboardedAgentsForOwner(registryKey);
@@ -4677,8 +4842,22 @@ async function start(): Promise<void> {
       return;
     }
 
-    if (!await agentCardRegistryKeyForIdentityOrAdmin(request, response)) {
+    const registryKey = await agentCardRegistryKeyForIdentityOrAdmin(request, response);
+    if (!registryKey) {
       return;
+    }
+    if (!hasValidClientApiKey(request)) {
+      const identitySession = await requireFreshIdentitySession(request, response);
+      if (!identitySession || !await requireGatewayCapability({
+        request,
+        response,
+        identitySession,
+        capability: "connector.onboarding.discover",
+        route: "/agent-onboarding/discover",
+        method: "POST"
+      })) {
+        return;
+      }
     }
 
     if (!allowByRateLimit(request, response, agentOnboardingRateLimit)) {
@@ -4703,6 +4882,19 @@ async function start(): Promise<void> {
     const registryKey = await agentCardRegistryKeyForIdentityOrAdmin(request, response);
     if (!registryKey) {
       return;
+    }
+    if (!hasValidClientApiKey(request)) {
+      const identitySession = await requireFreshIdentitySession(request, response);
+      if (!identitySession || !await requireGatewayCapability({
+        request,
+        response,
+        identitySession,
+        capability: "connector.onboarding.start",
+        route: "/agent-onboarding/start",
+        method: "POST"
+      })) {
+        return;
+      }
     }
 
     if (!allowByRateLimit(request, response, agentOnboardingRateLimit)) {
@@ -4757,6 +4949,17 @@ async function start(): Promise<void> {
         conversationId: safeConversationIdFromBody(requestBodyUnknown)
       });
       sendTenantAccessDenied(response, request, tenantContext);
+      return;
+    }
+    const runtimeIdentitySession = { ...identitySession, tenantContext };
+    if (!await requireGatewayCapability({
+      request,
+      response,
+      identitySession: runtimeIdentitySession,
+      capability: "runtime.authorize",
+      route: "/runtime/authorize",
+      method: "POST"
+    })) {
       return;
     }
 
@@ -4815,6 +5018,17 @@ async function start(): Promise<void> {
       conversationId: safeConversationIdFromBody(requestBodyUnknown)
     });
     sendTenantAccessDenied(response, request, tenantContext);
+    return;
+  }
+  const resolveIdentitySession = { ...identitySession, tenantContext };
+  if (!await requireGatewayCapability({
+    request,
+    response,
+    identitySession: resolveIdentitySession,
+    capability: "gateway.resolve",
+    route: "/resolve",
+    method: "POST"
+  })) {
     return;
   }
 

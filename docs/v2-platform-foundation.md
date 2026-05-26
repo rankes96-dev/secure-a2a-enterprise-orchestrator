@@ -580,6 +580,14 @@ Malformed tenant and conversation hints fail safely instead of crashing request 
 
 Tenant denial audit records only validated string identifiers. Tenant access denials are exported as blocked security events.
 
+### Phase 2.18  Gateway RBAC / ABAC Boundary
+
+Gateway operations are protected by role/capability checks. Roles come from verified user directory identity, not request body, caller-supplied actor context, or SDK-provided role hints.
+
+RBAC is tenant-aware: gateway authorization decisions include the Ogen-resolved tenant context and fail closed when the verified identity lacks a required role for the requested capability. Connector runtime action policy remains separate from gateway RBAC; Ogen Policy Engine still decides whether a connector/runtime action is allowed, blocked, or approval-required.
+
+Denied gateway authorization is audited with safe decision proof and exported as a blocked security event. Audit metadata includes capability, route, method, required roles, actor roles, matched role, and decision reason, without raw prompts or token material.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

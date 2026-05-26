@@ -770,6 +770,15 @@ export type RuntimeAuthorizationResponse = {
   };
 };
 
+export type GatewayAuthorizationSummary = {
+  decisionId: string;
+  effect: "allow" | "block";
+  capability: string;
+  reason: string;
+  requiredRolesAny: string[];
+  matchedRole?: string;
+};
+
 export interface ResolveRequest {
   message: string;
   conversationId?: string;

@@ -93,6 +93,8 @@ for (const phrase of [
   "connector.runtime.failed",
   "connector.runtime.authorization_required",
   "security.request.blocked",
+  "gateway.authorization.denied",
+  "gateway.authorization.evaluated",
   "tenant.access.denied",
   "eventType.includes(\"blocked\")",
   "eventType.includes(\"failed\")"
@@ -243,6 +245,8 @@ const runtimeCases: Array<[string, string, string]> = [
   ["connector.runtime.failed", "medium", "failure"],
   ["connector.runtime.authorization_required", "low", "needs_action"],
   ["security.request.blocked", "high", "blocked"],
+  ["gateway.authorization.denied", "high", "blocked"],
+  ["gateway.authorization.evaluated", "info", "success"],
   ["tenant.access.denied", "high", "blocked"]
 ];
 
