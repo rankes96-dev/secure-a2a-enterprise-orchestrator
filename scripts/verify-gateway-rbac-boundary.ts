@@ -59,6 +59,17 @@ function resolveRouteBlock(source: string): string {
   return source.slice(start);
 }
 
+function policyEntryBlock(source: string, capability: GatewayCapability): string {
+  const marker = `"${capability}": {`;
+  const start = source.indexOf(marker);
+  if (start < 0) {
+    fail(`${capability} policy entry should exist`);
+    return "";
+  }
+  const end = source.indexOf("\n  },", start + marker.length);
+  return end < 0 ? source.slice(start) : source.slice(start, end);
+}
+
 const typesPath = "services/orchestrator-api/src/authorization/gatewayAuthorizationTypes.ts";
 const policyPath = "services/orchestrator-api/src/authorization/gatewayAuthorizationPolicy.ts";
 const evaluatorPath = "services/orchestrator-api/src/authorization/gatewayAuthorization.ts";
@@ -143,6 +154,12 @@ for (const phrase of [
 ]) {
   requireIncludes(policySource, phrase, "gateway RBAC policy map");
 }
+const connectorOnboardingReadPolicy = policyEntryBlock(policySource, "connector.onboarding.read");
+const connectorOnboardingDiscoverPolicy = policyEntryBlock(policySource, "connector.onboarding.discover");
+const connectorOnboardingStartPolicy = policyEntryBlock(policySource, "connector.onboarding.start");
+requireIncludes(connectorOnboardingReadPolicy, '"it-support"', "connector onboarding read includes default demo role");
+requireExcludes(connectorOnboardingDiscoverPolicy, '"it-support"', "connector onboarding discover excludes default demo role");
+requireExcludes(connectorOnboardingStartPolicy, '"it-support"', "connector onboarding start excludes default demo role");
 
 for (const phrase of [
   "export function evaluateGatewayAuthorization",
@@ -343,10 +360,40 @@ if (evaluate("runtime.authorize", ["end_user"]).effect !== "allow") {
 } else {
   ok("end_user can runtime.authorize");
 }
+if (evaluate("connector.onboarding.read", ["it-support"]).effect !== "allow") {
+  fail("it-support should be allowed to read connector onboarding state");
+} else {
+  ok("it-support can connector.onboarding.read");
+}
+if (evaluate("connector.onboarding.read", ["end_user"]).effect !== "allow") {
+  fail("end_user should be allowed to read connector onboarding state");
+} else {
+  ok("end_user can connector.onboarding.read");
+}
+if (evaluate("connector.onboarding.read", ["operator"]).effect !== "allow") {
+  fail("operator should be allowed to read connector onboarding state");
+} else {
+  ok("operator can connector.onboarding.read");
+}
+if (evaluate("connector.onboarding.read", ["security_viewer"]).effect !== "allow") {
+  fail("security_viewer should be allowed to read connector onboarding state");
+} else {
+  ok("security_viewer can connector.onboarding.read");
+}
+if (evaluate("connector.onboarding.start", ["it-support"]).effect !== "block") {
+  fail("it-support should not be allowed to start connector onboarding");
+} else {
+  ok("it-support cannot connector.onboarding.start");
+}
 if (evaluate("connector.onboarding.start", ["end_user"]).effect !== "block") {
   fail("end_user should not be allowed to start connector onboarding");
 } else {
   ok("end_user cannot connector.onboarding.start");
+}
+if (evaluate("connector.onboarding.start", ["operator"]).effect !== "block") {
+  fail("operator should not be allowed to start connector onboarding");
+} else {
+  ok("operator cannot connector.onboarding.start");
 }
 if (evaluate("connector.onboarding.start", ["connector_admin"]).effect !== "allow") {
   fail("connector_admin should be allowed to start connector onboarding");

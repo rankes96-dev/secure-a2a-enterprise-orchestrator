@@ -12,7 +12,7 @@ export const gatewayCapabilityRequirements: Record<GatewayCapability, GatewayCap
     rolesAny: ["end_user", "operator", "admin", "it-support", "gateway_admin", "tenant_admin"]
   },
   "connector.onboarding.read": {
-    rolesAny: ["connector_admin", "gateway_admin", "tenant_admin", "admin"]
+    rolesAny: ["end_user", "operator", "admin", "it-support", "connector_admin", "security_viewer", "gateway_admin", "tenant_admin"]
   },
   "connector.onboarding.discover": {
     rolesAny: ["connector_admin", "gateway_admin", "tenant_admin", "admin"]
