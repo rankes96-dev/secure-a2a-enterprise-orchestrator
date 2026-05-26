@@ -540,6 +540,8 @@ Every AI routing proof records source, validation status, selected/skipped agent
 
 Routing proof makes validation explicit: rules fallback is marked as rules fallback, missing AI config is marked not configured, empty AI output is marked empty response, failed validation is marked failed, AI errors are marked ai error, and validated secondary AI routing is marked passed. Audit stores safe routing proof only.
 
+AI routing proof hashes the safe routing input context, not only the message. The safe context includes interpretation proof reference and agent card IDs/skill IDs. Raw prompts and raw agent card text are not stored.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { RoutingDecision } from "@a2a/shared";
-import { OGEN_AI_ROUTING_SCHEMA_VERSION, type OgenAiRoutingProof, type OgenAiRoutingSource, type OgenAiRoutingValidationStatus } from "./routingProofTypes.js";
+import type { AgentCard } from "../agentCards.js";
+import type { OgenInterpretationProof } from "./interpretationTypes.js";
+import { OGEN_AI_ROUTING_SCHEMA_VERSION, type OgenAiRoutingProof, type OgenAiRoutingSafeInputContextSummary, type OgenAiRoutingSource, type OgenAiRoutingValidationStatus } from "./routingProofTypes.js";
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -37,6 +39,30 @@ function safeRoutingSummary(routingDecision: RoutingDecision): Record<string, un
   };
 }
 
+function sorted(values: string[]): string[] {
+  return [...values].sort((left, right) => left.localeCompare(right));
+}
+
+function safeInputContextSummary(params: {
+  inputText: string;
+  interpretationProof?: OgenInterpretationProof;
+  agentCards?: AgentCard[];
+}): OgenAiRoutingSafeInputContextSummary {
+  const messageHash = sha256(params.inputText);
+  const agentCards = params.agentCards ?? [];
+
+  return {
+    messageHash,
+    interpretationId: params.interpretationProof?.interpretationId,
+    interpretationOutputHash: params.interpretationProof?.outputHash,
+    interpretationSchemaVersion: params.interpretationProof?.schemaVersion,
+    interpretationRisks: params.interpretationProof?.risks ? [...params.interpretationProof.risks] : undefined,
+    agentCardIds: sorted(agentCards.map((card) => card.agentId)),
+    agentCardSkillIds: sorted(agentCards.flatMap((card) => card.skills.map((skill) => skill.id))),
+    agentCardCount: agentCards.length
+  };
+}
+
 export function createAiRoutingProof(params: {
   inputText: string;
   routingDecision: RoutingDecision;
@@ -44,9 +70,17 @@ export function createAiRoutingProof(params: {
   validationStatus: OgenAiRoutingValidationStatus;
   provider?: string;
   model?: string;
+  interpretationProof?: OgenInterpretationProof;
+  agentCards?: AgentCard[];
 }): OgenAiRoutingProof {
   const { inputText, routingDecision, source, validationStatus, provider, model } = params;
   const summary = safeRoutingSummary(routingDecision);
+  const inputSummary = safeInputContextSummary({
+    inputText,
+    interpretationProof: params.interpretationProof,
+    agentCards: params.agentCards
+  });
+  const inputContextHash = sha256(stableStringify(inputSummary));
   return {
     routingProofId: randomUUID(),
     schemaVersion: OGEN_AI_ROUTING_SCHEMA_VERSION,
@@ -54,7 +88,10 @@ export function createAiRoutingProof(params: {
     source,
     provider,
     model,
-    inputHash: sha256(inputText),
+    inputHash: inputContextHash,
+    messageHash: inputSummary.messageHash,
+    inputContextHash,
+    safeInputContextSummary: inputSummary,
     outputHash: sha256(stableStringify(summary)),
     validationStatus,
     selectedAgentIds: routingDecision.selectedAgents.map((agent) => agent.agentId),

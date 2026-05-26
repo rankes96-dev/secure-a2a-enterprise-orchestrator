@@ -182,6 +182,10 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       aiRoutingValidationStatus: params.aiRoutingProof?.validationStatus,
       aiRoutingAdvisoryOnly: params.aiRoutingProof?.advisoryOnly,
       aiRoutingAuthorizedRuntime: params.aiRoutingProof?.authorizedRuntime,
+      aiRoutingInputContextHash: params.aiRoutingProof?.inputContextHash,
+      aiRoutingAgentCardCount: params.aiRoutingProof?.safeInputContextSummary.agentCardCount,
+      aiRoutingAgentCardIds: params.aiRoutingProof?.safeInputContextSummary.agentCardIds ?? [],
+      aiRoutingInterpretationId: params.aiRoutingProof?.safeInputContextSummary.interpretationId,
       aiRoutingSelectedAgentIds: params.aiRoutingProof?.selectedAgentIds ?? [],
       aiRoutingSkippedAgentIds: params.aiRoutingProof?.skippedAgentIds ?? []
     }

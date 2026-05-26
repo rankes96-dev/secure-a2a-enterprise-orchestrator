@@ -214,6 +214,18 @@ export type AiRoutingProofSummary = {
   provider?: string;
   model?: string;
   inputHash: string;
+  messageHash: string;
+  inputContextHash: string;
+  safeInputContextSummary: {
+    messageHash: string;
+    interpretationId?: string;
+    interpretationOutputHash?: string;
+    interpretationSchemaVersion?: string;
+    interpretationRisks?: string[];
+    agentCardIds: string[];
+    agentCardSkillIds: string[];
+    agentCardCount: number;
+  };
   outputHash: string;
   validationStatus: string;
   selectedAgentIds: string[];

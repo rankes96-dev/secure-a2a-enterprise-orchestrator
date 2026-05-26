@@ -61,6 +61,8 @@ AI interpretation is a signal. Ogen authorization is the decision.
 
 AI can suggest routing. Ogen validates and authorizes.
 
+Ogen proves not only what AI suggested, but the safe context it was allowed to see.
+
 Ogen does not infer safety from missing metadata.
 
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.

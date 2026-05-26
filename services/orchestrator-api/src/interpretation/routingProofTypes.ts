@@ -12,6 +12,17 @@ export type OgenAiRoutingValidationStatus =
   | "ai_error"
   | "not_configured";
 
+export type OgenAiRoutingSafeInputContextSummary = {
+  messageHash: string;
+  interpretationId?: string;
+  interpretationOutputHash?: string;
+  interpretationSchemaVersion?: string;
+  interpretationRisks?: string[];
+  agentCardIds: string[];
+  agentCardSkillIds: string[];
+  agentCardCount: number;
+};
+
 export type OgenAiRoutingProof = {
   routingProofId: string;
   schemaVersion: string;
@@ -20,6 +31,9 @@ export type OgenAiRoutingProof = {
   provider?: string;
   model?: string;
   inputHash: string;
+  messageHash: string;
+  inputContextHash: string;
+  safeInputContextSummary: OgenAiRoutingSafeInputContextSummary;
   outputHash: string;
   validationStatus: OgenAiRoutingValidationStatus;
   selectedAgentIds: string[];
