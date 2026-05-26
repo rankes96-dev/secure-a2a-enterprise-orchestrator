@@ -2,6 +2,9 @@
   "name": "secure-a2a-enterprise-integration-resolver",
   "private": true,
   "version": "0.1.0",
+  "engines": {
+    "node": ">=20"
+  },
   "workspaces": [
     "apps/*",
     "services/*",

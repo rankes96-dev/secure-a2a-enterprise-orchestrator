@@ -6,6 +6,8 @@ Browser sessions are in-memory in V1. Persistent browser session storage is a V2
 
 Production backend runtime uses compiled JavaScript from `dist`. Local development can use `tsx`, but Railway production start commands must run `node dist/...`.
 
+Ogen requires Node.js >= 20. Railway/runtime should be configured for Node 20 or newer.
+
 Do not commit or expose raw JWTs, access tokens, refresh tokens, Authorization headers, client assertions, client secrets, private keys, API keys, cookies, Upstash tokens, or the OpenRouter API key.
 
 ## Architecture
@@ -47,6 +49,22 @@ npm run dev
 ```
 
 The local dev runner builds `@a2a/shared` once, then starts services with `tsx` for fast iteration. Do not use the dev runner as a Railway production start command.
+
+## HTTP Framework Mode
+
+Fastify mode is opt-in:
+
+```env
+ORCHESTRATOR_HTTP_FRAMEWORK=fastify
+```
+
+Current Fastify mode serves only:
+
+- `GET /health`
+- `GET /.well-known/a2a-gateway.json`
+- `GET /.well-known/jwks.json`
+
+Use default server mode for the full app until protected routes are migrated.
 
 ## Vercel
 

@@ -34,11 +34,13 @@ const publicRoutesSource = read("services/orchestrator-api/src/http/routes/regis
 const starterSource = read("services/orchestrator-api/src/http/startOgenFastifyServer.ts");
 const indexSource = read("services/orchestrator-api/src/index.ts");
 const sharedHttpSource = read("packages/shared/src/http.ts");
+const deploymentDocs = read("docs/deployment.md");
 const platformDocs = read("docs/v2-platform-foundation.md");
 const productIdentityDocs = read("docs/ogen-product-identity.md");
 
 const parsedPackageJson = JSON.parse(packageJsonText) as {
   dependencies?: Record<string, string>;
+  engines?: Record<string, string>;
   scripts?: Record<string, string>;
 };
 
@@ -48,6 +50,12 @@ for (const dependency of ["fastify", "@fastify/cors", "@fastify/cookie"]) {
   } else {
     ok(`package.json includes ${dependency}`);
   }
+}
+
+if (!parsedPackageJson.engines?.node?.includes(">=20")) {
+  fail("package.json engines.node should require >=20");
+} else {
+  ok("package.json engines.node requires >=20");
 }
 
 for (const phrase of [
@@ -109,12 +117,29 @@ if (!parsedPackageJson.scripts?.["verify:v2-plan"]?.includes("verify:sdk-readine
 }
 
 for (const phrase of [
+  "Ogen requires Node.js >= 20.",
+  "Railway/runtime should be configured for Node 20 or newer.",
+  "Fastify mode is opt-in:",
+  "ORCHESTRATOR_HTTP_FRAMEWORK=fastify",
+  "Current Fastify mode serves only:",
+  "GET /health",
+  "GET /.well-known/a2a-gateway.json",
+  "GET /.well-known/jwks.json",
+  "Use default server mode for the full app until protected routes are migrated."
+]) {
+  requireIncludes(deploymentDocs, phrase, "deployment docs cover Node runtime and Fastify mode clarity");
+}
+
+for (const phrase of [
   "Phase 2.14  Fastify API Contract Boundary",
   "startJsonServer remains available",
   "gradual schema-first HTTP boundary",
   "Only public metadata/health routes are migrated initially.",
   "Future protected APIs will migrate route by route.",
-  "OpenAPI and SDK generation"
+  "OpenAPI and SDK generation",
+  "Node.js >= 20 is required.",
+  "Fastify mode is public-metadata-only for now.",
+  "startJsonServer remains the default full application server."
 ]) {
   requireIncludes(platformDocs, phrase, "platform docs cover Fastify API contract boundary");
 }

@@ -558,6 +558,8 @@ startJsonServer remains available for current V1/V2 behavior and mock agents. Fa
 
 Only public metadata/health routes are migrated initially. Future protected APIs will migrate route by route. This preserves Auth0, user directory, policy, runtime safety, and audit proof behavior while preparing Ogen for OpenAPI and SDK generation.
 
+Node.js >= 20 is required. Fastify mode is public-metadata-only for now. startJsonServer remains the default full application server.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
