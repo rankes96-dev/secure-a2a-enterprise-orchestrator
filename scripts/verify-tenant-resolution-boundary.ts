@@ -66,12 +66,13 @@ for (const phrase of [
   "tenantContextForRequest",
   "resolveTenantContext({ identity, requestedTenantId })",
   "sendTenantAccessDenied",
-  "appendRuntimeAuthorizationTenantDeniedAuditEvent",
   "appendTenantAccessDeniedAuditEvent",
   "safeOptionalString",
   "safeConversationIdFromBody",
+  "safeRequestIdFromBody",
   "validateResolveRequest",
   "tenant_access_denied",
+  "message must be a non-empty string",
   "tenantId must be a string when provided",
   "conversationId must be a string when provided",
   "verifyUserDirectoryAccess({ identity, tenantId: tenantContext.tenantId",
@@ -83,18 +84,52 @@ for (const phrase of [
   requireIncludes(indexSource, phrase, "server uses resolved tenant context");
 }
 
+const validateResolveStart = indexSource.indexOf("function validateResolveRequest(value: unknown): string | undefined");
+const validateResolveEnd = indexSource.indexOf("function clientApiKey", validateResolveStart);
+if (validateResolveStart < 0 || validateResolveEnd < validateResolveStart) {
+  fail("validateResolveRequest should exist before request handling");
+} else {
+  ok("validateResolveRequest exists");
+  const validateResolveSource = indexSource.slice(validateResolveStart, validateResolveEnd);
+  for (const phrase of [
+    "const body = objectRecord(value)",
+    "request body must be an object",
+    'typeof body.message !== "string"',
+    "message must be a non-empty string",
+    'typeof body.conversationId !== "string"',
+    "conversationId must be a string when provided",
+    'typeof body.tenantId !== "string"',
+    "tenantId must be a string when provided"
+  ]) {
+    requireIncludes(validateResolveSource, phrase, "validateResolveRequest validates safe resolve body shape");
+  }
+}
+
 const runtimeRouteStart = indexSource.indexOf('request.url === "/runtime/authorize"');
 const resolveRouteStart = indexSource.indexOf('request.url !== "/resolve"');
 const runtimeRoute = indexSource.slice(runtimeRouteStart, resolveRouteStart > runtimeRouteStart ? resolveRouteStart : undefined);
 for (const phrase of [
   "const tenantContext = tenantContextForRequest(identitySession.identity, requestBody.tenantId)",
   "if (!requireRequestedTenantAllowed(tenantContext))",
-  "await appendRuntimeAuthorizationTenantDeniedAuditEvent",
+  "await appendTenantAccessDeniedAuditEvent",
+  'route: "/runtime/authorize"',
+  "requestId: safeRequestIdFromBody(requestBodyUnknown)",
+  "conversationId: safeConversationIdFromBody(requestBodyUnknown)",
   "sendTenantAccessDenied(response, request, tenantContext)",
   "tenantId: tenantContext.tenantId",
   "tenantResolution: tenantContext"
 ]) {
   requireIncludes(runtimeRoute, phrase, "runtime authorization route uses resolved tenant and rejects unauthorized requested tenant");
+}
+const runtimeDeniedHelperStart = indexSource.indexOf("async function appendRuntimeAuthorizationTenantDeniedAuditEvent");
+const runtimeDeniedHelperEnd = indexSource.indexOf("async function appendTenantAccessDeniedAuditEvent", runtimeDeniedHelperStart);
+const runtimeDeniedHelper = runtimeDeniedHelperStart >= 0 && runtimeDeniedHelperEnd > runtimeDeniedHelperStart
+  ? indexSource.slice(runtimeDeniedHelperStart, runtimeDeniedHelperEnd)
+  : "";
+if (runtimeRoute.includes("appendRuntimeAuthorizationTenantDeniedAuditEvent") && !runtimeDeniedHelper.includes("AuditEvents.TENANT_ACCESS_DENIED")) {
+  fail("/runtime/authorize tenant denial must not rely on runtime.authorization.evaluated");
+} else {
+  ok("/runtime/authorize tenant denial emits tenant.access.denied");
 }
 
 const resolveRoute = indexSource.slice(resolveRouteStart);
@@ -159,6 +194,11 @@ if (indexSource.includes("conversationId: requestBody.conversationId")) {
 } else {
   ok("/resolve tenant denial does not audit raw requestBody.conversationId");
 }
+if (indexSource.includes("requestId: requestBody.requestId")) {
+  fail("tenant denial audit must not audit raw requestBody.requestId");
+} else {
+  ok("tenant denial audit does not audit raw requestBody.requestId");
+}
 
 for (const phrase of [
   'eventType === "tenant.access.denied"',
@@ -202,6 +242,8 @@ for (const phrase of [
   "configured default tenant",
   "Auth0 org/domain mapping",
   "policy, audit, user directory, connector trust",
+  "Malformed tenant and conversation hints fail safely",
+  "Tenant switching attempts through `/resolve` and `/runtime/authorize` are audited as tenant access denied",
   "Tenant denial audit records only validated string identifiers",
   "Tenant access denials are exported as blocked security events"
 ]) {

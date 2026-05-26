@@ -213,6 +213,10 @@ function safeConversationIdFromBody(value: unknown): string | undefined {
   return safeOptionalString(objectRecord(value)?.conversationId);
 }
 
+function safeRequestIdFromBody(value: unknown): string | undefined {
+  return safeOptionalString(objectRecord(value)?.requestId);
+}
+
 function requestMayHaveJsonBody(request: IncomingMessage): boolean {
   const contentLength = Array.isArray(request.headers["content-length"]) ? request.headers["content-length"][0] : request.headers["content-length"];
   return Boolean(request.headers["transfer-encoding"] || (contentLength && Number(contentLength) > 0));
@@ -1229,6 +1233,7 @@ async function appendRuntimeAuthorizationEvaluatedAuditEvent(params: {
   tenantContext: ResolvedTenantContext;
 }): Promise<void> {
   const { authorization, requestBody, actor, tenantContext } = params;
+  const safeRequestId = safeOptionalString(requestBody.requestId);
   await appendPlatformAuditEvent({
     tenantId: authorization.tenantId,
     actorProvider: actor.provider,
@@ -1236,7 +1241,7 @@ async function appendRuntimeAuthorizationEvaluatedAuditEvent(params: {
     actorEmail: actor.email,
     eventType: AuditEvents.RUNTIME_AUTHORIZATION_EVALUATED,
     resourceType: "runtime_authorization",
-    resourceId: authorization.policy.decisionId || requestBody.requestId,
+    resourceId: authorization.policy.decisionId || safeRequestId,
     safeMetadata: {
       decisionId: authorization.policy.decisionId,
       policyVersion: authorization.policy.policyVersion,
@@ -1247,42 +1252,6 @@ async function appendRuntimeAuthorizationEvaluatedAuditEvent(params: {
       matchedGuardrailRuleIds: authorization.policy.matchedGuardrailRuleIds,
       matchedTenantRuleIds: authorization.policy.matchedTenantRuleIds,
       inputHash: authorization.policy.inputHash,
-      skillId: requestBody.action.skillId,
-      connectorId: requestBody.connectorRoute?.connectorId ?? requestBody.targetAgent?.connectorId ?? requestBody.resource?.connectorId,
-      resourceSystem: requestBody.connectorRoute?.resourceSystem ?? requestBody.targetAgent?.resourceSystem ?? requestBody.resource?.resourceSystem,
-      tenantResolutionSource: tenantContext.source,
-      requestedTenantId: tenantContext.requestedTenantId,
-      requestedTenantAccepted: tenantContext.requestedTenantAccepted,
-      runtimeTokenIssued: false,
-      externalRuntimeCalled: false,
-      protectedMaterialExposed: false,
-      tokenMaterialStored: false,
-      rawPromptStored: false
-    }
-  });
-}
-
-async function appendRuntimeAuthorizationTenantDeniedAuditEvent(params: {
-  requestBody: RuntimeAuthorizationRequest;
-  actor: VerifiedUserIdentity;
-  tenantContext: ResolvedTenantContext;
-}): Promise<void> {
-  const { requestBody, actor, tenantContext } = params;
-  const safeRequestId = safeOptionalString(requestBody.requestId);
-  const safeConversationId = safeOptionalString(requestBody.conversationId);
-  await appendPlatformAuditEvent({
-    tenantId: tenantContext.tenantId,
-    actorProvider: actor.provider,
-    actorSubject: actor.subject,
-    actorEmail: actor.email,
-    eventType: AuditEvents.RUNTIME_AUTHORIZATION_EVALUATED,
-    resourceType: "runtime_authorization",
-    resourceId: safeRequestId ?? requestBody.action.skillId,
-    safeMetadata: {
-      requestId: safeRequestId,
-      conversationId: safeConversationId,
-      effect: "block",
-      reason: "tenant_access_denied",
       skillId: requestBody.action.skillId,
       connectorId: requestBody.connectorRoute?.connectorId ?? requestBody.targetAgent?.connectorId ?? requestBody.resource?.connectorId,
       resourceSystem: requestBody.connectorRoute?.resourceSystem ?? requestBody.targetAgent?.resourceSystem ?? requestBody.resource?.resourceSystem,
@@ -4780,10 +4749,12 @@ async function start(): Promise<void> {
     const requestBody = requestBodyUnknown as RuntimeAuthorizationRequest;
     const tenantContext = tenantContextForRequest(identitySession.identity, requestBody.tenantId);
     if (!requireRequestedTenantAllowed(tenantContext)) {
-      await appendRuntimeAuthorizationTenantDeniedAuditEvent({
-        requestBody,
+      await appendTenantAccessDeniedAuditEvent({
         actor: identitySession.identity,
-        tenantContext
+        tenantContext,
+        route: "/runtime/authorize",
+        requestId: safeRequestIdFromBody(requestBodyUnknown),
+        conversationId: safeConversationIdFromBody(requestBodyUnknown)
       });
       sendTenantAccessDenied(response, request, tenantContext);
       return;

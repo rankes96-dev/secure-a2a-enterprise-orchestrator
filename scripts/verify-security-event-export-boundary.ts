@@ -42,6 +42,7 @@ const sinksPath = "services/orchestrator-api/src/securityEvents/securityEventSin
 const factoryPath = "services/orchestrator-api/src/securityEvents/createSecurityEventSink.ts";
 const publisherPath = "services/orchestrator-api/src/securityEvents/securityEventPublisher.ts";
 const platformAuditStorePath = "services/orchestrator-api/src/audit/platformAuditStore.ts";
+const indexPath = "services/orchestrator-api/src/index.ts";
 
 const types = read(typesPath);
 const classification = read(classificationPath);
@@ -49,6 +50,7 @@ const sinks = read(sinksPath);
 const factory = read(factoryPath);
 const publisher = read(publisherPath);
 const platformAuditStore = read(platformAuditStorePath);
+const indexSource = read(indexPath);
 const packageJson = read("package.json");
 const plan = read("docs/v2-platform-foundation.md");
 const inventory = read("docs/v2-state-inventory.md");
@@ -262,11 +264,28 @@ for (const [eventType, expectedSeverity, expectedOutcome] of runtimeCases) {
 }
 
 const tenantDeniedEnvelope = securityEventFromAuditEvent(fakeAuditEvent("tenant.access.denied"));
+if (tenantDeniedEnvelope.outcome !== "blocked") {
+  fail("tenant.access.denied must export with blocked outcome");
+}
 if (tenantDeniedEnvelope.outcome === "success") {
   fail("tenant.access.denied must not export as success");
 }
 if (tenantDeniedEnvelope.severity === "info") {
   fail("tenant.access.denied must not export as info severity");
+}
+
+const runtimeAuthorizeRouteStart = indexSource.indexOf('request.url === "/runtime/authorize"');
+const resolveRouteStart = indexSource.indexOf('request.url !== "/resolve"');
+if (runtimeAuthorizeRouteStart < 0) {
+  fail("POST /runtime/authorize route should exist for security event tenant-denial export verification");
+} else {
+  const runtimeRoute = indexSource.slice(runtimeAuthorizeRouteStart, resolveRouteStart > runtimeAuthorizeRouteStart ? resolveRouteStart : undefined);
+  requireIncludes(runtimeRoute, "if (!requireRequestedTenantAllowed(tenantContext))", "runtime tenant denial branch");
+  requireIncludes(runtimeRoute, "await appendTenantAccessDeniedAuditEvent", "runtime tenant denial exports tenant.access.denied");
+  requireIncludes(runtimeRoute, 'route: "/runtime/authorize"', "runtime tenant denial export route metadata");
+  if (runtimeRoute.includes("appendRuntimeAuthorizationTenantDeniedAuditEvent")) {
+    fail("runtime tenant denial must not export only as runtime.authorization.evaluated");
+  }
 }
 
 const previousSink = process.env.SECURITY_EVENT_SINK;
