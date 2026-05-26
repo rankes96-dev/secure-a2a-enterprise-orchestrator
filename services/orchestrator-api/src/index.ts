@@ -1054,6 +1054,7 @@ async function appendConnectorPolicyDecisionAuditEvent(params: {
       skillId: connectorRouting.skillId,
       riskLevel: connectorRouting.riskLevel,
       executionType: connectorRouting.executionType,
+      actionMetadataSource: connectorRouting.actionMetadataSource,
       runtimeMode: connectorRouting.runtimeMode,
       protectedMaterialExposed: false,
       tokenMaterialStored: false,
@@ -1921,12 +1922,31 @@ function canExecuteConnectorRuntime(decision: ConnectorRoutingDecision, policy: 
     decision.requiresApproval !== true;
 }
 
+function missingActionRiskMetadata(policy: ConnectorPolicyEvaluation): boolean {
+  return policy.primaryRuleId === "block-missing-action-risk-metadata" ||
+    policy.matchedRuleIds.includes("block-missing-action-risk-metadata");
+}
+
 function connectorPolicyFinalAnswer(decision: ConnectorRoutingDecision, policy: ConnectorPolicyEvaluation): string | undefined {
   const skill = decision.skillLabel ?? decision.skillId ?? "requested connector skill";
   if (policy.effect === "needs_approval") {
     return `Approval required: Gateway policy stopped ${skill} before runtime execution. ${policy.reason} No runtime token was issued and no external connector runtime was called.`;
   }
   if (policy.effect === "block") {
+    if (missingActionRiskMetadata(policy)) {
+      return [
+        "BLOCKED",
+        "Ogen could not execute this connector action because the connector action metadata is incomplete.",
+        "",
+        "Reason:",
+        "This action is missing explicit execution type or risk classification, so Ogen failed closed instead of guessing that it is safe.",
+        "",
+        "No runtime token was issued. No external connector runtime was called.",
+        "",
+        "Next step:",
+        "Update the connector profile or reference action metadata, then retry."
+      ].join("\n");
+    }
     return `Blocked by Gateway policy: ${skill} was not executed. ${policy.reason} No runtime token was issued and no external connector runtime was called.`;
   }
   return undefined;
@@ -3336,6 +3356,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
           executionType: connectorRouting.executionType,
           requiresApproval: connectorRouting.requiresApproval,
           sensitivity: connectorRouting.sensitivity,
+          actionMetadataSource: connectorRouting.actionMetadataSource,
           runtimeMode: connectorRouting.runtimeMode,
           runtimeExecution: runtimeExecutable ? "external_runtime_available" : "not_executed",
           policy: connectorPolicy,

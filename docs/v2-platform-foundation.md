@@ -514,6 +514,8 @@ The runtime rule is: metadata-only connector trust cannot execute runtime. Write
 
 Runtime execution requires explicit runtime availability. Runtime execution requires explicit action execution type. Runtime execution requires explicit risk classification. Missing action/risk metadata fails closed. Approved connector route alone is not enough to allow runtime execution.
 
+Known reference connector skills carry explicit deterministic action safety metadata. Ogen may use reference catalog metadata as fallback only for known reference skills. Unknown or incomplete actions still fail closed. Ogen does not infer safety from natural language or AI output.
+
 Ogen separates mandatory platform guardrails from tenant/configurable policy rules. Tenant policies can restrict further but cannot override core Ogen safety guardrails. Metadata-only runtime, missing runtime availability, missing action/risk metadata, low confidence interpretation, and approval-required actions are platform-level guardrails. Decision proof records matched guardrail rules and matched tenant rules separately.
 
 Mandatory Ogen guardrails are immutable runtime definitions. Tenant policies can be dynamic, but platform safety guardrails are frozen and cannot be mutated by policy loading. Policy evaluation does not mutate tenant rule inputs.

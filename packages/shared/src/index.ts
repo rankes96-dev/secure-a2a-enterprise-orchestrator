@@ -724,6 +724,7 @@ export interface ResolveResponse {
     executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
     requiresApproval?: boolean;
     sensitivity?: "standard" | "sensitive";
+    actionMetadataSource?: "approved_action" | "reference_catalog" | "missing";
     missingApplicationGrants?: string[];
     missingEffectivePermissions?: string[];
     deniedEffectivePermissions?: string[];

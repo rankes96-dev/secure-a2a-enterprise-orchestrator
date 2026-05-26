@@ -1,6 +1,8 @@
 import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
-import { localReferenceConnectorIntentCatalog } from "./connectors/localReferenceConnectorIntentCatalog.js";
+import { localReferenceConnectorIntentCatalog, type ConnectorIntentHint, type ReferenceConnectorExecutionType, type ReferenceConnectorRiskLevel, type ReferenceConnectorSensitivity } from "./connectors/localReferenceConnectorIntentCatalog.js";
 import { isConnectorRuntimeEndpointAllowed } from "./security/connectorRuntimeSafety.js";
+
+type ConnectorActionMetadataSource = "approved_action" | "reference_catalog" | "missing";
 
 export type ConnectorRoutingIntent = {
   targetSystem: string;
@@ -47,6 +49,7 @@ export type ConnectorRoutingDecision = {
   executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
   requiresApproval?: boolean;
   sensitivity?: "standard" | "sensitive";
+  actionMetadataSource?: ConnectorActionMetadataSource;
   missingApplicationGrants?: string[];
   missingEffectivePermissions?: string[];
   deniedEffectivePermissions?: string[];
@@ -181,6 +184,40 @@ type SupportedConnectorIdentity = {
   resourceSystem: string;
   displayName?: string;
 };
+
+type ApprovedConnectorAction = TrustedOnboardedAgent["approvedActions"][number];
+
+function referenceSkillMetadata(
+  supported: ConnectorIntentHint,
+  skillId: string,
+  approved: ApprovedConnectorAction
+): {
+  riskLevel?: ReferenceConnectorRiskLevel;
+  executionType?: ReferenceConnectorExecutionType;
+  requiresApproval?: boolean;
+  sensitivity?: ReferenceConnectorSensitivity;
+  source: ConnectorActionMetadataSource;
+} {
+  const referenceSkill = supported.skillHints.find((hint) => hint.skillId === skillId);
+  const riskLevel = approved.riskLevel ?? referenceSkill?.riskLevel;
+  const executionType = approved.executionType ?? referenceSkill?.executionType;
+  const requiresApproval = approved.requiresApproval ?? referenceSkill?.requiresApproval;
+  const sensitivity = approved.sensitivity ?? referenceSkill?.sensitivity;
+  const source: ConnectorActionMetadataSource =
+    !riskLevel || !executionType
+      ? "missing"
+      : approved.riskLevel && approved.executionType
+        ? "approved_action"
+        : "reference_catalog";
+
+  return {
+    riskLevel,
+    executionType,
+    requiresApproval,
+    sensitivity,
+    source
+  };
+}
 
 function exactConnectorIdMatch(agent: TrustedOnboardedAgent, connectorId: string): boolean {
   return agent.connectorProfile?.connectorId === connectorId ||
@@ -368,6 +405,7 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
   const approvedActions = onboarded.approvedActions ?? onboarded.approvedCapabilities;
   const approved = approvedActions.find((item) => item.capability === skillId);
   if (approved) {
+    const actionMetadata = referenceSkillMetadata(supported, skillId, approved);
     const persistedMetadataOnly = isPersistedMetadataOnlyTrust(onboarded);
     const runtimeAvailable = !persistedMetadataOnly && isConnectorRuntimeEndpointAllowed(onboarded.runtimeEndpoint);
     // In V1, the selected runtime endpoint is the trusted runtime endpoint stored during onboarding.
@@ -386,10 +424,11 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       connectorProfileHash: onboarded.connectorProfileHash,
       requiredApplicationGrants: approved.requiredApplicationGrants ?? [],
       requiredEffectivePermissions: approved.requiredEffectivePermissions ?? [],
-      riskLevel: approved.riskLevel,
-      executionType: approved.executionType,
-      requiresApproval: approved.requiresApproval,
-      sensitivity: approved.sensitivity,
+      riskLevel: actionMetadata.riskLevel,
+      executionType: actionMetadata.executionType,
+      requiresApproval: actionMetadata.requiresApproval,
+      sensitivity: actionMetadata.sensitivity,
+      actionMetadataSource: actionMetadata.source,
       runtimeMode: runtimeAvailable ? "external_runtime_available" : "metadata_only",
       reason: persistedMetadataOnly
         ? "Connector trust metadata was restored from persisted state, but runtime execution requires fresh runtime validation."
