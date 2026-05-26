@@ -59,6 +59,8 @@ AI can interpret. Ogen decides. Runtime executes only approved actions. Audit pr
 
 AI interpretation is a signal. Ogen authorization is the decision.
 
+AI can suggest routing. Ogen validates and authorizes.
+
 Ogen does not infer safety from missing metadata.
 
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.

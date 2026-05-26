@@ -39,6 +39,7 @@ export const AuditEvents = {
   POLICY_DECISION_EVALUATED: "policy.decision.evaluated",
 
   AI_INTERPRETATION_EVALUATED: "ai.interpretation.evaluated",
+  AI_ROUTING_EVALUATED: "ai.routing.evaluated",
 
   CONNECTOR_ONBOARDING_TRUSTED: "connector.onboarding.trusted",
   SECURITY_REQUEST_BLOCKED: "security.request.blocked"

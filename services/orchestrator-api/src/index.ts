@@ -54,6 +54,7 @@ import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation.js"
 import { AuditEvents } from "./audit/auditEvents.js";
 import { appendPlatformAuditEvent } from "./audit/platformAuditStore.js";
 import type { OgenInterpretationProof } from "./interpretation/interpretationTypes.js";
+import type { OgenAiRoutingProof } from "./interpretation/routingProofTypes.js";
 import { defaultTenantId } from "./tenant/tenantContext.js";
 import { evaluateConnectorPolicy, type ConnectorPolicyEvaluation } from "./policy/connectorPolicy.js";
 import { detectAdversarialIntent } from "./adversarialIntent.js";
@@ -975,6 +976,41 @@ async function appendAiInterpretationEvaluatedAuditEvent(params: {
       advisoryOnly: true,
       rawPromptStored: false,
       rawAiResponseStored: false,
+      protectedMaterialExposed: false,
+      tokenMaterialStored: false
+    }
+  });
+}
+
+async function appendAiRoutingEvaluatedAuditEvent(params: {
+  proof: OgenAiRoutingProof;
+  actor?: VerifiedUserIdentity;
+}): Promise<void> {
+  const { proof, actor } = params;
+  await appendPlatformAuditEvent({
+    actorProvider: actor?.provider,
+    actorSubject: actor?.subject,
+    actorEmail: actor?.email,
+    eventType: AuditEvents.AI_ROUTING_EVALUATED,
+    resourceType: "ai_routing",
+    resourceId: proof.routingProofId,
+    safeMetadata: {
+      routingProofId: proof.routingProofId,
+      schemaVersion: proof.schemaVersion,
+      source: proof.source,
+      provider: proof.provider,
+      model: proof.model,
+      inputHash: proof.inputHash,
+      outputHash: proof.outputHash,
+      validationStatus: proof.validationStatus,
+      selectedAgentIds: proof.selectedAgentIds,
+      skippedAgentIds: proof.skippedAgentIds,
+      resolutionStatus: proof.resolutionStatus,
+      routingConfidence: proof.routingConfidence,
+      advisoryOnly: true,
+      rawPromptStored: false,
+      rawAiResponseStored: false,
+      authorizedRuntime: false,
       protectedMaterialExposed: false,
       tokenMaterialStored: false
     }
@@ -2049,9 +2085,13 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     installedAgents
   });
   const effectiveMessage = planningFollowUpResolution?.resolvedMessage ?? buildEffectiveMessageForRouting(conversationState, requestBody.message, followUp);
-  const { routingDecision, interpretationProof } = await routeWithAIWithProof(effectiveMessage, { agentCards: requestAgentCards });
+  const { routingDecision, interpretationProof, routingProof } = await routeWithAIWithProof(effectiveMessage, { agentCards: requestAgentCards });
   await appendAiInterpretationEvaluatedAuditEvent({
     proof: interpretationProof,
+    actor: verifiedUser
+  });
+  await appendAiRoutingEvaluatedAuditEvent({
+    proof: routingProof,
     actor: verifiedUser
   });
   const classification = routingDecision.classification;
@@ -2110,13 +2150,15 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       executionTrace: [...userIdentityTrace, ...response.executionTrace],
       followUpInterpretation: response.followUpInterpretation ?? followUp,
       incidentContext: response.incidentContext ?? mergedIncidentContext,
-      interpretationProof: response.interpretationProof ?? interpretationProof
+      interpretationProof: response.interpretationProof ?? interpretationProof,
+      aiRoutingProof: response.aiRoutingProof ?? routingProof
     };
     const finalResponse: ResolveResponse = {
       ...responseWithIdentity,
       executionGateStack: response.executionGateStack ?? buildExecutionGateStack({
         userIdentity: responseWithIdentity.userIdentity,
         requestInterpretation: responseWithIdentity.requestInterpretation,
+        aiRoutingProof: responseWithIdentity.aiRoutingProof,
         securityIntent: responseWithIdentity.securityIntent,
         connectorRouting: responseWithIdentity.connectorRouting,
         connectorPolicy: responseWithIdentity.connectorPolicy,

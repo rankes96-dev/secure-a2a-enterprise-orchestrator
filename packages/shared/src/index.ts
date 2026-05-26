@@ -207,6 +207,25 @@ export type InterpretationProofSummary = {
   rawAiResponseStored: false;
 };
 
+export type AiRoutingProofSummary = {
+  routingProofId: string;
+  schemaVersion: string;
+  source: "rules_fallback" | "secondary_ai";
+  provider?: string;
+  model?: string;
+  inputHash: string;
+  outputHash: string;
+  validationStatus: string;
+  selectedAgentIds: string[];
+  skippedAgentIds: string[];
+  resolutionStatus?: string;
+  routingConfidence?: string;
+  advisoryOnly: true;
+  rawPromptStored: false;
+  rawAiResponseStored: false;
+  authorizedRuntime: false;
+};
+
 export interface AgentResponse {
   agent: AgentId;
   evidence: AgentEvidence[];
@@ -655,6 +674,7 @@ export interface ResolveResponse {
   securityDecisions?: SecurityDecision[];
   requestInterpretation?: RequestInterpretation;
   interpretationProof?: InterpretationProofSummary;
+  aiRoutingProof?: AiRoutingProofSummary;
   securityIntent?: SecurityIntent;
   executionGateStack?: ExecutionGateStack;
   connectorActionPlan?: ConnectorActionPlan;

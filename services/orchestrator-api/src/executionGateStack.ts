@@ -7,6 +7,7 @@ type ConnectorPolicy = NonNullable<ResolveResponse["connectorPolicy"]>;
 export type BuildExecutionGateStackParams = {
   userIdentity?: ResolveResponse["userIdentity"];
   requestInterpretation?: RequestInterpretation;
+  aiRoutingProof?: ResolveResponse["aiRoutingProof"];
   securityIntent?: SecurityIntent;
   connectorRouting?: ConnectorRouting;
   connectorPolicy?: ConnectorPolicy;
@@ -175,7 +176,14 @@ export function buildExecutionGateStack(params: BuildExecutionGateStackParams): 
       requestedAction: routing?.skillLabel ?? routing?.skillId ?? params.requestInterpretation?.requestedActionText ?? params.requestInterpretation?.requestedCapability ?? "not mapped",
       confidence: params.requestInterpretation?.confidence ?? params.classification.confidence,
       securityIntent: params.securityIntent?.detected ? params.securityIntent.category : undefined,
-      actionPlan: params.connectorActionPlan?.interpretedIntent
+      actionPlan: params.connectorActionPlan?.interpretedIntent,
+      aiRoutingProofId: params.aiRoutingProof?.routingProofId,
+      aiRoutingSource: params.aiRoutingProof?.source,
+      aiRoutingValidationStatus: params.aiRoutingProof?.validationStatus,
+      aiRoutingAdvisoryOnly: params.aiRoutingProof?.advisoryOnly,
+      aiRoutingAuthorizedRuntime: params.aiRoutingProof?.authorizedRuntime,
+      aiRoutingSelectedAgentIds: params.aiRoutingProof?.selectedAgentIds ?? [],
+      aiRoutingSkippedAgentIds: params.aiRoutingProof?.skippedAgentIds ?? []
     }
   });
 

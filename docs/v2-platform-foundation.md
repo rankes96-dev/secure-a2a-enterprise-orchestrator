@@ -532,6 +532,14 @@ Every interpretation proof has an ID, schema version, input hash, and output has
 
 Interpretation risks are captured as safe metadata. Prompt injection attempts, policy bypass language, token/secret requests, unsupported scope, and low confidence are tracked without storing raw prompt text. Unsafe interpretation risk blocks runtime execution through mandatory Ogen guardrails. Low confidence interpretation cannot authorize runtime.
 
+### Phase 2.12a  AI Routing Trust Boundary
+
+Secondary AI routing is advisory only. AI routing can suggest selected agents, skipped agents, routing status, confidence, and reasoning, but AI routing cannot authorize runtime. Ogen validates routing output, then Ogen policy and runtime gates remain authoritative for execution.
+
+Every AI routing proof records source, validation status, selected/skipped agent IDs, routing status, routing confidence, input hash, and output hash. Raw prompts and raw AI routing responses are not stored. The proof always records `advisoryOnly: true` and `authorizedRuntime: false`.
+
+Routing proof makes validation explicit: rules fallback is marked as rules fallback, missing AI config is marked not configured, empty AI output is marked empty response, failed validation is marked failed, AI errors are marked ai error, and validated secondary AI routing is marked passed. Audit stores safe routing proof only.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
