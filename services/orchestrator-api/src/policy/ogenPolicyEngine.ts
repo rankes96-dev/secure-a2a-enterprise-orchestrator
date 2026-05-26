@@ -67,6 +67,15 @@ const mandatoryOgenPolicyGuardrailsDefinition: OgenPolicyRule[] = [
     match: {}
   },
   {
+    id: "block-unsafe-interpretation-risk",
+    name: "Block unsafe interpretation risk",
+    description: "Prompt injection, policy bypass, secret/token requests, and unsupported interpretation scope cannot authorize runtime execution.",
+    effect: "block",
+    priority: 17,
+    enabled: true,
+    match: {}
+  },
+  {
     id: "block-metadata-only-runtime",
     name: "Block metadata-only runtime",
     description: "Persisted connector metadata can show installed state but cannot execute runtime without fresh validation.",
@@ -177,11 +186,15 @@ function safeInputSummary(input: OgenPolicyInput): Record<string, unknown> {
     conversationId: input.conversationId,
     interpretation: input.interpretation
       ? {
+          interpretationId: input.interpretation.interpretationId,
+          schemaVersion: input.interpretation.schemaVersion,
           interpretationSource: input.interpretation.interpretationSource,
           scope: input.interpretation.scope,
           intentType: input.interpretation.intentType,
           requestedCapability: input.interpretation.requestedCapability,
-          confidence: input.interpretation.confidence
+          confidence: input.interpretation.confidence,
+          risks: input.interpretation.risks,
+          advisoryOnly: input.interpretation.advisoryOnly
         }
       : undefined,
     connectorRoute: {
@@ -259,6 +272,16 @@ function approvalRequired(input: OgenPolicyInput): boolean {
     input.action.sensitivity === "sensitive";
 }
 
+function unsafeInterpretationRisk(input: OgenPolicyInput): boolean {
+  const risks = input.interpretation?.risks ?? [];
+  return risks.some((risk) =>
+    risk === "prompt_injection_attempt" ||
+    risk === "policy_bypass_attempt" ||
+    risk === "secret_or_token_request" ||
+    risk === "unsupported_scope"
+  );
+}
+
 function ruleMatches(input: OgenPolicyInput, rule: OgenPolicyRule): boolean {
   if (rule.id === "default-deny") {
     return false;
@@ -270,6 +293,10 @@ function ruleMatches(input: OgenPolicyInput, rule: OgenPolicyRule): boolean {
 
   if (rule.id === "block-low-confidence-interpretation") {
     return input.interpretation?.confidence === "low";
+  }
+
+  if (rule.id === "block-unsafe-interpretation-risk") {
+    return unsafeInterpretationRisk(input);
   }
 
   if (rule.id === "block-metadata-only-runtime") {

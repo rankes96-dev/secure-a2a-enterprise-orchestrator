@@ -57,6 +57,8 @@ Product principle:
 AI can interpret. Ogen decides. Runtime executes only approved actions. Audit proves what happened.
 ```
 
+AI interpretation is a signal. Ogen authorization is the decision.
+
 Ogen does not infer safety from missing metadata.
 
 Tenant policy can restrict. Ogen guardrails cannot be bypassed.

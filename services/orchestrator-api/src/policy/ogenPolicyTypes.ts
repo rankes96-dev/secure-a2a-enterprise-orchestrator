@@ -38,11 +38,15 @@ export type OgenPolicyInput = {
   requestId?: string;
   conversationId?: string;
   interpretation?: {
+    interpretationId?: string;
+    schemaVersion?: string;
     interpretationSource?: "ai" | "fallback";
     scope?: string;
     intentType?: string;
     requestedCapability?: string;
     confidence?: "low" | "medium" | "high";
+    risks?: string[];
+    advisoryOnly?: true;
   };
   connectorRoute: {
     status: string;

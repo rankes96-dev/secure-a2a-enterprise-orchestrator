@@ -237,6 +237,7 @@ requireIncludes(policyEngine, "defaultOgenPolicyRules", "Ogen policy engine defi
 for (const id of [
   "block-unapproved-route",
   "block-metadata-only-runtime",
+  "block-unsafe-interpretation-risk",
   "block-missing-action-risk-metadata",
   "approval-required-for-write-or-sensitive"
 ]) {
@@ -502,6 +503,15 @@ const bypassHighRisk = assertEffect("tenant allow cannot bypass high-risk approv
 }), "needs_approval", [tenantAllowEverythingRule]);
 if (!bypassHighRisk?.matchedGuardrailRuleIds.includes("approval-required-for-write-or-sensitive")) {
   fail("high-risk bypass attempt should require approval by mandatory guardrail");
+}
+const bypassUnsafeInterpretationRisk = assertEffect("tenant allow cannot bypass unsafe interpretation risk guardrail", baseInput({
+  interpretation: {
+    risks: ["policy_bypass_attempt"],
+    advisoryOnly: true
+  }
+}), "block", [tenantAllowEverythingRule]);
+if (!bypassUnsafeInterpretationRisk?.matchedGuardrailRuleIds.includes("block-unsafe-interpretation-risk")) {
+  fail("unsafe interpretation risk bypass attempt should be blocked by mandatory guardrail");
 }
 
 const tenantBlockRule: OgenPolicyRule = {

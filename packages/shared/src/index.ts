@@ -192,6 +192,21 @@ export interface RoutingDecision {
   requestInterpretation?: RequestInterpretation;
 }
 
+export type InterpretationProofSummary = {
+  interpretationId: string;
+  schemaVersion: string;
+  source: "ai" | "fallback";
+  provider?: string;
+  model?: string;
+  inputHash: string;
+  outputHash: string;
+  confidence: "low" | "medium" | "high";
+  risks: string[];
+  advisoryOnly: true;
+  rawPromptStored: false;
+  rawAiResponseStored: false;
+};
+
 export interface AgentResponse {
   agent: AgentId;
   evidence: AgentEvidence[];
@@ -639,6 +654,7 @@ export interface ResolveResponse {
   securityDecision?: SecurityDecision;
   securityDecisions?: SecurityDecision[];
   requestInterpretation?: RequestInterpretation;
+  interpretationProof?: InterpretationProofSummary;
   securityIntent?: SecurityIntent;
   executionGateStack?: ExecutionGateStack;
   connectorActionPlan?: ConnectorActionPlan;

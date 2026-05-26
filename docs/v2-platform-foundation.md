@@ -524,6 +524,14 @@ Policy decisions include explainable matched rule summaries. Ogen reports whethe
 
 Every policy decision has complete proof. Default-deny decisions always include a default rule summary, even when custom tenant rules omit a default-deny rule. Role requirement failures identify the exact guardrail or tenant policy rule that required the missing role.
 
+### Phase 2.12  AI Interpretation Trust Boundary
+
+AI interpretation is advisory, not authoritative. Ogen policy is the authority. AI can classify, normalize, and extract request signals, but AI output cannot grant scopes, approve connector execution, bypass guardrails, or authorize runtime.
+
+Every interpretation proof has an ID, schema version, input hash, and output hash. Raw prompts and raw AI responses are not stored. Audit stores safe proof only: interpretation ID, schema, source, provider/model when safe, input/output hashes, confidence, advisory-only status, and no-raw-prompt/no-raw-AI-response flags.
+
+Interpretation risks are captured as safe metadata. Prompt injection attempts, policy bypass language, token/secret requests, unsupported scope, and low confidence are tracked without storing raw prompt text. Unsafe interpretation risk blocks runtime execution through mandatory Ogen guardrails. Low confidence interpretation cannot authorize runtime.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

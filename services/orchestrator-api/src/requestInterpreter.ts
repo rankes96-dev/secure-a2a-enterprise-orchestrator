@@ -1,5 +1,7 @@
 import type { RequestInterpretation, RequestIntentType, RequestScope } from "@a2a/shared";
 import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
+import { createInterpretationProof } from "./interpretation/interpretationProof.js";
+import type { OgenInterpretationProof } from "./interpretation/interpretationTypes.js";
 import { callOpenRouterJson } from "./openRouterClient.js";
 
 const scopes: RequestScope[] = ["enterprise_support", "manual_enterprise_workflow", "out_of_scope", "unknown"];
@@ -344,7 +346,10 @@ async function callOpenRouter(message: string, apiKey: string, baseURL: string, 
   });
 }
 
-export async function interpretRequest(message: string): Promise<RequestInterpretation> {
+export async function interpretRequestWithProof(message: string): Promise<{
+  interpretation: RequestInterpretation;
+  proof: OgenInterpretationProof;
+}> {
   const fallback = fallbackInterpretRequest(message);
   const aiConfig = getAiConfig();
   console.info(`[request-interpreter] provider=${aiConfig.provider} model=${aiConfig.model} hasKey=${aiConfig.hasApiKey}`);
@@ -352,7 +357,11 @@ export async function interpretRequest(message: string): Promise<RequestInterpre
   if (!aiConfig.apiKey?.trim()) {
     const summary = getSafeAiConfigSummary();
     console.info(`[request-interpreter] fallback used reason=OpenRouter API key is not configured expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
-    return fallbackInterpretRequest(message, "OpenRouter API key is not configured; deterministic fallback was used.");
+    const interpretation = fallbackInterpretRequest(message, "OpenRouter API key is not configured; deterministic fallback was used.");
+    return {
+      interpretation,
+      proof: createInterpretationProof({ inputText: message, normalizedInterpretation: interpretation })
+    };
   }
 
   try {
@@ -360,7 +369,11 @@ export async function interpretRequest(message: string): Promise<RequestInterpre
     const content = await callOpenRouter(message, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model);
 
     if (!content) {
-      return fallbackInterpretRequest(message, "AI request interpretation returned no content; deterministic fallback was used.");
+      const interpretation = fallbackInterpretRequest(message, "AI request interpretation returned no content; deterministic fallback was used.");
+      return {
+        interpretation,
+        proof: createInterpretationProof({ inputText: message, normalizedInterpretation: interpretation })
+      };
     }
 
     const normalized = normalizeInterpretation(JSON.parse(content), fallback);
@@ -373,12 +386,23 @@ export async function interpretRequest(message: string): Promise<RequestInterpre
     console.info(
       `[request-interpreter] AI interpretation succeeded scope=${interpretation.scope} intent=${interpretation.intentType} capability=${interpretation.requestedCapability ?? "unknown"}`
     );
-    return interpretation;
+    return {
+      interpretation,
+      proof: createInterpretationProof({ inputText: message, normalizedInterpretation: interpretation })
+    };
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown AI request interpreter error";
     console.warn(`[request-interpreter] AI interpretation failed; using deterministic fallback: ${detail}`);
-    return fallbackInterpretRequest(message, `AI request interpretation failed; deterministic fallback was used. ${detail}`);
+    const interpretation = fallbackInterpretRequest(message, `AI request interpretation failed; deterministic fallback was used. ${detail}`);
+    return {
+      interpretation,
+      proof: createInterpretationProof({ inputText: message, normalizedInterpretation: interpretation })
+    };
   }
+}
+
+export async function interpretRequest(message: string): Promise<RequestInterpretation> {
+  return (await interpretRequestWithProof(message)).interpretation;
 }
 
 export function buildManualWorkflowAnswer(interpretation: RequestInterpretation): string {

@@ -28,7 +28,7 @@ import type {
 import { assertSecureA2AAuthMode, secureA2AAuthRequired } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards.js";
-import { routeWithAI } from "./aiRouter.js";
+import { routeWithAIWithProof } from "./aiRouter.js";
 import { getSafeAiConfigSummary } from "./config/aiConfig.js";
 import { evaluateDelegationPolicy, evaluateSecurityPolicy } from "./security/policyEngine.js";
 import { getA2AAccessToken } from "./security/tokenClient.js";
@@ -53,6 +53,7 @@ import { requestConnectorActionPlan } from "./connectorActionPlanner.js";
 import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation.js";
 import { AuditEvents } from "./audit/auditEvents.js";
 import { appendPlatformAuditEvent } from "./audit/platformAuditStore.js";
+import type { OgenInterpretationProof } from "./interpretation/interpretationTypes.js";
 import { defaultTenantId } from "./tenant/tenantContext.js";
 import { evaluateConnectorPolicy, type ConnectorPolicyEvaluation } from "./policy/connectorPolicy.js";
 import { detectAdversarialIntent } from "./adversarialIntent.js";
@@ -945,6 +946,37 @@ async function appendSecurityBlockedAuditEvent(params: {
       protectedMaterialExposed: false,
       tokenMaterialStored: false,
       promptTextStored: false
+    }
+  });
+}
+
+async function appendAiInterpretationEvaluatedAuditEvent(params: {
+  proof: OgenInterpretationProof;
+  actor?: VerifiedUserIdentity;
+}): Promise<void> {
+  const { proof, actor } = params;
+  await appendPlatformAuditEvent({
+    actorProvider: actor?.provider,
+    actorSubject: actor?.subject,
+    actorEmail: actor?.email,
+    eventType: AuditEvents.AI_INTERPRETATION_EVALUATED,
+    resourceType: "request_interpretation",
+    resourceId: proof.interpretationId,
+    safeMetadata: {
+      interpretationId: proof.interpretationId,
+      schemaVersion: proof.schemaVersion,
+      source: proof.source,
+      provider: proof.provider,
+      model: proof.model,
+      inputHash: proof.inputHash,
+      outputHash: proof.outputHash,
+      confidence: proof.confidence,
+      risks: proof.risks,
+      advisoryOnly: true,
+      rawPromptStored: false,
+      rawAiResponseStored: false,
+      protectedMaterialExposed: false,
+      tokenMaterialStored: false
     }
   });
 }
@@ -2017,7 +2049,11 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
     installedAgents
   });
   const effectiveMessage = planningFollowUpResolution?.resolvedMessage ?? buildEffectiveMessageForRouting(conversationState, requestBody.message, followUp);
-  const routingDecision = await routeWithAI(effectiveMessage, { agentCards: requestAgentCards });
+  const { routingDecision, interpretationProof } = await routeWithAIWithProof(effectiveMessage, { agentCards: requestAgentCards });
+  await appendAiInterpretationEvaluatedAuditEvent({
+    proof: interpretationProof,
+    actor: verifiedUser
+  });
   const classification = routingDecision.classification;
   const conversationId = conversationState.conversationId;
   const incidentInterpretation =
@@ -2073,7 +2109,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       userIdentity: responseUserIdentity,
       executionTrace: [...userIdentityTrace, ...response.executionTrace],
       followUpInterpretation: response.followUpInterpretation ?? followUp,
-      incidentContext: response.incidentContext ?? mergedIncidentContext
+      incidentContext: response.incidentContext ?? mergedIncidentContext,
+      interpretationProof: response.interpretationProof ?? interpretationProof
     };
     const finalResponse: ResolveResponse = {
       ...responseWithIdentity,
@@ -3169,11 +3206,15 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string):
       skillLabel: connectorRouting.skillLabel,
       interpretation: policyInterpretation
         ? {
+            interpretationId: interpretationProof.interpretationId,
+            schemaVersion: interpretationProof.schemaVersion,
             interpretationSource: policyInterpretation.interpretationSource,
             scope: policyInterpretation.scope,
             intentType: policyInterpretation.intentType,
             requestedCapability: policyInterpretation.requestedCapability,
-            confidence: policyInterpretation.confidence
+            confidence: policyInterpretation.confidence,
+            risks: interpretationProof.risks,
+            advisoryOnly: interpretationProof.advisoryOnly
           }
         : undefined,
       subject: {

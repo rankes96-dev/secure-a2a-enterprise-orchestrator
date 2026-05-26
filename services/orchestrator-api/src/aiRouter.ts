@@ -13,8 +13,9 @@ import type {
 } from "@a2a/shared";
 import { findAgentSkillsByCapability, getAgentCard, getExecutableAgentCards, isExecutableAgentCard, type AgentCard, type CapabilityMatch } from "./agentCards.js";
 import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
+import type { OgenInterpretationProof } from "./interpretation/interpretationTypes.js";
 import { callOpenRouterJson } from "./openRouterClient.js";
-import { interpretRequest } from "./requestInterpreter.js";
+import { interpretRequestWithProof } from "./requestInterpreter.js";
 
 const systems: EnterpriseSystem[] = ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday", "Unknown"];
 const errorCodes: ErrorCode[] = ["401", "403", "404", "429", "500", "502", "503", "504"];
@@ -605,8 +606,11 @@ async function callOpenRouter(message: string, interpretation: RequestInterpreta
   });
 }
 
-export async function routeWithAI(message: string, context: RoutingContext = {}): Promise<RoutingDecision> {
-  const requestInterpretation = await interpretRequest(message);
+export async function routeWithAIWithProof(message: string, context: RoutingContext = {}): Promise<{
+  routingDecision: RoutingDecision;
+  interpretationProof: OgenInterpretationProof;
+}> {
+  const { interpretation: requestInterpretation, proof: interpretationProof } = await interpretRequestWithProof(message);
   const fallback = routeWithRules(message, "Capability routing fallback was used.", requestInterpretation, context);
   const forceSecondaryAiRouter = process.env.FORCE_SECONDARY_AI_ROUTER === "true";
   const shouldCallSecondaryRouter =
@@ -620,7 +624,7 @@ export async function routeWithAI(message: string, context: RoutingContext = {})
   console.info(`[router] secondary AI router willCall=${shouldCallSecondaryRouter} force=${forceSecondaryAiRouter}`);
 
   if (!shouldCallSecondaryRouter) {
-    return fallback;
+    return { routingDecision: fallback, interpretationProof };
   }
 
   const aiConfig = getAiConfig();
@@ -629,7 +633,7 @@ export async function routeWithAI(message: string, context: RoutingContext = {})
   if (!aiConfig.apiKey?.trim()) {
     const summary = getSafeAiConfigSummary();
     console.info(`[router] fallback used reason=OpenRouter API key is not configured expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
-    return fallback;
+    return { routingDecision: fallback, interpretationProof };
   }
 
   try {
@@ -639,8 +643,11 @@ export async function routeWithAI(message: string, context: RoutingContext = {})
     if (!content) {
       console.warn("[router] secondary AI router returned empty content; using capability fallback");
       return {
-        ...fallback,
-        routingReasoningSummary: "Secondary AI routing returned empty content; capability fallback was used."
+        routingDecision: {
+          ...fallback,
+          routingReasoningSummary: "Secondary AI routing returned empty content; capability fallback was used."
+        },
+        interpretationProof
       };
     }
 
@@ -650,16 +657,29 @@ export async function routeWithAI(message: string, context: RoutingContext = {})
     if (!validation.ok) {
       const reason = validation.reasons.join(" ");
       console.warn(`[router] Secondary AI routing validation failed; using capability fallback: ${reason}`);
-      return routeWithRules(message, `Secondary AI routing validation failed; capability fallback was used. ${reason}`, requestInterpretation, context);
+      return {
+        routingDecision: routeWithRules(message, `Secondary AI routing validation failed; capability fallback was used. ${reason}`, requestInterpretation, context),
+        interpretationProof
+      };
     }
 
     console.info(
       `[router] secondary AI router returned selectedAgents=${validation.decision.selectedAgents.length} status=${validation.decision.resolutionStatus}`
     );
-    return { ...validation.decision, requestInterpretation };
+    return {
+      routingDecision: { ...validation.decision, requestInterpretation },
+      interpretationProof
+    };
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown AI router error";
     console.warn(`[router] Secondary AI routing failed; using capability fallback: ${detail}`);
-    return routeWithRules(message, `Secondary AI routing failed; capability fallback was used. ${detail}`, requestInterpretation, context);
+    return {
+      routingDecision: routeWithRules(message, `Secondary AI routing failed; capability fallback was used. ${detail}`, requestInterpretation, context),
+      interpretationProof
+    };
   }
+}
+
+export async function routeWithAI(message: string, context: RoutingContext = {}): Promise<RoutingDecision> {
+  return (await routeWithAIWithProof(message, context)).routingDecision;
 }

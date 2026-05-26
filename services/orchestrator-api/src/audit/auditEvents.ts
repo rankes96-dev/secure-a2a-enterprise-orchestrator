@@ -38,6 +38,8 @@ export const AuditEvents = {
   POLICY_EVALUATION_NEEDS_APPROVAL: "policy.evaluation.needs.approval",
   POLICY_DECISION_EVALUATED: "policy.decision.evaluated",
 
+  AI_INTERPRETATION_EVALUATED: "ai.interpretation.evaluated",
+
   CONNECTOR_ONBOARDING_TRUSTED: "connector.onboarding.trusted",
   SECURITY_REQUEST_BLOCKED: "security.request.blocked"
 } as const;
