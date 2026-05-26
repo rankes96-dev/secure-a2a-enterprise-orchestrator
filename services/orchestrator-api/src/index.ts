@@ -19,6 +19,8 @@ import type {
   PlanningFollowUpResolution,
   ResolveRequest,
   ResolveResponse,
+  RuntimeAuthorizationRequest,
+  RuntimeAuthorizationResponse,
   RequestInterpretation,
   SafeTargetSelection,
   SecurityDecision,
@@ -58,6 +60,7 @@ import type { OgenInterpretationProof } from "./interpretation/interpretationTyp
 import type { OgenAiRoutingProof } from "./interpretation/routingProofTypes.js";
 import { defaultTenantId } from "./tenant/tenantContext.js";
 import { evaluateConnectorPolicy, type ConnectorPolicyEvaluation } from "./policy/connectorPolicy.js";
+import { evaluateRuntimeAuthorization } from "./runtimeAuthorization/runtimeAuthorizationEvaluator.js";
 import { detectAdversarialIntent } from "./adversarialIntent.js";
 import { buildExecutionGateStack } from "./executionGateStack.js";
 import { resolvePendingInteraction } from "./pendingInteractionResolver.js";
@@ -108,6 +111,12 @@ const resolveRateLimit: RateLimitConfig = {
   name: "resolve",
   windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
   maxRequests: Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 30)
+};
+const runtimeAuthorizeRateLimit: RateLimitConfig = {
+  name: "runtime-authorize",
+  windowMs: Number(process.env.RUNTIME_AUTHORIZE_RATE_LIMIT_WINDOW_MS ?? process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
+  maxRequests: Number(process.env.RUNTIME_AUTHORIZE_RATE_LIMIT_MAX_REQUESTS ?? process.env.RATE_LIMIT_MAX_REQUESTS ?? 30),
+  preferSessionToken: true
 };
 const sessionRateLimit: RateLimitConfig = {
   name: "session",
@@ -163,6 +172,46 @@ function allowByRateLimit(request: Parameters<typeof clientIp>[0], response: Par
 
   bucket.count += 1;
   return true;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function validateRuntimeAuthorizationRequest(value: unknown): string | undefined {
+  const body = objectRecord(value);
+  if (!body) {
+    return "request body must be an object";
+  }
+
+  const action = objectRecord(body.action);
+  if (!action) {
+    return "action is required";
+  }
+
+  if (typeof action.skillId !== "string" || !action.skillId.trim()) {
+    return "action.skillId is required";
+  }
+
+  if (
+    action.executionType !== "diagnostic_read_only" &&
+    action.executionType !== "inspection_read_only" &&
+    action.executionType !== "write_action" &&
+    action.executionType !== "unsupported"
+  ) {
+    return "action.executionType is required";
+  }
+
+  if (
+    action.riskLevel !== "low" &&
+    action.riskLevel !== "medium" &&
+    action.riskLevel !== "high" &&
+    action.riskLevel !== "sensitive"
+  ) {
+    return "action.riskLevel is required";
+  }
+
+  return undefined;
 }
 
 function clientApiKey(request: IncomingMessage): string | undefined {
@@ -1060,6 +1109,42 @@ async function appendConnectorPolicyDecisionAuditEvent(params: {
       protectedMaterialExposed: false,
       tokenMaterialStored: false,
       promptTextStored: false
+    }
+  });
+}
+
+async function appendRuntimeAuthorizationEvaluatedAuditEvent(params: {
+  authorization: RuntimeAuthorizationResponse;
+  requestBody: RuntimeAuthorizationRequest;
+  actor: VerifiedUserIdentity;
+}): Promise<void> {
+  const { authorization, requestBody, actor } = params;
+  await appendPlatformAuditEvent({
+    tenantId: authorization.tenantId,
+    actorProvider: actor.provider,
+    actorSubject: actor.subject,
+    actorEmail: actor.email,
+    eventType: AuditEvents.RUNTIME_AUTHORIZATION_EVALUATED,
+    resourceType: "runtime_authorization",
+    resourceId: authorization.policy.decisionId || requestBody.requestId,
+    safeMetadata: {
+      decisionId: authorization.policy.decisionId,
+      policyVersion: authorization.policy.policyVersion,
+      effect: authorization.decision,
+      primaryRuleId: authorization.policy.primaryRuleId,
+      primaryRuleSource: authorization.policy.primaryRuleSource,
+      matchedRuleIds: authorization.policy.matchedRuleIds,
+      matchedGuardrailRuleIds: authorization.policy.matchedGuardrailRuleIds,
+      matchedTenantRuleIds: authorization.policy.matchedTenantRuleIds,
+      inputHash: authorization.policy.inputHash,
+      skillId: requestBody.action.skillId,
+      connectorId: requestBody.connectorRoute?.connectorId ?? requestBody.targetAgent?.connectorId ?? requestBody.resource?.connectorId,
+      resourceSystem: requestBody.connectorRoute?.resourceSystem ?? requestBody.targetAgent?.resourceSystem ?? requestBody.resource?.resourceSystem,
+      runtimeTokenIssued: false,
+      externalRuntimeCalled: false,
+      protectedMaterialExposed: false,
+      tokenMaterialStored: false,
+      rawPromptStored: false
     }
   });
 }
@@ -4437,6 +4522,42 @@ async function start(): Promise<void> {
       ...result,
       trustedAgents: await listTrustedOnboardedAgentsForOwner(registryKey)
     }, request);
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/runtime/authorize") {
+    const identitySession = await requireFreshIdentitySession(request, response);
+    if (!identitySession) {
+      return;
+    }
+
+    if (!allowByRateLimit(request, response, runtimeAuthorizeRateLimit)) {
+      return;
+    }
+
+    const requestBodyUnknown = await readJsonBody<unknown>(request);
+    const validationError = validateRuntimeAuthorizationRequest(requestBodyUnknown);
+    if (validationError) {
+      sendJson(response, 400, {
+        error: "invalid_runtime_authorization_request",
+        message: validationError
+      }, request);
+      return;
+    }
+
+    const requestBody = requestBodyUnknown as RuntimeAuthorizationRequest;
+    const authorization = evaluateRuntimeAuthorization({
+      request: requestBody,
+      identity: identitySession.identity,
+      tenantId: defaultTenantId()
+    });
+    await appendRuntimeAuthorizationEvaluatedAuditEvent({
+      authorization,
+      requestBody,
+      actor: identitySession.identity
+    });
+
+    sendJson(response, 200, authorization, request);
     return;
   }
 

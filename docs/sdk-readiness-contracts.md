@@ -100,6 +100,20 @@ Runtime execution responses must be safe to display and audit. The safe shape in
 - no raw prompt
 - no secret material
 
+## Runtime Authorization API Contract
+
+Future SDKs can call `POST /runtime/authorize` to ask Ogen whether an action is allowed, blocked, or needs approval before runtime execution.
+
+Rules:
+
+- SDK can call Ogen to ask if an action is allowed.
+- SDK must not treat its own local decision as authority.
+- Ogen response includes policy proof.
+- Execution requires a separate future runtime execution path.
+- Authorization-only responses do not issue runtime tokens.
+- Authorization-only responses do not call external connector runtime.
+- Authorization-only responses do not store raw prompts, raw tokens, or secret material.
+
 ## Policy Decision Proof Contract
 
 Ogen policy decisions must expose audit-safe proof:

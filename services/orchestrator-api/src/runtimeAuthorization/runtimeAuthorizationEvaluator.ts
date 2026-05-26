@@ -1,0 +1,140 @@
+import type { RuntimeAuthorizationRequest, RuntimeAuthorizationResponse } from "@a2a/shared";
+import type { ConnectorRoutingDecision } from "../connectorRouting.js";
+import { evaluateConnectorPolicy } from "../policy/connectorPolicy.js";
+import type { VerifiedUserIdentity } from "../security/userIdentity.js";
+
+type RuntimeMode = NonNullable<RuntimeAuthorizationRequest["connectorRoute"]>["runtimeMode"];
+type ConnectorRouteStatus = ConnectorRoutingDecision["status"];
+
+const connectorRouteStatuses: ReadonlySet<string> = new Set([
+  "needs_more_info",
+  "unsupported",
+  "connector_skill_approved",
+  "connector_skill_blocked",
+  "connector_skill_not_declared",
+  "connector_skill_not_enabled",
+  "connector_not_onboarded"
+]);
+
+function connectorId(request: RuntimeAuthorizationRequest): string | undefined {
+  return request.connectorRoute?.connectorId ?? request.targetAgent?.connectorId ?? request.resource?.connectorId;
+}
+
+function resourceSystem(request: RuntimeAuthorizationRequest): string | undefined {
+  return request.connectorRoute?.resourceSystem ?? request.targetAgent?.resourceSystem ?? request.resource?.resourceSystem;
+}
+
+function runtimeMode(request: RuntimeAuthorizationRequest): RuntimeMode {
+  return request.connectorRoute?.runtimeMode ?? "not_available";
+}
+
+function hasExplicitTarget(request: RuntimeAuthorizationRequest): boolean {
+  return Boolean(
+    request.targetAgent?.agentId ||
+    request.targetAgent?.connectorId ||
+    request.resource?.connectorId ||
+    request.connectorRoute?.connectorId ||
+    request.resource?.resourceSystem ||
+    request.connectorRoute?.resourceSystem
+  );
+}
+
+function connectorRouteStatus(request: RuntimeAuthorizationRequest): ConnectorRouteStatus {
+  if (request.connectorRoute?.status && connectorRouteStatuses.has(request.connectorRoute.status)) {
+    return request.connectorRoute.status as ConnectorRouteStatus;
+  }
+
+  if (request.action.skillId && hasExplicitTarget(request) && request.connectorRoute?.runtimeMode) {
+    return "connector_skill_approved";
+  }
+
+  return "connector_skill_not_enabled";
+}
+
+export function evaluateRuntimeAuthorization(input: {
+  request: RuntimeAuthorizationRequest;
+  identity: VerifiedUserIdentity;
+  tenantId: string;
+}): RuntimeAuthorizationResponse {
+  const { request, identity, tenantId } = input;
+  const evaluatedConnectorId = connectorId(request);
+  const evaluatedResourceSystem = resourceSystem(request);
+  const policy = evaluateConnectorPolicy({
+    tenantId,
+    requestId: request.requestId,
+    conversationId: request.conversationId,
+    connectorRouteStatus: connectorRouteStatus(request),
+    runtimeMode: runtimeMode(request),
+    connectorId: evaluatedConnectorId,
+    resourceSystem: evaluatedResourceSystem,
+    skillId: request.action.skillId,
+    skillLabel: request.action.skillLabel,
+    interpretation: request.interpretation
+      ? {
+          interpretationId: request.interpretation.interpretationId,
+          schemaVersion: request.interpretation.schemaVersion,
+          interpretationSource: request.interpretation.source,
+          confidence: request.interpretation.confidence,
+          risks: request.interpretation.risks,
+          advisoryOnly: request.interpretation.advisoryOnly
+        }
+      : undefined,
+    subject: {
+      tenantId,
+      provider: identity.provider,
+      issuer: identity.issuer,
+      subject: identity.subject,
+      email: identity.email,
+      roles: identity.roles
+    },
+    resource: {
+      connectorId: evaluatedConnectorId,
+      resourceSystem: evaluatedResourceSystem,
+      resourceId: request.resource?.resourceId,
+      resourceType: request.resource?.resourceType,
+      environment: request.resource?.environment ?? "unknown"
+    },
+    action: {
+      skillId: request.action.skillId,
+      skillLabel: request.action.skillLabel,
+      executionType: request.action.executionType,
+      riskLevel: request.action.riskLevel,
+      sensitivity: request.action.sensitivity,
+      requiresApproval: request.action.requiresApproval,
+      requestedScopes: request.action.requestedScopes
+    }
+  });
+
+  return {
+    decision: policy.effect,
+    allowed: policy.effect === "allow",
+    requiresApproval: policy.effect === "needs_approval",
+    reason: policy.reason,
+    tenantId,
+    policy: {
+      policyVersion: policy.policyVersion,
+      decisionId: policy.decisionId,
+      effect: policy.effect,
+      primaryRuleId: policy.primaryRuleId,
+      primaryRuleSource: policy.primaryRuleSource,
+      matchedRuleIds: policy.matchedRuleIds,
+      matchedGuardrailRuleIds: policy.matchedGuardrailRuleIds,
+      matchedTenantRuleIds: policy.matchedTenantRuleIds,
+      matchedRuleSummaries: policy.matchedRuleSummaries,
+      inputHash: policy.inputHash,
+      deniedByDefault: policy.deniedByDefault,
+      requiresApproval: policy.requiresApproval
+    },
+    runtimeExecution: {
+      executed: false,
+      runtimeTokenIssued: false,
+      externalRuntimeCalled: false
+    },
+    audit: {
+      eventType: "runtime.authorization.evaluated",
+      protectedMaterialExposed: false,
+      tokenMaterialStored: false,
+      rawPromptStored: false
+    }
+  };
+}

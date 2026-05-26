@@ -560,6 +560,12 @@ Only public metadata/health routes are migrated initially. Future protected APIs
 
 Node.js >= 20 is required. Fastify mode is public-metadata-only for now. startJsonServer remains the default full application server.
 
+### Phase 2.15  Runtime Authorization Decision API
+
+`POST /runtime/authorize` is an authorization-only API for agent actions. It evaluates Ogen policy, returns policy decision proof, and requires a fresh identity session through the User Directory Access Gate.
+
+The endpoint does not execute runtime, does not issue a runtime token, and does not call an external connector runtime. It is intended for future SDK, MCP proxy, and external agent flows that need to ask Ogen whether an action is allowed before using a separate execution path.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

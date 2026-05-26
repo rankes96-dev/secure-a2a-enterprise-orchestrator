@@ -667,6 +667,103 @@ export type ExecutionGateStack = {
   gates: ExecutionGate[];
 };
 
+export type RuntimeAuthorizationEffect =
+  | "allow"
+  | "block"
+  | "needs_approval";
+
+export type RuntimeAuthorizationRequest = {
+  requestId?: string;
+  conversationId?: string;
+  tenantId?: string;
+  actor: {
+    provider?: string;
+    issuer?: string;
+    subject?: string;
+    email?: string;
+    roles?: string[];
+    groups?: string[];
+  };
+  callerAgent?: {
+    agentId?: string;
+    issuer?: string;
+  };
+  targetAgent?: {
+    agentId?: string;
+    connectorId?: string;
+    resourceSystem?: string;
+  };
+  action: {
+    skillId: string;
+    skillLabel?: string;
+    executionType: "diagnostic_read_only" | "inspection_read_only" | "write_action" | "unsupported";
+    riskLevel: "low" | "medium" | "high" | "sensitive";
+    requiresApproval?: boolean;
+    sensitivity?: "standard" | "sensitive";
+    requestedScopes?: string[];
+  };
+  resource?: {
+    connectorId?: string;
+    resourceSystem?: string;
+    resourceId?: string;
+    resourceType?: string;
+    environment?: "production" | "staging" | "development" | "unknown";
+  };
+  connectorRoute?: {
+    status?: string;
+    runtimeMode?: "external_runtime_available" | "metadata_only" | "not_available";
+    connectorId?: string;
+    resourceSystem?: string;
+  };
+  interpretation?: {
+    interpretationId?: string;
+    schemaVersion?: string;
+    source?: "ai" | "fallback";
+    confidence?: "low" | "medium" | "high";
+    risks?: string[];
+    advisoryOnly?: true;
+  };
+};
+
+export type RuntimeAuthorizationResponse = {
+  decision: RuntimeAuthorizationEffect;
+  allowed: boolean;
+  requiresApproval: boolean;
+  reason: string;
+  tenantId: string;
+  policy: {
+    policyVersion: string;
+    decisionId: string;
+    effect: RuntimeAuthorizationEffect;
+    primaryRuleId?: string;
+    primaryRuleSource?: "guardrail" | "tenant" | "default";
+    matchedRuleIds: string[];
+    matchedGuardrailRuleIds: string[];
+    matchedTenantRuleIds: string[];
+    matchedRuleSummaries: Array<{
+      id: string;
+      name: string;
+      effect: "allow" | "block" | "needs_approval";
+      source: "guardrail" | "tenant" | "default";
+      description: string;
+    }>;
+    inputHash: string;
+    deniedByDefault: boolean;
+    requiresApproval: boolean;
+  };
+  runtimeExecution: {
+    executed: false;
+    runtimeTokenIssued: false;
+    externalRuntimeCalled: false;
+  };
+  audit: {
+    eventType: "runtime.authorization.evaluated";
+    protectedMaterialExposed: false;
+    tokenMaterialStored: false;
+    rawPromptStored: false;
+  };
+};
+
 export interface ResolveRequest {
   message: string;
   conversationId?: string;
