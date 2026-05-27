@@ -1055,6 +1055,7 @@ export interface AgentsHealthResponse {
 
 export * from "./auth/verifyA2AToken.js";
 export * from "./auth/requireA2AAuth.js";
+export * from "./a2aProtocol.js";
 export * from "./a2aResourceRegistry.js";
 export * from "./state/StateStore.js";
 export * from "./state/InMemoryStateStore.js";

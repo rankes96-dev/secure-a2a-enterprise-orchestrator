@@ -1,4 +1,12 @@
-import { currentA2AAuthMode, type AgentName } from "@a2a/shared";
+import {
+  A2A_AGENT_CARD_WELL_KNOWN_PATH,
+  A2A_LEGACY_AGENT_CARD_PATH,
+  OGEN_A2A_AGENT_CARD_COMPATIBILITY,
+  a2aJsonAcceptHeaders,
+  currentA2AAuthMode,
+  type AgentName,
+  type OgenA2AAgentCardCompatibility
+} from "@a2a/shared";
 
 export type AgentCardSkill = {
   id: string;
@@ -46,6 +54,7 @@ export type AgentCard = {
     type: "mock_internal_token" | "oauth2_client_credentials_jwt";
     audience: string;
   };
+  compatibility?: OgenA2AAgentCardCompatibility;
   skills: AgentCardSkill[];
 };
 
@@ -59,6 +68,7 @@ const staticAgentCards: AgentCard[] = [
     systems: ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday"],
     endpoint: process.env.END_USER_TRIAGE_AGENT_URL ?? "http://localhost:4106/task",
     auth: { type: agentCardAuthType, audience: "end-user-triage-agent" },
+    compatibility: OGEN_A2A_AGENT_CARD_COMPATIBILITY,
     skills: [
       {
         id: "end_user.triage",
@@ -90,6 +100,7 @@ const staticAgentCards: AgentCard[] = [
     systems: ["Jira"],
     endpoint: process.env.JIRA_AGENT_URL ?? "http://localhost:4101/task",
     auth: { type: agentCardAuthType, audience: "jira-agent" },
+    compatibility: OGEN_A2A_AGENT_CARD_COMPATIBILITY,
     skills: [
       {
         id: "jira.diagnose_user_permission_issue",
@@ -131,6 +142,7 @@ const staticAgentCards: AgentCard[] = [
     systems: ["GitHub"],
     endpoint: process.env.GITHUB_AGENT_URL ?? "http://localhost:4102/task",
     auth: { type: agentCardAuthType, audience: "github-agent" },
+    compatibility: OGEN_A2A_AGENT_CARD_COMPATIBILITY,
     skills: [
       {
         id: "github.diagnose_repo_access_issue",
@@ -176,6 +188,7 @@ const staticAgentCards: AgentCard[] = [
     systems: ["PagerDuty"],
     endpoint: process.env.PAGERDUTY_AGENT_URL ?? "http://localhost:4103/task",
     auth: { type: agentCardAuthType, audience: "pagerduty-agent" },
+    compatibility: OGEN_A2A_AGENT_CARD_COMPATIBILITY,
     skills: [
       {
         id: "pagerduty.diagnose_alert_ingestion_failure",
@@ -200,6 +213,7 @@ const staticAgentCards: AgentCard[] = [
     systems: ["Security", "OAuth", "Identity"],
     endpoint: process.env.SECURITY_OAUTH_AGENT_URL ?? "http://localhost:4104/task",
     auth: { type: agentCardAuthType, audience: "security-oauth-agent" },
+    compatibility: OGEN_A2A_AGENT_CARD_COMPATIBILITY,
     skills: [
       {
         id: "security.compare_oauth_scopes",
@@ -250,6 +264,7 @@ const staticAgentCards: AgentCard[] = [
     systems: ["API", "GitHub", "PagerDuty", "Jira", "SAP", "Confluence", "Monday"],
     endpoint: process.env.API_HEALTH_AGENT_URL ?? "http://localhost:4105/task",
     auth: { type: agentCardAuthType, audience: "api-health-agent" },
+    compatibility: OGEN_A2A_AGENT_CARD_COMPATIBILITY,
     skills: [
       { id: "api_health.diagnose_rate_limit", name: "Diagnose rate limit", description: "Diagnose rate-limit and throttling failures.", capabilities: ["api.rate_limit.diagnose", "api.health.diagnose"], requestedAction: "api.health.read", requiredPermission: "apihealth.read", requiredScopes: ["apihealth.read"], priority: 70, owner: "API Reliability Team", scope: { resourceTypes: ["api", "rate_limit"] }, riskLevel: "low" },
       {
@@ -284,12 +299,16 @@ const staticAgentCards: AgentCard[] = [
 
 let agentCards: AgentCard[] = staticAgentCards;
 
-function agentCardUrl(endpoint: string): string {
+function agentCardUrl(endpoint: string, pathname: string = A2A_AGENT_CARD_WELL_KNOWN_PATH): string {
   const url = new URL(endpoint);
-  url.pathname = "/agent-card";
+  url.pathname = pathname;
   url.search = "";
   url.hash = "";
   return url.toString();
+}
+
+function legacyAgentCardUrl(endpoint: string): string {
+  return agentCardUrl(endpoint, A2A_LEGACY_AGENT_CARD_PATH);
 }
 
 function endpointMatchesTrustedStaticCard(discovered: AgentCard, staticCard: AgentCard): boolean {
@@ -321,13 +340,16 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchAgentCardOnce(staticCard: AgentCard): Promise<AgentCard> {
-  const url = agentCardUrl(staticCard.endpoint);
+async function fetchAgentCardOnce(staticCard: AgentCard, url: string): Promise<AgentCard> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1500);
 
   try {
-    const response = await fetch(url, { redirect: "error", signal: controller.signal });
+    const response = await fetch(url, {
+      redirect: "error",
+      signal: controller.signal,
+      headers: a2aJsonAcceptHeaders()
+    });
     const body = await response.text();
 
     if (!response.ok) {
@@ -359,10 +381,15 @@ async function fetchAgentCard(staticCard: AgentCard): Promise<AgentCard> {
 
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     try {
-      return await fetchAgentCardOnce(staticCard);
+      return await fetchAgentCardOnce(staticCard, agentCardUrl(staticCard.endpoint));
     } catch (error) {
       lastError = error;
-      await delay(300);
+      try {
+        return await fetchAgentCardOnce(staticCard, legacyAgentCardUrl(staticCard.endpoint));
+      } catch (legacyError) {
+        lastError = legacyError;
+        await delay(300);
+      }
     }
   }
 
@@ -378,7 +405,7 @@ export async function discoverAgentCards(): Promise<AgentCard[]> {
     staticAgentCards.map(async (staticCard) => {
       try {
         const card = await fetchAgentCard(staticCard);
-        console.info(`[agent-cards] discovered ${card.agentId} from ${agentCardUrl(staticCard.endpoint)}`);
+        console.info(`[agent-cards] discovered ${card.agentId} from ${agentCardUrl(staticCard.endpoint)} with legacy fallback ${legacyAgentCardUrl(staticCard.endpoint)}`);
         return card;
       } catch (error) {
         const detail = error instanceof Error ? error.message : "Unknown discovery error";

@@ -1,4 +1,5 @@
 import type { A2AAgentResponse, ConnectorActionPlan, PlannedActionExecutionType, PlannedActionRiskLevel, PlannedActionSideEffects } from "@a2a/shared";
+import { a2aJsonRequestHeaders } from "@a2a/shared";
 import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
 import { validateTrustedConnectorRuntimeEndpoint } from "./security/connectorRuntimeSafety.js";
 import { getA2AAccessToken } from "./security/tokenClient.js";
@@ -171,7 +172,7 @@ export async function requestConnectorActionPlan(params: {
       redirect: "error",
       signal: controller.signal,
       headers: {
-        "content-type": "application/json",
+        ...a2aJsonRequestHeaders(),
         authorization: `Bearer ${issued.accessToken}`
       },
       body: JSON.stringify({

@@ -89,7 +89,8 @@ function verifyStatic(): void {
     "001_initial_platform_state.sql",
     "002_connector_trust_owner_hash.sql",
     "003_user_directory_access_gate.sql",
-    "004_audit_event_classification_index.sql"
+    "004_audit_event_classification_index.sql",
+    "005_audit_event_classification_rolling_safety.sql"
   ]) {
     if (!migrationFiles.includes(name)) {
       fail(`${name} should exist`);
@@ -102,8 +103,9 @@ function verifyStatic(): void {
   const ownerHash = read("services/orchestrator-api/db/migrations/002_connector_trust_owner_hash.sql");
   const userDirectory = read("services/orchestrator-api/db/migrations/003_user_directory_access_gate.sql");
   const auditClassification = read("services/orchestrator-api/db/migrations/004_audit_event_classification_index.sql");
-  const auditClassificationContract = read("services/orchestrator-api/db/contract-migrations/005_audit_event_classification_contract.sql");
-  const allMigrations = `${initial}\n${ownerHash}\n${userDirectory}\n${auditClassification}\n${auditClassificationContract}`;
+  const auditClassificationRolling = read("services/orchestrator-api/db/migrations/005_audit_event_classification_rolling_safety.sql");
+  const auditClassificationContract = read("services/orchestrator-api/db/contract-migrations/006_audit_event_classification_contract.sql");
+  const allMigrations = `${initial}\n${ownerHash}\n${userDirectory}\n${auditClassification}\n${auditClassificationRolling}\n${auditClassificationContract}`;
   const runner = read("scripts/apply-platform-migrations.ts");
   const packageJson = read("package.json");
   const platformDocs = read("docs/v2-platform-foundation.md");
@@ -162,6 +164,37 @@ function verifyStatic(): void {
   for (const phrase of [
     "add column if not exists outcome text",
     "add column if not exists severity text",
+    "where outcome is null",
+    "where severity is null",
+    "alter column outcome set not null",
+    "alter column severity set not null",
+    "audit_events_outcome_check",
+    "audit_events_severity_check",
+    "audit_events_tenant_created_at_id_idx",
+    "audit_events_tenant_outcome_created_at_id_idx",
+    "audit_events_tenant_severity_created_at_id_idx",
+    "audit_events_tenant_outcome_severity_created_at_id_idx"
+  ]) {
+    requireIncludes(auditClassification, phrase, "published audit classification migration lineage is restored");
+  }
+  for (const forbidden of [
+    "audit_event_outcome_for_event_type",
+    "audit_event_severity_for_event_type",
+    "audit_events_materialize_classification",
+    "audit_events_materialize_classification_trigger",
+    "alter column outcome drop not null",
+    "alter column severity drop not null",
+    "not valid",
+    "validate constraint audit_events_outcome_check",
+    "validate constraint audit_events_severity_check"
+  ]) {
+    requireNotIncludes(auditClassification, forbidden, "published audit classification migration is not rewritten after release");
+  }
+  for (const phrase of [
+    "add column if not exists outcome text",
+    "add column if not exists severity text",
+    "alter column outcome drop not null",
+    "alter column severity drop not null",
     "audit_event_outcome_for_event_type",
     "audit_event_severity_for_event_type",
     "audit_events_materialize_classification",
@@ -172,19 +205,15 @@ function verifyStatic(): void {
     "audit_events_severity_check",
     "not valid",
     "validate constraint audit_events_outcome_check",
-    "validate constraint audit_events_severity_check",
-    "audit_events_tenant_created_at_id_idx",
-    "audit_events_tenant_outcome_created_at_id_idx",
-    "audit_events_tenant_severity_created_at_id_idx",
-    "audit_events_tenant_outcome_severity_created_at_id_idx"
+    "validate constraint audit_events_severity_check"
   ]) {
-    requireIncludes(auditClassification, phrase, "audit classification migration creates materialized read model");
+    requireIncludes(auditClassificationRolling, phrase, "forward audit classification migration creates rolling-safe compatibility");
   }
   for (const forbidden of [
     "alter column outcome set not null",
     "alter column severity set not null"
   ]) {
-    requireNotIncludes(auditClassification, forbidden, "audit classification expand migration remains rolling-safe");
+    requireNotIncludes(auditClassificationRolling, forbidden, "forward audit classification migration remains expand-only");
   }
   for (const phrase of [
     "null outcome/severity rows remain",
@@ -234,13 +263,43 @@ function verifyStatic(): void {
   }
   for (const phrase of [
     "Phase 2.19c rolling-safe rollout",
-    "Step A: run the expand migration",
+    "restore the `004_audit_event_classification_index.sql` file baseline",
+    "005_audit_event_classification_rolling_safety.sql",
     "Step B: deploy the new app version",
     "Step C: validate no null classifications remain",
-    "Step D: run the contract migration"
+    "006_audit_event_classification_contract.sql",
+    "Checksum mismatch for platform migration 004",
+    "select conname, convalidated",
+    "select attname, attnotnull"
   ]) {
     requireIncludes(platformDocs, phrase, "platform docs cover audit classification expand/contract rollout");
     requireIncludes(deploymentDocs, phrase, "deployment docs cover audit classification expand/contract rollout");
+  }
+
+  for (const phrase of [
+    "Phase 2.19d  Audit Index Rollout Operational Hardening",
+    "CREATE INDEX CONCURRENTLY",
+    "operator-controlled rollout",
+    "quiet window",
+    "pg_stat_progress_create_index",
+    "pg_locks",
+    "audit_events_tenant_outcome_severity_created_at_id_idx",
+    "Do not edit published migrations"
+  ]) {
+    requireIncludes(platformDocs, phrase, "platform docs cover large audit index rollout");
+  }
+
+  for (const phrase of [
+    "Large audit table index rollout",
+    "CREATE INDEX CONCURRENTLY",
+    "operator-controlled rollout",
+    "quiet window",
+    "pg_stat_progress_create_index",
+    "pg_locks",
+    "audit_events_tenant_outcome_severity_created_at_id_idx",
+    "Do not edit published migration `004`"
+  ]) {
+    requireIncludes(deploymentDocs, phrase, "deployment docs cover large audit index rollout");
   }
 
   for (const phrase of [
@@ -305,10 +364,10 @@ async function verifyRuntimeIfConfigured(): Promise<void> {
   try {
     const migrations = await pool.query<{ id: string }>(
       "select id from platform_schema_migrations where id = any($1::text[])",
-      [["001", "002", "003", "004"]]
+      [["001", "002", "003", "004", "005"]]
     );
     const ids = new Set(migrations.rows.map((row) => row.id));
-    for (const id of ["001", "002", "003", "004"]) {
+    for (const id of ["001", "002", "003", "004", "005"]) {
       if (!ids.has(id)) {
         fail(`platform_schema_migrations should include ${id}`);
       } else {

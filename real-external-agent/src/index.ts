@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { A2A_CONTENT_TYPE, buildUnsupportedA2AProtocolVersionResponse, unsupportedExplicitA2AProtocolVersion } from "@a2a/shared";
 import { agentId, agentIssuer, clientId, port } from "./config.js";
 import {
   publicAdminConfig,
@@ -123,6 +124,12 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && request.url === "/a2a/task") {
+      const unsupportedVersion = unsupportedExplicitA2AProtocolVersion(request.headers);
+      if (unsupportedVersion) {
+        sendJson(response, 400, buildUnsupportedA2AProtocolVersionResponse(unsupportedVersion), { "content-type": A2A_CONTENT_TYPE });
+        return;
+      }
+
       const body = await readJsonBody<ConnectorRuntimeTask>(request);
       const message = typeof body.message === "string" ? body.message : "";
       const planOnly = body.mode === "plan_only" || body.runtimeMode === "connector_plan_only";

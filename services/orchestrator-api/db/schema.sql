@@ -96,6 +96,12 @@ alter table audit_events
 alter table audit_events
   add column if not exists severity text;
 
+alter table audit_events
+  alter column outcome drop not null;
+
+alter table audit_events
+  alter column severity drop not null;
+
 create or replace function audit_event_outcome_for_event_type(audit_event_type text)
 returns text
 language sql

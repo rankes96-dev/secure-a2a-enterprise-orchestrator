@@ -8,6 +8,7 @@ import type {
   EndUserAnswer,
   ExternalAuthorizationRequirement
 } from "@a2a/shared";
+import { a2aJsonRequestHeaders } from "@a2a/shared";
 import { getA2AAccessToken, type A2AIssuedTokenMetadata } from "./security/tokenClient.js";
 import type { VerifiedUserIdentity } from "./security/userIdentity.js";
 import type { ConnectorRoutingDecision } from "./connectorRouting.js";
@@ -403,7 +404,7 @@ export async function executeApprovedConnectorSkill(params: {
         redirect: "error",
         signal: controller.signal,
         headers: {
-          "content-type": "application/json",
+          ...a2aJsonRequestHeaders(),
           authorization: `Bearer ${issued.accessToken}`
         },
         body: JSON.stringify({

@@ -1,3 +1,5 @@
+import { a2aJsonAcceptHeaders } from "@a2a/shared";
+
 export const httpTimeoutMs = 2_000;
 export const maxDiscoveryJsonBytes = 32_000;
 export const maxConnectorProfileJsonBytes = 64_000;
@@ -63,9 +65,15 @@ export function describeFetchFailure(url: string, error: unknown): string {
 export async function fetchJsonWithLimit<T>(url: string, init: RequestInit, maxBytes: number): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), httpTimeoutMs);
+  const headers = new Headers(a2aJsonAcceptHeaders());
+  if (init.headers) {
+    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  }
+
   try {
     const response = await fetch(url, {
       ...init,
+      headers,
       redirect: "manual",
       signal: controller.signal
     });

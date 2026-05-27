@@ -30,7 +30,14 @@ import type {
   SelectedAgent,
   UserIdentitySummary
 } from "@a2a/shared";
-import { assertSecureA2AAuthMode, secureA2AAuthRequired } from "@a2a/shared";
+import {
+  A2A_CONTENT_TYPE,
+  a2aJsonRequestHeaders,
+  assertSecureA2AAuthMode,
+  buildUnsupportedA2AProtocolVersionResponse,
+  secureA2AAuthRequired,
+  unsupportedExplicitA2AProtocolVersion
+} from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards.js";
 import { routeWithAIWithProof } from "./aiRouter.js";
@@ -1765,6 +1772,7 @@ async function prepareA2ARequestAuth(params: {
 }): Promise<Record<string, string>> {
   if (!shouldUseJwtForAgent(params.task.toAgent, params.cards)) {
     return {
+      ...a2aJsonRequestHeaders(),
       "x-internal-service-token": process.env.INTERNAL_SERVICE_TOKEN ?? ""
     };
   }
@@ -1856,6 +1864,7 @@ async function prepareA2ARequestAuth(params: {
   });
 
   return {
+    ...a2aJsonRequestHeaders(),
     authorization: `Bearer ${issued.accessToken}`
   };
 }
@@ -5191,6 +5200,12 @@ async function start(): Promise<void> {
     route: "/resolve",
     method: "POST"
   })) {
+    return;
+  }
+
+  const unsupportedA2AVersion = unsupportedExplicitA2AProtocolVersion(request.headers);
+  if (unsupportedA2AVersion) {
+    sendJson(response, 400, buildUnsupportedA2AProtocolVersionResponse(unsupportedA2AVersion), request, { "content-type": A2A_CONTENT_TYPE });
     return;
   }
 

@@ -1,6 +1,15 @@
 import dotenv from "dotenv";
 import type { A2AAgentResponse, A2ATask, AgentTask } from "@a2a/shared";
-import { assertSecureA2AAuthMode, formatA2AAuthTraceDetail, requireA2AAuth } from "@a2a/shared";
+import {
+  A2A_AGENT_CARD_WELL_KNOWN_PATH,
+  A2A_CONTENT_TYPE,
+  OGEN_A2A_AGENT_CARD_COMPATIBILITY,
+  assertSecureA2AAuthMode,
+  buildUnsupportedA2AProtocolVersionResponse,
+  formatA2AAuthTraceDetail,
+  requireA2AAuth,
+  unsupportedExplicitA2AProtocolVersion
+} from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 
 dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) });
@@ -14,6 +23,7 @@ const agentCard = {
   systems: ["Jira", "GitHub", "PagerDuty", "SAP", "Confluence", "Monday"],
   endpoint: process.env.END_USER_TRIAGE_AGENT_URL ?? "http://localhost:4106/task",
   auth: { type: a2aAuthMode, audience: "end-user-triage-agent" },
+  compatibility: OGEN_A2A_AGENT_CARD_COMPATIBILITY,
   skills: [
     {
       id: "end_user.triage",
@@ -51,13 +61,19 @@ startJsonServer(port, async (request, response) => {
     return;
   }
 
-  if (request.method === "GET" && request.url === "/agent-card") {
-    sendJson(response, 200, agentCard, request);
+  if (request.method === "GET" && (request.url === "/agent-card" || request.url === A2A_AGENT_CARD_WELL_KNOWN_PATH)) {
+    sendJson(response, 200, agentCard, request, { "content-type": A2A_CONTENT_TYPE });
     return;
   }
 
   if (request.method !== "POST" || request.url !== "/task") {
     sendJson(response, 404, { error: "Not found" });
+    return;
+  }
+
+  const unsupportedVersion = unsupportedExplicitA2AProtocolVersion(request.headers);
+  if (unsupportedVersion) {
+    sendJson(response, 400, buildUnsupportedA2AProtocolVersionResponse(unsupportedVersion), request, { "content-type": A2A_CONTENT_TYPE });
     return;
   }
 

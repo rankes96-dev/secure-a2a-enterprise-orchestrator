@@ -50,6 +50,10 @@ if (!existsSync(path)) {
     "Phase 2.19b  Audit Viewer Scale & Operability Hardening",
     "Phase 2.19c  Indexed Audit Read Model for Outcome/Severity Filters",
     "Phase 2.19c rolling-safe rollout",
+    "Phase 2.19d  Audit Index Rollout Operational Hardening",
+    "Phase 2.20a  A2A 1.0 Protocol Compatibility Layer",
+    "A2A-Version: 1.0",
+    "application/a2a+json",
     "GET `/audit/events`",
     "`audit.read`",
     "audit_events_filter_scan_limit_exceeded",
@@ -138,7 +142,8 @@ if (!existsSync(sharedPath)) {
     "requestedScopes: string[]",
     "AuditViewerEvent",
     "AuditEventsResponse",
-    "safeMetadataReturned: false"
+    "safeMetadataReturned: false",
+    "./a2aProtocol.js"
   ]) {
     if (!shared.includes(phrase)) {
       fail(`shared contracts missing required phrase: ${phrase}`);
@@ -287,6 +292,12 @@ if (!existsSync(packageJsonPath)) {
   }
   if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:audit-viewer-boundary")) {
     fail("verify:v2-plan should run verify:audit-viewer-boundary");
+  }
+  if (packageJson.scripts?.["verify:a2a-protocol-compatibility"] !== "tsx scripts/verify-a2a-protocol-compatibility.ts") {
+    fail("package.json missing verify:a2a-protocol-compatibility script");
+  }
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:a2a-protocol-compatibility")) {
+    fail("verify:v2-plan should run verify:a2a-protocol-compatibility");
   }
 }
 

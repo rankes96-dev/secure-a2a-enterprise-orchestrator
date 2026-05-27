@@ -2,10 +2,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 const maxBodyBytes = 64 * 1024;
 
-export function sendJson(response: ServerResponse, status: number, body: unknown): void {
+export function sendJson(response: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store"
+    "cache-control": "no-store",
+    ...headers
   });
   response.end(JSON.stringify(body, null, 2));
 }

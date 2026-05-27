@@ -25,7 +25,7 @@ function corsHeaders(request?: IncomingMessage): Record<string, string> {
   return {
     "access-control-allow-origin": allowOrigin,
     "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
-    "access-control-allow-headers": "content-type,x-api-key,x-internal-service-token,authorization,x-ogen-csrf-token",
+    "access-control-allow-headers": "content-type,a2a-version,x-api-key,x-internal-service-token,authorization,x-ogen-csrf-token",
     "access-control-allow-credentials": "true",
     "vary": "origin"
   };
@@ -123,9 +123,10 @@ export function startJsonServer(
 }
 
 export async function postJson<TResponse>(url: string, body: unknown, headers: Record<string, string> = {}): Promise<TResponse> {
+  const hasContentType = Object.keys(headers).some((key) => key.toLowerCase() === "content-type");
   const response = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", ...headers },
+    headers: { ...(hasContentType ? {} : { "content-type": "application/json" }), ...headers },
     body: JSON.stringify(body)
   });
 

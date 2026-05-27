@@ -236,14 +236,79 @@ npm.cmd run verify:postgres-restart-survival
 
 Do not enable the write smoke against production unless intentionally testing a controlled environment. Smoke records use safe synthetic IDs and no secrets.
 
-Persisted audit viewer: when `PLATFORM_STATE_STORE_DRIVER=postgres` is enabled, browser users with the `audit.read` Gateway capability can read tenant-scoped safe audit projections through `GET /audit/events`. The viewer uses cursor pagination with a snapshot ceiling so new audit writes do not shift an open result window, and outcome/severity filters use a Gateway-produced materialized outcome/severity classification index before pagination. Migration `004_audit_event_classification_index.sql` is the expand migration: it adds nullable `outcome`/`severity`, installs deterministic DB fallback classification from `event_type` for old writers, backfills existing audit rows, validates allowed values, and creates composite tenant/outcome/severity/createdAt/id indexes. If a custom store lacks the indexed read contract and its fallback sparse derived filter reaches the bounded scan limit, the API returns `422 audit_events_filter_scan_limit_exceeded` with safe operator guidance to narrow the time range, event type, conversation ID, or page limit. The error includes only safe counts, a filter hash, and classification strategy metadata; it never returns stored `safe_metadata`, raw prompts, OAuth tokens, JWTs, Authorization headers, private keys, client secrets, or client assertions. In local memory mode, audit viewer data is process-local and resets with the orchestrator, but the same classification index contract is implemented in memory for local/test parity. The classification index must preserve cursor snapshots, `audit.read`, and the no-secrets projection boundary.
+Persisted audit viewer: when `PLATFORM_STATE_STORE_DRIVER=postgres` is enabled, browser users with the `audit.read` Gateway capability can read tenant-scoped safe audit projections through `GET /audit/events`. The viewer uses cursor pagination with a snapshot ceiling so new audit writes do not shift an open result window, and outcome/severity filters use a Gateway-produced materialized outcome/severity classification index before pagination. Published migration `004_audit_event_classification_index.sql` backfills existing audit rows and creates composite tenant/outcome/severity/createdAt/id indexes. Forward migration `005_audit_event_classification_rolling_safety.sql` preserves migration checksum lineage while adding rolling-safe compatibility: deterministic DB fallback classification from `event_type`, nullable expand behavior for previously enforced columns, safe backfill/validation, and old-writer/new-writer compatibility. If a custom store lacks the indexed read contract and its fallback sparse derived filter reaches the bounded scan limit, the API returns `422 audit_events_filter_scan_limit_exceeded` with safe operator guidance to narrow the time range, event type, conversation ID, or page limit. The error includes only safe counts, a filter hash, and classification strategy metadata; it never returns stored `safe_metadata`, raw prompts, OAuth tokens, JWTs, Authorization headers, private keys, client secrets, or client assertions. In local memory mode, audit viewer data is process-local and resets with the orchestrator, but the same classification index contract is implemented in memory for local/test parity. The classification index must preserve cursor snapshots, `audit.read`, and the no-secrets projection boundary.
 
 Phase 2.19c rolling-safe rollout:
 
-- Step A: run the expand migration with `npm.cmd run db:apply-platform-migrations`. This must happen before deploying code that depends on the classification columns.
+- Step A: restore the `004_audit_event_classification_index.sql` file baseline if a deployment artifact contains the rewritten copy, then run `npm.cmd run db:apply-platform-migrations` so the forward expand migration `005_audit_event_classification_rolling_safety.sql` applies. This must happen before deploying code that depends on rolling-safe classification compatibility.
 - Step B: deploy the new app version. During the mixed-version window, old writers can omit `outcome`/`severity` and the DB trigger fills them; new writers send explicit Ogen-derived classifications.
 - Step C: validate no null classifications remain and backfill complete: `select count(*) from audit_events where outcome is null or severity is null;`. Also run `npm.cmd run verify:audit-viewer-boundary` and, in a controlled non-production write-smoke environment, `npm.cmd run verify:platform-db-migrations` with `POSTGRES_RESTART_SMOKE_ALLOW_WRITE=true`.
-- Step D: run the contract migration `services/orchestrator-api/db/contract-migrations/005_audit_event_classification_contract.sql` to enforce `NOT NULL` only after every app instance is upgraded and Step C returns zero rows.
+- Step D: run the contract migration `services/orchestrator-api/db/contract-migrations/006_audit_event_classification_contract.sql` to enforce `NOT NULL` only after every app instance is upgraded and Step C returns zero rows.
+
+If an environment already saw `Checksum mismatch for platform migration 004`, do not edit `platform_schema_migrations` as the normal fix. Restore the `004` file baseline in the deployment artifact, deploy the code containing forward migration `005`, and rerun `npm.cmd run db:apply-platform-migrations`. If a non-production environment already applied the temporary rewritten `004`, rebuild that environment from the restored migration chain or reconcile it manually with database-owner approval before treating it as a migration-lineage source.
+
+Audit classification rollout validation SQL:
+
+```sql
+select count(*) from audit_events where outcome is null or severity is null;
+
+select conname, convalidated
+from pg_constraint
+where conrelid = 'audit_events'::regclass
+  and conname in ('audit_events_outcome_check', 'audit_events_severity_check');
+
+select attname, attnotnull
+from pg_attribute
+where attrelid = 'audit_events'::regclass
+  and attname in ('outcome', 'severity');
+```
+
+Large audit table index rollout:
+
+For production-sized `audit_events`, treat the classification index build as operator-controlled rollout. The normal migration runner wraps migrations in a transaction, so it cannot run `CREATE INDEX CONCURRENTLY`. If lock or write impact is a concern, schedule a quiet window and run the following SQL from a database operator session before or alongside the expand migration. Build one index at a time on very large tables and monitor `pg_stat_progress_create_index`, `pg_locks`, write latency, CPU, and IO.
+
+```sql
+create index concurrently if not exists audit_events_tenant_created_at_id_idx
+  on audit_events (tenant_id, created_at desc, id desc);
+
+create index concurrently if not exists audit_events_tenant_outcome_created_at_id_idx
+  on audit_events (tenant_id, outcome, created_at desc, id desc);
+
+create index concurrently if not exists audit_events_tenant_severity_created_at_id_idx
+  on audit_events (tenant_id, severity, created_at desc, id desc);
+
+create index concurrently if not exists audit_events_tenant_outcome_severity_created_at_id_idx
+  on audit_events (tenant_id, outcome, severity, created_at desc, id desc);
+```
+
+Preflight and postflight checks:
+
+```sql
+select count(*) from audit_events where outcome is null or severity is null;
+
+select indexname, indexdef
+from pg_indexes
+where tablename = 'audit_events'
+  and indexname in (
+    'audit_events_tenant_created_at_id_idx',
+    'audit_events_tenant_outcome_created_at_id_idx',
+    'audit_events_tenant_severity_created_at_id_idx',
+    'audit_events_tenant_outcome_severity_created_at_id_idx'
+  );
+
+select id, created_at, outcome, severity
+from audit_events
+where tenant_id = '<tenant-id>'
+  and outcome = 'blocked'
+order by created_at desc, id desc
+limit 20;
+```
+
+Keep migration lineage immutable. Do not edit published migration `004` to change index strategy; use the restored baseline plus forward migration `005`, and use the concurrent SQL above only as an operator runbook for large-table rollout.
+
+A2A 1.0 compatibility rollout:
+
+Local A2A agents now expose `GET /.well-known/agent-card.json` beside legacy `GET /agent-card`; both return the same safe Agent Card payload. Outbound A2A calls send `A2A-Version: 1.0`, `Accept: application/a2a+json`, and `Content-Type: application/a2a+json` when a request body exists. Missing inbound `A2A-Version` remains legacy-compatible, explicit `1.0` is accepted, and unsupported explicit versions return `unsupported_a2a_version` with `taskExecuted: false`. This is compatibility-first: Ogen policy, tenant resolution, scoped JWT validation, Gateway RBAC, and audit boundaries remain the authority.
 
 Cross-site browser sessions also affect the audit viewer because it uses the same credentialed browser session as the rest of the app. For Vercel-to-Railway, keep `SESSION_COOKIE_SAMESITE=None`, HTTPS on the backend, and `SESSION_COOKIE_SECURE=true` explicitly or via automatic SameSite=None hardening. CSRF cookie follows session SameSite unless `CSRF_COOKIE_SAMESITE` overrides it.
 

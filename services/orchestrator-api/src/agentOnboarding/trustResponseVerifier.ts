@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { a2aJsonRequestHeaders } from "@a2a/shared";
 import { gatewayPublicIdentity } from "../security/gatewayIdentity.js";
 import type { AgentOnboardingChallenge, ExternalAgentDiscovery, ExternalAgentTrustResponse } from "./types.js";
 import { cleanString, externalStatus, fetchJsonWithLimit, maxOnboardingJsonBytes, record, stringArray } from "./utils.js";
@@ -12,7 +13,7 @@ export async function requestExternalAgentTrustResponse(
   try {
     const body = await fetchJsonWithLimit<{ signedTrustResponse?: unknown; agentId?: unknown }>(discovery.onboardingEndpoint, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: a2aJsonRequestHeaders(),
       body: JSON.stringify({
         challenge: {
           onboardingId: challenge.onboardingId,

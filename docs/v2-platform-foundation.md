@@ -618,7 +618,7 @@ The forward scale path is now implemented for the built-in stores as a persisted
 
 ### Phase 2.19c  Indexed Audit Read Model for Outcome/Severity Filters
 
-Phase 2.19c replaces the normal deep bounded scan path for `outcome` and `severity` filters with an indexed audit read model. `StoredAuditEvent` now carries Ogen-materialized outcome/severity values, and `PlatformStateStore` exposes `listAuditEventsByClassification` for cursor pagination over those fields. The memory store materializes classifications on append for local/test parity. The Postgres store writes materialized classifications on insert, backfills existing audit rows through migration `004_audit_event_classification_index.sql`, and uses composite indexes for tenant-scoped `created_at desc, id desc` pagination by outcome, severity, or both.
+Phase 2.19c replaces the normal deep bounded scan path for `outcome` and `severity` filters with an indexed audit read model. `StoredAuditEvent` now carries Ogen-materialized outcome/severity values, and `PlatformStateStore` exposes `listAuditEventsByClassification` for cursor pagination over those fields. The memory store materializes classifications on append for local/test parity. The Postgres store writes materialized classifications on insert, backfills existing audit rows through the published `004_audit_event_classification_index.sql`, and uses composite indexes for tenant-scoped `created_at desc, id desc` pagination by outcome, severity, or both.
 
 The fallback bounded scan remains available only for custom stores that do not expose `listAuditEventsByClassification`; if that fallback reaches the bounded limit, it still returns `422 audit_events_filter_scan_limit_exceeded` with operator-safe diagnostics. The indexed path keeps the cursor contract unchanged: request `{ cursor?, limit, filters... }`, response `{ items, hasNext, nextCursor? }`, deterministic `createdAt desc, id desc` ordering, and a snapshot ceiling that excludes newer audit writes from an already-open result window.
 
@@ -626,10 +626,75 @@ Trust boundaries remain unchanged. The classification index is produced by Ogen 
 
 Phase 2.19c rolling-safe rollout:
 
-- Step A: run the expand migration `004_audit_event_classification_index.sql`. It adds nullable `outcome` and `severity` columns, installs deterministic DB fallback classification from `event_type`, backfills existing rows, validates safe value constraints, and creates the classification indexes. It does not enforce `NOT NULL`.
+- Step A: restore the `004_audit_event_classification_index.sql` file baseline if any deployment artifact contains the rewritten copy, then run the forward expand migration `005_audit_event_classification_rolling_safety.sql` through the normal migration runner. The forward migration handles databases where `004` already added `outcome`/`severity` and enforced `NOT NULL`, databases where those columns are nullable, and databases where the compatibility trigger already exists.
 - Step B: deploy the new app version. Old app instances that omit `outcome`/`severity` continue to write audit rows because the DB trigger fills them; new app instances write explicit Ogen-derived classifications.
 - Step C: validate no null classifications remain and backfill complete with `select count(*) from audit_events where outcome is null or severity is null;` and run the audit viewer verification before contract enforcement.
-- Step D: run the contract migration `services/orchestrator-api/db/contract-migrations/005_audit_event_classification_contract.sql` only after all app instances are upgraded and Step C returns zero rows. This is the later `NOT NULL` enforcement step and is intentionally outside the default migration runner path.
+- Step D: run the contract migration `services/orchestrator-api/db/contract-migrations/006_audit_event_classification_contract.sql` only after all app instances are upgraded and Step C returns zero rows. This is the later `NOT NULL` enforcement step and is intentionally outside the default migration runner path.
+
+If an environment reports `Checksum mismatch for platform migration 004`, treat that as a migration lineage issue, not as a data migration failure. Restore the `004` file baseline in the deployment artifact, keep the forward `005` migration, and rerun the normal migration runner.
+
+Validation SQL:
+
+```sql
+select count(*) from audit_events where outcome is null or severity is null;
+
+select conname, convalidated
+from pg_constraint
+where conrelid = 'audit_events'::regclass
+  and conname in ('audit_events_outcome_check', 'audit_events_severity_check');
+
+select attname, attnotnull
+from pg_attribute
+where attrelid = 'audit_events'::regclass
+  and attname in ('outcome', 'severity');
+```
+
+### Phase 2.19d  Audit Index Rollout Operational Hardening
+
+Large audit tables should treat classification indexes as an operator-controlled rollout, not a surprise lock during normal app deploy. The expand/upgrade/validate/contract sequence remains authoritative, but production operators can create the four classification indexes with `CREATE INDEX CONCURRENTLY IF NOT EXISTS` during a quiet window before or alongside the expand migration when the table is large enough that normal transactional index creation would create unacceptable lock or write-amplification risk.
+
+Concurrent index rollout guidance:
+
+- Run in an explicit database operator session because `CREATE INDEX CONCURRENTLY` cannot run inside the migration runner transaction.
+- Prefer a quiet window and monitor `pg_stat_progress_create_index`, `pg_locks`, write latency, and database CPU/IO while each index builds.
+- Build one index at a time for very large tables: `audit_events_tenant_created_at_id_idx`, `audit_events_tenant_outcome_created_at_id_idx`, `audit_events_tenant_severity_created_at_id_idx`, and `audit_events_tenant_outcome_severity_created_at_id_idx`.
+- Validate before and after with `select count(*) from audit_events where outcome is null or severity is null;`, `select indexname from pg_indexes where tablename = 'audit_events';`, and a tenant-scoped filtered query ordered by `created_at desc, id desc`.
+- Keep the normal migration lineage intact. Do not edit published migrations to add concurrent DDL; use forward migrations or operator-run SQL documented in the deployment runbook.
+
+Example operator SQL:
+
+```sql
+create index concurrently if not exists audit_events_tenant_created_at_id_idx
+  on audit_events (tenant_id, created_at desc, id desc);
+
+create index concurrently if not exists audit_events_tenant_outcome_created_at_id_idx
+  on audit_events (tenant_id, outcome, created_at desc, id desc);
+
+create index concurrently if not exists audit_events_tenant_severity_created_at_id_idx
+  on audit_events (tenant_id, severity, created_at desc, id desc);
+
+create index concurrently if not exists audit_events_tenant_outcome_severity_created_at_id_idx
+  on audit_events (tenant_id, outcome, severity, created_at desc, id desc);
+```
+
+### Phase 2.20a  A2A 1.0 Protocol Compatibility Layer
+
+Phase 2.20a is a compatibility layer, not a replacement of Ogen's task model and not an adoption of the official JavaScript SDK yet. The internal `A2ATask`, connector policy, tenant resolution, scoped JWT issuance, and audit boundaries remain Ogen-owned. The compatibility surface adds protocol identifiers and headers so external A2A-capable runtimes can interoperate while Ogen continues to govern execution.
+
+Discovery compatibility:
+
+- Local agents that expose `GET /agent-card` also expose `GET /.well-known/agent-card.json` with the same safe Agent Card payload.
+- `/agent-card` remains a legacy alias for local development and existing clients.
+- Shared protocol constants define `A2A_PROTOCOL_VERSION = "1.0"`, `A2A_VERSION_HEADER = "A2A-Version"`, `A2A_CONTENT_TYPE = "application/a2a+json"`, and `A2A_AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent-card.json"`.
+
+Version and media handling:
+
+- Outbound A2A task, discovery, onboarding, and connector-runtime calls send `A2A-Version: 1.0` and `Accept: application/a2a+json`; requests with bodies send `Content-Type: application/a2a+json`.
+- Missing inbound `A2A-Version` stays allowed for legacy/internal clients.
+- Explicit `A2A-Version: 1.0` is allowed.
+- Any other explicit version returns `unsupported_a2a_version` with `taskExecuted: false`; it does not execute a task or expose prompts, tokens, secrets, Authorization headers, private keys, client assertions, or protected metadata.
+
+Governance does not move into protocol metadata. Ogen policy remains authority, verified identity and Gateway RBAC remain authority, client tenant hints remain hints only, and `/runtime/authorize` remains authorization-only and does not execute runtime.
 
 ### Phase 3  Connector SDK
 
@@ -957,6 +1022,7 @@ V2 verification should layer new checks without weakening V1:
 - `npm run verify:platform-db-migrations`
 - `npm run verify:user-directory-access-gate`
 - `npm run verify:audit-viewer-boundary`
+- `npm run verify:a2a-protocol-compatibility`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
 - Phase 2.6 adds the first opt-in Postgres schema and `PostgresPlatformStateStore`; Phase 2.19 verifies tenant-scoped persisted audit viewer reads, and Phase 2.19c verifies indexed outcome/severity pagination
 - future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
@@ -1041,6 +1107,10 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.19c: materialize Ogen-derived outcome/severity for indexed audit reads
 - [ ] Phase 2.19c: keep filtered cursor pagination stable through the classification index
 - [ ] Phase 2.19c: preserve bounded-scan fallback errors for stores without the indexed read contract
+- [ ] Phase 2.19d: document operator-controlled `CREATE INDEX CONCURRENTLY IF NOT EXISTS` rollout for large audit tables
+- [ ] Phase 2.20a: expose `/.well-known/agent-card.json` beside legacy `/agent-card`
+- [ ] Phase 2.20a: send `A2A-Version: 1.0` and `application/a2a+json` on outbound A2A calls
+- [ ] Phase 2.20a: reject unsupported explicit inbound A2A versions without task execution
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users
