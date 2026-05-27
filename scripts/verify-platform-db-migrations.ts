@@ -66,6 +66,16 @@ function blockBetween(source: string, startMarker: string, endMarker: string): s
   return end < 0 ? source.slice(start) : source.slice(start, end);
 }
 
+function validSchemaName(value: string): boolean {
+  return /^[a-z][a-z0-9_]{0,62}$/.test(value);
+}
+
+function databaseUrlWithSearchPath(databaseUrl: string, schemaName: string): string {
+  const parsed = new URL(databaseUrl);
+  parsed.searchParams.set("options", `-c search_path=${schemaName}`);
+  return parsed.toString();
+}
+
 function verifyStatic(): void {
   const migrationsDir = join(process.cwd(), "services", "orchestrator-api", "db", "migrations");
   if (!existsSync(migrationsDir)) {
@@ -92,7 +102,8 @@ function verifyStatic(): void {
   const ownerHash = read("services/orchestrator-api/db/migrations/002_connector_trust_owner_hash.sql");
   const userDirectory = read("services/orchestrator-api/db/migrations/003_user_directory_access_gate.sql");
   const auditClassification = read("services/orchestrator-api/db/migrations/004_audit_event_classification_index.sql");
-  const allMigrations = `${initial}\n${ownerHash}\n${userDirectory}\n${auditClassification}`;
+  const auditClassificationContract = read("services/orchestrator-api/db/contract-migrations/005_audit_event_classification_contract.sql");
+  const allMigrations = `${initial}\n${ownerHash}\n${userDirectory}\n${auditClassification}\n${auditClassificationContract}`;
   const runner = read("scripts/apply-platform-migrations.ts");
   const packageJson = read("package.json");
   const platformDocs = read("docs/v2-platform-foundation.md");
@@ -151,14 +162,36 @@ function verifyStatic(): void {
   for (const phrase of [
     "add column if not exists outcome text",
     "add column if not exists severity text",
+    "audit_event_outcome_for_event_type",
+    "audit_event_severity_for_event_type",
+    "audit_events_materialize_classification",
+    "audit_events_materialize_classification_trigger",
+    "coalesce(outcome, audit_event_outcome_for_event_type(event_type))",
+    "coalesce(severity, audit_event_severity_for_event_type(event_type))",
     "audit_events_outcome_check",
     "audit_events_severity_check",
+    "not valid",
+    "validate constraint audit_events_outcome_check",
+    "validate constraint audit_events_severity_check",
     "audit_events_tenant_created_at_id_idx",
     "audit_events_tenant_outcome_created_at_id_idx",
     "audit_events_tenant_severity_created_at_id_idx",
     "audit_events_tenant_outcome_severity_created_at_id_idx"
   ]) {
     requireIncludes(auditClassification, phrase, "audit classification migration creates materialized read model");
+  }
+  for (const forbidden of [
+    "alter column outcome set not null",
+    "alter column severity set not null"
+  ]) {
+    requireNotIncludes(auditClassification, forbidden, "audit classification expand migration remains rolling-safe");
+  }
+  for (const phrase of [
+    "null outcome/severity rows remain",
+    "alter column outcome set not null",
+    "alter column severity set not null"
+  ]) {
+    requireIncludes(auditClassificationContract, phrase, "audit classification contract migration enforces only after validation");
   }
 
   requireIncludes(runner, "platform_schema_migrations", "migration runner creates tracking table");
@@ -199,6 +232,16 @@ function verifyStatic(): void {
   ]) {
     requireIncludes(platformDocs, phrase, "platform docs cover versioned migrations");
   }
+  for (const phrase of [
+    "Phase 2.19c rolling-safe rollout",
+    "Step A: run the expand migration",
+    "Step B: deploy the new app version",
+    "Step C: validate no null classifications remain",
+    "Step D: run the contract migration"
+  ]) {
+    requireIncludes(platformDocs, phrase, "platform docs cover audit classification expand/contract rollout");
+    requireIncludes(deploymentDocs, phrase, "deployment docs cover audit classification expand/contract rollout");
+  }
 
   for (const phrase of [
     "npm.cmd run db:apply-platform-migrations",
@@ -214,10 +257,28 @@ function verifyStatic(): void {
 }
 
 async function verifyRuntimeIfConfigured(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL?.trim();
+  let databaseUrl = process.env.DATABASE_URL?.trim();
   if (!databaseUrl) {
     console.log("DATABASE_URL not set; skipping migration integration check.");
     return;
+  }
+
+  const verificationSchema = process.env.PLATFORM_DB_MIGRATION_VERIFY_SCHEMA?.trim();
+  if (verificationSchema) {
+    if (!validSchemaName(verificationSchema)) {
+      fail("PLATFORM_DB_MIGRATION_VERIFY_SCHEMA must be a lowercase identifier with letters, numbers, or underscores.");
+      return;
+    }
+    const adminPool = new Pool({
+      connectionString: databaseUrl,
+      ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined
+    });
+    try {
+      await adminPool.query(`create schema if not exists "${verificationSchema}"`);
+    } finally {
+      await adminPool.end();
+    }
+    databaseUrl = databaseUrlWithSearchPath(databaseUrl, verificationSchema);
   }
 
   const command = process.platform === "win32" ? "cmd.exe" : "npm";
@@ -226,7 +287,10 @@ async function verifyRuntimeIfConfigured(): Promise<void> {
     : ["run", "db:apply-platform-migrations"];
   const result = spawnSync(command, args, {
     stdio: "inherit",
-    env: process.env
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseUrl
+    }
   });
   if (result.status !== 0) {
     fail("db:apply-platform-migrations should succeed when DATABASE_URL is set");
@@ -339,6 +403,163 @@ async function verifyRuntimeIfConfigured(): Promise<void> {
       fail("platform migrations should not create forbidden token/password columns");
     } else {
       ok("runtime schema has no forbidden token/password columns");
+    }
+
+    const classificationTrigger = await pool.query<{ tgname: string }>(
+      `
+        select tgname
+        from pg_trigger
+        where tgrelid = 'audit_events'::regclass
+          and tgname = 'audit_events_materialize_classification_trigger'
+          and not tgisinternal
+      `
+    );
+    if (!classificationTrigger.rowCount) {
+      fail("audit_events materialized classification trigger should exist after expand migration");
+    } else {
+      ok("audit_events materialized classification trigger exists after expand migration");
+    }
+
+    const classificationFunctions = await pool.query<{ proname: string }>(
+      `
+        select proname
+        from pg_proc
+        where proname = any($1::text[])
+      `,
+      [[
+        "audit_event_outcome_for_event_type",
+        "audit_event_severity_for_event_type",
+        "audit_events_materialize_classification"
+      ]]
+    );
+    const functionNames = new Set(classificationFunctions.rows.map((row) => row.proname));
+    for (const functionName of [
+      "audit_event_outcome_for_event_type",
+      "audit_event_severity_for_event_type",
+      "audit_events_materialize_classification"
+    ]) {
+      if (!functionNames.has(functionName)) {
+        fail(`${functionName} should exist after expand migration`);
+      } else {
+        ok(`${functionName} exists after expand migration`);
+      }
+    }
+
+    const existingNullClassifications = await pool.query<{ count: string }>(
+      `
+        select count(*)::text as count
+        from audit_events
+        where outcome is null
+           or severity is null
+      `
+    );
+    if (existingNullClassifications.rows[0]?.count !== "0") {
+      fail("audit_events backfill should leave no null classification rows before contract migration");
+    } else {
+      ok("audit_events backfill leaves no null classification rows before contract migration");
+    }
+
+    if (process.env.POSTGRES_RESTART_SMOKE_ALLOW_WRITE !== "true") {
+      console.log("POSTGRES_RESTART_SMOKE_ALLOW_WRITE is not true; skipping audit classification migration write smoke.");
+      return;
+    }
+
+    const suffix = `verify_audit_classification_${Date.now()}_${process.pid}`;
+    const tenantId = `${suffix}_tenant`;
+    const otherTenantId = `${suffix}_other_tenant`;
+    const oldBlockedA = `${suffix}_blocked_a`;
+    const oldBlockedC = `${suffix}_blocked_c`;
+    const newFailure = `${suffix}_failure_new_writer`;
+    const otherTenantBlocked = `${suffix}_other_tenant_blocked`;
+    const insertedIds = [oldBlockedA, oldBlockedC, newFailure, otherTenantBlocked];
+    try {
+      await pool.query(
+        `insert into audit_events (
+          id, tenant_id, actor_provider, actor_subject, actor_email, event_type,
+          resource_type, resource_id, created_at, safe_metadata
+        ) values ($1, $2, 'verify', 'old-writer-subject', 'verify@example.test', 'security.request.blocked',
+          'verify', $1, '2026-01-01T00:00:01.000Z', $3::jsonb)`,
+        [oldBlockedA, tenantId, JSON.stringify({ verify: true, protectedMaterialExposed: false, tokenMaterialStored: false, rawPromptStored: false })]
+      );
+      await pool.query(
+        `insert into audit_events (
+          id, tenant_id, actor_provider, actor_subject, actor_email, event_type,
+          resource_type, resource_id, created_at, safe_metadata
+        ) values ($1, $2, 'verify', 'old-writer-subject', 'verify@example.test', 'gateway.authorization.denied',
+          'verify', $1, '2026-01-01T00:00:01.000Z', $3::jsonb)`,
+        [oldBlockedC, tenantId, JSON.stringify({ verify: true, protectedMaterialExposed: false, tokenMaterialStored: false, rawPromptStored: false })]
+      );
+      await pool.query(
+        `insert into audit_events (
+          id, tenant_id, actor_provider, actor_subject, actor_email, event_type,
+          resource_type, resource_id, created_at, outcome, severity, safe_metadata
+        ) values ($1, $2, 'verify', 'new-writer-subject', 'verify@example.test', 'connector.runtime.failed',
+          'verify', $1, '2026-01-01T00:00:02.000Z', 'failure', 'medium', $3::jsonb)`,
+        [newFailure, tenantId, JSON.stringify({ verify: true, protectedMaterialExposed: false, tokenMaterialStored: false, rawPromptStored: false })]
+      );
+      await pool.query(
+        `insert into audit_events (
+          id, tenant_id, actor_provider, actor_subject, actor_email, event_type,
+          resource_type, resource_id, created_at, safe_metadata
+        ) values ($1, $2, 'verify', 'other-subject', 'verify@example.test', 'tenant.access.denied',
+          'verify', $1, '2026-01-01T00:00:03.000Z', $3::jsonb)`,
+        [otherTenantBlocked, otherTenantId, JSON.stringify({ verify: true, protectedMaterialExposed: false, tokenMaterialStored: false, rawPromptStored: false })]
+      );
+
+      const inserted = await pool.query<{ id: string; outcome: string | null; severity: string | null }>(
+        `
+          select id, outcome, severity
+          from audit_events
+          where id = any($1::text[])
+          order by id
+        `,
+        [insertedIds]
+      );
+      const byId = new Map(inserted.rows.map((row) => [row.id, row]));
+      if (byId.get(oldBlockedA)?.outcome !== "blocked" || byId.get(oldBlockedA)?.severity !== "high") {
+        fail("old-writer-style insert should be classified by DB fallback");
+      } else {
+        ok("old-writer-style insert is classified by DB fallback");
+      }
+      if (byId.get(newFailure)?.outcome !== "failure" || byId.get(newFailure)?.severity !== "medium") {
+        fail("new-writer-style insert should preserve explicit app classification");
+      } else {
+        ok("new-writer-style insert preserves explicit app classification");
+      }
+
+      const nullClassifications = await pool.query<{ count: string }>(
+        `
+          select count(*)::text as count
+          from audit_events
+          where id = any($1::text[])
+            and (outcome is null or severity is null)
+        `,
+        [insertedIds]
+      );
+      if (nullClassifications.rows[0]?.count !== "0") {
+        fail("expand migration should leave no null classifications for old or new writer rows");
+      } else {
+        ok("expand migration leaves no null classifications for old or new writer rows");
+      }
+
+      const orderedBlocked = await pool.query<{ id: string }>(
+        `
+          select id
+          from audit_events
+          where tenant_id = $1
+            and outcome = 'blocked'
+          order by created_at desc, id desc
+        `,
+        [tenantId]
+      );
+      const orderedBlockedIds = orderedBlocked.rows.map((row) => row.id).join(",");
+      if (orderedBlockedIds !== `${oldBlockedC},${oldBlockedA}`) {
+        fail("classification-filtered reads should stay tenant-scoped and ordered by created_at desc, id desc");
+      } else {
+        ok("classification-filtered reads stay tenant-scoped and ordered by created_at desc, id desc");
+      }
+    } finally {
+      await pool.query("delete from audit_events where id = any($1::text[])", [insertedIds]);
     }
   } finally {
     await pool.end();

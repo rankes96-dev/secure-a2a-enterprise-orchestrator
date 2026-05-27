@@ -44,8 +44,8 @@ type DbAuditEvent = QueryResultRow & {
   resource_type: string | null;
   resource_id: string | null;
   created_at: Date | string;
-  outcome: ReturnType<typeof outcomeForEventType>;
-  severity: ReturnType<typeof severityForEventType>;
+  outcome: ReturnType<typeof outcomeForEventType> | null;
+  severity: ReturnType<typeof severityForEventType> | null;
   safe_metadata: unknown;
 };
 
@@ -147,8 +147,8 @@ function auditEventFromRow(row: DbAuditEvent): StoredAuditEvent {
     resourceType: optional(row.resource_type),
     resourceId: optional(row.resource_id),
     createdAt: iso(row.created_at),
-    outcome: row.outcome,
-    severity: row.severity,
+    outcome: row.outcome ?? outcomeForEventType(row.event_type),
+    severity: row.severity ?? severityForEventType(row.event_type),
     safeMetadata: recordFromJson(row.safe_metadata)
   };
 }

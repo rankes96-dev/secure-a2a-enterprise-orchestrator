@@ -624,6 +624,13 @@ The fallback bounded scan remains available only for custom stores that do not e
 
 Trust boundaries remain unchanged. The classification index is produced by Ogen policy/classification code, never by AI interpretation or client-supplied classification fields. Reads remain scoped to the resolved tenant and require `audit.read` based on verified identity roles. The response projection and any structured errors continue to exclude raw prompts, tokens, secrets, actor subject, Authorization headers, cookies, JWTs, private keys, client assertions, client secrets, and stored metadata payloads.
 
+Phase 2.19c rolling-safe rollout:
+
+- Step A: run the expand migration `004_audit_event_classification_index.sql`. It adds nullable `outcome` and `severity` columns, installs deterministic DB fallback classification from `event_type`, backfills existing rows, validates safe value constraints, and creates the classification indexes. It does not enforce `NOT NULL`.
+- Step B: deploy the new app version. Old app instances that omit `outcome`/`severity` continue to write audit rows because the DB trigger fills them; new app instances write explicit Ogen-derived classifications.
+- Step C: validate no null classifications remain and backfill complete with `select count(*) from audit_events where outcome is null or severity is null;` and run the audit viewer verification before contract enforcement.
+- Step D: run the contract migration `services/orchestrator-api/db/contract-migrations/005_audit_event_classification_contract.sql` only after all app instances are upgraded and Step C returns zero rows. This is the later `NOT NULL` enforcement step and is intentionally outside the default migration runner path.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.

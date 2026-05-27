@@ -84,6 +84,7 @@ const paginationPath = "services/orchestrator-api/src/audit/auditViewerPaginatio
 const schemaPath = "services/orchestrator-api/src/http/schemas/auditViewerSchemas.ts";
 const dbSchemaPath = "services/orchestrator-api/db/schema.sql";
 const auditClassificationMigrationPath = "services/orchestrator-api/db/migrations/004_audit_event_classification_index.sql";
+const auditClassificationContractMigrationPath = "services/orchestrator-api/db/contract-migrations/005_audit_event_classification_contract.sql";
 const policyPath = "services/orchestrator-api/src/authorization/gatewayAuthorizationPolicy.ts";
 const storeTypesPath = "services/orchestrator-api/src/state/platformStateStore.ts";
 const memoryStorePath = "services/orchestrator-api/src/state/inMemoryPlatformStateStore.ts";
@@ -103,6 +104,7 @@ const pagination = read(paginationPath);
 const schema = read(schemaPath);
 const dbSchema = read(dbSchemaPath);
 const auditClassificationMigration = read(auditClassificationMigrationPath);
+const auditClassificationContractMigration = read(auditClassificationContractMigrationPath);
 const policy = read(policyPath);
 const storeTypes = read(storeTypesPath);
 const memoryStore = read(memoryStorePath);
@@ -324,6 +326,15 @@ for (const phrase of [
 for (const phrase of [
   "outcome text",
   "severity text",
+  "audit_event_outcome_for_event_type",
+  "audit_event_severity_for_event_type",
+  "audit_events_materialize_classification",
+  "audit_events_materialize_classification_trigger",
+  "coalesce(outcome, audit_event_outcome_for_event_type(event_type))",
+  "coalesce(severity, audit_event_severity_for_event_type(event_type))",
+  "not valid",
+  "validate constraint audit_events_outcome_check",
+  "validate constraint audit_events_severity_check",
   "audit_events_tenant_created_at_id_idx",
   "audit_events_tenant_outcome_created_at_id_idx",
   "audit_events_tenant_severity_created_at_id_idx",
@@ -331,6 +342,20 @@ for (const phrase of [
 ]) {
   requireIncludes(dbSchema, phrase, "platform schema includes indexed audit classification read model");
   requireIncludes(auditClassificationMigration, phrase, "audit classification migration includes indexed read model");
+}
+for (const forbidden of [
+  "alter column outcome set not null",
+  "alter column severity set not null"
+]) {
+  requireExcludes(dbSchema, forbidden, "default platform schema keeps audit classification migration expand-only");
+  requireExcludes(auditClassificationMigration, forbidden, "audit classification migration keeps expand-only rolling compatibility");
+}
+for (const phrase of [
+  "null outcome/severity rows remain",
+  "alter column outcome set not null",
+  "alter column severity set not null"
+]) {
+  requireIncludes(auditClassificationContractMigration, phrase, "audit classification contract migration is separate from default expand migration");
 }
 for (const forbidden of ["offset?: number", "offset $", "offsetValue"]) {
   requireExcludes(storeTypes, forbidden, "platform state audit list avoids offset pagination");
@@ -419,6 +444,9 @@ for (const phrase of [
   "materialized outcome/severity",
   "Phase 2.19c  Indexed Audit Read Model for Outcome/Severity Filters",
   "classification index",
+  "Phase 2.19c rolling-safe rollout",
+  "Step A: run the expand migration",
+  "Step D: run the contract migration",
   "operator-safe diagnostics",
   "no raw prompt, token, secret, or stored metadata payload",
   "tenant.access.denied remains blocked"
@@ -433,6 +461,9 @@ for (const phrase of [
   "audit_events_filter_scan_limit_exceeded",
   "materialized outcome/severity",
   "classification index",
+  "Phase 2.19c rolling-safe rollout",
+  "Step A: run the expand migration",
+  "Step D: run the contract migration",
   "CSRF cookie follows session SameSite"
 ]) {
   requireIncludes(deploymentDocs, phrase, "deployment docs cover persisted audit viewer and cross-site cookies");

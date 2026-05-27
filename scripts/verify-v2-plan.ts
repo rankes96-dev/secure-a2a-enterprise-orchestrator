@@ -49,6 +49,7 @@ if (!existsSync(path)) {
     "Phase 2.19  Persisted Audit Viewer (MVP)",
     "Phase 2.19b  Audit Viewer Scale & Operability Hardening",
     "Phase 2.19c  Indexed Audit Read Model for Outcome/Severity Filters",
+    "Phase 2.19c rolling-safe rollout",
     "GET `/audit/events`",
     "`audit.read`",
     "audit_events_filter_scan_limit_exceeded",
