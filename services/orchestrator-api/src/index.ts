@@ -5066,11 +5066,7 @@ async function start(): Promise<void> {
       query
     });
     if (!auditPage.ok) {
-      sendJson(response, auditPage.status, {
-        error: auditPage.error,
-        message: auditPage.message,
-        scanLimit: auditPage.scanLimit
-      }, request);
+      sendJson(response, auditPage.status, auditPage.body, request);
       return;
     }
 

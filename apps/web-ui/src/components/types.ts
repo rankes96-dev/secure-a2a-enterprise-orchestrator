@@ -163,6 +163,7 @@ export type ExtractedScreenContext = Record<string, unknown> & {
   visibleSecurityTimelineEvents: SecurityTimelineEvent[];
   auditEventsResponse: AuditEventsResponse | null;
   auditEventsError: string;
+  auditEventsGuidance: string[];
   isAuditEventsLoading: boolean;
   loadAuditEvents: (filters?: AuditViewerFilters) => Promise<void>;
   demoUserOptions: DemoUserOption[];

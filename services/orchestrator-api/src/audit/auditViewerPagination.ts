@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type {
   AuditEventOutcome,
   AuditEventSeverity,
+  AuditEventsErrorResponse,
+  AuditEventsScanLimitDiagnostics,
   AuditEventsResponse,
   AuditViewerEvent
 } from "@a2a/shared";
@@ -22,7 +24,7 @@ export type AuditEventsPageQuery = {
 
 export type AuditViewerPageResult =
   | { ok: true; body: AuditEventsResponse }
-  | { ok: false; status: 400 | 422; error: string; message: string; scanLimit?: number };
+  | { ok: false; status: 400 | 422; body: AuditEventsErrorResponse };
 
 type AuditEventsCursorPayload = {
   v: 1;
@@ -33,6 +35,11 @@ type AuditEventsCursorPayload = {
 
 const auditViewerSourceBatchLimit = 250;
 export const auditViewerDerivedFilterScanLimit = 5_000;
+export const auditViewerScanLimitGuidance = [
+  "Narrow the time window with from/to.",
+  "Add an event type or conversation filter when possible.",
+  "Reduce the page limit for very sparse outcome or severity searches."
+];
 
 const protectedSummaryMarkers = [
   "access_token",
@@ -100,6 +107,36 @@ function filterHash(tenantId: string, query: AuditEventsPageQuery): string {
     to: query.to ?? null,
     conversationId: query.conversationId ?? null
   })).digest("hex");
+}
+
+function scanLimitDiagnostics(params: {
+  query: AuditEventsPageQuery;
+  filterHash: string;
+  scannedRows: number;
+  matchedRows: number;
+  scanLimit: number;
+}): AuditEventsScanLimitDiagnostics {
+  return {
+    scannedRows: params.scannedRows,
+    scanLimit: params.scanLimit,
+    matchedRows: params.matchedRows,
+    requestedLimit: params.query.limit,
+    appliedFilterHash: params.filterHash,
+    appliedFilters: {
+      eventType: Boolean(params.query.eventType),
+      outcome: params.query.outcome,
+      severity: params.query.severity,
+      from: Boolean(params.query.from),
+      to: Boolean(params.query.to),
+      conversationId: Boolean(params.query.conversationId)
+    },
+    classificationStrategy: "derived_bounded_scan",
+    futureClassificationStrategy: "materialized_outcome_severity_index",
+    classificationIndexAvailable: false,
+    protectedMaterialExposed: false,
+    tokenMaterialStored: false,
+    rawPromptStored: false
+  };
 }
 
 function encodeAuditEventsCursor(payload: AuditEventsCursorPayload): string {
@@ -193,16 +230,20 @@ export async function listAuditViewerEventsPage(params: {
     return {
       ok: false,
       status: 400,
-      error: "invalid_audit_events_cursor",
-      message: "Invalid audit events cursor."
+      body: {
+        error: "invalid_audit_events_cursor",
+        message: "Invalid audit events cursor."
+      }
     };
   }
   if (decodedCursor && decodedCursor.filterHash !== currentFilterHash) {
     return {
       ok: false,
       status: 400,
-      error: "audit_events_cursor_filter_mismatch",
-      message: "Audit events cursor does not match the current tenant or filters."
+      body: {
+        error: "audit_events_cursor_filter_mismatch",
+        message: "Audit events cursor does not match the current tenant or filters."
+      }
     };
   }
 
@@ -260,9 +301,18 @@ export async function listAuditViewerEventsPage(params: {
     return {
       ok: false,
       status: 422,
-      error: "audit_events_filter_scan_limit_exceeded",
-      message: "Audit filters matched too sparsely to page safely within the bounded scan limit. Narrow the time window or event type and retry.",
-      scanLimit
+      body: {
+        error: "audit_events_filter_scan_limit_exceeded",
+        message: "Audit filters matched too sparsely to page safely within the bounded scan limit. Narrow the time window or event type and retry.",
+        guidance: auditViewerScanLimitGuidance,
+        diagnostics: scanLimitDiagnostics({
+          query,
+          filterHash: currentFilterHash,
+          scannedRows: scannedSourceRows,
+          matchedRows: matches.length,
+          scanLimit
+        })
+      }
     };
   }
 

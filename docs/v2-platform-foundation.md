@@ -608,6 +608,14 @@ The response is a schema-first projection of stored audit events: time, event ty
 
 Audit classification stays consistent with the export boundary. Blocked events remain blocked in the viewer, and tenant.access.denied remains blocked with warning-or-higher severity. The UI adds a read-only persisted audit table inside Security Timeline; per-capability 403s remain local to that panel instead of changing account access state.
 
+### Phase 2.19b  Audit Viewer Scale & Operability Hardening
+
+The bounded-scan audit viewer behavior is intentionally retained for derived `outcome` and `severity` filters. These classifications are Gateway-derived from event type and safe event metadata, not client-provided authority. The current read path scans deterministic `createdAt desc, id desc` source batches inside the cursor snapshot until it finds `limit + 1` matching projected events or exhausts the source window.
+
+If a sparse derived filter reaches the bounded scan limit first, `GET /audit/events` returns `422 audit_events_filter_scan_limit_exceeded`. The error response includes operator-safe diagnostics only: source rows scanned, scan limit, matched row count, requested limit, an applied-filter hash, a boolean filter summary, and the current classification strategy. It does not return stored `safe_metadata`, raw prompts, tokens, secrets, actor subject, Authorization headers, cookies, JWTs, private keys, client assertions, or client secrets. Operators should narrow sparse queries with a time range, event type, conversation ID, or smaller page limit before retrying.
+
+The forward scale path is a persisted Gateway classification index, such as materialized outcome/severity columns or an equivalent tenant-scoped read model keyed by `(tenant_id, outcome, severity, created_at desc, id desc)`. That future optimization must be produced by Ogen-controlled classification logic at write time or migration time, not by AI interpretation or client-supplied fields. It must preserve the same cursor snapshot semantics, tenant isolation, `audit.read` RBAC, and no-secrets projection boundary.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
@@ -1012,6 +1020,9 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.19: expose `GET /audit/events` behind verified session `audit.read`
 - [ ] Phase 2.19: keep audit viewer reads tenant-scoped to Ogen-resolved tenant context
 - [ ] Phase 2.19: project persisted audit events without raw prompt, token, secret, or stored metadata payload
+- [ ] Phase 2.19b: return safe `audit_events_filter_scan_limit_exceeded` guidance for sparse derived filters
+- [ ] Phase 2.19b: keep scan-limit diagnostics operator-safe and free of stored metadata or protected material
+- [ ] Phase 2.19b: define future materialized outcome/severity index path without trusting AI or client classification
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

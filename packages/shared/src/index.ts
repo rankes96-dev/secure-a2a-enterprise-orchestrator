@@ -836,11 +836,36 @@ export type AuditEventsFilters = {
   conversationId?: string;
 };
 
-export type AuditEventsRequest = {
+export type AuditClassificationStrategy =
+  | "derived_bounded_scan"
+  | "materialized_outcome_severity_index";
+
+export type AuditEventsScanLimitDiagnostics = {
+  scannedRows: number;
+  scanLimit: number;
+  matchedRows: number;
+  requestedLimit: number;
+  appliedFilterHash: string;
+  appliedFilters: {
+    eventType: boolean;
+    outcome?: AuditEventOutcome;
+    severity?: AuditEventSeverity;
+    from: boolean;
+    to: boolean;
+    conversationId: boolean;
+  };
+  classificationStrategy: Extract<AuditClassificationStrategy, "derived_bounded_scan">;
+  futureClassificationStrategy: Extract<AuditClassificationStrategy, "materialized_outcome_severity_index">;
+  classificationIndexAvailable: false;
+  protectedMaterialExposed: false;
+  tokenMaterialStored: false;
+  rawPromptStored: false;
+};
+
+export type AuditEventsRequest = AuditEventsFilters & {
   cursor?: string;
   limit?: number;
   tenantId?: string;
-  filters?: AuditEventsFilters;
 };
 
 export type AuditEventsResponse = {
@@ -856,6 +881,13 @@ export type AuditEventsResponse = {
     tokenMaterialStored: false;
     rawPromptStored: false;
   };
+};
+
+export type AuditEventsErrorResponse = {
+  error: string;
+  message: string;
+  guidance?: string[];
+  diagnostics?: AuditEventsScanLimitDiagnostics;
 };
 
 export interface ResolveRequest {

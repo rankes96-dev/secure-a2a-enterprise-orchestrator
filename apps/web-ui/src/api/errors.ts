@@ -1,4 +1,21 @@
-export type ApiErrorBody = { error?: string; message?: string; details?: string[]; limit?: number };
+export type ApiErrorBody = {
+  error?: string;
+  message?: string;
+  details?: string[];
+  guidance?: string[];
+  limit?: number;
+  scanLimit?: number;
+  diagnostics?: {
+    scannedRows?: number;
+    scanLimit?: number;
+    matchedRows?: number;
+    requestedLimit?: number;
+    appliedFilterHash?: string;
+    classificationStrategy?: string;
+    futureClassificationStrategy?: string;
+    classificationIndexAvailable?: boolean;
+  };
+};
 
 export const directoryAccessDeniedMessage = "Access denied. Your user is not enabled for this gateway.";
 

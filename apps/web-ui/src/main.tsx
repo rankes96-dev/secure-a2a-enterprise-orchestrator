@@ -7,7 +7,7 @@ import { buildLocalConnectorPresets } from "./connectorPresets";
 import { cleanAuth0CallbackUrl, completeAuth0Redirect, discardAuth0RedirectResult, isAuth0CallbackRoute, startAuth0LoginRedirect } from "./auth/auth0Client";
 import { frontendAuthProviderLabel, readFrontendAuthConfig } from "./auth/authConfig";
 import { postBearerIdentitySession, postIdentityLogout, postMockDemoLogin } from "./auth/mockAuthClient";
-import { fetchAuditEvents } from "./api/auditEvents";
+import { loadPersistedAuditEvents } from "./api/auditEvents";
 import { csrfHeaders } from "./api/csrf";
 import { apiErrorMessage, directoryAccessDeniedMessage, friendlyApiError, isDirectoryAccessDenied, readApiErrorPayload } from "./api/errors";
 import { createBrowserSession } from "./api/session";
@@ -1708,6 +1708,7 @@ function App() {
   const [securityTimelineFilter, setSecurityTimelineFilter] = useState<SecurityTimelineFilter>("all");
   const [auditEventsResponse, setAuditEventsResponse] = useState<AuditEventsResponse | null>(null);
   const [auditEventsError, setAuditEventsError] = useState("");
+  const [auditEventsGuidance, setAuditEventsGuidance] = useState<string[]>([]);
   const [isAuditEventsLoading, setIsAuditEventsLoading] = useState(false);
   const [pendingFocusTarget, setPendingFocusTarget] = useState<GuidedFocusTarget | null>(null);
   const [guidedStatus, setGuidedStatus] = useState("");
@@ -2255,19 +2256,23 @@ function App() {
 
   async function loadAuditEvents(filters: AuditViewerFilters = {}) {
     setAuditEventsError("");
+    setAuditEventsGuidance([]);
     setIsAuditEventsLoading(true);
     try {
-      await ensureSession();
-      const response = await fetchAuditEvents(API_URL, filters, {
-        limit: auditEventsResponse?.limit ?? 25
+      const result = await loadPersistedAuditEvents({
+        apiUrl: API_URL, filters,
+        defaultLimit: auditEventsResponse?.limit ?? 25, ensureSession, handleProtectedResponse
       });
-      if (!await handleProtectedResponse(response, "Failed to load persisted audit events")) {
-        return;
+      if (result.kind === "loaded") setAuditEventsResponse(result.response);
+      if (result.kind === "scan_limit") {
+        setAuditEventsResponse(null);
+        setAuditEventsError(result.message);
+        setAuditEventsGuidance(result.guidance);
       }
-      setAuditEventsResponse((await response.json()) as AuditEventsResponse);
     } catch (caughtError) {
       setAuditEventsResponse(null);
       setAuditEventsError(caughtError instanceof Error ? caughtError.message : "Failed to load persisted audit events");
+      setAuditEventsGuidance([]);
     } finally {
       setIsAuditEventsLoading(false);
     }
@@ -2746,7 +2751,7 @@ function App() {
     expandedInstalledAgentIds, setExpandedInstalledAgentIds, selectedInstalledConnectorTemplateId, setSelectedInstalledConnectorTemplateId,
     isZeroTrustDiscovering, isZeroTrustOnboarding, identitySession, trustStatus, selectedDemoUserEmail, setSelectedDemoUserEmail,
     identityError, identityMessage, isIdentityLoading, securityTimelineFilter, setSecurityTimelineFilter,
-    auditEventsResponse, auditEventsError, isAuditEventsLoading, loadAuditEvents, guidedStatus,
+    auditEventsResponse, auditEventsError, auditEventsGuidance, isAuditEventsLoading, loadAuditEvents, guidedStatus,
     demoGuideRootRef, runTaskRootRef, composerRef, taskTextareaRef, gatewayResponseRef, securitySummaryRef, trustIdentityRootRef,
     loginPanelRef, demoUserSelectRef, loginButtonRef, agentRegistryRootRef, connectorCatalogRef, zeroTrustOnboardingRef,
     registeredAgentsRef, legacyAgentsRef, connectorTestCenterRootRef, securityTimelineRootRef, timelineListRef,

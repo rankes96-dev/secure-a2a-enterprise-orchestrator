@@ -6699,6 +6699,27 @@ summary:focus-visible,
   align-items: center;
 }
 
+.audit-scan-limit-guidance {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  font-size: 13px;
+}
+
+.audit-scan-limit-guidance p,
+.audit-scan-limit-guidance ul {
+  margin: 0;
+}
+
+.audit-scan-limit-guidance ul {
+  padding-left: 18px;
+}
+
 .audit-viewer-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border-soft);

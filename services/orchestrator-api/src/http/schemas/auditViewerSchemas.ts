@@ -119,3 +119,61 @@ export const auditEventsResponseSchema = {
     }
   }
 } as const;
+
+export const auditEventsErrorResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["error", "message"],
+  properties: {
+    error: { type: "string" },
+    message: { type: "string" },
+    guidance: {
+      type: "array",
+      items: { type: "string" }
+    },
+    diagnostics: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "scannedRows",
+        "scanLimit",
+        "matchedRows",
+        "requestedLimit",
+        "appliedFilterHash",
+        "appliedFilters",
+        "classificationStrategy",
+        "futureClassificationStrategy",
+        "classificationIndexAvailable",
+        "protectedMaterialExposed",
+        "tokenMaterialStored",
+        "rawPromptStored"
+      ],
+      properties: {
+        scannedRows: { type: "integer", minimum: 0 },
+        scanLimit: { type: "integer", minimum: 1 },
+        matchedRows: { type: "integer", minimum: 0 },
+        requestedLimit: { type: "integer", minimum: 1, maximum: 100 },
+        appliedFilterHash: { type: "string" },
+        appliedFilters: {
+          type: "object",
+          additionalProperties: false,
+          required: ["eventType", "from", "to", "conversationId"],
+          properties: {
+            eventType: { type: "boolean" },
+            outcome: auditEventOutcomeSchema,
+            severity: auditEventSeveritySchema,
+            from: { type: "boolean" },
+            to: { type: "boolean" },
+            conversationId: { type: "boolean" }
+          }
+        },
+        classificationStrategy: { const: "derived_bounded_scan" },
+        futureClassificationStrategy: { const: "materialized_outcome_severity_index" },
+        classificationIndexAvailable: { const: false },
+        protectedMaterialExposed: { const: false },
+        tokenMaterialStored: { const: false },
+        rawPromptStored: { const: false }
+      }
+    }
+  }
+} as const;

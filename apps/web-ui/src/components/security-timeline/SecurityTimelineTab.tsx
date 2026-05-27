@@ -106,6 +106,7 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
     securityTimelineFilters,
     auditEventsResponse,
     auditEventsError,
+    auditEventsGuidance,
     isAuditEventsLoading,
     loadAuditEvents,
     securityTimelineRootRef,
@@ -301,7 +302,16 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
           </div>
         </form>
 
-        {auditEventsError ? <p className="inline-error">{auditEventsError}</p> : null}
+        {auditEventsError ? (
+          <div className="inline-error audit-scan-limit-guidance">
+            <p>{auditEventsError}</p>
+            {auditEventsGuidance.length ? (
+              <ul>
+                {auditEventsGuidance.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="audit-viewer-table-wrap">
           <table className="audit-viewer-table">

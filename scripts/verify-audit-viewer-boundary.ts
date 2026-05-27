@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { AuditEvents } from "../services/orchestrator-api/src/audit/auditEvents.js";
 import {
   auditViewerDerivedFilterScanLimit,
+  auditViewerScanLimitGuidance,
   listAuditViewerEventsPage
 } from "../services/orchestrator-api/src/audit/auditViewerPagination.js";
 import { evaluateGatewayAuthorization } from "../services/orchestrator-api/src/authorization/gatewayAuthorization.js";
@@ -83,6 +84,8 @@ const postgresStorePath = "services/orchestrator-api/src/state/postgresPlatformS
 const securityTimelinePath = "apps/web-ui/src/components/security-timeline/SecurityTimelineTab.tsx";
 const frontendMainPath = "apps/web-ui/src/main.tsx";
 const frontendAuditApiPath = "apps/web-ui/src/api/auditEvents.ts";
+const frontendTypesPath = "apps/web-ui/src/components/types.ts";
+const frontendStylesPath = "apps/web-ui/src/styles.css";
 const platformDocsPath = "docs/v2-platform-foundation.md";
 const deploymentDocsPath = "docs/deployment.md";
 
@@ -98,6 +101,8 @@ const postgresStore = read(postgresStorePath);
 const securityTimeline = read(securityTimelinePath);
 const frontendMain = read(frontendMainPath);
 const frontendAuditApi = read(frontendAuditApiPath);
+const frontendTypes = read(frontendTypesPath);
+const frontendStyles = read(frontendStylesPath);
 const platformDocs = read(platformDocsPath);
 const deploymentDocs = read(deploymentDocsPath);
 
@@ -111,14 +116,20 @@ for (const phrase of [
   "protectedMaterialExposed: false",
   "tokenMaterialStored: false",
   "rawPromptStored: false",
+  "export type AuditClassificationStrategy",
+  "export type AuditEventsScanLimitDiagnostics",
+  "appliedFilterHash: string",
+  'classificationStrategy: Extract<AuditClassificationStrategy, "derived_bounded_scan">',
+  'futureClassificationStrategy: Extract<AuditClassificationStrategy, "materialized_outcome_severity_index">',
   "export type AuditEventsFilters",
   "export type AuditEventsRequest",
+  "AuditEventsRequest = AuditEventsFilters &",
   "cursor?: string",
-  "filters?: AuditEventsFilters",
   "export type AuditEventsResponse",
   "hasNext: boolean",
   "nextCursor?: string",
   "items: AuditViewerEvent[]",
+  "export type AuditEventsErrorResponse",
   "safeMetadataReturned: false"
 ]) {
   requireIncludes(shared, phrase, "shared audit viewer contract");
@@ -136,11 +147,18 @@ for (const forbidden of [
 for (const phrase of [
   "auditEventsQuerySchema",
   "auditEventsResponseSchema",
+  "auditEventsErrorResponseSchema",
   "additionalProperties: false",
   "cursor",
   "hasNext",
   "nextCursor",
   "items",
+  "guidance",
+  "diagnostics",
+  "appliedFilterHash",
+  "classificationStrategy",
+  "futureClassificationStrategy",
+  "classificationIndexAvailable",
   "safeMetadataReturned",
   "protectedMaterialExposed",
   "tokenMaterialStored",
@@ -165,6 +183,7 @@ for (const phrase of [
   "listAuditViewerEventsPage",
   "store: getPlatformStateStore()",
   "tenantId: auditTenantContext.tenantId",
+  "sendJson(response, auditPage.status, auditPage.body",
   "const body: AuditEventsResponse = auditPage.body"
 ]) {
   requireIncludes(auditRoute, phrase, "GET /audit/events route boundary");
@@ -175,7 +194,8 @@ for (const forbidden of [
   "actor_roles",
   "hasValidClientApiKey",
   "offset",
-  "nextPage"
+  "nextPage",
+  "scanLimit:"
 ]) {
   requireExcludes(auditRoute, forbidden, "GET /audit/events route uses browser session identity only");
 }
@@ -208,6 +228,12 @@ for (const phrase of [
   "snapshotCeiling",
   "cursorAfter",
   "filterHash",
+  "scanLimitDiagnostics",
+  "appliedFilterHash",
+  "auditViewerScanLimitGuidance",
+  "classificationStrategy: \"derived_bounded_scan\"",
+  "futureClassificationStrategy: \"materialized_outcome_severity_index\"",
+  "classificationIndexAvailable: false",
   "matches.length < query.limit + 1",
   "audit_events_filter_scan_limit_exceeded",
   "classificationMatches"
@@ -271,19 +297,28 @@ for (const phrase of [
   "AuditEventsResponse",
   "auditEventsResponse",
   "auditEventsError",
+  "auditEventsGuidance",
   "isAuditEventsLoading",
   "loadAuditEvents",
-  "fetchAuditEvents(API_URL, filters",
-  "handleProtectedResponse(response, \"Failed to load persisted audit events\")"
+  "loadPersistedAuditEvents({",
+  "setAuditEventsGuidance",
+  "handleProtectedResponse"
 ]) {
   requireIncludes(frontendMain, phrase, "frontend audit viewer API wiring");
 }
+requireIncludes(frontendTypes, "auditEventsGuidance: string[]", "frontend audit viewer context exposes guidance");
 for (const phrase of [
   "auditEventsQuery",
   "cursor",
   'fetch(`${apiUrl}/audit/events?${query.toString()}`',
   'method: "GET"',
-  'credentials: "include"'
+  'credentials: "include"',
+  "loadPersistedAuditEvents",
+  "audit_events_filter_scan_limit_exceeded",
+  "Audit query reached the bounded scan limit.",
+  "fallbackAuditEventsScanLimitGuidance",
+  "readApiErrorPayload",
+  "apiErrorMessage"
 ]) {
   requireIncludes(frontendAuditApi, phrase, "frontend audit viewer API client");
 }
@@ -296,9 +331,18 @@ for (const phrase of [
   "auditCursorHistory",
   "auditEventsResponse?.items",
   "auditEventsResponse?.nextCursor",
+  "audit-scan-limit-guidance",
+  "auditEventsGuidance.map",
   "loadAuditEvents"
 ]) {
   requireIncludes(securityTimeline, phrase, "Security Timeline persisted audit viewer UI");
+}
+for (const phrase of [
+  ".audit-scan-limit-guidance",
+  "var(--warning-bg)",
+  "var(--warning-border)"
+]) {
+  requireIncludes(frontendStyles, phrase, "Security Timeline scan-limit guidance styling");
 }
 requireExcludes(securityTimeline, "safeMetadata", "Security Timeline does not render stored safeMetadata");
 for (const forbidden of ["access_token", "refresh_token", "Authorization header", "rawPrompt"]) {
@@ -325,6 +369,10 @@ for (const phrase of [
   "cursor/limit pagination",
   "snapshot ceiling",
   "Derived outcome/severity filters are applied before pagination",
+  "Phase 2.19b  Audit Viewer Scale & Operability Hardening",
+  "audit_events_filter_scan_limit_exceeded",
+  "materialized outcome/severity",
+  "operator-safe diagnostics",
   "no raw prompt, token, secret, or stored metadata payload",
   "tenant.access.denied remains blocked"
 ]) {
@@ -335,6 +383,8 @@ for (const phrase of [
   "PLATFORM_STATE_STORE_DRIVER=postgres",
   "audit.read",
   "cursor pagination",
+  "audit_events_filter_scan_limit_exceeded",
+  "materialized outcome/severity",
   "CSRF cookie follows session SameSite"
 ]) {
   requireIncludes(deploymentDocs, phrase, "deployment docs cover persisted audit viewer and cross-site cookies");
@@ -434,7 +484,7 @@ function assertNoProtectedMaterial(value: unknown, context: string): void {
 async function verifyCursorPaginationRuntime(): Promise<void> {
   const filteredStore = new InMemoryPlatformStateStore();
   await filteredStore.appendAuditEvent(auditEvent({
-    id: "older-blocked-event",
+    id: "older-blocked-event-1",
     tenantId: "tenant-a",
     eventType: AuditEvents.SECURITY_REQUEST_BLOCKED,
     createdAt: isoSecond(0),
@@ -448,7 +498,19 @@ async function verifyCursorPaginationRuntime(): Promise<void> {
       rawPromptStored: false
     }
   }));
-  for (let index = 1; index <= 150; index += 1) {
+  await filteredStore.appendAuditEvent(auditEvent({
+    id: "older-blocked-event-2",
+    tenantId: "tenant-a",
+    eventType: AuditEvents.GATEWAY_AUTHORIZATION_DENIED,
+    createdAt: isoSecond(1)
+  }));
+  await filteredStore.appendAuditEvent(auditEvent({
+    id: "older-blocked-event-3",
+    tenantId: "tenant-a",
+    eventType: AuditEvents.TENANT_ACCESS_DENIED,
+    createdAt: isoSecond(2)
+  }));
+  for (let index = 100; index <= 249; index += 1) {
     await filteredStore.appendAuditEvent(auditEvent({
       id: `newer-success-${String(index).padStart(3, "0")}`,
       tenantId: "tenant-a",
@@ -460,12 +522,41 @@ async function verifyCursorPaginationRuntime(): Promise<void> {
   const blockedPage = await listAuditViewerEventsPage({
     store: filteredStore,
     tenantId: "tenant-a",
-    query: { limit: 1, outcome: "blocked" }
+    query: { limit: 2, outcome: "blocked" }
   });
-  if (!blockedPage.ok || blockedPage.body.items.length !== 1 || blockedPage.body.items[0].id !== "older-blocked-event" || blockedPage.body.hasNext) {
-    fail("outcome=blocked should find older matches beyond newer non-matching events before paging");
+  if (
+    !blockedPage.ok ||
+    blockedPage.body.items.map((event) => event.id).join(",") !== "older-blocked-event-3,older-blocked-event-2" ||
+    !blockedPage.body.hasNext ||
+    !blockedPage.body.nextCursor
+  ) {
+    fail("outcome=blocked should page older matches beyond newer non-matching events before paging");
   } else {
-    ok("outcome=blocked finds older matches beyond newer non-matching events before paging");
+    ok("outcome=blocked pages older matches beyond newer non-matching events before paging");
+  }
+
+  if (blockedPage.ok && blockedPage.body.nextCursor) {
+    const blockedPageTwo = await listAuditViewerEventsPage({
+      store: filteredStore,
+      tenantId: "tenant-a",
+      query: { limit: 2, outcome: "blocked", cursor: blockedPage.body.nextCursor }
+    });
+    if (!blockedPageTwo.ok || blockedPageTwo.body.items.map((event) => event.id).join(",") !== "older-blocked-event-1" || blockedPageTwo.body.hasNext) {
+      fail("outcome=blocked next cursor should reflect remaining matching rows only");
+    } else {
+      ok("outcome=blocked next cursor reflects remaining matching rows only");
+    }
+
+    const cursorMismatch = await listAuditViewerEventsPage({
+      store: filteredStore,
+      tenantId: "tenant-a",
+      query: { limit: 2, severity: "high", cursor: blockedPage.body.nextCursor }
+    });
+    if (cursorMismatch.ok || cursorMismatch.status !== 400 || cursorMismatch.body.error !== "audit_events_cursor_filter_mismatch") {
+      fail("audit cursor should reject filter or tenant mismatches");
+    } else {
+      ok("audit cursor rejects filter or tenant mismatches");
+    }
   }
 
   const highSeverityPage = await listAuditViewerEventsPage({
@@ -473,10 +564,26 @@ async function verifyCursorPaginationRuntime(): Promise<void> {
     tenantId: "tenant-a",
     query: { limit: 1, severity: "high" }
   });
-  if (!highSeverityPage.ok || highSeverityPage.body.items.length !== 1 || highSeverityPage.body.items[0].id !== "older-blocked-event" || highSeverityPage.body.hasNext) {
+  if (!highSeverityPage.ok || highSeverityPage.body.items.length !== 1 || highSeverityPage.body.items[0].id !== "older-blocked-event-3" || !highSeverityPage.body.hasNext) {
     fail("severity=high should find older classified matches beyond newer non-matching events before paging");
   } else {
     ok("severity=high finds older classified matches beyond newer non-matching events before paging");
+  }
+
+  const orderingStore = new InMemoryPlatformStateStore();
+  const sameCreatedAt = isoSecond(10);
+  await orderingStore.appendAuditEvent(auditEvent({ id: "same-a", tenantId: "tenant-a", createdAt: sameCreatedAt }));
+  await orderingStore.appendAuditEvent(auditEvent({ id: "same-c", tenantId: "tenant-a", createdAt: sameCreatedAt }));
+  await orderingStore.appendAuditEvent(auditEvent({ id: "same-b", tenantId: "tenant-a", createdAt: sameCreatedAt }));
+  const orderedPage = await listAuditViewerEventsPage({
+    store: orderingStore,
+    tenantId: "tenant-a",
+    query: { limit: 3 }
+  });
+  if (!orderedPage.ok || orderedPage.body.items.map((event) => event.id).join(",") !== "same-c,same-b,same-a") {
+    fail("audit events should order ties by id desc after createdAt desc");
+  } else {
+    ok("audit events order ties by id desc after createdAt desc");
   }
 
   const stableStore = new InMemoryPlatformStateStore();
@@ -552,6 +659,45 @@ async function verifyCursorPaginationRuntime(): Promise<void> {
     fail("derived filter scan limit should be high enough to cover sparse normal audit pages");
   } else {
     ok("derived filter scan limit is bounded but covers sparse normal audit pages");
+  }
+
+  const scanLimitStore = new InMemoryPlatformStateStore();
+  for (let index = 0; index <= auditViewerDerivedFilterScanLimit; index += 1) {
+    await scanLimitStore.appendAuditEvent(auditEvent({
+      id: `scan-limit-success-${String(index).padStart(5, "0")}`,
+      tenantId: "tenant-a",
+      eventType: AuditEvents.GATEWAY_AUTHORIZATION_EVALUATED,
+      createdAt: isoSecond(index)
+    }));
+  }
+  const scanLimited = await listAuditViewerEventsPage({
+    store: scanLimitStore,
+    tenantId: "tenant-a",
+    query: { limit: 1, outcome: "blocked" }
+  });
+  if (
+    scanLimited.ok ||
+    scanLimited.status !== 422 ||
+    scanLimited.body.error !== "audit_events_filter_scan_limit_exceeded" ||
+    scanLimited.body.diagnostics?.scannedRows !== auditViewerDerivedFilterScanLimit ||
+    scanLimited.body.diagnostics?.matchedRows !== 0 ||
+    scanLimited.body.diagnostics?.classificationStrategy !== "derived_bounded_scan" ||
+    scanLimited.body.diagnostics?.futureClassificationStrategy !== "materialized_outcome_severity_index" ||
+    scanLimited.body.diagnostics?.classificationIndexAvailable !== false ||
+    !scanLimited.body.guidance?.some((item) => item.includes("Narrow"))
+  ) {
+    fail("scan limit should return explicit 422 with safe diagnostics and operator guidance");
+  } else {
+    ok("scan limit returns explicit 422 with safe diagnostics and operator guidance");
+  }
+  if (!scanLimited.ok) {
+    assertNoProtectedMaterial(scanLimited.body, "audit scan-limit error response");
+  }
+
+  if (!auditViewerScanLimitGuidance.some((item) => item.includes("Narrow"))) {
+    fail("audit scan-limit guidance should include narrowing advice");
+  } else {
+    ok("audit scan-limit guidance includes narrowing advice");
   }
 }
 
