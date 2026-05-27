@@ -376,3 +376,8 @@ Manual production demo path:
 3. Onboard each external connector agent using its public HTTPS Railway URL.
 4. Run Connector Test Center validation tests.
 5. Open Security Timeline and confirm policy, token, runtime, and audit proof.
+
+
+## Deployment framing
+
+Deployment examples in this document can be vendor-specific for operability, but Ogen contracts and policy boundaries remain vendor-neutral as defined in [`docs/orchestrator-agnostic-roadmap.md`](./orchestrator-agnostic-roadmap.md).

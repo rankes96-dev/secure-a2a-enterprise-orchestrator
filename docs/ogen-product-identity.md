@@ -31,6 +31,8 @@ Use the unified tagline by default in README, demo, LinkedIn, and product copy. 
 
 ## Positioning
 
+Ogen is orchestrator-agnostic, as defined in [`docs/orchestrator-agnostic-roadmap.md`](./orchestrator-agnostic-roadmap.md).
+
 Ogen anchors every enterprise AI agent action to:
 
 - verified user identity
@@ -125,6 +127,7 @@ Ogen is a Secure A2A Gateway for identity-bound, policy-governed enterprise AI a
 I call it Ogen.
 
 AI agents are starting to act inside real enterprise systems — Jira, ServiceNow, GitHub, Monday, internal APIs.
+ServiceNow, Microsoft, and MCP examples are examples only; Ogen contracts and policy boundaries remain vendor-neutral and orchestrator-agnostic.
 
 But before giving them keys to the building, every action needs to be anchored to identity, permissions, consent, policy, and audit.
 

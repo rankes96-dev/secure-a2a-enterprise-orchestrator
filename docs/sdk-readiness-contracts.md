@@ -158,6 +158,18 @@ Required proof fields and invariants:
 
 AI can interpret and suggest routing. Ogen validates, applies policy, and authorizes.
 
+## Orchestrator-agnostic metadata and policy normalization
+
+The SDK contracts must align with [`docs/orchestrator-agnostic-roadmap.md`](./orchestrator-agnostic-roadmap.md). Connector metadata and decision flows must include and preserve:
+
+- `approvalMode`
+- `resourceSensitivity`
+- `fieldClass`
+- `actionConstraints`
+- normalized action categories policy
+
+These requirements are contract-level inputs for safe authorization and audit proof. Vendor-specific adapters may map native fields, but they must normalize into this shared Ogen policy shape before authorization decisions.
+
 ## Certification Checklist
 
 A future SDK connector must pass:
