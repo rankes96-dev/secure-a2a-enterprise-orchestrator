@@ -137,7 +137,8 @@ function staticVerification(): void {
   for (const file of [
     "001_initial_platform_state.sql",
     "002_connector_trust_owner_hash.sql",
-    "003_user_directory_access_gate.sql"
+    "003_user_directory_access_gate.sql",
+    "004_audit_event_classification_index.sql"
   ]) {
     if (!existsSync(`services/orchestrator-api/db/migrations/${file}`)) {
       fail(`${file} should exist`);

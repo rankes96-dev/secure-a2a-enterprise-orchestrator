@@ -8,7 +8,12 @@ import {
 import { evaluateGatewayAuthorization } from "../services/orchestrator-api/src/authorization/gatewayAuthorization.js";
 import { securityEventFromAuditEvent } from "../services/orchestrator-api/src/securityEvents/securityEventPublisher.js";
 import { InMemoryPlatformStateStore } from "../services/orchestrator-api/src/state/inMemoryPlatformStateStore.js";
-import type { StoredAuditEvent } from "../services/orchestrator-api/src/state/platformStateStore.js";
+import type {
+  PlatformStateStore,
+  StoredAuditEvent,
+  StoredAuditEventClassificationListParams,
+  StoredAuditEventListParams
+} from "../services/orchestrator-api/src/state/platformStateStore.js";
 
 let failed = false;
 
@@ -77,6 +82,8 @@ const sharedPath = "packages/shared/src/index.ts";
 const indexPath = "services/orchestrator-api/src/index.ts";
 const paginationPath = "services/orchestrator-api/src/audit/auditViewerPagination.ts";
 const schemaPath = "services/orchestrator-api/src/http/schemas/auditViewerSchemas.ts";
+const dbSchemaPath = "services/orchestrator-api/db/schema.sql";
+const auditClassificationMigrationPath = "services/orchestrator-api/db/migrations/004_audit_event_classification_index.sql";
 const policyPath = "services/orchestrator-api/src/authorization/gatewayAuthorizationPolicy.ts";
 const storeTypesPath = "services/orchestrator-api/src/state/platformStateStore.ts";
 const memoryStorePath = "services/orchestrator-api/src/state/inMemoryPlatformStateStore.ts";
@@ -94,6 +101,8 @@ const shared = read(sharedPath);
 const indexSource = read(indexPath);
 const pagination = read(paginationPath);
 const schema = read(schemaPath);
+const dbSchema = read(dbSchemaPath);
+const auditClassificationMigration = read(auditClassificationMigrationPath);
 const policy = read(policyPath);
 const storeTypes = read(storeTypesPath);
 const memoryStore = read(memoryStorePath);
@@ -231,6 +240,8 @@ for (const phrase of [
   "scanLimitDiagnostics",
   "appliedFilterHash",
   "auditViewerScanLimitGuidance",
+  "storeHasClassificationIndex",
+  "listAuditEventsByClassification",
   "classificationStrategy: \"derived_bounded_scan\"",
   "futureClassificationStrategy: \"materialized_outcome_severity_index\"",
   "classificationIndexAvailable: false",
@@ -257,6 +268,14 @@ for (const role of ["end_user", "operator", "it-support", "connector_admin"]) {
 }
 
 for (const phrase of [
+  "outcome?: SecurityEventOutcome",
+  "severity?: SecurityEventSeverity",
+  "StoredAuditEventClassificationListParams",
+  "listAuditEventsByClassification"
+]) {
+  requireIncludes(storeTypes, phrase, "platform state audit list filters");
+}
+for (const phrase of [
   "eventType?: string",
   "from?: string",
   "to?: string",
@@ -265,19 +284,34 @@ for (const phrase of [
   "snapshotCeiling?: StoredAuditEventPageBoundary"
 ]) {
   requireIncludes(storeTypes, phrase, "platform state audit list filters");
+}
+for (const phrase of [
+  "StoredAuditEventListParams",
+  "StoredAuditEventClassificationListParams",
+  "listAuditEventsByClassification"
+]) {
   requireIncludes(memoryStore, phrase, "in-memory audit list filters");
   requireIncludes(postgresStore, phrase, "postgres audit list filters");
 }
 for (const phrase of [
+  "materializeAuditEventClassification",
+  "outcomeForEventType",
+  "severityForEventType",
   "event.eventType !== params.eventType",
   "event.safeMetadata.conversationId !== params.conversationId",
+  "event.outcome !== params.outcome",
+  "event.severity !== params.severity",
   "isAtOrBeforeAuditBoundary",
   "filtered.slice(0, limit)"
 ]) {
   requireIncludes(memoryStore, phrase, "in-memory audit viewer filtering");
 }
 for (const phrase of [
+  "outcomeForEventType(event.eventType)",
+  "severityForEventType(event.eventType)",
   "event_type = ?",
+  "outcome = ?",
+  "severity = ?",
   "created_at >= ?",
   "created_at <= ?",
   "safe_metadata ->> 'conversationId' = ?",
@@ -286,6 +320,17 @@ for (const phrase of [
   "order by created_at desc, id desc"
 ]) {
   requireIncludes(postgresStore, phrase, "postgres audit viewer filtering");
+}
+for (const phrase of [
+  "outcome text",
+  "severity text",
+  "audit_events_tenant_created_at_id_idx",
+  "audit_events_tenant_outcome_created_at_id_idx",
+  "audit_events_tenant_severity_created_at_id_idx",
+  "audit_events_tenant_outcome_severity_created_at_id_idx"
+]) {
+  requireIncludes(dbSchema, phrase, "platform schema includes indexed audit classification read model");
+  requireIncludes(auditClassificationMigration, phrase, "audit classification migration includes indexed read model");
 }
 for (const forbidden of ["offset?: number", "offset $", "offsetValue"]) {
   requireExcludes(storeTypes, forbidden, "platform state audit list avoids offset pagination");
@@ -368,10 +413,12 @@ for (const phrase of [
   "tenant-scoped",
   "cursor/limit pagination",
   "snapshot ceiling",
-  "Derived outcome/severity filters are applied before pagination",
+  "Outcome/severity filters use the Ogen-materialized classification index before pagination",
   "Phase 2.19b  Audit Viewer Scale & Operability Hardening",
   "audit_events_filter_scan_limit_exceeded",
   "materialized outcome/severity",
+  "Phase 2.19c  Indexed Audit Read Model for Outcome/Severity Filters",
+  "classification index",
   "operator-safe diagnostics",
   "no raw prompt, token, secret, or stored metadata payload",
   "tenant.access.denied remains blocked"
@@ -385,6 +432,7 @@ for (const phrase of [
   "cursor pagination",
   "audit_events_filter_scan_limit_exceeded",
   "materialized outcome/severity",
+  "classification index",
   "CSRF cookie follows session SameSite"
 ]) {
   requireIncludes(deploymentDocs, phrase, "deployment docs cover persisted audit viewer and cross-site cookies");
@@ -461,6 +509,37 @@ function isoSecond(second: number): string {
   return new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
 }
 
+class InstrumentedAuditStore extends InMemoryPlatformStateStore {
+  rawAuditListCalls = 0;
+  indexedAuditListCalls = 0;
+
+  override async listAuditEvents(params: StoredAuditEventListParams): Promise<StoredAuditEvent[]> {
+    this.rawAuditListCalls += 1;
+    return super.listAuditEvents(params);
+  }
+
+  override async listAuditEventsByClassification(params: StoredAuditEventClassificationListParams): Promise<StoredAuditEvent[]> {
+    this.indexedAuditListCalls += 1;
+    return super.listAuditEventsByClassification(params);
+  }
+}
+
+function withoutClassificationIndex(store: InMemoryPlatformStateStore): PlatformStateStore {
+  return {
+    health: () => store.health(),
+    listConnectorTrustRecords: (ownerKey) => store.listConnectorTrustRecords(ownerKey),
+    upsertConnectorTrustRecord: (record) => store.upsertConnectorTrustRecord(record),
+    deleteConnectorTrustRecord: (ownerKey, id) => store.deleteConnectorTrustRecord(ownerKey, id),
+    appendAuditEvent: (event) => store.appendAuditEvent(event),
+    listAuditEvents: (params) => store.listAuditEvents(params),
+    findUserByEmail: (params) => store.findUserByEmail(params),
+    bindUserIdentity: (params) => store.bindUserIdentity(params),
+    upsertConversationState: (record) => store.upsertConversationState(record),
+    getConversationState: (id) => store.getConversationState(id),
+    listConversationStates: (params) => store.listConversationStates(params)
+  };
+}
+
 function assertNoProtectedMaterial(value: unknown, context: string): void {
   const serialized = JSON.stringify(value).toLowerCase();
   for (const forbidden of [
@@ -482,7 +561,7 @@ function assertNoProtectedMaterial(value: unknown, context: string): void {
 }
 
 async function verifyCursorPaginationRuntime(): Promise<void> {
-  const filteredStore = new InMemoryPlatformStateStore();
+  const filteredStore = new InstrumentedAuditStore();
   await filteredStore.appendAuditEvent(auditEvent({
     id: "older-blocked-event-1",
     tenantId: "tenant-a",
@@ -510,7 +589,7 @@ async function verifyCursorPaginationRuntime(): Promise<void> {
     eventType: AuditEvents.TENANT_ACCESS_DENIED,
     createdAt: isoSecond(2)
   }));
-  for (let index = 100; index <= 249; index += 1) {
+  for (let index = 100; index <= auditViewerDerivedFilterScanLimit + 100; index += 1) {
     await filteredStore.appendAuditEvent(auditEvent({
       id: `newer-success-${String(index).padStart(3, "0")}`,
       tenantId: "tenant-a",
@@ -533,6 +612,11 @@ async function verifyCursorPaginationRuntime(): Promise<void> {
     fail("outcome=blocked should page older matches beyond newer non-matching events before paging");
   } else {
     ok("outcome=blocked pages older matches beyond newer non-matching events before paging");
+  }
+  if (filteredStore.indexedAuditListCalls < 1 || filteredStore.rawAuditListCalls !== 0) {
+    fail("outcome=blocked should use the indexed classification read path instead of raw bounded scanning");
+  } else {
+    ok("outcome=blocked uses the indexed classification read path");
   }
 
   if (blockedPage.ok && blockedPage.body.nextCursor) {
@@ -671,7 +755,7 @@ async function verifyCursorPaginationRuntime(): Promise<void> {
     }));
   }
   const scanLimited = await listAuditViewerEventsPage({
-    store: scanLimitStore,
+    store: withoutClassificationIndex(scanLimitStore),
     tenantId: "tenant-a",
     query: { limit: 1, outcome: "blocked" }
   });
@@ -686,9 +770,9 @@ async function verifyCursorPaginationRuntime(): Promise<void> {
     scanLimited.body.diagnostics?.classificationIndexAvailable !== false ||
     !scanLimited.body.guidance?.some((item) => item.includes("Narrow"))
   ) {
-    fail("scan limit should return explicit 422 with safe diagnostics and operator guidance");
+    fail("fallback scan limit should return explicit 422 with safe diagnostics and operator guidance");
   } else {
-    ok("scan limit returns explicit 422 with safe diagnostics and operator guidance");
+    ok("fallback scan limit returns explicit 422 with safe diagnostics and operator guidance");
   }
   if (!scanLimited.ok) {
     assertNoProtectedMaterial(scanLimited.body, "audit scan-limit error response");
@@ -737,6 +821,17 @@ async function verifyStoreRuntime(): Promise<void> {
     fail("audit list should filter by eventType and safe conversationId");
   } else {
     ok("audit list filters by eventType and safe conversationId");
+  }
+  const indexedDeniedEvents = await store.listAuditEventsByClassification({
+    tenantId: "tenant-a",
+    outcome: "blocked",
+    severity: "high",
+    limit: 10
+  });
+  if (indexedDeniedEvents.length !== 1 || indexedDeniedEvents[0].id !== "tenant-a-denied") {
+    fail("audit classification index should filter by materialized outcome and severity");
+  } else {
+    ok("audit classification index filters by materialized outcome and severity");
   }
   const firstPageEvents = await store.listAuditEvents({ tenantId: "tenant-a", limit: 1 });
   const pagedEvents = await store.listAuditEvents({

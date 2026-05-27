@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { publishSecurityEventFromAuditEvent } from "../securityEvents/securityEventPublisher.js";
+import { outcomeForEventType, severityForEventType } from "../securityEvents/securityEventClassification.js";
 import { getPlatformStateStore } from "../state/createPlatformStateStore.js";
 import type { StoredAuditEvent } from "../state/platformStateStore.js";
 import { defaultTenantId } from "../tenant/tenantContext.js";
@@ -84,6 +85,8 @@ export async function appendPlatformAuditEvent(input: PlatformAuditEventInput): 
       resourceType: input.resourceType,
       resourceId: input.resourceId,
       createdAt: new Date().toISOString(),
+      outcome: outcomeForEventType(input.eventType),
+      severity: severityForEventType(input.eventType),
       safeMetadata: sanitizeAuditMetadata(input.safeMetadata)
     };
     await getPlatformStateStore().appendAuditEvent(event);

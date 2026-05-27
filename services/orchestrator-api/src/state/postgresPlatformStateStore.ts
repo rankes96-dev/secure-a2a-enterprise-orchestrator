@@ -1,9 +1,12 @@
 import { Pool, type QueryResultRow } from "pg";
+import { outcomeForEventType, severityForEventType } from "../securityEvents/securityEventClassification.js";
 import { postgresConfigFromEnv } from "./postgresConfig.js";
 import type {
   PlatformStateStore,
   PlatformStateStoreHealth,
   StoredAuditEvent,
+  StoredAuditEventClassificationListParams,
+  StoredAuditEventListParams,
   StoredAuditEventPageBoundary,
   StoredConnectorTrustRecord,
   StoredConversationMessage,
@@ -41,6 +44,8 @@ type DbAuditEvent = QueryResultRow & {
   resource_type: string | null;
   resource_id: string | null;
   created_at: Date | string;
+  outcome: ReturnType<typeof outcomeForEventType>;
+  severity: ReturnType<typeof severityForEventType>;
   safe_metadata: unknown;
 };
 
@@ -142,6 +147,8 @@ function auditEventFromRow(row: DbAuditEvent): StoredAuditEvent {
     resourceType: optional(row.resource_type),
     resourceId: optional(row.resource_id),
     createdAt: iso(row.created_at),
+    outcome: row.outcome,
+    severity: row.severity,
     safeMetadata: recordFromJson(row.safe_metadata)
   };
 }
@@ -276,11 +283,13 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
   }
 
   async appendAuditEvent(event: StoredAuditEvent): Promise<void> {
+    const outcome = outcomeForEventType(event.eventType);
+    const severity = severityForEventType(event.eventType);
     await this.pool.query(
       `insert into audit_events (
         id, tenant_id, actor_provider, actor_subject, actor_email, event_type,
-        resource_type, resource_id, created_at, safe_metadata
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
+        resource_type, resource_id, created_at, outcome, severity, safe_metadata
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
       [
         event.id,
         event.tenantId ?? null,
@@ -291,24 +300,14 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
         event.resourceType ?? null,
         event.resourceId ?? null,
         event.createdAt,
+        outcome,
+        severity,
         JSON.stringify(event.safeMetadata)
       ]
     );
   }
 
-  async listAuditEvents(params: {
-    tenantId?: string;
-    actorSubject?: string;
-    eventType?: string;
-    resourceType?: string;
-    resourceId?: string;
-    from?: string;
-    to?: string;
-    conversationId?: string;
-    limit?: number;
-    cursorAfter?: StoredAuditEventPageBoundary;
-    snapshotCeiling?: StoredAuditEventPageBoundary;
-  }): Promise<StoredAuditEvent[]> {
+  private async listAuditEventsInternal(params: StoredAuditEventClassificationListParams): Promise<StoredAuditEvent[]> {
     const where: string[] = [];
     const values: unknown[] = [];
     const add = (sql: string, value: unknown): void => {
@@ -323,6 +322,8 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
     if (params.from) add("created_at >= ?", params.from);
     if (params.to) add("created_at <= ?", params.to);
     if (params.conversationId) add("safe_metadata ->> 'conversationId' = ?", params.conversationId);
+    if (params.outcome) add("outcome = ?", params.outcome);
+    if (params.severity) add("severity = ?", params.severity);
     if (params.snapshotCeiling) {
       values.push(params.snapshotCeiling.createdAt);
       const createdAtParameter = values.length;
@@ -342,7 +343,7 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
 
     const result = await this.pool.query<DbAuditEvent>(
       `select id, tenant_id, actor_provider, actor_subject, actor_email, event_type,
-        resource_type, resource_id, created_at, safe_metadata
+        resource_type, resource_id, created_at, outcome, severity, safe_metadata
        from audit_events
        ${where.length ? `where ${where.join(" and ")}` : ""}
        order by created_at desc, id desc
@@ -350,6 +351,14 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
       values
     );
     return result.rows.map(auditEventFromRow);
+  }
+
+  async listAuditEvents(params: StoredAuditEventListParams): Promise<StoredAuditEvent[]> {
+    return this.listAuditEventsInternal(params);
+  }
+
+  async listAuditEventsByClassification(params: StoredAuditEventClassificationListParams): Promise<StoredAuditEvent[]> {
+    return this.listAuditEventsInternal(params);
   }
 
   async findUserByEmail(params: {

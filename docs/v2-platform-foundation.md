@@ -604,17 +604,25 @@ Denied gateway authorization is audited with safe decision proof and exported as
 
 GET `/audit/events` exposes a tenant-scoped persisted audit viewer for browser session users with the `audit.read` Gateway capability. The route requires a fresh verified identity session and user-directory roles. Client-supplied tenantId is accepted only as a hint for Ogen tenant resolution; the query uses the resolved tenant and denies tenant switching attempts before listing stored events.
 
-The response is a schema-first projection of stored audit events: time, event type, outcome, severity, actor provider/email, resolved tenant, route/capability summary, resource summary, and safe correlation IDs. It supports cursor/limit pagination plus optional `eventType`, `outcome`, `severity`, `from`, `to`, and safe `conversationId` filters. Cursor pagination uses deterministic `createdAt desc, id desc` ordering and embeds a snapshot ceiling so later audit writes do not shift an already-open result window. Derived outcome/severity filters are applied before pagination by scanning bounded ordered source batches until `limit + 1` matching events are found or the source is exhausted; if the bounded scan limit is reached first, the API returns an explicit safe error asking the operator to narrow the query. It returns no raw prompt, token, secret, or stored metadata payload.
+The response is a schema-first projection of stored audit events: time, event type, outcome, severity, actor provider/email, resolved tenant, route/capability summary, resource summary, and safe correlation IDs. It supports cursor/limit pagination plus optional `eventType`, `outcome`, `severity`, `from`, `to`, and safe `conversationId` filters. Cursor pagination uses deterministic `createdAt desc, id desc` ordering and embeds a snapshot ceiling so later audit writes do not shift an already-open result window. Outcome/severity filters use the Ogen-materialized classification index before pagination when the store exposes it; the bounded ordered scan remains only as a compatibility fallback for stores that have not implemented the indexed read model. It returns no raw prompt, token, secret, or stored metadata payload.
 
 Audit classification stays consistent with the export boundary. Blocked events remain blocked in the viewer, and tenant.access.denied remains blocked with warning-or-higher severity. The UI adds a read-only persisted audit table inside Security Timeline; per-capability 403s remain local to that panel instead of changing account access state.
 
 ### Phase 2.19b  Audit Viewer Scale & Operability Hardening
 
-The bounded-scan audit viewer behavior is intentionally retained for derived `outcome` and `severity` filters. These classifications are Gateway-derived from event type and safe event metadata, not client-provided authority. The current read path scans deterministic `createdAt desc, id desc` source batches inside the cursor snapshot until it finds `limit + 1` matching projected events or exhausts the source window.
+The bounded-scan audit viewer behavior is intentionally retained as a safe compatibility fallback for derived `outcome` and `severity` filters when a store has not implemented the classification index contract. These classifications are Gateway-derived from event type and safe event metadata, not client-provided authority. The fallback scans deterministic `createdAt desc, id desc` source batches inside the cursor snapshot until it finds `limit + 1` matching projected events or exhausts the source window.
 
 If a sparse derived filter reaches the bounded scan limit first, `GET /audit/events` returns `422 audit_events_filter_scan_limit_exceeded`. The error response includes operator-safe diagnostics only: source rows scanned, scan limit, matched row count, requested limit, an applied-filter hash, a boolean filter summary, and the current classification strategy. It does not return stored `safe_metadata`, raw prompts, tokens, secrets, actor subject, Authorization headers, cookies, JWTs, private keys, client assertions, or client secrets. Operators should narrow sparse queries with a time range, event type, conversation ID, or smaller page limit before retrying.
 
-The forward scale path is a persisted Gateway classification index, such as materialized outcome/severity columns or an equivalent tenant-scoped read model keyed by `(tenant_id, outcome, severity, created_at desc, id desc)`. That future optimization must be produced by Ogen-controlled classification logic at write time or migration time, not by AI interpretation or client-supplied fields. It must preserve the same cursor snapshot semantics, tenant isolation, `audit.read` RBAC, and no-secrets projection boundary.
+The forward scale path is now implemented for the built-in stores as a persisted Gateway classification index: materialized outcome/severity columns or an equivalent tenant-scoped read model keyed by `(tenant_id, outcome, severity, created_at desc, id desc)`. The materialized values are produced by Ogen-controlled classification logic at write time and migration time, not by AI interpretation or client-supplied fields. It preserves the same cursor snapshot semantics, tenant isolation, `audit.read` RBAC, and no-secrets projection boundary.
+
+### Phase 2.19c  Indexed Audit Read Model for Outcome/Severity Filters
+
+Phase 2.19c replaces the normal deep bounded scan path for `outcome` and `severity` filters with an indexed audit read model. `StoredAuditEvent` now carries Ogen-materialized outcome/severity values, and `PlatformStateStore` exposes `listAuditEventsByClassification` for cursor pagination over those fields. The memory store materializes classifications on append for local/test parity. The Postgres store writes materialized classifications on insert, backfills existing audit rows through migration `004_audit_event_classification_index.sql`, and uses composite indexes for tenant-scoped `created_at desc, id desc` pagination by outcome, severity, or both.
+
+The fallback bounded scan remains available only for custom stores that do not expose `listAuditEventsByClassification`; if that fallback reaches the bounded limit, it still returns `422 audit_events_filter_scan_limit_exceeded` with operator-safe diagnostics. The indexed path keeps the cursor contract unchanged: request `{ cursor?, limit, filters... }`, response `{ items, hasNext, nextCursor? }`, deterministic `createdAt desc, id desc` ordering, and a snapshot ceiling that excludes newer audit writes from an already-open result window.
+
+Trust boundaries remain unchanged. The classification index is produced by Ogen policy/classification code, never by AI interpretation or client-supplied classification fields. Reads remain scoped to the resolved tenant and require `audit.read` based on verified identity roles. The response projection and any structured errors continue to exclude raw prompts, tokens, secrets, actor subject, Authorization headers, cookies, JWTs, private keys, client assertions, client secrets, and stored metadata payloads.
 
 ### Phase 3  Connector SDK
 
@@ -943,7 +951,7 @@ V2 verification should layer new checks without weakening V1:
 - `npm run verify:user-directory-access-gate`
 - `npm run verify:audit-viewer-boundary`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
-- Phase 2.6 adds the first opt-in Postgres schema and `PostgresPlatformStateStore`; Phase 2.19 verifies tenant-scoped persisted audit viewer reads
+- Phase 2.6 adds the first opt-in Postgres schema and `PostgresPlatformStateStore`; Phase 2.19 verifies tenant-scoped persisted audit viewer reads, and Phase 2.19c verifies indexed outcome/severity pagination
 - future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
 - future SOC/SIEM and observability verification for sanitized vendor-neutral SecurityEventSink exports
 - future SDK verification proving a connector can onboard without Gateway core changes
@@ -1023,6 +1031,9 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.19b: return safe `audit_events_filter_scan_limit_exceeded` guidance for sparse derived filters
 - [ ] Phase 2.19b: keep scan-limit diagnostics operator-safe and free of stored metadata or protected material
 - [ ] Phase 2.19b: define future materialized outcome/severity index path without trusting AI or client classification
+- [ ] Phase 2.19c: materialize Ogen-derived outcome/severity for indexed audit reads
+- [ ] Phase 2.19c: keep filtered cursor pagination stable through the classification index
+- [ ] Phase 2.19c: preserve bounded-scan fallback errors for stores without the indexed read contract
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

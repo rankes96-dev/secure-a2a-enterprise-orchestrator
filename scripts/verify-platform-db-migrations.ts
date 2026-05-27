@@ -78,7 +78,8 @@ function verifyStatic(): void {
   for (const name of [
     "001_initial_platform_state.sql",
     "002_connector_trust_owner_hash.sql",
-    "003_user_directory_access_gate.sql"
+    "003_user_directory_access_gate.sql",
+    "004_audit_event_classification_index.sql"
   ]) {
     if (!migrationFiles.includes(name)) {
       fail(`${name} should exist`);
@@ -90,7 +91,8 @@ function verifyStatic(): void {
   const initial = read("services/orchestrator-api/db/migrations/001_initial_platform_state.sql");
   const ownerHash = read("services/orchestrator-api/db/migrations/002_connector_trust_owner_hash.sql");
   const userDirectory = read("services/orchestrator-api/db/migrations/003_user_directory_access_gate.sql");
-  const allMigrations = `${initial}\n${ownerHash}\n${userDirectory}`;
+  const auditClassification = read("services/orchestrator-api/db/migrations/004_audit_event_classification_index.sql");
+  const allMigrations = `${initial}\n${ownerHash}\n${userDirectory}\n${auditClassification}`;
   const runner = read("scripts/apply-platform-migrations.ts");
   const packageJson = read("package.json");
   const platformDocs = read("docs/v2-platform-foundation.md");
@@ -145,6 +147,19 @@ function verifyStatic(): void {
   requireIncludes(userDirectory, "alter column email set not null", "user migration enforces email");
   requireIncludes(userDirectory, "users_tenant_email_idx", "user migration creates email index");
   requireIncludes(userDirectory, "users_tenant_provider_issuer_subject_idx", "user migration creates provider binding index");
+
+  for (const phrase of [
+    "add column if not exists outcome text",
+    "add column if not exists severity text",
+    "audit_events_outcome_check",
+    "audit_events_severity_check",
+    "audit_events_tenant_created_at_id_idx",
+    "audit_events_tenant_outcome_created_at_id_idx",
+    "audit_events_tenant_severity_created_at_id_idx",
+    "audit_events_tenant_outcome_severity_created_at_id_idx"
+  ]) {
+    requireIncludes(auditClassification, phrase, "audit classification migration creates materialized read model");
+  }
 
   requireIncludes(runner, "platform_schema_migrations", "migration runner creates tracking table");
   requireIncludes(runner, "createHash(\"sha256\")", "migration runner computes checksum");
@@ -226,10 +241,10 @@ async function verifyRuntimeIfConfigured(): Promise<void> {
   try {
     const migrations = await pool.query<{ id: string }>(
       "select id from platform_schema_migrations where id = any($1::text[])",
-      [["001", "002", "003"]]
+      [["001", "002", "003", "004"]]
     );
     const ids = new Set(migrations.rows.map((row) => row.id));
-    for (const id of ["001", "002", "003"]) {
+    for (const id of ["001", "002", "003", "004"]) {
       if (!ids.has(id)) {
         fail(`platform_schema_migrations should include ${id}`);
       } else {
@@ -244,12 +259,13 @@ async function verifyRuntimeIfConfigured(): Promise<void> {
         where table_schema = current_schema()
           and (
             (table_name = 'users' and column_name = 'status') or
-            (table_name = 'connector_trust_records' and column_name = 'owner_key_hash')
+            (table_name = 'connector_trust_records' and column_name = 'owner_key_hash') or
+            (table_name = 'audit_events' and column_name in ('outcome', 'severity'))
           )
       `
     );
     const columnKeys = new Set(requiredColumns.rows.map((row) => `${row.table_name}.${row.column_name}`));
-    for (const key of ["users.status", "connector_trust_records.owner_key_hash"]) {
+    for (const key of ["users.status", "connector_trust_records.owner_key_hash", "audit_events.outcome", "audit_events.severity"]) {
       if (!columnKeys.has(key)) {
         fail(`${key} should exist after migrations`);
       } else {
@@ -270,6 +286,35 @@ async function verifyRuntimeIfConfigured(): Promise<void> {
       fail("connector_trust_records.owner_key should not exist after migrations");
     } else {
       ok("connector_trust_records.owner_key is absent after migrations");
+    }
+
+    const classificationIndexes = await pool.query<{ indexname: string }>(
+      `
+        select indexname
+        from pg_indexes
+        where schemaname = current_schema()
+          and tablename = 'audit_events'
+          and indexname = any($1::text[])
+      `,
+      [[
+        "audit_events_tenant_created_at_id_idx",
+        "audit_events_tenant_outcome_created_at_id_idx",
+        "audit_events_tenant_severity_created_at_id_idx",
+        "audit_events_tenant_outcome_severity_created_at_id_idx"
+      ]]
+    );
+    const indexNames = new Set(classificationIndexes.rows.map((row) => row.indexname));
+    for (const indexName of [
+      "audit_events_tenant_created_at_id_idx",
+      "audit_events_tenant_outcome_created_at_id_idx",
+      "audit_events_tenant_severity_created_at_id_idx",
+      "audit_events_tenant_outcome_severity_created_at_id_idx"
+    ]) {
+      if (!indexNames.has(indexName)) {
+        fail(`${indexName} should exist after migrations`);
+      } else {
+        ok(`${indexName} exists after migrations`);
+      }
     }
 
     const forbiddenColumns = await pool.query<{ table_name: string; column_name: string }>(

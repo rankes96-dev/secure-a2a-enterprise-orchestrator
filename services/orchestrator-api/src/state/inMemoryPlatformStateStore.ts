@@ -1,8 +1,11 @@
 import { defaultTenantId } from "../tenant/tenantContext.js";
+import { outcomeForEventType, severityForEventType } from "../securityEvents/securityEventClassification.js";
 import type {
   PlatformStateStore,
   PlatformStateStoreHealth,
   StoredAuditEvent,
+  StoredAuditEventClassificationListParams,
+  StoredAuditEventListParams,
   StoredAuditEventPageBoundary,
   StoredConnectorTrustRecord,
   StoredConversationStateRecord,
@@ -32,6 +35,14 @@ function copyAuditEvent(event: StoredAuditEvent): StoredAuditEvent {
   return {
     ...event,
     safeMetadata: cloneSafeMetadata(event.safeMetadata)
+  };
+}
+
+function materializeAuditEventClassification(event: StoredAuditEvent): StoredAuditEvent {
+  return {
+    ...copyAuditEvent(event),
+    outcome: outcomeForEventType(event.eventType),
+    severity: severityForEventType(event.eventType)
   };
 }
 
@@ -128,22 +139,10 @@ export class InMemoryPlatformStateStore implements PlatformStateStore {
   }
 
   async appendAuditEvent(event: StoredAuditEvent): Promise<void> {
-    this.auditEvents.push(copyAuditEvent(event));
+    this.auditEvents.push(materializeAuditEventClassification(event));
   }
 
-  async listAuditEvents(params: {
-    tenantId?: string;
-    actorSubject?: string;
-    eventType?: string;
-    resourceType?: string;
-    resourceId?: string;
-    from?: string;
-    to?: string;
-    conversationId?: string;
-    limit?: number;
-    cursorAfter?: StoredAuditEventPageBoundary;
-    snapshotCeiling?: StoredAuditEventPageBoundary;
-  }): Promise<StoredAuditEvent[]> {
+  private auditEventsForParams(params: StoredAuditEventClassificationListParams): StoredAuditEvent[] {
     const fromTime = params.from ? Date.parse(params.from) : undefined;
     const toTime = params.to ? Date.parse(params.to) : undefined;
     const filtered = this.auditEvents.filter((event) => {
@@ -172,6 +171,12 @@ export class InMemoryPlatformStateStore implements PlatformStateStore {
       if (params.conversationId && event.safeMetadata.conversationId !== params.conversationId) {
         return false;
       }
+      if (params.outcome && event.outcome !== params.outcome) {
+        return false;
+      }
+      if (params.severity && event.severity !== params.severity) {
+        return false;
+      }
       if (params.snapshotCeiling && !isAtOrBeforeAuditBoundary(event, params.snapshotCeiling, true)) {
         return false;
       }
@@ -186,6 +191,14 @@ export class InMemoryPlatformStateStore implements PlatformStateStore {
     const limit = typeof params.limit === "number" && params.limit >= 0 ? params.limit : filtered.length;
     const limited = filtered.slice(0, limit);
     return limited.map(copyAuditEvent);
+  }
+
+  async listAuditEvents(params: StoredAuditEventListParams): Promise<StoredAuditEvent[]> {
+    return this.auditEventsForParams(params);
+  }
+
+  async listAuditEventsByClassification(params: StoredAuditEventClassificationListParams): Promise<StoredAuditEvent[]> {
+    return this.auditEventsForParams(params);
   }
 
   async findUserByEmail(params: {

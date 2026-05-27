@@ -87,6 +87,10 @@ for (const phrase of [
   "connector_trust_records_owner_key_hash_idx",
   "connector_trust_records_tenant_id_idx",
   "audit_events_tenant_created_at_idx",
+  "audit_events_tenant_created_at_id_idx",
+  "audit_events_tenant_outcome_created_at_id_idx",
+  "audit_events_tenant_severity_created_at_id_idx",
+  "audit_events_tenant_outcome_severity_created_at_id_idx",
   "audit_events_actor_subject_created_at_idx",
   "conversation_states_actor_subject_updated_at_idx",
   "conversation_states_tenant_updated_at_idx"

@@ -1,3 +1,5 @@
+import type { SecurityEventOutcome, SecurityEventSeverity } from "../securityEvents/securityEventTypes.js";
+
 export type PlatformStateStoreDriver = "memory" | "postgres";
 
 export type PlatformStateStoreHealth = {
@@ -33,12 +35,33 @@ export type StoredAuditEvent = {
   resourceType?: string;
   resourceId?: string;
   createdAt: string;
+  outcome?: SecurityEventOutcome;
+  severity?: SecurityEventSeverity;
   safeMetadata: Record<string, unknown>;
 };
 
 export type StoredAuditEventPageBoundary = {
   createdAt: string;
   id: string;
+};
+
+export type StoredAuditEventListParams = {
+  tenantId?: string;
+  actorSubject?: string;
+  eventType?: string;
+  resourceType?: string;
+  resourceId?: string;
+  from?: string;
+  to?: string;
+  conversationId?: string;
+  limit?: number;
+  cursorAfter?: StoredAuditEventPageBoundary;
+  snapshotCeiling?: StoredAuditEventPageBoundary;
+};
+
+export type StoredAuditEventClassificationListParams = StoredAuditEventListParams & {
+  outcome?: SecurityEventOutcome;
+  severity?: SecurityEventSeverity;
 };
 
 export type StoredPlatformUserStatus = "active" | "disabled" | "invited";
@@ -101,19 +124,8 @@ export type PlatformStateStore = {
 
   // Audit events: future Phase 2.2.
   appendAuditEvent(event: StoredAuditEvent): Promise<void>;
-  listAuditEvents(params: {
-    tenantId?: string;
-    actorSubject?: string;
-    eventType?: string;
-    resourceType?: string;
-    resourceId?: string;
-    from?: string;
-    to?: string;
-    conversationId?: string;
-    limit?: number;
-    cursorAfter?: StoredAuditEventPageBoundary;
-    snapshotCeiling?: StoredAuditEventPageBoundary;
-  }): Promise<StoredAuditEvent[]>;
+  listAuditEvents(params: StoredAuditEventListParams): Promise<StoredAuditEvent[]>;
+  listAuditEventsByClassification?(params: StoredAuditEventClassificationListParams): Promise<StoredAuditEvent[]>;
 
   // User directory allowlist: local authorization gate for verified browser identities.
   findUserByEmail(params: {

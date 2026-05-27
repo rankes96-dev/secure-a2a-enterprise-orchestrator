@@ -218,6 +218,10 @@ function classificationMatches(event: AuditViewerEvent, query: AuditEventsPageQu
   return true;
 }
 
+function storeHasClassificationIndex(store: PlatformStateStore): store is PlatformStateStore & Required<Pick<PlatformStateStore, "listAuditEventsByClassification">> {
+  return typeof store.listAuditEventsByClassification === "function";
+}
+
 export async function listAuditViewerEventsPage(params: {
   store: PlatformStateStore;
   tenantId: string;
@@ -248,27 +252,20 @@ export async function listAuditViewerEventsPage(params: {
   }
 
   const needsClassificationFiltering = Boolean(query.outcome || query.severity);
-  const scanLimit = needsClassificationFiltering ? auditViewerDerivedFilterScanLimit : query.limit + 1;
   const matches: Array<{ source: StoredAuditEvent; item: AuditViewerEvent }> = [];
   let snapshotCeiling = decodedCursor?.snapshot;
   let cursorAfter = decodedCursor?.position;
-  let scannedSourceRows = 0;
-  let sourceExhausted = false;
 
-  while (matches.length < query.limit + 1) {
-    const remainingScanBudget = scanLimit - scannedSourceRows;
-    if (remainingScanBudget <= 0) {
-      break;
-    }
-
-    const batchLimit = Math.min(auditViewerSourceBatchLimit, remainingScanBudget);
-    const sourceEvents = await store.listAuditEvents({
+  if (needsClassificationFiltering && storeHasClassificationIndex(store)) {
+    const sourceEvents = await store.listAuditEventsByClassification({
       tenantId,
       eventType: query.eventType,
+      outcome: query.outcome,
+      severity: query.severity,
       from: query.from,
       to: query.to,
       conversationId: query.conversationId,
-      limit: batchLimit,
+      limit: query.limit + 1,
       cursorAfter,
       snapshotCeiling
     });
@@ -277,43 +274,99 @@ export async function listAuditViewerEventsPage(params: {
       snapshotCeiling = boundaryFromAuditEvent(sourceEvents[0]);
     }
 
-    scannedSourceRows += sourceEvents.length;
+    for (const source of sourceEvents) {
+      matches.push({
+        source,
+        item: auditViewerEventFromStoredAuditEvent(source, tenantId)
+      });
+    }
+  } else if (!needsClassificationFiltering) {
+    const sourceEvents = await store.listAuditEvents({
+      tenantId,
+      eventType: query.eventType,
+      from: query.from,
+      to: query.to,
+      conversationId: query.conversationId,
+      limit: query.limit + 1,
+      cursorAfter,
+      snapshotCeiling
+    });
+
+    if (!snapshotCeiling && sourceEvents[0]) {
+      snapshotCeiling = boundaryFromAuditEvent(sourceEvents[0]);
+    }
 
     for (const source of sourceEvents) {
-      const item = auditViewerEventFromStoredAuditEvent(source, tenantId);
-      if (classificationMatches(item, query)) {
-        matches.push({ source, item });
-        if (matches.length >= query.limit + 1) {
-          break;
+      matches.push({
+        source,
+        item: auditViewerEventFromStoredAuditEvent(source, tenantId)
+      });
+    }
+  } else {
+    const scanLimit = auditViewerDerivedFilterScanLimit;
+    let scannedSourceRows = 0;
+    let sourceExhausted = false;
+
+    while (matches.length < query.limit + 1) {
+      const remainingScanBudget = scanLimit - scannedSourceRows;
+      if (remainingScanBudget <= 0) {
+        break;
+      }
+
+      const batchLimit = Math.min(auditViewerSourceBatchLimit, remainingScanBudget);
+      const sourceEvents = await store.listAuditEvents({
+        tenantId,
+        eventType: query.eventType,
+        from: query.from,
+        to: query.to,
+        conversationId: query.conversationId,
+        limit: batchLimit,
+        cursorAfter,
+        snapshotCeiling
+      });
+
+      if (!snapshotCeiling && sourceEvents[0]) {
+        snapshotCeiling = boundaryFromAuditEvent(sourceEvents[0]);
+      }
+
+      scannedSourceRows += sourceEvents.length;
+
+      for (const source of sourceEvents) {
+        const item = auditViewerEventFromStoredAuditEvent(source, tenantId);
+        if (classificationMatches(item, query)) {
+          matches.push({ source, item });
+          if (matches.length >= query.limit + 1) {
+            break;
+          }
         }
       }
-    }
 
-    if (sourceEvents.length === 0 || sourceEvents.length < batchLimit) {
-      sourceExhausted = true;
-      break;
-    }
-
-    cursorAfter = boundaryFromAuditEvent(sourceEvents[sourceEvents.length - 1]);
-  }
-
-  if (matches.length < query.limit + 1 && !sourceExhausted) {
-    return {
-      ok: false,
-      status: 422,
-      body: {
-        error: "audit_events_filter_scan_limit_exceeded",
-        message: "Audit filters matched too sparsely to page safely within the bounded scan limit. Narrow the time window or event type and retry.",
-        guidance: auditViewerScanLimitGuidance,
-        diagnostics: scanLimitDiagnostics({
-          query,
-          filterHash: currentFilterHash,
-          scannedRows: scannedSourceRows,
-          matchedRows: matches.length,
-          scanLimit
-        })
+      if (sourceEvents.length === 0 || sourceEvents.length < batchLimit) {
+        sourceExhausted = true;
+        break;
       }
-    };
+
+      cursorAfter = boundaryFromAuditEvent(sourceEvents[sourceEvents.length - 1]);
+    }
+
+    if (matches.length < query.limit + 1 && !sourceExhausted) {
+      return {
+        ok: false,
+        status: 422,
+        body: {
+          error: "audit_events_filter_scan_limit_exceeded",
+          message: "Audit filters matched too sparsely to page safely within the bounded scan limit. Narrow the time window or event type and retry.",
+          guidance: auditViewerScanLimitGuidance,
+          diagnostics: scanLimitDiagnostics({
+            query,
+            filterHash: currentFilterHash,
+            scannedRows: scannedSourceRows,
+            matchedRows: matches.length,
+            scanLimit
+          })
+        }
+      };
+    }
   }
 
   const pageMatches = matches.slice(0, query.limit);
