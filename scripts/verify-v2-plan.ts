@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 const path = "docs/v2-platform-foundation.md";
 const stateInventoryPath = "docs/v2-state-inventory.md";
+const orchestratorAgnosticRoadmapPath = "docs/orchestrator-agnostic-roadmap.md";
 const sharedPath = "packages/shared/src/index.ts";
 const deploymentPath = "docs/deployment.md";
 const packageJsonPath = "package.json";
@@ -76,12 +77,19 @@ if (!existsSync(path)) {
     "SERVICENOW_INSTANCE_URL",
     "ServiceNow credentials live only in the external adapter",
     "V2 Implementation Checklist",
-    "What Remains V3+"
+    "What Remains V3+",
+    "Orchestrator-agnostic strategy",
+    "docs/orchestrator-agnostic-roadmap.md"
   ]) {
     if (!doc.includes(phrase)) {
       fail(`V2 plan missing required phrase: ${phrase}`);
     }
   }
+}
+
+
+if (!existsSync(orchestratorAgnosticRoadmapPath)) {
+  fail(`${orchestratorAgnosticRoadmapPath} should exist`);
 }
 
 if (!existsSync(stateInventoryPath)) {
@@ -139,7 +147,9 @@ if (!existsSync(deploymentPath)) {
   for (const phrase of [
     "Auth0 is for real browser user identity",
     "Reference A2A Token Issuer",
-    "they do not validate Auth0 directly"
+    "they do not validate Auth0 directly",
+    "vendor-specific",
+    "vendor-neutral"
   ]) {
     if (!deployment.includes(phrase)) {
       fail(`deployment docs missing required phrase: ${phrase}`);
@@ -271,6 +281,26 @@ if (!existsSync(packageJsonPath)) {
   }
   if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:audit-viewer-boundary")) {
     fail("verify:v2-plan should run verify:audit-viewer-boundary");
+  }
+}
+
+
+const coreDocsThatMustReferenceRoadmap = [
+  path,
+  "docs/ogen-product-identity.md",
+  "docs/sdk-readiness-contracts.md",
+  deploymentPath
+];
+
+for (const coreDocPath of coreDocsThatMustReferenceRoadmap) {
+  if (!existsSync(coreDocPath)) {
+    fail(`${coreDocPath} should exist`);
+    continue;
+  }
+
+  const content = readFileSync(coreDocPath, "utf8");
+  if (!content.includes("orchestrator-agnostic-roadmap.md")) {
+    fail(`${coreDocPath} should reference docs/orchestrator-agnostic-roadmap.md to avoid orphan docs`);
   }
 }
 

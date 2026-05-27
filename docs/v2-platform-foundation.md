@@ -55,6 +55,12 @@ V1 proves:
 - proof / execution gate stack
 - Jira, ServiceNow, and GitHub reference connector runtimes
 
+## Orchestrator-agnostic strategy
+
+Ogen V2 remains orchestrator-agnostic by design. The concrete roadmap, capability boundaries, and migration posture are defined in [`docs/orchestrator-agnostic-roadmap.md`](./orchestrator-agnostic-roadmap.md).
+
+Vendor or platform examples may appear in implementation notes, but the trust contracts, policy model, and security boundaries stay orchestrator-neutral.
+
 ## V2 Phases
 
 ### Phase 0  V1 Closeout / Branch Hygiene
