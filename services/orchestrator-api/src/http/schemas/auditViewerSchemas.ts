@@ -13,7 +13,7 @@ export const auditEventsQuerySchema = {
   additionalProperties: false,
   properties: {
     tenantId: { type: "string", maxLength: 160 },
-    page: { type: "integer", minimum: 1, maximum: 10000 },
+    cursor: { type: "string", maxLength: 2048 },
     limit: { type: "integer", minimum: 1, maximum: 100 },
     eventType: { type: "string", maxLength: 160 },
     outcome: auditEventOutcomeSchema,
@@ -84,12 +84,12 @@ const auditViewerEventSchema = {
 export const auditEventsResponseSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["tenantId", "page", "limit", "filters", "events", "responseProof"],
+  required: ["tenantId", "limit", "hasNext", "filters", "items", "responseProof"],
   properties: {
     tenantId: { type: "string" },
-    page: { type: "integer", minimum: 1 },
     limit: { type: "integer", minimum: 1, maximum: 100 },
-    nextPage: { type: "integer", minimum: 1 },
+    hasNext: { type: "boolean" },
+    nextCursor: { type: "string" },
     filters: {
       type: "object",
       additionalProperties: false,
@@ -102,7 +102,7 @@ export const auditEventsResponseSchema = {
         conversationId: { type: "string" }
       }
     },
-    events: {
+    items: {
       type: "array",
       items: auditViewerEventSchema
     },

@@ -236,7 +236,7 @@ npm.cmd run verify:postgres-restart-survival
 
 Do not enable the write smoke against production unless intentionally testing a controlled environment. Smoke records use safe synthetic IDs and no secrets.
 
-Persisted audit viewer: when `PLATFORM_STATE_STORE_DRIVER=postgres` is enabled, browser users with the `audit.read` Gateway capability can read tenant-scoped safe audit projections through `GET /audit/events`. The viewer never returns stored `safe_metadata`, raw prompts, OAuth tokens, JWTs, Authorization headers, private keys, client secrets, or client assertions. In local memory mode, audit viewer data is process-local and resets with the orchestrator.
+Persisted audit viewer: when `PLATFORM_STATE_STORE_DRIVER=postgres` is enabled, browser users with the `audit.read` Gateway capability can read tenant-scoped safe audit projections through `GET /audit/events`. The viewer uses cursor pagination with a snapshot ceiling so new audit writes do not shift an open result window, and derived outcome/severity filters are evaluated before pagination through bounded ordered scans. The viewer never returns stored `safe_metadata`, raw prompts, OAuth tokens, JWTs, Authorization headers, private keys, client secrets, or client assertions. In local memory mode, audit viewer data is process-local and resets with the orchestrator.
 
 Cross-site browser sessions also affect the audit viewer because it uses the same credentialed browser session as the rest of the app. For Vercel-to-Railway, keep `SESSION_COOKIE_SAMESITE=None`, HTTPS on the backend, and `SESSION_COOKIE_SECURE=true` explicitly or via automatic SameSite=None hardening. CSRF cookie follows session SameSite unless `CSRF_COOKIE_SAMESITE` overrides it.
 

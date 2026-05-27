@@ -1,5 +1,13 @@
 import { defaultTenantId } from "../tenant/tenantContext.js";
-import type { PlatformStateStore, PlatformStateStoreHealth, StoredAuditEvent, StoredConnectorTrustRecord, StoredConversationStateRecord, StoredPlatformUser } from "./platformStateStore.js";
+import type {
+  PlatformStateStore,
+  PlatformStateStoreHealth,
+  StoredAuditEvent,
+  StoredAuditEventPageBoundary,
+  StoredConnectorTrustRecord,
+  StoredConversationStateRecord,
+  StoredPlatformUser
+} from "./platformStateStore.js";
 import { platformOwnerKeyHash } from "./stateKeyHash.js";
 
 function deepClone<T>(value: T): T {
@@ -25,6 +33,16 @@ function copyAuditEvent(event: StoredAuditEvent): StoredAuditEvent {
     ...event,
     safeMetadata: cloneSafeMetadata(event.safeMetadata)
   };
+}
+
+function isAtOrBeforeAuditBoundary(event: StoredAuditEvent, boundary: StoredAuditEventPageBoundary, inclusiveId: boolean): boolean {
+  if (event.createdAt > boundary.createdAt) {
+    return false;
+  }
+  if (event.createdAt < boundary.createdAt) {
+    return true;
+  }
+  return inclusiveId ? event.id <= boundary.id : event.id < boundary.id;
 }
 
 function copyConversationState(record: StoredConversationStateRecord): StoredConversationStateRecord {
@@ -123,7 +141,8 @@ export class InMemoryPlatformStateStore implements PlatformStateStore {
     to?: string;
     conversationId?: string;
     limit?: number;
-    offset?: number;
+    cursorAfter?: StoredAuditEventPageBoundary;
+    snapshotCeiling?: StoredAuditEventPageBoundary;
   }): Promise<StoredAuditEvent[]> {
     const fromTime = params.from ? Date.parse(params.from) : undefined;
     const toTime = params.to ? Date.parse(params.to) : undefined;
@@ -153,14 +172,19 @@ export class InMemoryPlatformStateStore implements PlatformStateStore {
       if (params.conversationId && event.safeMetadata.conversationId !== params.conversationId) {
         return false;
       }
+      if (params.snapshotCeiling && !isAtOrBeforeAuditBoundary(event, params.snapshotCeiling, true)) {
+        return false;
+      }
+      if (params.cursorAfter && !isAtOrBeforeAuditBoundary(event, params.cursorAfter, false)) {
+        return false;
+      }
       return true;
     }).sort((left, right) => {
       const createdAtOrder = right.createdAt.localeCompare(left.createdAt);
       return createdAtOrder || right.id.localeCompare(left.id);
     });
-    const offset = typeof params.offset === "number" && Number.isInteger(params.offset) && params.offset >= 0 ? params.offset : 0;
     const limit = typeof params.limit === "number" && params.limit >= 0 ? params.limit : filtered.length;
-    const limited = filtered.slice(offset, offset + limit);
+    const limited = filtered.slice(0, limit);
     return limited.map(copyAuditEvent);
   }
 

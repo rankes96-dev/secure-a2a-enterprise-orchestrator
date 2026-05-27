@@ -36,6 +36,11 @@ export type StoredAuditEvent = {
   safeMetadata: Record<string, unknown>;
 };
 
+export type StoredAuditEventPageBoundary = {
+  createdAt: string;
+  id: string;
+};
+
 export type StoredPlatformUserStatus = "active" | "disabled" | "invited";
 
 export type StoredPlatformUser = {
@@ -106,7 +111,8 @@ export type PlatformStateStore = {
     to?: string;
     conversationId?: string;
     limit?: number;
-    offset?: number;
+    cursorAfter?: StoredAuditEventPageBoundary;
+    snapshotCeiling?: StoredAuditEventPageBoundary;
   }): Promise<StoredAuditEvent[]>;
 
   // User directory allowlist: local authorization gate for verified browser identities.

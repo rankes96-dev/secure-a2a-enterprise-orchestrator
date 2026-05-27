@@ -63,7 +63,7 @@ export type SecurityTimelineEvent = {
 };
 
 export type AuditViewerFilters = {
-  page?: number;
+  cursor?: string;
   limit?: number;
   eventType?: string;
   outcome?: string;

@@ -827,20 +827,29 @@ export type AuditViewerEvent = {
   };
 };
 
+export type AuditEventsFilters = {
+  eventType?: string;
+  outcome?: AuditEventOutcome;
+  severity?: AuditEventSeverity;
+  from?: string;
+  to?: string;
+  conversationId?: string;
+};
+
+export type AuditEventsRequest = {
+  cursor?: string;
+  limit?: number;
+  tenantId?: string;
+  filters?: AuditEventsFilters;
+};
+
 export type AuditEventsResponse = {
   tenantId: string;
-  page: number;
   limit: number;
-  nextPage?: number;
-  filters: {
-    eventType?: string;
-    outcome?: AuditEventOutcome;
-    severity?: AuditEventSeverity;
-    from?: string;
-    to?: string;
-    conversationId?: string;
-  };
-  events: AuditViewerEvent[];
+  hasNext: boolean;
+  nextCursor?: string;
+  filters: AuditEventsFilters;
+  items: AuditViewerEvent[];
   responseProof: {
     safeMetadataReturned: false;
     protectedMaterialExposed: false;

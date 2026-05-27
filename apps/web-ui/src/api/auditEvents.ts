@@ -1,9 +1,11 @@
 import type { AuditViewerFilters } from "../components/types";
 
-export function auditEventsQuery(filters: AuditViewerFilters, defaults: { page: number; limit: number }): URLSearchParams {
+export function auditEventsQuery(filters: AuditViewerFilters, defaults: { limit: number }): URLSearchParams {
   const query = new URLSearchParams();
-  query.set("page", String(filters.page ?? defaults.page));
   query.set("limit", String(filters.limit ?? defaults.limit));
+  if (filters.cursor) {
+    query.set("cursor", filters.cursor);
+  }
   for (const [key, value] of Object.entries({
     eventType: filters.eventType,
     outcome: filters.outcome,
@@ -19,7 +21,7 @@ export function auditEventsQuery(filters: AuditViewerFilters, defaults: { page: 
   return query;
 }
 
-export function fetchAuditEvents(apiUrl: string, filters: AuditViewerFilters, defaults: { page: number; limit: number }): Promise<Response> {
+export function fetchAuditEvents(apiUrl: string, filters: AuditViewerFilters, defaults: { limit: number }): Promise<Response> {
   const query = auditEventsQuery(filters, defaults);
   return fetch(`${apiUrl}/audit/events?${query.toString()}`, {
     method: "GET",

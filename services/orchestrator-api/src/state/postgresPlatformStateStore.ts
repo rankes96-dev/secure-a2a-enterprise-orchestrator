@@ -4,6 +4,7 @@ import type {
   PlatformStateStore,
   PlatformStateStoreHealth,
   StoredAuditEvent,
+  StoredAuditEventPageBoundary,
   StoredConnectorTrustRecord,
   StoredConversationMessage,
   StoredConversationStateRecord,
@@ -109,10 +110,6 @@ function optional(value: string | null): string | undefined {
 
 function limitValue(limit: number | undefined): number {
   return typeof limit === "number" && Number.isInteger(limit) && limit >= 0 ? Math.min(limit, 500) : 100;
-}
-
-function offsetValue(offset: number | undefined): number {
-  return typeof offset === "number" && Number.isInteger(offset) && offset >= 0 ? offset : 0;
 }
 
 function connectorTrustRecordFromRow(row: DbConnectorTrustRecord): StoredConnectorTrustRecord {
@@ -309,7 +306,8 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
     to?: string;
     conversationId?: string;
     limit?: number;
-    offset?: number;
+    cursorAfter?: StoredAuditEventPageBoundary;
+    snapshotCeiling?: StoredAuditEventPageBoundary;
   }): Promise<StoredAuditEvent[]> {
     const where: string[] = [];
     const values: unknown[] = [];
@@ -325,9 +323,22 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
     if (params.from) add("created_at >= ?", params.from);
     if (params.to) add("created_at <= ?", params.to);
     if (params.conversationId) add("safe_metadata ->> 'conversationId' = ?", params.conversationId);
+    if (params.snapshotCeiling) {
+      values.push(params.snapshotCeiling.createdAt);
+      const createdAtParameter = values.length;
+      values.push(params.snapshotCeiling.id);
+      const idParameter = values.length;
+      where.push(`(created_at < $${createdAtParameter} or (created_at = $${createdAtParameter} and id <= $${idParameter}))`);
+    }
+    if (params.cursorAfter) {
+      values.push(params.cursorAfter.createdAt);
+      const createdAtParameter = values.length;
+      values.push(params.cursorAfter.id);
+      const idParameter = values.length;
+      where.push(`(created_at < $${createdAtParameter} or (created_at = $${createdAtParameter} and id < $${idParameter}))`);
+    }
     values.push(limitValue(params.limit));
     const limitParameter = values.length;
-    values.push(offsetValue(params.offset));
 
     const result = await this.pool.query<DbAuditEvent>(
       `select id, tenant_id, actor_provider, actor_subject, actor_email, event_type,
@@ -335,8 +346,7 @@ export class PostgresPlatformStateStore implements PlatformStateStore {
        from audit_events
        ${where.length ? `where ${where.join(" and ")}` : ""}
        order by created_at desc, id desc
-       limit $${limitParameter}
-       offset $${values.length}`,
+       limit $${limitParameter}`,
       values
     );
     return result.rows.map(auditEventFromRow);

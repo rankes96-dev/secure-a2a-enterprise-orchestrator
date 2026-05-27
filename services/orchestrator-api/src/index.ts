@@ -13,7 +13,6 @@ import type {
   AuditEventOutcome,
   AuditEventSeverity,
   AuditEventsResponse,
-  AuditViewerEvent,
   Classification,
   ConnectorPlanningTargetResolution,
   ExecutionTraceStep,
@@ -55,6 +54,7 @@ import { buildManualWorkflowAnswer } from "./requestInterpreter.js";
 import { detectSensitiveAction } from "./sensitiveActionGuard.js";
 import { discoverAgentOnboarding, listSupportedConnectorTemplates, listTrustedOnboardedAgentsForOwner, startAgentOnboarding } from "./agentOnboarding.js";
 import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
+import { listAuditViewerEventsPage, type AuditEventsPageQuery } from "./audit/auditViewerPagination.js";
 import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting.js";
 import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime.js";
 import { requestConnectorActionPlan } from "./connectorActionPlanner.js";
@@ -63,9 +63,7 @@ import { AuditEvents } from "./audit/auditEvents.js";
 import { appendPlatformAuditEvent } from "./audit/platformAuditStore.js";
 import { evaluateGatewayAuthorization, isGatewayAuthorized } from "./authorization/gatewayAuthorization.js";
 import type { GatewayAuthorizationDecision, GatewayCapability } from "./authorization/gatewayAuthorizationTypes.js";
-import { securityEventFromAuditEvent } from "./securityEvents/securityEventPublisher.js";
 import { getPlatformStateStore } from "./state/createPlatformStateStore.js";
-import type { StoredAuditEvent } from "./state/platformStateStore.js";
 import type { OgenInterpretationProof } from "./interpretation/interpretationTypes.js";
 import type { OgenAiRoutingProof } from "./interpretation/routingProofTypes.js";
 import { requireRequestedTenantAllowed, resolveTenantContext, type ResolvedTenantContext } from "./tenant/tenantResolution.js";
@@ -236,33 +234,12 @@ function safeRequestIdFromBody(value: unknown): string | undefined {
 const auditEventOutcomeValues = new Set<AuditEventOutcome>(["success", "failure", "blocked", "needs_action"]);
 const auditEventSeverityValues = new Set<AuditEventSeverity>(["info", "low", "medium", "high", "critical"]);
 
-type AuditEventsQuery = {
-  page: number;
-  limit: number;
-  offset: number;
-  tenantIdHint?: string;
-  eventType?: string;
-  outcome?: AuditEventOutcome;
-  severity?: AuditEventSeverity;
-  from?: string;
-  to?: string;
-  conversationId?: string;
-};
-
 function safeAuditQueryString(value: string | null, maxLength = 160): string | undefined {
   const trimmed = value?.trim() ?? "";
   if (!trimmed || trimmed.length > maxLength) {
     return undefined;
   }
   return /^[A-Za-z0-9._:@/-]+$/.test(trimmed) ? trimmed : undefined;
-}
-
-function safeAuditSummaryString(value: unknown, maxLength = 180): string | undefined {
-  const trimmed = typeof value === "string" ? value.trim() : "";
-  if (!trimmed) {
-    return undefined;
-  }
-  return trimmed.replace(/[\r\n\t]+/g, " ").slice(0, maxLength);
 }
 
 function positiveIntegerQuery(value: string | null, fallback: number, max: number): number {
@@ -281,9 +258,17 @@ function auditTimestampQuery(value: string | null): string | undefined {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
 }
 
-function parseAuditEventsQuery(searchParams: URLSearchParams): { ok: true; query: AuditEventsQuery } | { ok: false; message: string } {
-  const page = positiveIntegerQuery(searchParams.get("page"), 1, 10_000);
+function safeAuditCursorString(value: string | null): string | undefined {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed || trimmed.length > 2048) {
+    return undefined;
+  }
+  return /^[A-Za-z0-9_-]+$/.test(trimmed) ? trimmed : undefined;
+}
+
+function parseAuditEventsQuery(searchParams: URLSearchParams): { ok: true; query: AuditEventsPageQuery } | { ok: false; message: string } {
   const limit = positiveIntegerQuery(searchParams.get("limit"), 25, 100);
+  const cursor = searchParams.has("cursor") ? safeAuditCursorString(searchParams.get("cursor")) : undefined;
   const tenantIdHint = searchParams.has("tenantId") ? safeAuditQueryString(searchParams.get("tenantId")) : undefined;
   const eventType = searchParams.has("eventType") ? safeAuditQueryString(searchParams.get("eventType")) : undefined;
   const conversationId = searchParams.has("conversationId") ? safeAuditQueryString(searchParams.get("conversationId")) : undefined;
@@ -294,6 +279,12 @@ function parseAuditEventsQuery(searchParams: URLSearchParams): { ok: true; query
   const from = auditTimestampQuery(searchParams.get("from"));
   const to = auditTimestampQuery(searchParams.get("to"));
 
+  if (searchParams.has("page")) {
+    return { ok: false, message: "Use cursor pagination with cursor and limit; page is not supported." };
+  }
+  if (searchParams.has("cursor") && !cursor) {
+    return { ok: false, message: "Invalid cursor." };
+  }
   if (searchParams.has("tenantId") && !tenantIdHint) {
     return { ok: false, message: "Invalid tenantId filter." };
   }
@@ -328,9 +319,8 @@ function parseAuditEventsQuery(searchParams: URLSearchParams): { ok: true; query
   return {
     ok: true,
     query: {
-      page,
+      cursor,
       limit,
-      offset: (page - 1) * limit,
       tenantIdHint,
       eventType,
       outcome: outcomeValue as AuditEventOutcome | undefined,
@@ -1424,44 +1414,6 @@ async function appendTenantAccessDeniedAuditEvent(params: {
       rawPromptStored: false
     }
   });
-}
-
-function auditViewerEventFromStoredAuditEvent(event: StoredAuditEvent, tenantId: string): AuditViewerEvent {
-  const securityEvent = securityEventFromAuditEvent(event);
-  const metadata = event.safeMetadata;
-
-  return {
-    id: event.id,
-    tenantId: event.tenantId ?? tenantId,
-    createdAt: event.createdAt,
-    eventType: event.eventType,
-    severity: securityEvent.severity,
-    outcome: securityEvent.outcome,
-    actor: {
-      provider: event.actorProvider,
-      email: event.actorEmail
-    },
-    correlation: {
-      conversationId: securityEvent.conversationId,
-      requestId: securityEvent.requestId,
-      taskId: securityEvent.taskId,
-      connectorId: securityEvent.connectorId,
-      runtimeExecutionId: securityEvent.runtimeExecutionId
-    },
-    summary: {
-      route: safeAuditSummaryString(metadata.route, 120),
-      method: safeAuditSummaryString(metadata.method, 12),
-      capability: safeAuditSummaryString(metadata.capability, 100),
-      reason: safeAuditSummaryString(metadata.reason, 180),
-      resourceType: safeAuditSummaryString(event.resourceType, 80),
-      resourceId: safeAuditSummaryString(event.resourceId, 180)
-    },
-    proof: {
-      protectedMaterialExposed: false,
-      tokenMaterialStored: false,
-      rawPromptStored: false
-    }
-  };
 }
 
 async function appendGatewayAuthorizationAuditEvent(params: {
@@ -5108,46 +5060,21 @@ async function start(): Promise<void> {
     }
 
     const query = parsedAuditQuery.query;
-    const needsClassificationFiltering = Boolean(query.outcome || query.severity);
-    const storeEvents = await getPlatformStateStore().listAuditEvents({
+    const auditPage = await listAuditViewerEventsPage({
+      store: getPlatformStateStore(),
       tenantId: auditTenantContext.tenantId,
-      eventType: query.eventType,
-      from: query.from,
-      to: query.to,
-      conversationId: query.conversationId,
-      limit: needsClassificationFiltering ? Math.min(query.offset + query.limit + 1, 500) : query.limit + 1,
-      offset: needsClassificationFiltering ? 0 : query.offset
+      query
     });
-    const projectedEvents = storeEvents
-      .map((event) => auditViewerEventFromStoredAuditEvent(event, auditTenantContext.tenantId))
-      .filter((event) => !query.outcome || event.outcome === query.outcome)
-      .filter((event) => !query.severity || event.severity === query.severity);
-    const pageEvents = needsClassificationFiltering
-      ? projectedEvents.slice(query.offset, query.offset + query.limit + 1)
-      : projectedEvents;
-    const hasNextPage = pageEvents.length > query.limit;
+    if (!auditPage.ok) {
+      sendJson(response, auditPage.status, {
+        error: auditPage.error,
+        message: auditPage.message,
+        scanLimit: auditPage.scanLimit
+      }, request);
+      return;
+    }
 
-    const body: AuditEventsResponse = {
-      tenantId: auditTenantContext.tenantId,
-      page: query.page,
-      limit: query.limit,
-      nextPage: hasNextPage ? query.page + 1 : undefined,
-      filters: {
-        eventType: query.eventType,
-        outcome: query.outcome,
-        severity: query.severity,
-        from: query.from,
-        to: query.to,
-        conversationId: query.conversationId
-      },
-      events: pageEvents.slice(0, query.limit),
-      responseProof: {
-        safeMetadataReturned: false,
-        protectedMaterialExposed: false,
-        tokenMaterialStored: false,
-        rawPromptStored: false
-      }
-    };
+    const body: AuditEventsResponse = auditPage.body;
 
     sendJson(response, 200, body, request);
     return;

@@ -119,7 +119,6 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
     safeRawExecutionData
   } = ctx;
   const [auditFilters, setAuditFilters] = useState<AuditViewerFilters>({
-    page: 1,
     limit: auditEventsResponse?.limit ?? 25,
     eventType: auditEventsResponse?.filters.eventType ?? "",
     outcome: auditEventsResponse?.filters.outcome ?? "",
@@ -128,6 +127,7 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
     to: auditEventsResponse?.filters.to ?? "",
     conversationId: auditEventsResponse?.filters.conversationId ?? ""
   });
+  const [auditCursorHistory, setAuditCursorHistory] = useState<string[]>([]);
 
   function openConnectorTestCenter() {
     setActiveTab("connector-test-center");
@@ -151,38 +151,55 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
     return event.actor.email ?? event.actor.provider ?? "System";
   }
 
-  function setAuditFilterValue(key: Exclude<keyof AuditViewerFilters, "page" | "limit">, value: string) {
+  function setAuditFilterValue(key: Exclude<keyof AuditViewerFilters, "cursor" | "limit">, value: string) {
+    setAuditCursorHistory([]);
     setAuditFilters((current) => ({
       ...current,
-      [key]: value,
-      page: 1
+      [key]: value
     }));
   }
 
   function submitAuditFilters(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const nextFilters = { ...auditFilters, page: 1 };
+    setAuditCursorHistory([]);
+    const nextFilters = { ...auditFilters, cursor: undefined };
     setAuditFilters(nextFilters);
     void loadAuditEvents(nextFilters);
   }
 
   function resetAuditFilters() {
-    const nextFilters: AuditViewerFilters = { page: 1, limit: auditFilters.limit ?? 25 };
+    setAuditCursorHistory([]);
+    const nextFilters: AuditViewerFilters = { limit: auditFilters.limit ?? 25 };
     setAuditFilters(nextFilters);
     void loadAuditEvents(nextFilters);
   }
 
-  function loadAuditPage(page: number) {
-    const nextFilters = { ...auditFilters, page };
-    setAuditFilters(nextFilters);
-    void loadAuditEvents(nextFilters);
+  function refreshAuditPage() {
+    const cursor = auditCursorHistory[auditCursorHistory.length - 1];
+    void loadAuditEvents({ ...auditFilters, cursor });
+  }
+
+  function loadNextAuditPage() {
+    const nextCursor = auditEventsResponse?.nextCursor;
+    if (!nextCursor) {
+      return;
+    }
+    setAuditCursorHistory((current) => [...current, nextCursor]);
+    void loadAuditEvents({ ...auditFilters, cursor: nextCursor });
+  }
+
+  function loadPreviousAuditPage() {
+    const nextHistory = auditCursorHistory.slice(0, -1);
+    const cursor = nextHistory[nextHistory.length - 1];
+    setAuditCursorHistory(nextHistory);
+    void loadAuditEvents({ ...auditFilters, cursor });
   }
 
   function renderPersistedAuditViewer() {
-    const page = auditEventsResponse?.page ?? auditFilters.page ?? 1;
+    const page = auditCursorHistory.length + 1;
     const limit = auditEventsResponse?.limit ?? auditFilters.limit ?? 25;
-    const hasPreviousPage = page > 1;
-    const hasNextPage = Boolean(auditEventsResponse?.nextPage);
+    const hasPreviousPage = auditCursorHistory.length > 0;
+    const hasNextPage = Boolean(auditEventsResponse?.hasNext && auditEventsResponse.nextCursor);
 
     return (
       <section className="persisted-audit-viewer" aria-label="Persisted audit viewer">
@@ -194,7 +211,7 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
           <button
             type="button"
             className="secondary-button compact-button"
-            onClick={() => void loadAuditEvents({ ...auditFilters, page })}
+            onClick={refreshAuditPage}
             disabled={isAuditEventsLoading}
           >
             {isAuditEventsLoading ? "Refreshing..." : "Refresh"}
@@ -259,11 +276,14 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
             <span>Limit</span>
             <select
               value={String(limit)}
-              onChange={(event) => setAuditFilters((current) => ({
-                ...current,
-                limit: Number(event.target.value),
-                page: 1
-              }))}
+              onChange={(event) => {
+                setAuditCursorHistory([]);
+                setAuditFilters((current) => ({
+                  ...current,
+                  limit: Number(event.target.value),
+                  cursor: undefined
+                }));
+              }}
             >
               <option value="10">10</option>
               <option value="25">25</option>
@@ -297,7 +317,7 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
               </tr>
             </thead>
             <tbody>
-              {auditEventsResponse?.events.length ? auditEventsResponse.events.map((event) => (
+              {auditEventsResponse?.items.length ? auditEventsResponse.items.map((event) => (
                 <tr key={event.id}>
                   <td><time>{new Date(event.createdAt).toLocaleString()}</time></td>
                   <td>
@@ -325,7 +345,7 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
             <button
               type="button"
               className="secondary-inline-button"
-              onClick={() => loadAuditPage(page - 1)}
+              onClick={loadPreviousAuditPage}
               disabled={!hasPreviousPage || isAuditEventsLoading}
             >
               Previous
@@ -333,7 +353,7 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
             <button
               type="button"
               className="secondary-inline-button"
-              onClick={() => loadAuditPage(auditEventsResponse?.nextPage ?? page + 1)}
+              onClick={loadNextAuditPage}
               disabled={!hasNextPage || isAuditEventsLoading}
             >
               Next

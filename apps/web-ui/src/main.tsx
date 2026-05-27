@@ -2146,7 +2146,7 @@ function App() {
       void loadTrustStatus();
     }
     if (activeTab === "security-timeline") {
-      void loadAuditEvents({ page: 1, limit: auditEventsResponse?.limit ?? 25 });
+      void loadAuditEvents({ limit: auditEventsResponse?.limit ?? 25 });
     }
   }, [activeTab, appAuthState]);
 
@@ -2259,7 +2259,6 @@ function App() {
     try {
       await ensureSession();
       const response = await fetchAuditEvents(API_URL, filters, {
-        page: auditEventsResponse?.page ?? 1,
         limit: auditEventsResponse?.limit ?? 25
       });
       if (!await handleProtectedResponse(response, "Failed to load persisted audit events")) {
