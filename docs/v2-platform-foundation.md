@@ -721,6 +721,19 @@ Boundary behavior:
 - Internal responses can be wrapped as compatibility `kind: "task"` envelopes when the request used the compatibility envelope path.
 - Full official Message/Task operations `list`, `get`, `cancel`, and `subscribe` are deferred to a later provider implementation.
 
+### Phase 2.21  Signed Agent Card Provenance
+
+Phase 2.21 adds signed Agent Card provenance as an informational-first integrity and trust metadata layer. Discovery responses from `GET /agent-card` and `GET /.well-known/agent-card.json` include a safe `provenance` block with `issuer`, `kid`, `alg`, `signedAt`, `expiresAt`, `verificationStatus`, `verificationReason`, `signaturePresent`, and a deterministic canonical payload hash. Missing local signatures are marked `not_configured`; signature-present cards without a configured trust anchor are `unverified`; configured verification can produce `verified`, `expired`, `invalid`, or `error`.
+
+Signed Agent Card provenance is advisory only in this phase; signed Agent Card provenance is advisory only even when a configured verifier marks it `verified`. It improves operator visibility into card origin and payload integrity, but authorization remains Ogen policy, verified identity, tenant resolution, and Gateway RBAC. Runtime authorization, scoped JWT audience/scope/delegation checks, connector policy, and audit decisions do not grant or deny access based solely on `verificationStatus`.
+
+Safety rules:
+
+- Provenance output never exposes private keys, raw tokens, raw prompts, Authorization headers, client assertions, secrets, or protected metadata.
+- Verification failures are explicit and non-crashing; invalid, expired, missing, or verifier-error states remain safe discovery metadata.
+- The canonical payload hash excludes the provenance/signature envelope itself so operators can compare the signed Agent Card body deterministically.
+- Key rotation and trust-anchor rollout remain future operational work; Phase 2.22 can optionally consume verified provenance under explicit tenant policy rules.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
@@ -1049,6 +1062,7 @@ V2 verification should layer new checks without weakening V1:
 - `npm run verify:audit-viewer-boundary`
 - `npm run verify:a2a-protocol-compatibility`
 - `npm run verify:a2a-message-task-adapter`
+- `npm run verify:a2a-agent-card-provenance`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
 - Phase 2.6 adds the first opt-in Postgres schema and `PostgresPlatformStateStore`; Phase 2.19 verifies tenant-scoped persisted audit viewer reads, and Phase 2.19c verifies indexed outcome/severity pagination
 - future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
@@ -1141,6 +1155,9 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.20b: normalize compatibility envelopes at `/resolve` and local `/task` boundaries before policy/execution
 - [ ] Phase 2.20b: keep protocol metadata out of tenant, role, policy, authorization, and audit authority
 - [ ] Phase 2.20b: defer official Message/Task operations `list`, `get`, `cancel`, and `subscribe`
+- [ ] Phase 2.21: include advisory signed Agent Card provenance on `/agent-card` and `/.well-known/agent-card.json`
+- [ ] Phase 2.21: keep Agent Card provenance out of tenant, role, policy, authorization, runtime, and audit authority
+- [ ] Phase 2.21: verify no private keys, raw tokens, raw prompts, secrets, or protected metadata appear in provenance output
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

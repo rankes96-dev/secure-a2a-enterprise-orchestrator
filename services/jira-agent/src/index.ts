@@ -12,7 +12,8 @@ import {
   internalA2AResponseToOutboundA2AEnvelope,
   normalizeA2ATaskInput,
   requireA2AAuth,
-  unsupportedExplicitA2AProtocolVersion
+  unsupportedExplicitA2AProtocolVersion,
+  withOgenAgentCardProvenance
 } from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 
@@ -25,7 +26,7 @@ type JiraOperationRequirement = {
   requiredScopes: string[];
 };
 
-const agentCard = {
+const agentCard = withOgenAgentCardProvenance({
   agentId: "jira-agent",
   name: "Jira Agent",
   description: "External Jira support agent that owns Jira-specific troubleshooting knowledge.",
@@ -66,7 +67,7 @@ const agentCard = {
     },
     { id: "jira.ask_clarifying_questions", name: "Ask Jira clarifying questions", description: "Ask for Jira project, operation, or error detail." }
   ]
-};
+}, { issuer: "ogen.local-agent:jira-agent", signaturePresent: false });
 
 async function loadRequirements(): Promise<JiraOperationRequirement[]> {
   const filePath = path.resolve(process.cwd(), "../../mock-data/jira-operation-requirements.json");

@@ -585,22 +585,41 @@ Non-goal:
 
 - no full A2A provider operation set yet; Message/Task `list`, `get`, `cancel`, and `subscribe` are deferred
 
-### Phase 2.21 — Orchestrator-Agnostic Provider Model
+### Phase 2.21 — Signed Agent Card Provenance
 
-Goal: define how any enterprise AI orchestrator can connect to Ogen without Ogen becoming ServiceNow-specific.
+Goal: add signed Agent Card provenance/integrity metadata without shifting Ogen authorization authority.
 
 Deliverables:
 
-- generic provider/discovery contract
-- route capability mapping for external orchestrators
-- guidance for ServiceNow, Microsoft Copilot, MCP clients, and custom orchestrators as examples only
-- verification that docs and contracts do not hardcode ServiceNow as the only orchestration target
+- safe provenance metadata on `GET /agent-card` and `GET /.well-known/agent-card.json`
+- deterministic canonical Agent Card payload hash
+- constrained `verificationStatus` values: `verified`, `unverified`, `expired`, `invalid`, `error`, and `not_configured`
+- pluggable signature verifier hook for configured trust anchors
+- verification that provenance is informational-only and does not become tenant, role, policy, authorization, runtime, or audit authority
+- no private keys, raw tokens, raw prompts, secrets, or sensitive key material in discovery output
 
 Non-goal:
 
-- no ServiceNow-specific implementation in this phase
+- no policy enforcement based solely on provenance status in this phase
+- no full key rotation or trust-anchor operations rollout yet
 
-### Phase 2.22 — Generic Action Taxonomy and Policy Conditions
+### Phase 2.22 — Optional Policy Consumption of Verified Provenance
+
+Goal: optionally consume verified Agent Card provenance under explicit tenant rules without making provenance a global authorization shortcut.
+
+Deliverables:
+
+- tenant policy conditions that may require `verificationStatus: verified` for selected connectors or high-risk actions
+- explicit trust-anchor configuration and key rotation runbook
+- audit proof that distinguishes provenance checks from identity, tenant, RBAC, scoped JWT, and Ogen policy decisions
+- safe fallback behavior for `unverified`, `expired`, `invalid`, `error`, and `not_configured`
+
+Non-goal:
+
+- no implicit allow based on a verified Agent Card alone
+- no bypass of OAuth, connected-account checks, scoped JWT validation, runtime authorization, or Gateway RBAC
+
+### Phase 2.23 — Generic Action Taxonomy and Policy Conditions
 
 Goal: define the vendor-neutral action taxonomy and generic policy condition model that let Ogen scale beyond one connector or one orchestrator.
 
@@ -621,7 +640,7 @@ Acceptance criteria:
 - high-risk standard single-record writes can be allowed by policy when constraints match
 - sensitive, bulk, permission, admin, delete, and regulated actions fail closed or require approval
 
-### Phase 2.23 — Tool-to-Action Metadata Mapping
+### Phase 2.24 — Tool-to-Action Metadata Mapping
 
 Goal: convert external tool definitions into Ogen action metadata.
 
@@ -648,7 +667,7 @@ Rules:
 - no natural-language-only safety inference
 - unknown tool metadata fails closed
 
-### Phase 2.24 — Connected Account Consent Registry
+### Phase 2.25 — Connected Account Consent Registry
 
 Goal: track user-delegated OAuth connection state in a vendor-neutral model.
 
@@ -663,7 +682,7 @@ Support providers such as:
 
 This phase should define metadata and state. Raw token vault implementation can remain a later phase unless explicitly in scope.
 
-### Phase 2.25 — OAuth Scope-to-Policy Mapping
+### Phase 2.26 — OAuth Scope-to-Policy Mapping
 
 Goal: map broad OAuth scopes into Ogen action constraints.
 
@@ -684,7 +703,7 @@ Deliverables:
 - scope drift detection boundary
 - proof that OAuth scope presence does not bypass Ogen policy
 
-### Phase 2.26 — Generic MCP Proxy Boundary
+### Phase 2.27 — Generic MCP Proxy Boundary
 
 Goal: design Ogen as a policy-aware MCP proxy without binding to any one vendor.
 
@@ -701,7 +720,7 @@ Non-goals for first boundary:
 - no full production MCP proxy required immediately
 - no vendor-specific MCP implementation as core logic
 
-### Phase 2.27 — Generic A2A Provider Boundary
+### Phase 2.28 — Generic A2A Provider Boundary
 
 Goal: design Ogen as an A2A provider that enterprise orchestrators can register through Agent Card discovery.
 
@@ -714,7 +733,7 @@ Deliverables:
 - credential/alias requirements abstracted from any specific orchestrator
 - safe callback/subflow guidance as examples, not core coupling
 
-### Phase 2.28 — Orchestrator Integration Examples
+### Phase 2.29 — Orchestrator Integration Examples
 
 Goal: provide examples without making them product dependencies.
 

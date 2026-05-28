@@ -53,9 +53,11 @@ if (!existsSync(path)) {
     "Phase 2.19d  Audit Index Rollout Operational Hardening",
     "Phase 2.20a  A2A 1.0 Protocol Compatibility Layer",
     "Phase 2.20b  A2A Message/Task Adapter",
+    "Phase 2.21  Signed Agent Card Provenance",
     "A2A-Version: 1.0",
     "application/a2a+json",
     "invalid_a2a_envelope",
+    "signed Agent Card provenance is advisory only",
     "Full official Message/Task operations `list`, `get`, `cancel`, and `subscribe` are deferred",
     "GET `/audit/events`",
     "`audit.read`",
@@ -332,6 +334,12 @@ if (!existsSync(packageJsonPath)) {
   }
   if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:a2a-message-task-adapter")) {
     fail("verify:v2-plan should run verify:a2a-message-task-adapter");
+  }
+  if (packageJson.scripts?.["verify:a2a-agent-card-provenance"] !== "tsx scripts/verify-a2a-agent-card-provenance.ts") {
+    fail("package.json missing verify:a2a-agent-card-provenance script");
+  }
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:a2a-message-task-adapter && npm run verify:a2a-agent-card-provenance")) {
+    fail("verify:v2-plan should run verify:a2a-agent-card-provenance after verify:a2a-message-task-adapter");
   }
   if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:platform-db-migrations")) {
     fail("verify:v2-plan should run verify:platform-db-migrations");

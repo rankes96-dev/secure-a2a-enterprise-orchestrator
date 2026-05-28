@@ -106,6 +106,8 @@ Phase 2.20a keeps compatibility-first A2A 1.0 alignment without replacing Ogen's
 
 Phase 2.20b adds a narrow A2A Message/Task adapter subset without replacing Ogen's internal task model or adopting the official JavaScript SDK. The adapter accepts a minimal inbound `kind: "message"` envelope, maps the first text part to the internal message field, treats `classification` as an optional safe hint with a non-authoritative `UNKNOWN` fallback, preserves conversation/task correlation IDs safely, validates inbound Task state and text parts strictly, and wraps internal responses as a minimal outbound `kind: "task"` envelope only when the compatibility path requested it. Full official Message/Task operations `list`, `get`, `cancel`, and `subscribe` remain deferred.
 
+Phase 2.21 adds signed Agent Card provenance as safe discovery metadata. Provenance is advisory metadata: it can report issuer, key ID, algorithm, signing time, expiry, signature presence, canonical payload hash, and `verificationStatus`, but verified provenance does not grant runtime access. Ogen policy, verified identity, tenant resolution, scoped JWT validation, and Gateway RBAC remain authoritative. Trust-anchor rollout and key rotation remain future work.
+
 Rules:
 
 - Discovery should serve `GET /.well-known/agent-card.json`; local legacy providers may keep `GET /agent-card` as an alias.
@@ -114,8 +116,10 @@ Rules:
 - Missing inbound `A2A-Version` remains legacy-compatible; unsupported explicit versions must return a safe protocol error before task execution.
 - Protocol metadata is not authorization. Ogen policy, verified identity, tenant resolution, scoped JWT validation, and Gateway RBAC remain authoritative.
 - Message/Task adapter metadata is not tenant, role, policy, authorization, or audit authority; adapter proof must report `protocolMetadataAuthoritative: false`.
+- Agent Card provenance is not tenant, role, policy, authorization, runtime, or audit authority; it is informational integrity metadata only.
 - Valid completed Task envelopes map to diagnostic success; unsupported Task states and malformed message parts return `invalid_a2a_envelope` instead of falling through as successful results.
 - Adapter outputs must not expose raw tokens, raw prompts, secrets, Authorization headers, private keys, client assertions, or protected metadata.
+- Provenance outputs must not expose raw tokens, raw prompts, secrets, Authorization headers, private keys, client assertions, protected metadata, or sensitive key material.
 
 ## Runtime Authorization API Contract
 

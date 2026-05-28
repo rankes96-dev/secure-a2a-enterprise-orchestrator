@@ -4,7 +4,10 @@ import {
   OGEN_A2A_AGENT_CARD_COMPATIBILITY,
   a2aJsonAcceptHeaders,
   currentA2AAuthMode,
+  withOgenAgentCardProvenance,
   type AgentName,
+  type OgenAgentCardProvenance,
+  type OgenAgentCardSignature,
   type OgenA2AAgentCardCompatibility
 } from "@a2a/shared";
 
@@ -55,12 +58,14 @@ export type AgentCard = {
     audience: string;
   };
   compatibility?: OgenA2AAgentCardCompatibility;
+  provenance?: OgenAgentCardProvenance;
+  signature?: unknown;
   skills: AgentCardSkill[];
 };
 
 const agentCardAuthType = currentA2AAuthMode();
 
-const staticAgentCards: AgentCard[] = [
+const rawStaticAgentCards: AgentCard[] = [
   {
     agentId: "end-user-triage-agent",
     name: "End User Triage Agent",
@@ -297,6 +302,11 @@ const staticAgentCards: AgentCard[] = [
   }
 ];
 
+const staticAgentCards: AgentCard[] = rawStaticAgentCards.map((card) => withOgenAgentCardProvenance(card, {
+  issuer: "ogen.built-in-agent-registry",
+  signaturePresent: false
+}));
+
 let agentCards: AgentCard[] = staticAgentCards;
 
 function agentCardUrl(endpoint: string, pathname: string = A2A_AGENT_CARD_WELL_KNOWN_PATH): string {
@@ -336,6 +346,45 @@ function isAgentCard(value: unknown): value is AgentCard {
   );
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function optionalProvenanceString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+const TOP_LEVEL_SIGNATURE_PAYLOAD_FIELDS = ["compactJws", "jws", "signature", "detachedJws"] as const;
+
+function hasValidTopLevelSignatureEnvelope(signature: unknown): boolean {
+  const signatureRecord = asRecord(signature);
+  return Boolean(
+    signatureRecord &&
+      TOP_LEVEL_SIGNATURE_PAYLOAD_FIELDS.some((field) => optionalProvenanceString(signatureRecord[field]) !== undefined)
+  );
+}
+
+export function parseDiscoveredAgentCardProvenance(
+  card: { agentId?: unknown; provenance?: unknown; signature?: unknown },
+  fallbackIssuer: string
+): OgenAgentCardSignature {
+  const provenance = asRecord(card.provenance);
+  const signaturePresent = hasValidTopLevelSignatureEnvelope(card.signature)
+    ? true
+    : typeof provenance?.signaturePresent === "boolean"
+      ? provenance.signaturePresent
+      : false;
+
+  return {
+    issuer: optionalProvenanceString(provenance?.issuer) ?? optionalProvenanceString(fallbackIssuer),
+    kid: optionalProvenanceString(provenance?.kid),
+    alg: optionalProvenanceString(provenance?.alg),
+    signedAt: optionalProvenanceString(provenance?.signedAt),
+    expiresAt: optionalProvenanceString(provenance?.expiresAt),
+    signaturePresent
+  };
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -370,7 +419,10 @@ async function fetchAgentCardOnce(staticCard: AgentCard, url: string): Promise<A
       throw new Error(`${url} returned an untrusted Agent Card endpoint`);
     }
 
-    return card;
+    return withOgenAgentCardProvenance(
+      card,
+      parseDiscoveredAgentCardProvenance(card, card.agentId)
+    );
   } finally {
     clearTimeout(timeout);
   }

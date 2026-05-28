@@ -12,7 +12,8 @@ import {
   internalA2AResponseToOutboundA2AEnvelope,
   normalizeA2ATaskInput,
   requireA2AAuth,
-  unsupportedExplicitA2AProtocolVersion
+  unsupportedExplicitA2AProtocolVersion,
+  withOgenAgentCardProvenance
 } from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 
@@ -35,7 +36,7 @@ type GitHubRateLimitEvent = {
   };
 };
 
-const agentCard = {
+const agentCard = withOgenAgentCardProvenance({
   agentId: "github-agent",
   name: "GitHub Agent",
   description: "External GitHub support agent that owns GitHub API/repository troubleshooting knowledge.",
@@ -80,7 +81,7 @@ const agentCard = {
       owner: "GitHub Integration Team"
     }
   ]
-};
+}, { issuer: "ogen.local-agent:github-agent", signaturePresent: false });
 
 function requiredScopeForTask(task: A2ATask | AgentTask): string | undefined {
   const skillId = "skillId" in task ? task.skillId : undefined;

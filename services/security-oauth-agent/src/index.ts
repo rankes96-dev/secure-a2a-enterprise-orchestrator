@@ -12,7 +12,8 @@ import {
   internalA2AResponseToOutboundA2AEnvelope,
   normalizeA2ATaskInput,
   requireA2AAuth,
-  unsupportedExplicitA2AProtocolVersion
+  unsupportedExplicitA2AProtocolVersion,
+  withOgenAgentCardProvenance
 } from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 
@@ -26,7 +27,7 @@ type OAuthTokenRecord = {
   currentScopes: string[];
 };
 
-const agentCard = {
+const agentCard = withOgenAgentCardProvenance({
   agentId: "security-oauth-agent",
   name: "Security OAuth Agent",
   description: "Security agent that evaluates OAuth, token, scope, permission and policy-sensitive actions.",
@@ -76,7 +77,7 @@ const agentCard = {
       riskLevel: "high"
     }
   ]
-};
+}, { issuer: "ogen.local-agent:security-oauth-agent", signaturePresent: false });
 
 async function loadTokens(): Promise<OAuthTokenRecord[]> {
   const filePath = path.resolve(process.cwd(), "../../mock-data/oauth-tokens.json");

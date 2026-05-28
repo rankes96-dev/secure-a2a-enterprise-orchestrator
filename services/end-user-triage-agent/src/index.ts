@@ -10,7 +10,8 @@ import {
   internalA2AResponseToOutboundA2AEnvelope,
   normalizeA2ATaskInput,
   requireA2AAuth,
-  unsupportedExplicitA2AProtocolVersion
+  unsupportedExplicitA2AProtocolVersion,
+  withOgenAgentCardProvenance
 } from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 
@@ -18,7 +19,7 @@ dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) })
 
 const port = Number(process.env.PORT ?? process.env.END_USER_TRIAGE_AGENT_PORT ?? 4106);
 const a2aAuthMode = assertSecureA2AAuthMode("end-user-triage-agent");
-const agentCard = {
+const agentCard = withOgenAgentCardProvenance({
   agentId: "end-user-triage-agent",
   name: "End User Triage Agent",
   description: "Interprets non-technical user complaints and converts them into support context.",
@@ -49,7 +50,7 @@ const agentCard = {
       description: "Convert technical findings into simple support language."
     }
   ]
-};
+}, { issuer: "ogen.local-agent:end-user-triage-agent", signaturePresent: false });
 
 function requiredScopeForTask(task: A2ATask | AgentTask): string | undefined {
   const skillId = "skillId" in task ? task.skillId : undefined;

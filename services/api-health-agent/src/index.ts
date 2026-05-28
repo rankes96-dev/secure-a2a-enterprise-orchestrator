@@ -10,7 +10,8 @@ import {
   internalA2AResponseToOutboundA2AEnvelope,
   normalizeA2ATaskInput,
   requireA2AAuth,
-  unsupportedExplicitA2AProtocolVersion
+  unsupportedExplicitA2AProtocolVersion,
+  withOgenAgentCardProvenance
 } from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 
@@ -18,7 +19,7 @@ dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) })
 
 const port = Number(process.env.PORT ?? process.env.API_HEALTH_AGENT_PORT ?? 4105);
 const a2aAuthMode = assertSecureA2AAuthMode("api-health-agent");
-const agentCard = {
+const agentCard = withOgenAgentCardProvenance({
   agentId: "api-health-agent",
   name: "API Health Agent",
   description: "API health agent that evaluates rate limits, latency, connectivity, 5xx, DNS, TLS, and webhook delivery.",
@@ -55,7 +56,7 @@ const agentCard = {
       riskLevel: "low"
     }
   ]
-};
+}, { issuer: "ogen.local-agent:api-health-agent", signaturePresent: false });
 
 function requiredScopeForTask(task: A2ATask | AgentTask): string | undefined {
   const skillId = "skillId" in task ? task.skillId : undefined;

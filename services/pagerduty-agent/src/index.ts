@@ -10,7 +10,8 @@ import {
   internalA2AResponseToOutboundA2AEnvelope,
   normalizeA2ATaskInput,
   requireA2AAuth,
-  unsupportedExplicitA2AProtocolVersion
+  unsupportedExplicitA2AProtocolVersion,
+  withOgenAgentCardProvenance
 } from "@a2a/shared";
 import { readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 
@@ -18,7 +19,7 @@ dotenv.config({ path: new URL("../../orchestrator-api/.env", import.meta.url) })
 
 const port = Number(process.env.PORT ?? process.env.PAGERDUTY_AGENT_PORT ?? 4103);
 const a2aAuthMode = assertSecureA2AAuthMode("pagerduty-agent");
-const agentCard = {
+const agentCard = withOgenAgentCardProvenance({
   agentId: "pagerduty-agent",
   name: "PagerDuty Agent",
   description: "External PagerDuty support agent that owns alert/incident ingestion troubleshooting knowledge.",
@@ -42,7 +43,7 @@ const agentCard = {
     },
     { id: "pagerduty.diagnose_event_rate_limit", name: "Diagnose event rate limit", description: "Diagnose event ingestion rate limiting." }
   ]
-};
+}, { issuer: "ogen.local-agent:pagerduty-agent", signaturePresent: false });
 
 function requiredScopeForTask(task: A2ATask | AgentTask): string | undefined {
   const skillId = "skillId" in task ? task.skillId : undefined;
