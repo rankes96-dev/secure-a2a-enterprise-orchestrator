@@ -391,6 +391,20 @@ if (taskNormalization.ok) {
   assert(outbound.status.message?.parts[0]?.text === "GitHub rate limit diagnosis completed.", "runtime adapter maps response summary to outbound text part");
   assert(!JSON.stringify(outbound).includes(secretValue), "outbound Task envelope does not leak protected evidence data");
   assert(outbound.metadata.adapterProof.authority.protocolMetadataAuthoritative === false, "outbound Task proof preserves non-authoritative protocol metadata");
+
+  const blockedOutbound = internalA2AResponseToOutboundA2AEnvelope(
+    {
+      agentId: "github-agent",
+      status: "blocked",
+      summary: "Gateway policy denied task execution."
+    },
+    taskNormalization.proof,
+    { taskId: "task-blocked", contextId: "conversation-1", agentId: "github-agent" }
+  );
+  assert(blockedOutbound.status.state === "rejected", "blocked internal response serializes as rejected Task state");
+  assert(blockedOutbound.metadata.taskExecuted === false, "blocked internal response records non-execution metadata");
+  const blockedRoundTrip = outboundA2AEnvelopeToAgentResponse("github-agent", blockedOutbound);
+  assert(blockedRoundTrip.status === "blocked", "blocked rejected Task envelope round-trips to blocked status");
 }
 
 const completedTaskEnvelope = validateOgenA2AOutboundTaskEnvelope({
@@ -432,6 +446,26 @@ assert(completedTaskWithStaleMetadata.ok, "runtime adapter accepts completed Tas
 if (completedTaskWithStaleMetadata.ok) {
   const completedResponse = outboundA2AEnvelopeToAgentResponse("github-agent", completedTaskWithStaleMetadata.value);
   assert(completedResponse.status === "diagnosed", "completed Task state is canonical over stale taskExecuted metadata");
+}
+
+const nonDenialRejectedTask = validateOgenA2AOutboundTaskEnvelope({
+  kind: "task",
+  id: "task-rejected-unsupported",
+  status: {
+    state: "rejected",
+    message: {
+      role: "agent",
+      parts: [{ kind: "text", text: "Agent rejected this unsupported capability after evaluating it." }]
+    }
+  },
+  metadata: {
+    taskExecuted: true
+  }
+});
+assert(nonDenialRejectedTask.ok, "runtime adapter accepts non-denial rejected Task envelope");
+if (nonDenialRejectedTask.ok) {
+  const rejectedResponse = outboundA2AEnvelopeToAgentResponse("github-agent", nonDenialRejectedTask.value);
+  assert(rejectedResponse.status === "unsupported", "non-denial rejected Task envelope maps to unsupported, not blocked");
 }
 
 if (failed) {

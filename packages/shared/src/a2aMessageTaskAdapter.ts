@@ -638,7 +638,7 @@ function taskStateFromAgentStatus(status: A2AAgentResponse["status"]): OgenA2ATa
   return "completed";
 }
 
-function agentStatusFromTaskState(state: OgenA2ATaskState): A2AAgentResponse["status"] {
+function agentStatusFromTaskState(state: OgenA2ATaskState, taskExecuted?: boolean): A2AAgentResponse["status"] {
   if (state === "input-required") {
     return "needs_more_info";
   }
@@ -646,7 +646,7 @@ function agentStatusFromTaskState(state: OgenA2ATaskState): A2AAgentResponse["st
     return "error";
   }
   if (state === "rejected") {
-    return "unsupported";
+    return taskExecuted === false ? "blocked" : "unsupported";
   }
   if (state === "submitted" || state === "working") {
     return "needs_more_info";
@@ -695,10 +695,11 @@ export function internalA2AResponseToOutboundA2AEnvelope(
 export function outboundA2AEnvelopeToAgentResponse(agentId: string, envelope: OgenA2AOutboundTaskEnvelope): A2AAgentResponse {
   const messageParts = envelope.status.message?.parts ?? [];
   const summary = firstTextPart(messageParts)?.text.trim() || "A2A task envelope did not include a text response.";
+  const taskExecuted = typeof envelope.metadata.taskExecuted === "boolean" ? envelope.metadata.taskExecuted : undefined;
 
   return {
     agentId,
-    status: agentStatusFromTaskState(envelope.status.state),
+    status: agentStatusFromTaskState(envelope.status.state, taskExecuted),
     summary,
     trace: [
       {
