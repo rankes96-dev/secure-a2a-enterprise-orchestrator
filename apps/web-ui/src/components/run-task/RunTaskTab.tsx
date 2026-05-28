@@ -298,7 +298,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
     loadZeroTrustOnboardedAgents, loadSupportedConnectorGuardrails, loadGatewayRegistrationMetadata,
     renderPageHeader,
     localConnectorPresets, scenarios, quickScenarios, advancedScenarios, securityTimelineFilters, demoUserOptions,
-    cockpitStatusClass, statusDisplayLabel, connectorRoutingStatusLabel, connectorRoutingStatusClass, connectorRuntimeFailureCopy,
+    cockpitStatusClass, statusDisplayLabel, connectorRoutingStatusLabel, connectorRoutingStatusClass, connectorRouteSummaryLabel, resultSummaryLabel, connectorRuntimeFailureCopy,
     firstSentence, recommendedActionItems, shortHash, JsonBlock, MessageList, safeRawExecutionData, healthClass,
     endpointMetadata, endpointTypeLabel, routingDescription, securityDecisions, decisionClass, sampleMessage, endUserSampleMessage
   } = ctx;
@@ -822,7 +822,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
               </div>
               <div>
                 <span>Token</span>
-                <strong>{latestResponse.connectorRuntime.tokenMetadata?.tokenIssued ? "scoped A2A JWT issued" : "not issued"}</strong>
+                <strong>{tokenOutcome}</strong>
                 <small>raw token hidden</small>
               </div>
               <div>
@@ -981,7 +981,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           </div>
           <div>
             <span>Routing</span>
-            <strong>{latestResponse?.connectorRouting ? `Connector route: ${connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}` : latestResponse ? `${latestResponse.selectedAgents.length} selected / ${primarySelectedAgent}` : "No route selected yet"}</strong>
+            <strong>{latestResponse?.connectorRouting ? connectorRouteSummaryLabel(latestResponse) : latestResponse ? `${latestResponse.selectedAgents.length} selected / ${primarySelectedAgent}` : "No route selected yet"}</strong>
           </div>
           <div>
             <span>Policy</span>
@@ -997,7 +997,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           </div>
           <div>
             <span>Result</span>
-            <strong>{latestResponse?.resolutionStatus ?? "No task run yet"}</strong>
+            <strong>{resultSummaryLabel(latestResponse)}</strong>
           </div>
         </div>
         {!latestResponse ? <p className="muted-note">Run a task after login to populate security outcomes.</p> : null}
@@ -1016,8 +1016,8 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
         </div>
         <div className="security-detail-list">
           <div>
-            <span>Selected agents</span>
-            <strong>{latestResponse?.selectedAgents.map((agent) => agent.agentId).join(", ") || "none"}</strong>
+            <span>{latestResponse?.connectorRouting ? "Connector route" : "Selected agents"}</span>
+            <strong>{latestResponse?.connectorRouting ? connectorRouteSummaryLabel(latestResponse) : latestResponse?.selectedAgents.map((agent) => agent.agentId).join(", ") || "none"}</strong>
           </div>
           <div>
             <span>Policy decision</span>

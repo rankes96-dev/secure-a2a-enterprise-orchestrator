@@ -377,7 +377,13 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
   function renderProofSummary(response: ResolveResponse) {
     const actor = response.userIdentity.email ?? response.userIdentity.name ?? (response.userIdentity.authenticated ? "Authenticated user" : "Not authenticated");
     const actorRoles = response.userIdentity.roles?.join(", ") || "none";
-    const actorRuntimeContext = response.connectorRuntime?.tokenMetadata?.actor ? "Included" : "Not included";
+    const actorRuntimeContext = response.connectorRuntime?.tokenMetadata?.actor ||
+      response.connectorRuntime?.tokenMetadata?.actorRoles?.length ||
+      response.connectorRuntime?.tokenMetadata?.actorProvider ||
+      response.connectorRuntime?.tokenMetadata?.actorIssuer ||
+      response.connectorRuntime?.tokenMetadata?.actorSubject
+      ? "Included"
+      : "Not included";
     const securityIntent = response.securityIntent?.detected
       ? `${response.securityIntent.category ?? "detected"}`
       : "No";

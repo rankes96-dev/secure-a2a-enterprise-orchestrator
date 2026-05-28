@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createIdentityProvider } from "../services/orchestrator-api/src/identity/identityConfig";
 import { mapMockUserIdentityPayload, mapOidcUserIdentityPayload } from "../services/orchestrator-api/src/identity/userIdentityMapper";
 import { buildExecutionGateStack } from "../services/orchestrator-api/src/executionGateStack";
@@ -272,7 +272,10 @@ for (const phrase of [
   assert(deploymentDocs.includes(phrase), `deployment docs missing external runtime issuer validation phrase: ${phrase}`);
 }
 
-const frontendTimelineSource = readFileSync("apps/web-ui/src/main.tsx", "utf8");
+const frontendTimelineSource = [
+  readFileSync("apps/web-ui/src/main.tsx", "utf8"),
+  existsSync("apps/web-ui/src/securitySummary.ts") ? readFileSync("apps/web-ui/src/securitySummary.ts", "utf8") : ""
+].join("\n");
 for (const phrase of [
   "Identity provider",
   "Actor issuer",

@@ -10,6 +10,7 @@ const connectorRuntimePath = "services/orchestrator-api/src/connectorRuntime.ts"
 const orchestratorPath = "services/orchestrator-api/src/index.ts";
 const gateStackPath = "services/orchestrator-api/src/executionGateStack.ts";
 const webPath = "apps/web-ui/src/main.tsx";
+const webSecuritySummaryPath = "apps/web-ui/src/securitySummary.ts";
 const realRuntimePath = "real-external-agent/src/runtime.ts";
 let failed = false;
 
@@ -274,6 +275,8 @@ if (!existsSync(webPath)) {
   fail(`${webPath} should exist`);
 } else {
   const web = readFileSync(webPath, "utf8");
+  const webSecuritySummary = existsSync(webSecuritySummaryPath) ? readFileSync(webSecuritySummaryPath, "utf8") : "";
+  const webSecurityProofSource = `${web}\n${webSecuritySummary}`;
   const answerStart = web.indexOf("function buildEndUserSupportAnswer(response: ResolveResponse): string");
   const answerEnd = web.indexOf("function governedChatAnswer(response: ResolveResponse): string");
   const answerBuilder = answerStart >= 0 && answerEnd > answerStart ? web.slice(answerStart, answerEnd) : "";
@@ -290,7 +293,7 @@ if (!existsSync(webPath)) {
     "Raw tokens",
     "hidden"
   ]) {
-    if (!web.includes(phrase)) {
+    if (!webSecurityProofSource.includes(phrase)) {
       fail(`Security Timeline authorization-required proof missing required phrase: ${phrase}`);
     }
   }
@@ -351,6 +354,12 @@ if (!existsSync(packageJsonPath)) {
   }
   if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:generic-action-taxonomy")) {
     fail("verify:v2-plan should run verify:generic-action-taxonomy");
+  }
+  if (packageJson.scripts?.["verify:connector-runtime-ui-summary"] !== "tsx scripts/verify-connector-runtime-ui-summary.ts") {
+    fail("package.json missing verify:connector-runtime-ui-summary script");
+  }
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:connector-runtime-ui-summary")) {
+    fail("verify:v2-plan should run verify:connector-runtime-ui-summary");
   }
 }
 

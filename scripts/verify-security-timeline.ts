@@ -1,6 +1,7 @@
 const API_URL = process.env.ORCHESTRATOR_API_URL ?? "http://127.0.0.1:4000";
 
 let sessionCookie = "";
+let csrfToken = "";
 
 function logOk(message: string): void {
   console.info(`ok - ${message}`);
@@ -17,6 +18,7 @@ async function request(path: string, init: RequestInit = {}): Promise<{ response
     headers: {
       ...(init.body ? { "content-type": "application/json" } : {}),
       ...(sessionCookie ? { cookie: sessionCookie } : {}),
+      ...(init.body && csrfToken ? { "x-ogen-csrf-token": csrfToken } : {}),
       ...init.headers
     }
   });
@@ -70,7 +72,17 @@ async function createSession(): Promise<void> {
     throw new Error("create session did not return a session cookie");
   }
 
-  sessionCookie = setCookie.split(";")[0] ?? "";
+  const record = asRecord(body);
+  if (typeof record.csrfToken !== "string" || record.csrfToken.length === 0) {
+    throw new Error("create session did not return a CSRF token");
+  }
+
+  csrfToken = record.csrfToken;
+  sessionCookie = setCookie
+    .split(/,(?=\s*[^;,=]+=)/)
+    .map((cookie) => cookie.trim().split(";")[0])
+    .filter(Boolean)
+    .join("; ");
   logOk("created browser session");
 }
 
