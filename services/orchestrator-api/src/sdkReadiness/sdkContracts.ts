@@ -16,10 +16,33 @@ export const requiredConnectorProfileFields = [
 export const requiredExecutableActionMetadataFields = [
   "riskLevel",
   "executionType",
+  "actionCategory",
+  "approvalMode",
+  "resourceSensitivity",
+  "fieldClasses",
+  "actionConstraints",
   "requiresApproval",
   "sensitivity",
   "requiredApplicationGrants",
   "requiredEffectivePermissions"
+] as const;
+
+export const genericPolicyConditionFields = [
+  "actionCategories",
+  "executionTypes",
+  "riskLevels",
+  "approvalModes",
+  "resourceSensitivities",
+  "actorRolesAny",
+  "connectorIds",
+  "resourceSystems",
+  "providers",
+  "fieldClasses",
+  "bulk",
+  "maxRecordsPerRequest",
+  "maxActionsPerHour",
+  "requiresConnectedAccount",
+  "auditRequired"
 ] as const;
 
 export const forbiddenSafeRoutingViewFields = [
@@ -61,6 +84,8 @@ export const requiredAiProofFields = [
 
 export const sdkCertificationChecks = [
   "action-metadata-complete",
+  "normalized-action-taxonomy-complete",
+  "missing-taxonomy-fields-fail-closed",
   "write-actions-require-approval",
   "safe-routing-view-no-secrets",
   "runtime-requires-scoped-jwt",

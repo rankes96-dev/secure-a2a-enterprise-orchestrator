@@ -109,7 +109,14 @@ const highRiskPolicy = evaluateConnectorPolicy({
   riskLevel: "high",
   executionType: "write_action",
   requiresApproval: true,
-  sensitivity: "standard"
+  sensitivity: "standard",
+  action: {
+    actionCategory: "business_object.update",
+    approvalMode: "policy",
+    resourceSensitivity: "standard",
+    fieldClasses: ["workflow_state"],
+    actionConstraints: {}
+  }
 });
 if (highRiskPolicy.effect !== "needs_approval") {
   fail(`high-risk connector skill should require approval, got ${highRiskPolicy.effect}`);
@@ -120,7 +127,14 @@ const mediumPolicy = evaluateConnectorPolicy({
   riskLevel: "medium",
   executionType: "diagnostic_read_only",
   requiresApproval: false,
-  sensitivity: "standard"
+  sensitivity: "standard",
+  action: {
+    actionCategory: "diagnose",
+    approvalMode: "never",
+    resourceSensitivity: "standard",
+    fieldClasses: [],
+    actionConstraints: {}
+  }
 });
 if (mediumPolicy.effect !== "allow") {
   fail(`medium read-only connector skill should remain allowed, got ${mediumPolicy.effect}`);

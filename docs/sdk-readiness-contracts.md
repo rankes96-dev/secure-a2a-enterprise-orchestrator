@@ -30,15 +30,28 @@ Every executable skill/action must declare:
 - `label`
 - `riskLevel`
 - `executionType`
+- `actionCategory`
+- `approvalMode`
+- `resourceSensitivity`
+- `fieldClasses`
+- `actionConstraints`
 - `requiresApproval`
 - `sensitivity`
 - `requiredApplicationGrants`
 - `requiredEffectivePermissions`
+- `provider`
+- `resourceSystem`
 
 Rules:
 
 - Missing `riskLevel` or `executionType` fails closed.
+- Missing normalized action taxonomy metadata fails SDK certification.
+- Missing normalized action metadata fails certification for future executable connectors.
+- Executable external runtime actions fail closed before default allow when `actionCategory`, `approvalMode`, `resourceSensitivity`, explicit `fieldClasses`, or explicit `actionConstraints` are missing or invalid.
 - Write, high-risk, or sensitive actions require governed approval.
+- OAuth scopes do not equal Ogen action permission.
+- approval is a policy outcome, not automatic for every write.
+- `approvalMode: "blocked"` blocks, `"always"` requires approval, `"policy"` defers to policy evaluation, and `"never"` adds no approval requirement by itself.
 - AI output cannot classify risk.
 - Natural language cannot classify risk.
 - Reference metadata fallback is allowed only for known built-in/reference connector skills.
@@ -107,6 +120,8 @@ Phase 2.20a keeps compatibility-first A2A 1.0 alignment without replacing Ogen's
 Phase 2.20b adds a narrow A2A Message/Task adapter subset without replacing Ogen's internal task model or adopting the official JavaScript SDK. The adapter accepts a minimal inbound `kind: "message"` envelope, maps the first text part to the internal message field, treats `classification` as an optional safe hint with a non-authoritative `UNKNOWN` fallback, preserves conversation/task correlation IDs safely, validates inbound Task state and text parts strictly, and wraps internal responses as a minimal outbound `kind: "task"` envelope only when the compatibility path requested it. Full official Message/Task operations `list`, `get`, `cancel`, and `subscribe` remain deferred.
 
 Phase 2.21 adds signed Agent Card provenance as safe discovery metadata. Provenance is advisory metadata: it can report issuer, key ID, algorithm, signing time, expiry, signature presence, canonical payload hash, and `verificationStatus`, but verified provenance does not grant runtime access. Ogen policy, verified identity, tenant resolution, scoped JWT validation, and Gateway RBAC remain authoritative. Trust-anchor rollout and key rotation remain future work.
+
+Phase 2.22 adds generic action taxonomy contracts. Vendor-specific tools normalize to Ogen action categories before policy evaluation; for example ServiceNow ticket reads, Jira issue reads, GitHub permission inspection, Microsoft Graph changes, MCP tools, and monday item updates are governed through shared action metadata instead of vendor-specific policy shortcuts.
 
 Rules:
 
@@ -183,19 +198,28 @@ AI can interpret and suggest routing. Ogen validates, applies policy, and author
 
 The SDK contracts must align with [`docs/orchestrator-agnostic-roadmap.md`](./orchestrator-agnostic-roadmap.md). Connector metadata and decision flows must include and preserve:
 
+- `actionCategory`
 - `approvalMode`
 - `resourceSensitivity`
-- `fieldClass`
+- `fieldClasses`
 - `actionConstraints`
+- `requiredApplicationGrants`
+- `requiredEffectivePermissions`
+- `provider`
+- `resourceSystem`
 - normalized action categories policy
 
-These requirements are contract-level inputs for safe authorization and audit proof. Vendor-specific adapters may map native fields, but they must normalize into this shared Ogen policy shape before authorization decisions.
+These requirements are contract-level inputs for safe authorization and audit proof. Vendor-specific adapters may map native fields, but they must normalize into this shared Ogen policy shape before authorization decisions. Empty `fieldClasses: []` and `actionConstraints: {}` are valid explicit declarations. Unknown taxonomy values, unknown constraint keys, malformed constraint values, or unnormalized field classes are treated as incomplete and fail closed.
+
+Generic policy conditions may match `actionCategories`, `executionTypes`, `riskLevels`, `approvalModes`, `resourceSensitivities`, `actorRolesAny`, `connectorIds`, `resourceSystems`, `providers`, `fieldClasses`, `bulk`, `maxRecordsPerRequest`, `maxActionsPerHour`, `requiresConnectedAccount`, and `auditRequired`. OAuth scopes remain connected-account/API authorization evidence; they do not grant Ogen action permission by themselves. Resource system policy conditions are matched against trusted route/resource context; caller-supplied action metadata cannot override the routed resource system, and mismatches fail closed.
 
 ## Certification Checklist
 
 A future SDK connector must pass:
 
 - all executable actions include `riskLevel` and `executionType`
+- all future executable actions include `actionCategory`, `approvalMode`, `resourceSensitivity`, `fieldClasses`, and `actionConstraints`
+- missing normalized taxonomy fields are certification gaps and fail-closed for future external execution safety
 - write, high-risk, or sensitive actions require approval
 - runtime validates scoped JWT
 - wrong audience rejected

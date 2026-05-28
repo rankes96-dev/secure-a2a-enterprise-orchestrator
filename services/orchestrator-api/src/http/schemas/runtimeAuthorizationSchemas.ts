@@ -52,6 +52,62 @@ export const runtimeAuthorizationRequestSchema = {
         },
         requiresApproval: { type: "boolean" },
         sensitivity: { type: "string", enum: ["standard", "sensitive"] },
+        actionCategory: {
+          type: "string",
+          enum: [
+            "read",
+            "search",
+            "diagnose",
+            "comment.add",
+            "business_object.read",
+            "business_object.create",
+            "business_object.update",
+            "workflow_state.change",
+            "assignment.change",
+            "permission.inspect",
+            "permission.grant",
+            "record.delete",
+            "bulk.modify",
+            "admin.configure",
+            "external_message.send"
+          ]
+        },
+        approvalMode: { type: "string", enum: ["never", "policy", "always", "blocked"] },
+        resourceSensitivity: { type: "string", enum: ["standard", "sensitive", "regulated", "security_critical", "admin_controlled"] },
+        fieldClasses: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: [
+              "workflow_state",
+              "assignment",
+              "classification",
+              "financial",
+              "customer_pii",
+              "employee_pii",
+              "security",
+              "identity",
+              "permission",
+              "admin_config",
+              "external_message"
+            ]
+          }
+        },
+        actionConstraints: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            bulkAllowed: { type: "boolean" },
+            maxRecordsPerRequest: { type: "integer", minimum: 1 },
+            maxActionsPerHour: { type: "integer", minimum: 1 },
+            requiresConnectedAccount: { type: "boolean" },
+            auditRequired: { type: "boolean" }
+          }
+        },
+        requiredApplicationGrants: { type: "array", items: { type: "string" } },
+        requiredEffectivePermissions: { type: "array", items: { type: "string" } },
+        provider: { type: "string" },
+        resourceSystem: { type: "string" },
         requestedScopes: { type: "array", items: { type: "string" } }
       }
     },

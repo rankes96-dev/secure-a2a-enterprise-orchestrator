@@ -160,6 +160,15 @@ export function evaluateConnectorPolicy(input: ConnectorPolicyInput): ConnectorP
       riskLevel: input.riskLevel ?? input.action?.riskLevel,
       sensitivity: input.sensitivity ?? input.action?.sensitivity,
       requiresApproval: input.requiresApproval ?? input.action?.requiresApproval,
+      actionCategory: input.action?.actionCategory,
+      approvalMode: input.action?.approvalMode,
+      resourceSensitivity: input.action?.resourceSensitivity,
+      fieldClasses: input.action?.fieldClasses,
+      actionConstraints: input.action?.actionConstraints,
+      requiredApplicationGrants: input.action?.requiredApplicationGrants,
+      requiredEffectivePermissions: input.action?.requiredEffectivePermissions,
+      provider: input.action?.provider,
+      resourceSystem: input.action?.resourceSystem,
       requestedScopes: input.action?.requestedScopes
     }
   };

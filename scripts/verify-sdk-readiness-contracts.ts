@@ -5,6 +5,7 @@ import { safeAgentRoutingView } from "../services/orchestrator-api/src/interpret
 import { evaluateConnectorPolicy } from "../services/orchestrator-api/src/policy/connectorPolicy.js";
 import {
   forbiddenSafeRoutingViewFields,
+  genericPolicyConditionFields,
   requiredExecutableActionMetadataFields,
   requiredPolicyProofFields,
   SDK_READINESS_VERSION,
@@ -63,6 +64,9 @@ for (const section of [
 for (const phrase of [
   "Do not ship a Connector SDK yet",
   "Missing `riskLevel` or `executionType` fails closed.",
+  "Missing normalized action taxonomy metadata fails SDK certification.",
+  "OAuth scopes do not equal Ogen action permission.",
+  "approval is a policy outcome",
   "AI output cannot classify risk.",
   "Natural language cannot classify risk.",
   "Reference metadata fallback is allowed only for known built-in/reference connector skills.",
@@ -86,6 +90,11 @@ if (SDK_READINESS_VERSION !== "ogen.sdk-readiness.v1") {
 for (const field of [
   "riskLevel",
   "executionType",
+  "actionCategory",
+  "approvalMode",
+  "resourceSensitivity",
+  "fieldClasses",
+  "actionConstraints",
   "requiresApproval",
   "sensitivity",
   "requiredApplicationGrants",
@@ -95,6 +104,30 @@ for (const field of [
     fail(`required executable action metadata fields should include ${field}`);
   } else {
     ok(`required executable action metadata fields include ${field}`);
+  }
+}
+
+for (const field of [
+  "actionCategories",
+  "executionTypes",
+  "riskLevels",
+  "approvalModes",
+  "resourceSensitivities",
+  "actorRolesAny",
+  "connectorIds",
+  "resourceSystems",
+  "providers",
+  "fieldClasses",
+  "bulk",
+  "maxRecordsPerRequest",
+  "maxActionsPerHour",
+  "requiresConnectedAccount",
+  "auditRequired"
+]) {
+  if (!genericPolicyConditionFields.includes(field as typeof genericPolicyConditionFields[number])) {
+    fail(`generic policy condition fields should include ${field}`);
+  } else {
+    ok(`generic policy condition fields include ${field}`);
   }
 }
 
@@ -108,6 +141,8 @@ for (const field of ["endpoint", "auth", "audience", "token", "secret", "descrip
 
 for (const check of [
   "action-metadata-complete",
+  "normalized-action-taxonomy-complete",
+  "missing-taxonomy-fields-fail-closed",
   "write-actions-require-approval",
   "safe-routing-view-no-secrets",
   "runtime-requires-scoped-jwt",
@@ -127,6 +162,13 @@ for (const phrase of [
   "export type ConnectorActionRequirement",
   "riskLevel?:",
   "executionType?:",
+  "actionCategory?:",
+  "approvalMode?:",
+  "resourceSensitivity?:",
+  "fieldClasses?:",
+  "actionConstraints?:",
+  "provider?: string",
+  "resourceSystem?: string",
   "requiresApproval?: boolean",
   'sensitivity?: "standard" | "sensitive"'
 ]) {
@@ -160,9 +202,13 @@ for (const connector of localReferenceConnectorIntentCatalog) {
     if (!skill.riskLevel || !skill.executionType) {
       fail(`${connector.connectorId}/${skill.skillId} should declare riskLevel and executionType`);
     }
+    if (!skill.actionCategory || !skill.approvalMode || !skill.resourceSensitivity || !Array.isArray(skill.fieldClasses) || !skill.actionConstraints) {
+      fail(`${connector.connectorId}/${skill.skillId} should declare normalized action taxonomy metadata`);
+    }
   }
 }
 ok("all local reference skills declare riskLevel and executionType");
+ok("all local reference skills declare normalized generic action metadata");
 
 const unsafeAgentCard: AgentCard = {
   agentId: "sdk-verification-agent",
@@ -215,6 +261,22 @@ const policyProof = evaluateConnectorPolicy({
     tenantId: "default",
     userId: "sdk-verification-user",
     roles: ["employee"]
+  },
+  action: {
+    actionCategory: "business_object.read",
+    approvalMode: "never",
+    resourceSensitivity: "standard",
+    fieldClasses: ["workflow_state"],
+    actionConstraints: {
+      bulkAllowed: false,
+      maxRecordsPerRequest: 1,
+      requiresConnectedAccount: true,
+      auditRequired: true
+    },
+    requiredApplicationGrants: ["verification.read"],
+    requiredEffectivePermissions: ["verification.inspect"],
+    provider: "verification-provider",
+    resourceSystem: "verification"
   },
   riskLevel: "low",
   executionType: "inspection_read_only",

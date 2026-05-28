@@ -1,5 +1,5 @@
 import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
-import { localReferenceConnectorIntentCatalog, type ConnectorIntentHint, type ReferenceConnectorExecutionType, type ReferenceConnectorRiskLevel, type ReferenceConnectorSensitivity } from "./connectors/localReferenceConnectorIntentCatalog.js";
+import { localReferenceConnectorIntentCatalog, type ConnectorIntentHint, type ConnectorIntentSkillHint, type ReferenceConnectorExecutionType, type ReferenceConnectorRiskLevel, type ReferenceConnectorSensitivity } from "./connectors/localReferenceConnectorIntentCatalog.js";
 import { isConnectorRuntimeEndpointAllowed } from "./security/connectorRuntimeSafety.js";
 
 type ConnectorActionMetadataSource = "approved_action" | "reference_catalog" | "missing";
@@ -30,6 +30,7 @@ export type ConnectorRoutingDecision = {
   targetSystem?: string;
   connectorId?: string;
   resourceSystem?: string;
+  actionResourceSystem?: string;
   skillId?: string;
   skillLabel?: string;
   intentClass?: "access_request" | "permission_request" | "service_request";
@@ -49,6 +50,12 @@ export type ConnectorRoutingDecision = {
   executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
   requiresApproval?: boolean;
   sensitivity?: "standard" | "sensitive";
+  actionCategory?: ConnectorIntentSkillHint["actionCategory"];
+  approvalMode?: ConnectorIntentSkillHint["approvalMode"];
+  resourceSensitivity?: ConnectorIntentSkillHint["resourceSensitivity"];
+  fieldClasses?: ConnectorIntentSkillHint["fieldClasses"];
+  actionConstraints?: ConnectorIntentSkillHint["actionConstraints"];
+  provider?: string;
   actionMetadataSource?: ConnectorActionMetadataSource;
   missingApplicationGrants?: string[];
   missingEffectivePermissions?: string[];
@@ -187,6 +194,24 @@ type SupportedConnectorIdentity = {
 
 type ApprovedConnectorAction = TrustedOnboardedAgent["approvedActions"][number];
 
+function hasCompleteNormalizedActionMetadata(metadata: {
+  riskLevel?: ReferenceConnectorRiskLevel;
+  executionType?: ReferenceConnectorExecutionType;
+  actionCategory?: ConnectorIntentSkillHint["actionCategory"];
+  approvalMode?: ConnectorIntentSkillHint["approvalMode"];
+  resourceSensitivity?: ConnectorIntentSkillHint["resourceSensitivity"];
+  fieldClasses?: ConnectorIntentSkillHint["fieldClasses"];
+  actionConstraints?: ConnectorIntentSkillHint["actionConstraints"];
+}): boolean {
+  return metadata.riskLevel !== undefined &&
+    metadata.executionType !== undefined &&
+    metadata.actionCategory !== undefined &&
+    metadata.approvalMode !== undefined &&
+    metadata.resourceSensitivity !== undefined &&
+    metadata.fieldClasses !== undefined &&
+    metadata.actionConstraints !== undefined;
+}
+
 function referenceSkillMetadata(
   supported: ConnectorIntentHint,
   skillId: string,
@@ -196,6 +221,13 @@ function referenceSkillMetadata(
   executionType?: ReferenceConnectorExecutionType;
   requiresApproval?: boolean;
   sensitivity?: ReferenceConnectorSensitivity;
+  actionCategory?: ConnectorIntentSkillHint["actionCategory"];
+  approvalMode?: ConnectorIntentSkillHint["approvalMode"];
+  resourceSensitivity?: ConnectorIntentSkillHint["resourceSensitivity"];
+  fieldClasses?: ConnectorIntentSkillHint["fieldClasses"];
+  actionConstraints?: ConnectorIntentSkillHint["actionConstraints"];
+  provider?: string;
+  resourceSystem?: string;
   source: ConnectorActionMetadataSource;
 } {
   const referenceSkill = supported.skillHints.find((hint) => hint.skillId === skillId);
@@ -203,10 +235,27 @@ function referenceSkillMetadata(
   const executionType = approved.executionType ?? referenceSkill?.executionType;
   const requiresApproval = approved.requiresApproval ?? referenceSkill?.requiresApproval;
   const sensitivity = approved.sensitivity ?? referenceSkill?.sensitivity;
+  const actionCategory = approved.actionCategory ?? referenceSkill?.actionCategory;
+  const approvalMode = approved.approvalMode ?? referenceSkill?.approvalMode;
+  const resourceSensitivity = approved.resourceSensitivity ?? referenceSkill?.resourceSensitivity;
+  const fieldClasses = approved.fieldClasses ?? referenceSkill?.fieldClasses;
+  const actionConstraints = approved.actionConstraints ?? referenceSkill?.actionConstraints;
+  const provider = approved.provider ?? referenceSkill?.provider;
+  const resourceSystem = approved.resourceSystem ?? referenceSkill?.resourceSystem ?? supported.resourceSystem;
+  const mergedMetadataComplete = hasCompleteNormalizedActionMetadata({
+    riskLevel,
+    executionType,
+    actionCategory,
+    approvalMode,
+    resourceSensitivity,
+    fieldClasses,
+    actionConstraints
+  });
+  const approvedMetadataComplete = hasCompleteNormalizedActionMetadata(approved);
   const source: ConnectorActionMetadataSource =
-    !riskLevel || !executionType
+    !mergedMetadataComplete
       ? "missing"
-      : approved.riskLevel && approved.executionType
+      : approvedMetadataComplete
         ? "approved_action"
         : "reference_catalog";
 
@@ -215,6 +264,13 @@ function referenceSkillMetadata(
     executionType,
     requiresApproval,
     sensitivity,
+    actionCategory,
+    approvalMode,
+    resourceSensitivity,
+    fieldClasses: fieldClasses ? [...fieldClasses] : undefined,
+    actionConstraints: actionConstraints ? { ...actionConstraints } : undefined,
+    provider,
+    resourceSystem,
     source
   };
 }
@@ -428,6 +484,13 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       executionType: actionMetadata.executionType,
       requiresApproval: actionMetadata.requiresApproval,
       sensitivity: actionMetadata.sensitivity,
+      actionCategory: actionMetadata.actionCategory,
+      approvalMode: actionMetadata.approvalMode,
+      resourceSensitivity: actionMetadata.resourceSensitivity,
+      fieldClasses: actionMetadata.fieldClasses,
+      actionConstraints: actionMetadata.actionConstraints,
+      provider: actionMetadata.provider,
+      actionResourceSystem: actionMetadata.resourceSystem,
       actionMetadataSource: actionMetadata.source,
       runtimeMode: runtimeAvailable ? "external_runtime_available" : "metadata_only",
       reason: persistedMetadataOnly

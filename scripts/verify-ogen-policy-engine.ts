@@ -119,6 +119,20 @@ function baseInput(overrides: OgenPolicyInputOverrides = {}): OgenPolicyInput {
       riskLevel: "low",
       sensitivity: "standard",
       requiresApproval: false,
+      actionCategory: "business_object.read",
+      approvalMode: "never",
+      resourceSensitivity: "standard",
+      fieldClasses: ["workflow_state"],
+      actionConstraints: {
+        bulkAllowed: false,
+        maxRecordsPerRequest: 1,
+        requiresConnectedAccount: true,
+        auditRequired: true
+      },
+      requiredApplicationGrants: ["jira.issue.read"],
+      requiredEffectivePermissions: ["jira.issue.browse"],
+      provider: "atlassian",
+      resourceSystem: "jira",
       requestedScopes: ["a2a:task.execute"]
     }
   };
@@ -175,7 +189,13 @@ function assertFrozenRules(name: string, rules: ReadonlyArray<Readonly<OgenPolic
     "skillIds",
     "executionTypes",
     "riskLevels",
+    "actionCategories",
+    "approvalModes",
+    "resourceSensitivities",
+    "providers",
+    "fieldClasses",
     "sensitivities",
+    "actorRolesAny",
     "requiredRolesAny",
     "requiredRolesAll",
     "environments",
@@ -214,6 +234,12 @@ const platformDocs = read("docs/v2-platform-foundation.md");
 const productIdentityDocs = read("docs/ogen-product-identity.md");
 
 requireIncludes(policyTypes, "export type OgenPolicyInput", "Ogen policy types exist");
+requireIncludes(policyTypes, "export type OgenPolicyConditionModel", "Ogen policy condition model exists");
+requireIncludes(policyTypes, "actionCategories?: OgenActionCategory[]", "Ogen policy condition model supports action categories");
+requireIncludes(policyTypes, "approvalModes?: OgenApprovalMode[]", "Ogen policy condition model supports approval modes");
+requireIncludes(policyTypes, "resourceSensitivities?: OgenResourceSensitivity[]", "Ogen policy condition model supports resource sensitivities");
+requireIncludes(policyTypes, "fieldClasses?: OgenFieldClass[]", "Ogen policy condition model supports field classes");
+requireIncludes(policyTypes, "requiresConnectedAccount?: boolean", "Ogen policy condition model supports connected account condition");
 requireIncludes(policyTypes, "export type OgenPolicyMatchedRuleSummary", "Ogen policy matched rule summary exists");
 requireIncludes(policyTypes, 'source: "guardrail" | "tenant" | "default";', "matched rule summary source includes default");
 requireIncludes(policyTypes, "export type OgenPolicyDecision", "Ogen policy decision type exists");
@@ -239,6 +265,9 @@ for (const id of [
   "block-metadata-only-runtime",
   "block-unsafe-interpretation-risk",
   "block-missing-action-risk-metadata",
+  "block-resource-system-metadata-mismatch",
+  "block-missing-action-taxonomy-metadata",
+  "block-blocked-approval-mode",
   "approval-required-for-write-or-sensitive"
 ]) {
   requireGuardrail(id);
@@ -303,6 +332,21 @@ requireNotIncludes(policyEngine, 'tenantRules.find((rule) => rule.id === "defaul
 requireNotIncludes(policyEngine, 'enabledTenantRules.find((rule) => rule.id === "default-deny")', "default-deny path does not search tenant rules");
 requireIncludes(policyEngine, "guardrailBlocks.length > 0", "mandatory guardrail blocks are returned before tenant rules");
 requireIncludes(policyEngine, "guardrailApprovalRules.length > 0 || tenantApprovalRules.length > 0", "mandatory approval guardrails override tenant allow");
+requireIncludes(policyEngine, "function trustedPolicyResourceSystem", "policy engine has trusted resource system helper");
+requireIncludes(policyEngine, "inList(trustedPolicyResourceSystem(input), rule.match.resourceSystems)", "resource system policy matching uses trusted route/resource data");
+requireNotIncludes(policyEngine, "input.action.resourceSystem ?? input.connectorRoute.resourceSystem", "caller action resource system does not override trusted route/resource data");
+requireIncludes(policyEngine, "roleAnySatisfied(roles, rule.match.actorRolesAny)", "actorRolesAny is evaluated as a match condition");
+requireNotIncludes(policyEngine, "...(rule.match.actorRolesAny ?? [])", "actorRolesAny is not a hard role requirement");
+requireIncludes(policyEngine, "function hasCompleteActionTaxonomyMetadata", "policy engine has mandatory taxonomy completeness helper");
+requireIncludes(policyEngine, "function isAllowedActionCategory", "taxonomy completeness validates action category values");
+requireIncludes(policyEngine, "function isAllowedApprovalMode", "taxonomy completeness validates approval mode values");
+requireIncludes(policyEngine, "function isAllowedResourceSensitivity", "taxonomy completeness validates resource sensitivity values");
+requireIncludes(policyEngine, "function hasValidFieldClasses", "taxonomy completeness validates field class values");
+requireIncludes(policyEngine, "function hasValidActionConstraints", "taxonomy completeness validates action constraint values");
+requireIncludes(policyEngine, "input.action.approvalMode === \"always\"", "approval mode always requires approval");
+requireIncludes(policyEngine, "input.action.approvalMode === \"blocked\"", "approval mode blocked is denied by guardrail");
+requireIncludes(policyEngine, "policyMatchContext", "policy decision proof includes policy match context");
+requireIncludes(policyEngine, "trustedResourceSystem", "policy decision proof records trusted resource system");
 
 for (const phrase of [
   "policyVersion",
@@ -360,6 +404,9 @@ for (const marker of [
 }
 requireNotIncludes(policyEngine, 'input.action.executionType === undefined', "allow logic does not treat missing execution type as safe");
 requireNotIncludes(policyEngine, 'input.action.riskLevel === undefined', "allow logic does not treat missing risk level as safe");
+for (const forbiddenAuthority of ["provenance", "signaturePresent", "verificationStatus"]) {
+  requireNotIncludes(`${policyTypes}\n${policyEngine}\n${connectorPolicy}`, forbiddenAuthority, "policy boundary does not use Agent Card provenance as authority");
+}
 
 const approvedReadonlyDecision = assertEffect("approved read-only external runtime is allowed", baseInput(), "allow");
 if (
@@ -374,10 +421,116 @@ if (
 } else {
   ok("approved read-only decision separates tenant allow from guardrails");
 }
+if ((approvedReadonlyDecision.safeInputSummary.policyMatchContext as { trustedResourceSystem?: string } | undefined)?.trustedResourceSystem !== "jira") {
+  fail("approved read-only decision proof should record trusted resource system");
+} else {
+  ok("approved read-only decision proof records trusted resource system");
+}
 assertEffect("approved inspection read-only medium external runtime is allowed", baseInput({
   action: {
     executionType: "inspection_read_only",
     riskLevel: "medium"
+  }
+}), "allow");
+const genericTaxonomyAllowRule: OgenPolicyRule = {
+  id: "allow-business-read-standard-atlassian",
+  name: "Allow business read standard Atlassian",
+  description: "Test generic taxonomy policy condition.",
+  effect: "allow",
+  priority: 10,
+  enabled: true,
+  match: {
+    routeStatuses: ["connector_skill_approved"],
+    actionCategories: ["business_object.read"],
+    approvalModes: ["never"],
+    resourceSensitivities: ["standard"],
+    providers: ["atlassian"],
+    fieldClasses: ["workflow_state"],
+    bulk: false,
+    maxRecordsPerRequest: 1,
+    requiresConnectedAccount: true,
+    auditRequired: true,
+    actorRolesAny: ["it-support"]
+  }
+};
+assertEffect("generic taxonomy policy conditions can allow matching read action", baseInput(), "allow", [genericTaxonomyAllowRule]);
+const nonMatchingActorRoleDecision = assertEffect("actorRolesAny nonmatch skips tenant allow rule", baseInput({
+  subject: {
+    roles: ["finance"]
+  }
+}), "block", [genericTaxonomyAllowRule]);
+if (
+  !nonMatchingActorRoleDecision?.deniedByDefault ||
+  nonMatchingActorRoleDecision.matchedTenantRuleIds.includes("allow-business-read-standard-atlassian") ||
+  nonMatchingActorRoleDecision.primaryRuleSource !== "default"
+) {
+  fail("actorRolesAny should behave as a match condition and allow later/default policy evaluation");
+} else {
+  ok("actorRolesAny nonmatch does not become a hard role-requirement block");
+}
+assertEffect("generic taxonomy policy conditions do not infer mismatched category", baseInput({
+  action: {
+    actionCategory: "permission.inspect"
+  }
+}), "block", [genericTaxonomyAllowRule]);
+const resourceSystemScopedRule: OgenPolicyRule = {
+  id: "allow-jira-resource-system",
+  name: "Allow Jira resource system",
+  description: "Test trusted resource system policy condition.",
+  effect: "allow",
+  priority: 10,
+  enabled: true,
+  match: {
+    routeStatuses: ["connector_skill_approved"],
+    resourceSystems: ["jira"]
+  }
+};
+const mismatchedActionResourceSystem = assertEffect("caller action resourceSystem mismatch fails closed", baseInput({
+  connectorRoute: {
+    connectorId: "github-reference",
+    resourceSystem: "github"
+  },
+  resource: {
+    connectorId: "github-reference",
+    resourceSystem: "github"
+  },
+  action: {
+    provider: "github",
+    resourceSystem: "jira"
+  }
+}), "block", [resourceSystemScopedRule]);
+if (
+  !mismatchedActionResourceSystem?.matchedGuardrailRuleIds.includes("block-resource-system-metadata-mismatch") ||
+  mismatchedActionResourceSystem.matchedTenantRuleIds.includes("allow-jira-resource-system") ||
+  (mismatchedActionResourceSystem.safeInputSummary.policyMatchContext as { trustedResourceSystem?: string } | undefined)?.trustedResourceSystem !== "github"
+) {
+  fail("caller-supplied action.resourceSystem must not satisfy resource-scoped policy when trusted route/resource differs");
+} else {
+  ok("resource-scoped policy relies on trusted route/resource system");
+}
+const trustedResourceSystemMismatchRule = assertEffect("resourceSystems policy does not match non-jira trusted route", baseInput({
+  connectorRoute: {
+    connectorId: "github-reference",
+    resourceSystem: "github"
+  },
+  resource: {
+    connectorId: "github-reference",
+    resourceSystem: "github"
+  },
+  action: {
+    provider: "github",
+    resourceSystem: "github"
+  }
+}), "block", [resourceSystemScopedRule]);
+if (trustedResourceSystemMismatchRule?.matchedTenantRuleIds.includes("allow-jira-resource-system")) {
+  fail("resourceSystems policy rule should not match a non-jira trusted route");
+} else {
+  ok("resourceSystems policy rule uses trusted route/resource value");
+}
+assertEffect("explicit empty field classes and constraints are complete taxonomy metadata", baseInput({
+  action: {
+    fieldClasses: [],
+    actionConstraints: {}
   }
 }), "allow");
 assertEffect("unapproved route is blocked", baseInput({
@@ -412,6 +565,105 @@ assertEffect("missing riskLevel blocks", baseInput({
     riskLevel: undefined
   }
 }), "block");
+const missingActionCategory = assertEffect("missing actionCategory blocks before default allow", baseInput({
+  action: {
+    actionCategory: undefined
+  }
+}), "block");
+if (
+  !missingActionCategory?.matchedGuardrailRuleIds.includes("block-missing-action-taxonomy-metadata") ||
+  missingActionCategory.matchedTenantRuleIds.includes("allow-readonly-approved-runtime")
+) {
+  fail("missing actionCategory should fail closed before default read-only allow");
+}
+const missingFieldClasses = assertEffect("missing fieldClasses blocks before default allow", baseInput({
+  action: {
+    fieldClasses: undefined
+  }
+}), "block");
+if (!missingFieldClasses?.matchedGuardrailRuleIds.includes("block-missing-action-taxonomy-metadata")) {
+  fail("missing fieldClasses should fail closed before default read-only allow");
+}
+const missingActionConstraints = assertEffect("missing actionConstraints blocks before default allow", baseInput({
+  action: {
+    actionConstraints: undefined
+  }
+}), "block");
+if (!missingActionConstraints?.matchedGuardrailRuleIds.includes("block-missing-action-taxonomy-metadata")) {
+  fail("missing actionConstraints should fail closed before default read-only allow");
+}
+const invalidActionCategory = assertEffect("invalid actionCategory blocks before default allow", baseInput({
+  action: {
+    actionCategory: "foo" as OgenPolicyInput["action"]["actionCategory"]
+  }
+}), "block");
+if (!invalidActionCategory?.matchedGuardrailRuleIds.includes("block-missing-action-taxonomy-metadata")) {
+  fail("invalid actionCategory should fail closed before default read-only allow");
+}
+const invalidApprovalMode = assertEffect("invalid approvalMode blocks before default allow", baseInput({
+  action: {
+    approvalMode: "sometimes" as OgenPolicyInput["action"]["approvalMode"]
+  }
+}), "block");
+if (!invalidApprovalMode?.matchedGuardrailRuleIds.includes("block-missing-action-taxonomy-metadata")) {
+  fail("invalid approvalMode should fail closed before default read-only allow");
+}
+const invalidResourceSensitivity = assertEffect("invalid resourceSensitivity blocks before default allow", baseInput({
+  action: {
+    resourceSensitivity: "public" as OgenPolicyInput["action"]["resourceSensitivity"]
+  }
+}), "block");
+if (!invalidResourceSensitivity?.matchedGuardrailRuleIds.includes("block-missing-action-taxonomy-metadata")) {
+  fail("invalid resourceSensitivity should fail closed before default read-only allow");
+}
+const invalidFieldClasses = assertEffect("invalid fieldClasses blocks before default allow", baseInput({
+  action: {
+    fieldClasses: ["bar"] as OgenPolicyInput["action"]["fieldClasses"]
+  }
+}), "block");
+if (!invalidFieldClasses?.matchedGuardrailRuleIds.includes("block-missing-action-taxonomy-metadata")) {
+  fail("invalid fieldClasses should fail closed before default read-only allow");
+}
+const invalidActionConstraints = assertEffect("invalid actionConstraints blocks before default allow", baseInput({
+  action: {
+    actionConstraints: {
+      bulkAllowed: "false"
+    } as OgenPolicyInput["action"]["actionConstraints"]
+  }
+}), "block");
+if (!invalidActionConstraints?.matchedGuardrailRuleIds.includes("block-missing-action-taxonomy-metadata")) {
+  fail("invalid actionConstraints should fail closed before default read-only allow");
+}
+const approvalModeAlways = assertEffect("approvalMode always requires approval", baseInput({
+  action: {
+    approvalMode: "always",
+    requiresApproval: false
+  }
+}), "needs_approval");
+if (!approvalModeAlways?.matchedGuardrailRuleIds.includes("approval-required-for-write-or-sensitive")) {
+  fail("approvalMode always should require approval through mandatory guardrail");
+}
+const approvalModeBlocked = assertEffect("approvalMode blocked is blocked", baseInput({
+  action: {
+    approvalMode: "blocked",
+    requiresApproval: false
+  }
+}), "block");
+if (
+  approvalModeBlocked?.primaryRuleId !== "block-blocked-approval-mode" ||
+  !approvalModeBlocked.matchedGuardrailRuleIds.includes("block-blocked-approval-mode")
+) {
+  fail("approvalMode blocked should fail closed through mandatory block guardrail");
+}
+const approvalModeBlockedWithApprovalFlag = assertEffect("requiresApproval cannot override approvalMode blocked", baseInput({
+  action: {
+    approvalMode: "blocked",
+    requiresApproval: true
+  }
+}), "block");
+if (approvalModeBlockedWithApprovalFlag?.primaryRuleId !== "block-blocked-approval-mode") {
+  fail("requiresApproval true should not downgrade approvalMode blocked to approval");
+}
 assertEffect("write action needs approval", baseInput({
   action: {
     executionType: "write_action"
@@ -480,6 +732,14 @@ const bypassMissingRisk = assertEffect("tenant allow cannot bypass missing riskL
 }), "block", [tenantAllowEverythingRule]);
 if (!bypassMissingRisk?.matchedGuardrailRuleIds.includes("block-missing-action-risk-metadata")) {
   fail("missing riskLevel bypass attempt should be blocked by mandatory guardrail");
+}
+const bypassMissingTaxonomy = assertEffect("tenant allow cannot bypass missing action taxonomy metadata guardrail", baseInput({
+  action: {
+    resourceSensitivity: undefined
+  }
+}), "block", [tenantAllowEverythingRule]);
+if (!bypassMissingTaxonomy?.matchedGuardrailRuleIds.includes("block-missing-action-taxonomy-metadata")) {
+  fail("missing taxonomy metadata bypass attempt should be blocked by mandatory guardrail");
 }
 const bypassWrite = assertEffect("tenant allow cannot bypass write approval guardrail", baseInput({
   action: {
@@ -606,6 +866,14 @@ if (defaultDenied.effect !== "block" || defaultDenied.deniedByDefault !== true |
 const customRulesWithoutDefaultDeny = evaluateOgenPolicy(baseInput({
   connectorRoute: {
     connectorId: "github-reference",
+    resourceSystem: "github"
+  },
+  resource: {
+    connectorId: "github-reference",
+    resourceSystem: "github"
+  },
+  action: {
+    provider: "github",
     resourceSystem: "github"
   }
 }), [tenantBlockRule]);

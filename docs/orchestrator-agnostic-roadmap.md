@@ -274,7 +274,7 @@ Rules:
 - Ogen must not infer risk from AI text.
 - Ogen must not infer write/read safety from missing metadata.
 - Missing `riskLevel` or `executionType` fails closed.
-- Missing `actionCategory`, `approvalMode`, or `resourceSensitivity` should fail certification once the generic action taxonomy is introduced.
+- Missing or invalid `actionCategory`, `approvalMode`, `resourceSensitivity`, explicit `fieldClasses`, or explicit `actionConstraints` should fail certification and future runtime safety checks once the generic action taxonomy is introduced.
 - Broad OAuth scopes do not imply agent permission to use every tool.
 - Connector-provided metadata or certified reference metadata can prove safe read-only behavior.
 - Write actions should not automatically mean approval; write actions mean governance.
@@ -603,23 +603,7 @@ Non-goal:
 - no policy enforcement based solely on provenance status in this phase
 - no full key rotation or trust-anchor operations rollout yet
 
-### Phase 2.22 — Optional Policy Consumption of Verified Provenance
-
-Goal: optionally consume verified Agent Card provenance under explicit tenant rules without making provenance a global authorization shortcut.
-
-Deliverables:
-
-- tenant policy conditions that may require `verificationStatus: verified` for selected connectors or high-risk actions
-- explicit trust-anchor configuration and key rotation runbook
-- audit proof that distinguishes provenance checks from identity, tenant, RBAC, scoped JWT, and Ogen policy decisions
-- safe fallback behavior for `unverified`, `expired`, `invalid`, `error`, and `not_configured`
-
-Non-goal:
-
-- no implicit allow based on a verified Agent Card alone
-- no bypass of OAuth, connected-account checks, scoped JWT validation, runtime authorization, or Gateway RBAC
-
-### Phase 2.23 — Generic Action Taxonomy and Policy Conditions
+### Phase 2.22 — Generic Action Taxonomy and Policy Conditions
 
 Goal: define the vendor-neutral action taxonomy and generic policy condition model that let Ogen scale beyond one connector or one orchestrator.
 
@@ -628,7 +612,7 @@ Deliverables:
 - `OgenActionCategory`
 - `approvalMode`
 - `resourceSensitivity`
-- `fieldClass`
+- `fieldClasses`
 - `actionConstraints`
 - generic policy condition schema
 - certification checks that require action category, risk, execution type, approval mode, and sensitivity for executable actions
@@ -636,11 +620,21 @@ Deliverables:
 Acceptance criteria:
 
 - same policy can govern monday item updates, Jira issue updates, ServiceNow incident updates, GitHub issue updates, and Microsoft Graph object updates through normalized categories
+- vendor-specific tools normalize to Ogen action categories before policy evaluation
+- OAuth scopes do not equal Ogen action permission
 - write actions are not automatically approval-required; approval is a tenant policy outcome
 - high-risk standard single-record writes can be allowed by policy when constraints match
 - sensitive, bulk, permission, admin, delete, and regulated actions fail closed or require approval
+- missing normalized action metadata fails certification for future executable connectors
+- `approvalMode: "blocked"` blocks and `"always"` requires approval before tenant allow rules can apply
+- resource system policy matches use trusted route/resource context, not caller-supplied action metadata
 
-### Phase 2.24 — Tool-to-Action Metadata Mapping
+Non-goal:
+
+- no policy authority from signed Agent Card provenance; signed Agent Card provenance is advisory only
+- no vendor-specific one-off policy shortcuts
+
+### Phase 2.23 — Tool-to-Action Metadata Mapping
 
 Goal: convert external tool definitions into Ogen action metadata.
 
@@ -666,6 +660,22 @@ Rules:
 - no AI-only risk classification
 - no natural-language-only safety inference
 - unknown tool metadata fails closed
+
+### Phase 2.24 — Optional Policy Consumption of Verified Provenance
+
+Goal: optionally consume verified Agent Card provenance under explicit tenant rules without making provenance a global authorization shortcut.
+
+Deliverables:
+
+- tenant policy conditions that may require `verificationStatus: verified` for selected connectors or high-risk actions
+- explicit trust-anchor configuration and key rotation runbook
+- audit proof that distinguishes provenance checks from identity, tenant, RBAC, scoped JWT, and Ogen policy decisions
+- safe fallback behavior for `unverified`, `expired`, `invalid`, `error`, and `not_configured`
+
+Non-goal:
+
+- no implicit allow based on a verified Agent Card alone
+- no bypass of OAuth, connected-account checks, scoped JWT validation, runtime authorization, or Gateway RBAC
 
 ### Phase 2.25 — Connected Account Consent Registry
 

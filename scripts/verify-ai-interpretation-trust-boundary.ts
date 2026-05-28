@@ -100,6 +100,11 @@ function basePolicyInput(overrides: Partial<OgenPolicyInput["interpretation"]> =
       riskLevel: "low",
       sensitivity: "standard",
       requiresApproval: false,
+      actionCategory: "diagnose",
+      approvalMode: "never",
+      resourceSensitivity: "standard",
+      fieldClasses: [],
+      actionConstraints: {},
       requestedScopes: ["a2a:task.execute"]
     }
   };

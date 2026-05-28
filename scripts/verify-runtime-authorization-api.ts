@@ -210,7 +210,19 @@ function request(overrides: Partial<RuntimeAuthorizationRequest> = {}): RuntimeA
       executionType: "inspection_read_only",
       riskLevel: "low",
       requiresApproval: false,
-      sensitivity: "standard"
+      sensitivity: "standard",
+      actionCategory: "business_object.read",
+      approvalMode: "never",
+      resourceSensitivity: "standard",
+      fieldClasses: ["workflow_state"],
+      actionConstraints: {
+        bulkAllowed: false,
+        maxRecordsPerRequest: 1,
+        requiresConnectedAccount: true,
+        auditRequired: true
+      },
+      provider: "servicenow",
+      resourceSystem: "servicenow"
     },
     connectorRoute: {
       runtimeMode: "external_runtime_available"
@@ -283,13 +295,30 @@ if (identityAdmin.policy.inputHash === actorAdmin.policy.inputHash) {
 }
 
 const writeAction = evaluate(request({
+  targetAgent: {
+    agentId: "jira-agent",
+    connectorId: "jira-reference",
+    resourceSystem: "jira"
+  },
   action: {
     skillId: "jira.issue.create",
     skillLabel: "Create Jira issue",
     executionType: "write_action",
     riskLevel: "high",
     requiresApproval: true,
-    sensitivity: "sensitive"
+    sensitivity: "sensitive",
+    actionCategory: "business_object.create",
+    approvalMode: "policy",
+    resourceSensitivity: "sensitive",
+    fieldClasses: ["classification"],
+    actionConstraints: {
+      bulkAllowed: false,
+      maxRecordsPerRequest: 1,
+      requiresConnectedAccount: true,
+      auditRequired: true
+    },
+    provider: "atlassian",
+    resourceSystem: "jira"
   }
 }));
 if (writeAction.decision !== "needs_approval" || !writeAction.requiresApproval) {

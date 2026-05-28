@@ -1,3 +1,5 @@
+import type { OgenActionCategory, OgenActionConstraints, OgenApprovalMode, OgenFieldClass, OgenResourceSensitivity } from "@a2a/shared";
+
 export type ConnectorCatalogItem = {
   id: string;
   label: string;
@@ -15,6 +17,13 @@ export type ConnectorActionRequirement = {
   executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
   requiresApproval?: boolean;
   sensitivity?: "standard" | "sensitive";
+  actionCategory?: OgenActionCategory;
+  approvalMode?: OgenApprovalMode;
+  resourceSensitivity?: OgenResourceSensitivity;
+  fieldClasses?: OgenFieldClass[];
+  actionConstraints?: OgenActionConstraints;
+  provider?: string;
+  resourceSystem?: string;
   diagnosesActionId?: string;
   diagnosesActionLabel?: string;
 };
@@ -94,6 +103,13 @@ export type ConnectorActionDecision = {
   executionType?: ConnectorActionRequirement["executionType"];
   requiresApproval?: boolean;
   sensitivity?: "standard" | "sensitive";
+  actionCategory?: ConnectorActionRequirement["actionCategory"];
+  approvalMode?: ConnectorActionRequirement["approvalMode"];
+  resourceSensitivity?: ConnectorActionRequirement["resourceSensitivity"];
+  fieldClasses?: ConnectorActionRequirement["fieldClasses"];
+  actionConstraints?: ConnectorActionRequirement["actionConstraints"];
+  provider?: string;
+  resourceSystem?: string;
   requiredApplicationGrants: string[];
   requiredEffectivePermissions: string[];
   missingApplicationGrants: string[];

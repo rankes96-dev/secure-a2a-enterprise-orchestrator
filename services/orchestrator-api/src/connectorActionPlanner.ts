@@ -1,4 +1,4 @@
-import type { A2AAgentResponse, ConnectorActionPlan, PlannedActionExecutionType, PlannedActionRiskLevel, PlannedActionSideEffects } from "@a2a/shared";
+import type { A2AAgentResponse, ConnectorActionPlan, ConnectorActionPlanOption, PlannedActionExecutionType, PlannedActionRiskLevel, PlannedActionSideEffects } from "@a2a/shared";
 import { a2aJsonRequestHeaders } from "@a2a/shared";
 import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
 import { validateTrustedConnectorRuntimeEndpoint } from "./security/connectorRuntimeSafety.js";
@@ -42,6 +42,80 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function cleanString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizedActionCategory(value: unknown): ConnectorActionPlanOption["actionCategory"] {
+  return value === "read" ||
+    value === "search" ||
+    value === "diagnose" ||
+    value === "comment.add" ||
+    value === "business_object.read" ||
+    value === "business_object.create" ||
+    value === "business_object.update" ||
+    value === "workflow_state.change" ||
+    value === "assignment.change" ||
+    value === "permission.inspect" ||
+    value === "permission.grant" ||
+    value === "record.delete" ||
+    value === "bulk.modify" ||
+    value === "admin.configure" ||
+    value === "external_message.send"
+    ? value
+    : undefined;
+}
+
+function approvalMode(value: unknown): ConnectorActionPlanOption["approvalMode"] {
+  return value === "never" || value === "policy" || value === "always" || value === "blocked" ? value : undefined;
+}
+
+function resourceSensitivity(value: unknown): ConnectorActionPlanOption["resourceSensitivity"] {
+  return value === "standard" || value === "sensitive" || value === "regulated" || value === "security_critical" || value === "admin_controlled" ? value : undefined;
+}
+
+function fieldClasses(value: unknown): ConnectorActionPlanOption["fieldClasses"] {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const allowed = new Set([
+    "workflow_state",
+    "assignment",
+    "classification",
+    "financial",
+    "customer_pii",
+    "employee_pii",
+    "security",
+    "identity",
+    "permission",
+    "admin_config",
+    "external_message"
+  ]);
+  const fields = stringArray(value).filter((fieldClass) => allowed.has(fieldClass)) as NonNullable<ConnectorActionPlanOption["fieldClasses"]>;
+  return fields;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function actionConstraints(value: unknown): ConnectorActionPlanOption["actionConstraints"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const constraints: ConnectorActionPlanOption["actionConstraints"] = {
+    bulkAllowed: record.bulkAllowed === true || record.bulkAllowed === false ? record.bulkAllowed : undefined,
+    maxRecordsPerRequest: positiveInteger(record.maxRecordsPerRequest),
+    maxActionsPerHour: positiveInteger(record.maxActionsPerHour),
+    requiresConnectedAccount: record.requiresConnectedAccount === true || record.requiresConnectedAccount === false ? record.requiresConnectedAccount : undefined,
+    auditRequired: record.auditRequired === true || record.auditRequired === false ? record.auditRequired : undefined
+  };
+  return constraints;
+}
+
 function executionType(value: unknown): PlannedActionExecutionType {
   return value === "inspection_read_only" || value === "diagnostic_read_only" || value === "write_action" || value === "admin_action" || value === "unsupported"
     ? value
@@ -71,6 +145,13 @@ function normalizeConnectorActionPlan(value: unknown): ConnectorActionPlan | und
           description: typeof item.description === "string" ? item.description : "",
           executionType: executionType(item.executionType),
           riskLevel: riskLevel(item.riskLevel),
+          actionCategory: normalizedActionCategory(item.actionCategory),
+          approvalMode: approvalMode(item.approvalMode),
+          resourceSensitivity: resourceSensitivity(item.resourceSensitivity),
+          fieldClasses: fieldClasses(item.fieldClasses),
+          actionConstraints: actionConstraints(item.actionConstraints),
+          provider: cleanString(item.provider),
+          resourceSystem: cleanString(item.resourceSystem),
           sideEffects: sideEffects(item.sideEffects),
           requiredApplicationGrants: stringArray(item.requiredApplicationGrants),
           requiredEffectivePermissions: stringArray(item.requiredEffectivePermissions),

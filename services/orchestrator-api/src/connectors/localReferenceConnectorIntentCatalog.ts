@@ -1,5 +1,7 @@
 // Deterministic local demo routing catalog. Production connectors should provide
 // intent hints through connector profiles or a managed connector registry.
+import type { OgenActionCategory, OgenActionConstraints, OgenApprovalMode, OgenFieldClass, OgenResourceSensitivity } from "@a2a/shared";
+
 export type ReferenceConnectorRiskLevel = "low" | "medium" | "high" | "sensitive";
 export type ReferenceConnectorExecutionType = "diagnostic_read_only" | "inspection_read_only" | "write_action" | "unsupported";
 export type ReferenceConnectorSensitivity = "standard" | "sensitive";
@@ -15,6 +17,13 @@ export type ConnectorIntentSkillHint = {
   executionType?: ReferenceConnectorExecutionType;
   requiresApproval?: boolean;
   sensitivity?: ReferenceConnectorSensitivity;
+  actionCategory?: OgenActionCategory;
+  approvalMode?: OgenApprovalMode;
+  resourceSensitivity?: OgenResourceSensitivity;
+  fieldClasses?: OgenFieldClass[];
+  actionConstraints?: OgenActionConstraints;
+  provider?: string;
+  resourceSystem?: string;
 };
 
 export type ConnectorIntentHint = {
@@ -41,7 +50,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "low",
         executionType: "inspection_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "business_object.read",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["workflow_state"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "atlassian",
+        resourceSystem: "jira"
       },
       {
         skillId: "jira.project.access.prepare",
@@ -52,7 +73,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "sensitive",
         executionType: "write_action",
         requiresApproval: true,
-        sensitivity: "sensitive"
+        sensitivity: "sensitive",
+        actionCategory: "permission.grant",
+        approvalMode: "always",
+        resourceSensitivity: "security_critical",
+        fieldClasses: ["identity", "permission"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "atlassian",
+        resourceSystem: "jira"
       },
       {
         skillId: "jira.permission.inspect",
@@ -62,7 +95,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "medium",
         executionType: "inspection_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "permission.inspect",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["identity", "permission"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "atlassian",
+        resourceSystem: "jira"
       },
       {
         skillId: "jira.issue.create",
@@ -73,7 +118,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "high",
         executionType: "write_action",
         requiresApproval: true,
-        sensitivity: "sensitive"
+        sensitivity: "sensitive",
+        actionCategory: "business_object.create",
+        approvalMode: "policy",
+        resourceSensitivity: "sensitive",
+        fieldClasses: ["classification"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "atlassian",
+        resourceSystem: "jira"
       },
       {
         skillId: "jira.issue.diagnose_creation_failure",
@@ -83,7 +140,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "medium",
         executionType: "diagnostic_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "diagnose",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["permission"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "atlassian",
+        resourceSystem: "jira"
       }
     ]
   },
@@ -102,7 +171,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "low",
         executionType: "inspection_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "business_object.read",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["workflow_state"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "servicenow",
+        resourceSystem: "servicenow"
       },
       {
         skillId: "servicenow.catalog.item.recommend",
@@ -113,7 +194,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "low",
         executionType: "inspection_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "search",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["classification"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 10,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "servicenow",
+        resourceSystem: "servicenow"
       },
       {
         skillId: "servicenow.catalog.request.diagnose",
@@ -123,7 +216,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "low",
         executionType: "diagnostic_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "diagnose",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["workflow_state"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "servicenow",
+        resourceSystem: "servicenow"
       },
       {
         skillId: "servicenow.user.role.inspect",
@@ -133,7 +238,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "medium",
         executionType: "inspection_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "permission.inspect",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["identity", "permission"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "servicenow",
+        resourceSystem: "servicenow"
       },
       {
         skillId: "servicenow.incident.assignment.diagnose",
@@ -143,7 +260,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "medium",
         executionType: "diagnostic_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "diagnose",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["assignment", "workflow_state"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "servicenow",
+        resourceSystem: "servicenow"
       }
     ]
   },
@@ -161,7 +290,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "low",
         executionType: "inspection_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "business_object.read",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["workflow_state"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "github",
+        resourceSystem: "github"
       },
       {
         skillId: "github.repository.access.prepare",
@@ -171,7 +312,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "sensitive",
         executionType: "write_action",
         requiresApproval: true,
-        sensitivity: "sensitive"
+        sensitivity: "sensitive",
+        actionCategory: "permission.grant",
+        approvalMode: "always",
+        resourceSensitivity: "security_critical",
+        fieldClasses: ["identity", "permission"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "github",
+        resourceSystem: "github"
       },
       {
         skillId: "github.pull_request.access.diagnose",
@@ -181,7 +334,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "medium",
         executionType: "diagnostic_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "diagnose",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["permission"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "github",
+        resourceSystem: "github"
       },
       {
         skillId: "github.repository.permission.inspect",
@@ -192,7 +357,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "medium",
         executionType: "inspection_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "permission.inspect",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["identity", "permission"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "github",
+        resourceSystem: "github"
       },
       {
         skillId: "github.repository.rate_limit.diagnose",
@@ -203,7 +380,19 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
         riskLevel: "low",
         executionType: "diagnostic_read_only",
         requiresApproval: false,
-        sensitivity: "standard"
+        sensitivity: "standard",
+        actionCategory: "diagnose",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: [],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "github",
+        resourceSystem: "github"
       }
     ]
   }

@@ -732,7 +732,23 @@ Safety rules:
 - Provenance output never exposes private keys, raw tokens, raw prompts, Authorization headers, client assertions, secrets, or protected metadata.
 - Verification failures are explicit and non-crashing; invalid, expired, missing, or verifier-error states remain safe discovery metadata.
 - The canonical payload hash excludes the provenance/signature envelope itself so operators can compare the signed Agent Card body deterministically.
-- Key rotation and trust-anchor rollout remain future operational work; Phase 2.22 can optionally consume verified provenance under explicit tenant policy rules.
+- Key rotation and trust-anchor rollout remain future operational work; optional policy consumption of verified provenance is deferred until explicit tenant trust-anchor policy exists.
+
+### Phase 2.22  Generic Action Taxonomy & Policy Conditions
+
+Phase 2.22 introduces a vendor-neutral action taxonomy and generic policy condition foundation. Vendor-specific tools normalize to Ogen action categories such as `business_object.read`, `business_object.create`, `diagnose`, `permission.inspect`, and `permission.grant`, then Ogen policy evaluates the normalized action metadata with tenant, verified identity, connector trust, runtime mode, and resource context.
+
+OAuth scopes do not equal Ogen action permission. A broad vendor scope can prove a connected account may call an API, but Ogen still decides whether this user, tenant, connector, resource, action category, risk level, execution type, sensitivity, field class, and constraint set is allowed now.
+
+Approval is a policy outcome, not automatic for every write. Existing compatibility fields `riskLevel`, `executionType`, `requiresApproval`, and `sensitivity` remain in place and missing risk/execution metadata still fails closed. New executable connector metadata can also carry `actionCategory`, `approvalMode`, `resourceSensitivity`, `fieldClasses`, `actionConstraints`, `requiredApplicationGrants`, `requiredEffectivePermissions`, `provider`, and `resourceSystem`. Ogen runtime policy validates taxonomy values at runtime and does not rely on TypeScript declarations or caller-provided shape alone.
+
+Missing normalized action metadata fails certification for future external executable connectors. Executable external runtime actions must carry complete and valid taxonomy metadata before any default allow path can apply: `actionCategory`, `approvalMode`, `resourceSensitivity`, explicit `fieldClasses`, and explicit `actionConstraints`. `fieldClasses: []` and `actionConstraints: {}` are valid explicit declarations; unknown category, mode, sensitivity, field class, constraint key, or malformed constraint value fails closed. Current known reference connector skills may use deterministic reference catalog metadata as a compatibility fallback only when that metadata is complete; unknown or incomplete external actions are not treated as safe and future SDK/certification readiness marks missing taxonomy fields as incomplete.
+
+`approvalMode` is enforced by mandatory Ogen policy outcomes. `blocked` blocks, `always` requires approval, `policy` continues to tenant/default policy evaluation, and `never` adds no approval requirement by itself while remaining subject to all guardrails. The legacy `requiresApproval` flag remains a compatibility signal but cannot override stricter normalized approval mode.
+
+Resource-scoped policy matches use the trusted connector route/resource context, not caller-supplied action metadata. If an action body includes `resourceSystem` and it conflicts with the routed/resource system, Ogen fails closed before tenant allow rules are evaluated and records the trusted resource system in the policy proof.
+
+Signed Agent Card provenance remains advisory only. It can describe card integrity, but it is not tenant, role, policy, authorization, runtime, or audit authority.
 
 ### Phase 3  Connector SDK
 
@@ -1063,6 +1079,7 @@ V2 verification should layer new checks without weakening V1:
 - `npm run verify:a2a-protocol-compatibility`
 - `npm run verify:a2a-message-task-adapter`
 - `npm run verify:a2a-agent-card-provenance`
+- `npm run verify:generic-action-taxonomy`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
 - Phase 2.6 adds the first opt-in Postgres schema and `PostgresPlatformStateStore`; Phase 2.19 verifies tenant-scoped persisted audit viewer reads, and Phase 2.19c verifies indexed outcome/severity pagination
 - future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
@@ -1158,6 +1175,10 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.21: include advisory signed Agent Card provenance on `/agent-card` and `/.well-known/agent-card.json`
 - [ ] Phase 2.21: keep Agent Card provenance out of tenant, role, policy, authorization, runtime, and audit authority
 - [ ] Phase 2.21: verify no private keys, raw tokens, raw prompts, secrets, or protected metadata appear in provenance output
+- [ ] Phase 2.22: export generic Ogen action taxonomy and policy condition source types
+- [ ] Phase 2.22: propagate normalized action metadata through connector/action contracts
+- [ ] Phase 2.22: keep OAuth scopes separate from Ogen action permission and approval policy
+- [ ] Phase 2.22: fail SDK certification for missing normalized action metadata on future executable connectors
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

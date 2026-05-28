@@ -3,6 +3,46 @@ import type { OgenPolicyDecision, OgenPolicyEffect, OgenPolicyInput, OgenPolicyM
 
 export const OGEN_POLICY_VERSION = "ogen.policy.v1";
 
+const allowedOgenActionCategories = new Set([
+  "read",
+  "search",
+  "diagnose",
+  "comment.add",
+  "business_object.read",
+  "business_object.create",
+  "business_object.update",
+  "workflow_state.change",
+  "assignment.change",
+  "permission.inspect",
+  "permission.grant",
+  "record.delete",
+  "bulk.modify",
+  "admin.configure",
+  "external_message.send"
+]);
+const allowedOgenApprovalModes = new Set(["never", "policy", "always", "blocked"]);
+const allowedOgenResourceSensitivities = new Set(["standard", "sensitive", "regulated", "security_critical", "admin_controlled"]);
+const allowedOgenFieldClasses = new Set([
+  "workflow_state",
+  "assignment",
+  "classification",
+  "financial",
+  "customer_pii",
+  "employee_pii",
+  "security",
+  "identity",
+  "permission",
+  "admin_config",
+  "external_message"
+]);
+const allowedOgenActionConstraintKeys = new Set([
+  "bulkAllowed",
+  "maxRecordsPerRequest",
+  "maxActionsPerHour",
+  "requiresConnectedAccount",
+  "auditRequired"
+]);
+
 function deepFreeze<T>(value: T): Readonly<T> {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     Object.freeze(value);
@@ -25,7 +65,13 @@ function cloneRule(rule: OgenPolicyRule): OgenPolicyRule {
       skillIds: rule.match.skillIds ? [...rule.match.skillIds] : undefined,
       executionTypes: rule.match.executionTypes ? [...rule.match.executionTypes] : undefined,
       riskLevels: rule.match.riskLevels ? [...rule.match.riskLevels] : undefined,
+      actionCategories: rule.match.actionCategories ? [...rule.match.actionCategories] : undefined,
+      approvalModes: rule.match.approvalModes ? [...rule.match.approvalModes] : undefined,
+      resourceSensitivities: rule.match.resourceSensitivities ? [...rule.match.resourceSensitivities] : undefined,
+      providers: rule.match.providers ? [...rule.match.providers] : undefined,
+      fieldClasses: rule.match.fieldClasses ? [...rule.match.fieldClasses] : undefined,
       sensitivities: rule.match.sensitivities ? [...rule.match.sensitivities] : undefined,
+      actorRolesAny: rule.match.actorRolesAny ? [...rule.match.actorRolesAny] : undefined,
       requiredRolesAny: rule.match.requiredRolesAny ? [...rule.match.requiredRolesAny] : undefined,
       requiredRolesAll: rule.match.requiredRolesAll ? [...rule.match.requiredRolesAll] : undefined,
       environments: rule.match.environments ? [...rule.match.environments] : undefined,
@@ -107,6 +153,39 @@ const mandatoryOgenPolicyGuardrailsDefinition: OgenPolicyRule[] = [
     match: {
       routeStatuses: ["connector_skill_approved"]
     }
+  },
+  {
+    id: "block-resource-system-metadata-mismatch",
+    name: "Block resource system metadata mismatch",
+    description: "Caller-supplied action resource system must match trusted route/resource context before policy can evaluate resource-scoped rules.",
+    effect: "block",
+    priority: 36,
+    enabled: true,
+    match: {
+      routeStatuses: ["connector_skill_approved"]
+    }
+  },
+  {
+    id: "block-missing-action-taxonomy-metadata",
+    name: "Block missing action taxonomy metadata",
+    description: "Runtime execution requires explicit normalized action taxonomy metadata.",
+    effect: "block",
+    priority: 37,
+    enabled: true,
+    match: {
+      routeStatuses: ["connector_skill_approved"]
+    }
+  },
+  {
+    id: "block-blocked-approval-mode",
+    name: "Block actions marked blocked by approval mode",
+    description: "Normalized action taxonomy approvalMode blocked is a mandatory deny outcome.",
+    effect: "block",
+    priority: 38,
+    enabled: true,
+    match: {
+      routeStatuses: ["connector_skill_approved"]
+    }
   }
 ];
 
@@ -179,6 +258,7 @@ function inputHash(summary: Record<string, unknown>): string {
 }
 
 function safeInputSummary(input: OgenPolicyInput): Record<string, unknown> {
+  const trustedResourceSystem = trustedPolicyResourceSystem(input);
   return {
     tenantId: input.tenantId,
     policyVersion: input.policyVersion,
@@ -223,7 +303,22 @@ function safeInputSummary(input: OgenPolicyInput): Record<string, unknown> {
       riskLevel: input.action.riskLevel,
       sensitivity: input.action.sensitivity,
       requiresApproval: input.action.requiresApproval,
+      actionCategory: input.action.actionCategory,
+      approvalMode: input.action.approvalMode,
+      resourceSensitivity: input.action.resourceSensitivity,
+      fieldClasses: input.action.fieldClasses,
+      actionConstraints: input.action.actionConstraints,
+      requiredApplicationGrants: input.action.requiredApplicationGrants,
+      requiredEffectivePermissions: input.action.requiredEffectivePermissions,
+      provider: input.action.provider,
+      resourceSystem: input.action.resourceSystem,
       requestedScopes: input.action.requestedScopes
+    },
+    policyMatchContext: {
+      trustedResourceSystem,
+      actionResourceSystemMatchesTrusted: !input.action.resourceSystem ||
+        !trustedResourceSystem ||
+        input.action.resourceSystem === trustedResourceSystem
     }
   };
 }
@@ -232,28 +327,121 @@ function inList(value: string | undefined, allowed: string[] | undefined): boole
   return !allowed || (value ? allowed.includes(value) : false);
 }
 
+function intersects(values: string[] | undefined, allowed: string[] | undefined): boolean {
+  return !allowed || (values ? values.some((value) => allowed.includes(value)) : false);
+}
+
+function booleanCondition(value: boolean | undefined, expected: boolean | undefined): boolean {
+  return expected === undefined || value === expected;
+}
+
+function maxCondition(value: number | undefined, expected: number | undefined): boolean {
+  return expected === undefined || (value !== undefined && value <= expected);
+}
+
+function isAllowedActionCategory(value: unknown): boolean {
+  return typeof value === "string" && allowedOgenActionCategories.has(value);
+}
+
+function isAllowedApprovalMode(value: unknown): boolean {
+  return typeof value === "string" && allowedOgenApprovalModes.has(value);
+}
+
+function isAllowedResourceSensitivity(value: unknown): boolean {
+  return typeof value === "string" && allowedOgenResourceSensitivities.has(value);
+}
+
+function hasValidFieldClasses(value: unknown): boolean {
+  return Array.isArray(value) &&
+    value.every((fieldClass) => typeof fieldClass === "string" && allowedOgenFieldClasses.has(fieldClass));
+}
+
+function positiveInteger(value: unknown): boolean {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function hasValidActionConstraintEntry(key: string, value: unknown): boolean {
+  if (!allowedOgenActionConstraintKeys.has(key)) {
+    return false;
+  }
+
+  if (value === undefined) {
+    return true;
+  }
+
+  if (key === "maxRecordsPerRequest" || key === "maxActionsPerHour") {
+    return positiveInteger(value);
+  }
+
+  return value === true || value === false;
+}
+
+function hasValidActionConstraints(value: unknown): boolean {
+  return Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.entries(value as Record<string, unknown>).every(([key, entry]) => hasValidActionConstraintEntry(key, entry));
+}
+
+function trustedPolicyResourceSystem(input: OgenPolicyInput): string | undefined {
+  return input.connectorRoute.resourceSystem ?? input.resource.resourceSystem;
+}
+
+function actionResourceSystemMatchesTrusted(input: OgenPolicyInput): boolean {
+  const trustedResourceSystem = trustedPolicyResourceSystem(input);
+  return !input.action.resourceSystem ||
+    !trustedResourceSystem ||
+    input.action.resourceSystem === trustedResourceSystem;
+}
+
+function hasCompleteActionTaxonomyMetadata(input: OgenPolicyInput): boolean {
+  return isAllowedActionCategory(input.action.actionCategory) &&
+    isAllowedApprovalMode(input.action.approvalMode) &&
+    isAllowedResourceSensitivity(input.action.resourceSensitivity) &&
+    hasValidFieldClasses(input.action.fieldClasses) &&
+    hasValidActionConstraints(input.action.actionConstraints);
+}
+
 function roleSet(input: OgenPolicyInput): Set<string> {
   return new Set(input.subject.roles.map((role) => role.toLowerCase()));
 }
 
+function roleAnySatisfied(roles: ReadonlySet<string>, requiredRoles: readonly string[] | undefined): boolean {
+  return !requiredRoles || requiredRoles.some((role) => roles.has(role.toLowerCase()));
+}
+
+function roleAllSatisfied(roles: ReadonlySet<string>, requiredRoles: readonly string[] | undefined): boolean {
+  return !requiredRoles || requiredRoles.every((role) => roles.has(role.toLowerCase()));
+}
+
 function roleRequirementSatisfied(input: OgenPolicyInput, rule: OgenPolicyRule): boolean {
   const roles = roleSet(input);
-  const any = rule.match.requiredRolesAny?.map((role) => role.toLowerCase());
-  const all = rule.match.requiredRolesAll?.map((role) => role.toLowerCase());
-  const anySatisfied = !any || any.some((role) => roles.has(role));
-  const allSatisfied = !all || all.every((role) => roles.has(role));
-  return anySatisfied && allSatisfied;
+  return roleAnySatisfied(roles, rule.match.requiredRolesAny) &&
+    roleAllSatisfied(roles, rule.match.requiredRolesAll);
 }
 
 function matchesGenericFields(input: OgenPolicyInput, rule: OgenPolicyRule): boolean {
+  const constraints = input.action.actionConstraints;
+  const roles = roleSet(input);
   return inList(input.connectorRoute.connectorId ?? input.resource.connectorId, rule.match.connectorIds) &&
-    inList(input.connectorRoute.resourceSystem ?? input.resource.resourceSystem, rule.match.resourceSystems) &&
+    inList(trustedPolicyResourceSystem(input), rule.match.resourceSystems) &&
     inList(input.connectorRoute.skillId ?? input.action.skillId, rule.match.skillIds) &&
     inList(input.action.executionType, rule.match.executionTypes) &&
     inList(input.action.riskLevel, rule.match.riskLevels) &&
+    inList(input.action.actionCategory, rule.match.actionCategories) &&
+    inList(input.action.approvalMode, rule.match.approvalModes) &&
+    inList(input.action.resourceSensitivity, rule.match.resourceSensitivities) &&
+    inList(input.action.provider, rule.match.providers) &&
+    intersects(input.action.fieldClasses, rule.match.fieldClasses) &&
     inList(input.action.sensitivity, rule.match.sensitivities) &&
+    booleanCondition(constraints?.bulkAllowed, rule.match.bulk) &&
+    maxCondition(constraints?.maxRecordsPerRequest, rule.match.maxRecordsPerRequest) &&
+    maxCondition(constraints?.maxActionsPerHour, rule.match.maxActionsPerHour) &&
+    booleanCondition(constraints?.requiresConnectedAccount, rule.match.requiresConnectedAccount) &&
+    booleanCondition(constraints?.auditRequired, rule.match.auditRequired) &&
     inList(input.resource.environment, rule.match.environments) &&
-    inList(input.connectorRoute.status, rule.match.routeStatuses);
+    inList(input.connectorRoute.status, rule.match.routeStatuses) &&
+    roleAnySatisfied(roles, rule.match.actorRolesAny);
 }
 
 function routeApproved(input: OgenPolicyInput): boolean {
@@ -266,6 +454,7 @@ function runtimeExternallyAvailable(input: OgenPolicyInput): boolean {
 
 function approvalRequired(input: OgenPolicyInput): boolean {
   return input.action.requiresApproval === true ||
+    input.action.approvalMode === "always" ||
     input.action.executionType === "write_action" ||
     input.action.riskLevel === "high" ||
     input.action.riskLevel === "sensitive" ||
@@ -311,6 +500,24 @@ function ruleMatches(input: OgenPolicyInput, rule: OgenPolicyRule): boolean {
     return routeApproved(input) &&
       runtimeExternallyAvailable(input) &&
       (!input.action.executionType || !input.action.riskLevel);
+  }
+
+  if (rule.id === "block-resource-system-metadata-mismatch") {
+    return routeApproved(input) &&
+      runtimeExternallyAvailable(input) &&
+      !actionResourceSystemMatchesTrusted(input);
+  }
+
+  if (rule.id === "block-missing-action-taxonomy-metadata") {
+    return routeApproved(input) &&
+      runtimeExternallyAvailable(input) &&
+      !hasCompleteActionTaxonomyMetadata(input);
+  }
+
+  if (rule.id === "block-blocked-approval-mode") {
+    return routeApproved(input) &&
+      runtimeExternallyAvailable(input) &&
+      input.action.approvalMode === "blocked";
   }
 
   if (rule.id === "allow-readonly-approved-runtime") {

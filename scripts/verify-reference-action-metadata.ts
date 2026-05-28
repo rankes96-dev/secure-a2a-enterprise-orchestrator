@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { TrustedOnboardedAgent } from "../services/orchestrator-api/src/agentOnboarding.js";
+import type { DerivedCapability, TrustedOnboardedAgent } from "../services/orchestrator-api/src/agentOnboarding.js";
 import { decideConnectorRoute, routeConnectorRequest, type ConnectorRoutingIntent } from "../services/orchestrator-api/src/connectorRouting.js";
 import { localReferenceConnectorIntentCatalog } from "../services/orchestrator-api/src/connectors/localReferenceConnectorIntentCatalog.js";
 import { evaluateConnectorPolicy } from "../services/orchestrator-api/src/policy/connectorPolicy.js";
@@ -65,14 +65,15 @@ function fakeTrustedAgent(params: {
   resourceSystem: string;
   approvedCapability: string;
   runtimeEndpoint?: string;
+  approvedAction?: Partial<DerivedCapability>;
 }): TrustedOnboardedAgent {
-  const approvedActions = [
-    {
-      capability: params.approvedCapability,
-      label: `Approved ${params.approvedCapability}`,
-      reason: "Approved for verification without embedded safety metadata."
-    }
-  ];
+  const approvedAction: DerivedCapability = {
+    ...params.approvedAction,
+    capability: params.approvedAction?.capability ?? params.approvedCapability,
+    label: params.approvedAction?.label ?? `Approved ${params.approvedCapability}`,
+    reason: params.approvedAction?.reason ?? "Approved for verification without embedded safety metadata."
+  };
+  const approvedActions = [approvedAction];
 
   return {
     agentId: `${params.connectorId}-agent`,
@@ -153,6 +154,11 @@ requireIncludes(connectorRouting, "approved.riskLevel ?? referenceSkill?.riskLev
 requireIncludes(connectorRouting, "approved.executionType ?? referenceSkill?.executionType", "approved execution metadata wins before reference fallback");
 requireIncludes(connectorRouting, "actionMetadataSource?: ConnectorActionMetadataSource", "connector routing exposes action metadata source proof");
 requireIncludes(connectorRouting, "actionMetadataSource: actionMetadata.source", "connector route decision records action metadata source");
+requireIncludes(connectorRouting, "actionResourceSystem?: string", "connector routing carries action-level resource system separately");
+requireIncludes(connectorRouting, "actionResourceSystem: actionMetadata.resourceSystem", "connector route decision propagates action-level resource system");
+requireIncludes(backend, "actionResourceSystem: connectorRouting.actionResourceSystem", "backend evidence includes action-level resource system");
+requireIncludes(backend, "resourceSystem: connectorRouting.actionResourceSystem", "backend policy input uses action-level resource system for action metadata");
+requireIncludes(shared, "actionResourceSystem?: string", "shared connector routing response exposes action-level resource system");
 
 const metadataHelper = connectorRouting.slice(connectorRouting.indexOf("function referenceSkillMetadata"), connectorRouting.indexOf("function exactConnectorIdMatch"));
 for (const forbidden of ["label", "reason", "includeAny", "excludeAny"]) {
@@ -217,12 +223,93 @@ const servicenowPolicy = evaluateConnectorPolicy({
   riskLevel: servicenowDecision.riskLevel,
   executionType: servicenowDecision.executionType,
   requiresApproval: servicenowDecision.requiresApproval,
-  sensitivity: servicenowDecision.sensitivity
+  sensitivity: servicenowDecision.sensitivity,
+  action: {
+    actionCategory: servicenowDecision.actionCategory,
+    approvalMode: servicenowDecision.approvalMode,
+    resourceSensitivity: servicenowDecision.resourceSensitivity,
+    fieldClasses: servicenowDecision.fieldClasses,
+    actionConstraints: servicenowDecision.actionConstraints,
+    provider: servicenowDecision.provider,
+    resourceSystem: servicenowDecision.resourceSystem
+  }
 });
 if (servicenowPolicy.effect !== "allow" || servicenowPolicy.primaryRuleId !== "allow-readonly-approved-runtime") {
   fail("ServiceNow ticket status lookup should be allowed by read-only approved runtime policy");
 } else {
   ok("ServiceNow ticket status lookup is allowed by read-only approved runtime policy");
+}
+
+const mismatchedActionResourceSystemDecision = routeConnectorRequest("What is the status of my ticket INC0010245?", [
+  fakeTrustedAgent({
+    connectorId: "servicenow-reference",
+    resourceSystem: "servicenow",
+    approvedCapability: "servicenow.ticket.status.lookup",
+    approvedAction: {
+      riskLevel: "low",
+      executionType: "inspection_read_only",
+      requiresApproval: false,
+      sensitivity: "standard",
+      actionCategory: "business_object.read",
+      approvalMode: "never",
+      resourceSensitivity: "standard",
+      fieldClasses: ["workflow_state"],
+      actionConstraints: {
+        bulkAllowed: false,
+        maxRecordsPerRequest: 1,
+        requiresConnectedAccount: true,
+        auditRequired: true
+      },
+      provider: "servicenow",
+      resourceSystem: "jira"
+    }
+  })
+]);
+if (
+  mismatchedActionResourceSystemDecision.status !== "connector_skill_approved" ||
+  mismatchedActionResourceSystemDecision.resourceSystem !== "servicenow" ||
+  mismatchedActionResourceSystemDecision.actionResourceSystem !== "jira" ||
+  mismatchedActionResourceSystemDecision.actionMetadataSource !== "approved_action"
+) {
+  fail("connector routing should preserve mismatched approved action resourceSystem separately from trusted route resourceSystem");
+}
+const mismatchedActionResourceSystemPolicy = evaluateConnectorPolicy({
+  connectorRouteStatus: mismatchedActionResourceSystemDecision.status,
+  runtimeMode: mismatchedActionResourceSystemDecision.runtimeMode,
+  connectorId: mismatchedActionResourceSystemDecision.connectorId,
+  resourceSystem: mismatchedActionResourceSystemDecision.resourceSystem,
+  skillId: mismatchedActionResourceSystemDecision.skillId,
+  skillLabel: mismatchedActionResourceSystemDecision.skillLabel,
+  subject: {
+    tenantId: "default",
+    userId: "verification-user",
+    roles: ["employee"]
+  },
+  resource: {
+    connectorId: mismatchedActionResourceSystemDecision.connectorId,
+    resourceSystem: mismatchedActionResourceSystemDecision.resourceSystem
+  },
+  riskLevel: mismatchedActionResourceSystemDecision.riskLevel,
+  executionType: mismatchedActionResourceSystemDecision.executionType,
+  requiresApproval: mismatchedActionResourceSystemDecision.requiresApproval,
+  sensitivity: mismatchedActionResourceSystemDecision.sensitivity,
+  action: {
+    actionCategory: mismatchedActionResourceSystemDecision.actionCategory,
+    approvalMode: mismatchedActionResourceSystemDecision.approvalMode,
+    resourceSensitivity: mismatchedActionResourceSystemDecision.resourceSensitivity,
+    fieldClasses: mismatchedActionResourceSystemDecision.fieldClasses,
+    actionConstraints: mismatchedActionResourceSystemDecision.actionConstraints,
+    provider: mismatchedActionResourceSystemDecision.provider,
+    resourceSystem: mismatchedActionResourceSystemDecision.actionResourceSystem
+  }
+});
+if (
+  mismatchedActionResourceSystemPolicy.effect !== "block" ||
+  mismatchedActionResourceSystemPolicy.primaryRuleId !== "block-resource-system-metadata-mismatch"
+) {
+  fail("mismatched approved action resourceSystem should reach Ogen mismatch guardrail");
+} else {
+  ok("mismatched approved action resourceSystem is blocked by Ogen mismatch guardrail");
 }
 
 const unknownIntent: ConnectorRoutingIntent = {

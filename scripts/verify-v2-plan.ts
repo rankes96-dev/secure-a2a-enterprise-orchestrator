@@ -54,6 +54,7 @@ if (!existsSync(path)) {
     "Phase 2.20a  A2A 1.0 Protocol Compatibility Layer",
     "Phase 2.20b  A2A Message/Task Adapter",
     "Phase 2.21  Signed Agent Card Provenance",
+    "Phase 2.22  Generic Action Taxonomy & Policy Conditions",
     "A2A-Version: 1.0",
     "application/a2a+json",
     "invalid_a2a_envelope",
@@ -149,7 +150,8 @@ if (!existsSync(sharedPath)) {
     "AuditEventsResponse",
     "safeMetadataReturned: false",
     "./a2aProtocol.js",
-    "./a2aMessageTaskAdapter.js"
+    "./a2aMessageTaskAdapter.js",
+    "./ogenActionTaxonomy.js"
   ]) {
     if (!shared.includes(phrase)) {
       fail(`shared contracts missing required phrase: ${phrase}`);
@@ -343,6 +345,12 @@ if (!existsSync(packageJsonPath)) {
   }
   if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:platform-db-migrations")) {
     fail("verify:v2-plan should run verify:platform-db-migrations");
+  }
+  if (packageJson.scripts?.["verify:generic-action-taxonomy"] !== "tsx scripts/verify-generic-action-taxonomy.ts") {
+    fail("package.json missing verify:generic-action-taxonomy script");
+  }
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:generic-action-taxonomy")) {
+    fail("verify:v2-plan should run verify:generic-action-taxonomy");
   }
 }
 

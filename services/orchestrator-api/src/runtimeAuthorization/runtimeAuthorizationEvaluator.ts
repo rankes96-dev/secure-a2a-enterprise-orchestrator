@@ -103,6 +103,15 @@ export function evaluateRuntimeAuthorization(input: {
       riskLevel: request.action.riskLevel,
       sensitivity: request.action.sensitivity,
       requiresApproval: request.action.requiresApproval,
+      actionCategory: request.action.actionCategory,
+      approvalMode: request.action.approvalMode,
+      resourceSensitivity: request.action.resourceSensitivity,
+      fieldClasses: request.action.fieldClasses,
+      actionConstraints: request.action.actionConstraints,
+      requiredApplicationGrants: request.action.requiredApplicationGrants,
+      requiredEffectivePermissions: request.action.requiredEffectivePermissions,
+      provider: request.action.provider,
+      resourceSystem: request.action.resourceSystem,
       requestedScopes: request.action.requestedScopes
     }
   });

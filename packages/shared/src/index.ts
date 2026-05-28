@@ -1,3 +1,5 @@
+import type { OgenActionCategory, OgenActionConstraints, OgenApprovalMode, OgenFieldClass, OgenResourceSensitivity } from "./ogenActionTaxonomy.js";
+
 export type IssueType =
   | "AUTHENTICATION_FAILURE"
   | "AUTHORIZATION_FAILURE"
@@ -498,6 +500,13 @@ export type ConnectorActionPlanOption = {
   description: string;
   executionType: PlannedActionExecutionType;
   riskLevel: PlannedActionRiskLevel;
+  actionCategory?: OgenActionCategory;
+  approvalMode?: OgenApprovalMode;
+  resourceSensitivity?: OgenResourceSensitivity;
+  fieldClasses?: OgenFieldClass[];
+  actionConstraints?: OgenActionConstraints;
+  provider?: string;
+  resourceSystem?: string;
   sideEffects: PlannedActionSideEffects;
   requiredApplicationGrants: string[];
   requiredEffectivePermissions: string[];
@@ -701,6 +710,15 @@ export type RuntimeAuthorizationRequest = {
     riskLevel: "low" | "medium" | "high" | "sensitive";
     requiresApproval?: boolean;
     sensitivity?: "standard" | "sensitive";
+    actionCategory?: OgenActionCategory;
+    approvalMode?: OgenApprovalMode;
+    resourceSensitivity?: OgenResourceSensitivity;
+    fieldClasses?: OgenFieldClass[];
+    actionConstraints?: OgenActionConstraints;
+    requiredApplicationGrants?: string[];
+    requiredEffectivePermissions?: string[];
+    provider?: string;
+    resourceSystem?: string;
     requestedScopes?: string[];
   };
   resource?: {
@@ -928,6 +946,7 @@ export interface ResolveResponse {
     targetSystem?: string;
     connectorId?: string;
     resourceSystem?: string;
+    actionResourceSystem?: string;
     skillId?: string;
     skillLabel?: string;
     intentClass?: string;
@@ -947,6 +966,12 @@ export interface ResolveResponse {
     executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
     requiresApproval?: boolean;
     sensitivity?: "standard" | "sensitive";
+    actionCategory?: OgenActionCategory;
+    approvalMode?: OgenApprovalMode;
+    resourceSensitivity?: OgenResourceSensitivity;
+    fieldClasses?: OgenFieldClass[];
+    actionConstraints?: OgenActionConstraints;
+    provider?: string;
     actionMetadataSource?: "approved_action" | "reference_catalog" | "missing";
     missingApplicationGrants?: string[];
     missingEffectivePermissions?: string[];
@@ -1058,6 +1083,7 @@ export * from "./auth/requireA2AAuth.js";
 export * from "./a2aProtocol.js";
 export * from "./a2aMessageTaskAdapter.js";
 export * from "./a2aAgentCardProvenance.js";
+export * from "./ogenActionTaxonomy.js";
 export * from "./a2aResourceRegistry.js";
 export * from "./state/StateStore.js";
 export * from "./state/InMemoryStateStore.js";

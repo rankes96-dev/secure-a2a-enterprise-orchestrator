@@ -1,3 +1,5 @@
+import type { OgenActionCategory, OgenActionConstraints, OgenApprovalMode, OgenFieldClass, OgenResourceSensitivity } from "@a2a/shared";
+
 export type OgenPolicyEffect =
   | "allow"
   | "block"
@@ -29,7 +31,34 @@ export type OgenPolicyAction = {
   riskLevel?: "low" | "medium" | "high" | "sensitive";
   sensitivity?: "standard" | "sensitive";
   requiresApproval?: boolean;
+  actionCategory?: OgenActionCategory;
+  approvalMode?: OgenApprovalMode;
+  resourceSensitivity?: OgenResourceSensitivity;
+  fieldClasses?: OgenFieldClass[];
+  actionConstraints?: OgenActionConstraints;
+  requiredApplicationGrants?: string[];
+  requiredEffectivePermissions?: string[];
+  provider?: string;
+  resourceSystem?: string;
   requestedScopes?: string[];
+};
+
+export type OgenPolicyConditionModel = {
+  actionCategories?: OgenActionCategory[];
+  executionTypes?: string[];
+  riskLevels?: string[];
+  approvalModes?: OgenApprovalMode[];
+  resourceSensitivities?: OgenResourceSensitivity[];
+  actorRolesAny?: string[];
+  connectorIds?: string[];
+  resourceSystems?: string[];
+  providers?: string[];
+  fieldClasses?: OgenFieldClass[];
+  bulk?: boolean;
+  maxRecordsPerRequest?: number;
+  maxActionsPerHour?: number;
+  requiresConnectedAccount?: boolean;
+  auditRequired?: boolean;
 };
 
 export type OgenPolicyInput = {
@@ -74,7 +103,18 @@ export type OgenPolicyRule = {
     skillIds?: string[];
     executionTypes?: string[];
     riskLevels?: string[];
+    actionCategories?: OgenActionCategory[];
+    approvalModes?: OgenApprovalMode[];
+    resourceSensitivities?: OgenResourceSensitivity[];
+    providers?: string[];
+    fieldClasses?: OgenFieldClass[];
     sensitivities?: string[];
+    bulk?: boolean;
+    maxRecordsPerRequest?: number;
+    maxActionsPerHour?: number;
+    requiresConnectedAccount?: boolean;
+    auditRequired?: boolean;
+    actorRolesAny?: string[];
     requiredRolesAny?: string[];
     requiredRolesAll?: string[];
     environments?: string[];

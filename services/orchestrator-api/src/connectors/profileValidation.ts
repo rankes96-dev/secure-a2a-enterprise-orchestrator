@@ -23,6 +23,106 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
 }
 
+const actionCategories: ReadonlyArray<NonNullable<ConnectorActionRequirement["actionCategory"]>> = [
+  "read",
+  "search",
+  "diagnose",
+  "comment.add",
+  "business_object.read",
+  "business_object.create",
+  "business_object.update",
+  "workflow_state.change",
+  "assignment.change",
+  "permission.inspect",
+  "permission.grant",
+  "record.delete",
+  "bulk.modify",
+  "admin.configure",
+  "external_message.send"
+];
+
+const approvalModes: ReadonlyArray<NonNullable<ConnectorActionRequirement["approvalMode"]>> = ["never", "policy", "always", "blocked"];
+const resourceSensitivities: ReadonlyArray<NonNullable<ConnectorActionRequirement["resourceSensitivity"]>> = [
+  "standard",
+  "sensitive",
+  "regulated",
+  "security_critical",
+  "admin_controlled"
+];
+const fieldClasses: ReadonlyArray<NonNullable<ConnectorActionRequirement["fieldClasses"]>[number]> = [
+  "workflow_state",
+  "assignment",
+  "classification",
+  "financial",
+  "customer_pii",
+  "employee_pii",
+  "security",
+  "identity",
+  "permission",
+  "admin_config",
+  "external_message"
+];
+const actionConstraintKeys = new Set([
+  "bulkAllowed",
+  "maxRecordsPerRequest",
+  "maxActionsPerHour",
+  "requiresConnectedAccount",
+  "auditRequired"
+]);
+
+function optionalValue<T extends string>(value: unknown, allowed: ReadonlyArray<T>): T | undefined {
+  return typeof value === "string" && allowed.includes(value as T) ? value as T : undefined;
+}
+
+function optionalPositiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function fieldClassArray(value: unknown): ConnectorActionRequirement["fieldClasses"] {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  if (value.length === 0) {
+    return [];
+  }
+
+  if (!value.every((item): item is NonNullable<ConnectorActionRequirement["fieldClasses"]>[number] =>
+    typeof item === "string" && fieldClasses.includes(item as NonNullable<ConnectorActionRequirement["fieldClasses"]>[number])
+  )) {
+    return undefined;
+  }
+
+  return [...value];
+}
+
+function actionConstraints(value: unknown): ConnectorActionRequirement["actionConstraints"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const input = value as Record<string, unknown>;
+  const hasUnknownConstraintField = Object.keys(input).some((key) => !actionConstraintKeys.has(key));
+  const hasInvalidKnownField =
+    ("bulkAllowed" in input && input.bulkAllowed !== true && input.bulkAllowed !== false) ||
+    ("maxRecordsPerRequest" in input && optionalPositiveInteger(input.maxRecordsPerRequest) === undefined) ||
+    ("maxActionsPerHour" in input && optionalPositiveInteger(input.maxActionsPerHour) === undefined) ||
+    ("requiresConnectedAccount" in input && input.requiresConnectedAccount !== true && input.requiresConnectedAccount !== false) ||
+    ("auditRequired" in input && input.auditRequired !== true && input.auditRequired !== false);
+  if (hasUnknownConstraintField || hasInvalidKnownField) {
+    return undefined;
+  }
+
+  const constraints: ConnectorActionRequirement["actionConstraints"] = {
+    bulkAllowed: input.bulkAllowed === true || input.bulkAllowed === false ? input.bulkAllowed : undefined,
+    maxRecordsPerRequest: optionalPositiveInteger(input.maxRecordsPerRequest),
+    maxActionsPerHour: optionalPositiveInteger(input.maxActionsPerHour),
+    requiresConnectedAccount: input.requiresConnectedAccount === true || input.requiresConnectedAccount === false ? input.requiresConnectedAccount : undefined,
+    auditRequired: input.auditRequired === true || input.auditRequired === false ? input.auditRequired : undefined
+  };
+  return Object.keys(input).length === 0 || Object.values(constraints).some((entry) => entry !== undefined) ? constraints : undefined;
+}
+
 function hasSecretMarker(value: unknown): boolean {
   const text = JSON.stringify(value);
   return forbiddenSecretPatterns.some((pattern) => pattern.test(text));
@@ -85,6 +185,13 @@ function actionCatalog(value: unknown) {
           executionType,
           requiresApproval: input.requiresApproval === true || input.requiresApproval === false ? input.requiresApproval : undefined,
           sensitivity,
+          actionCategory: optionalValue(input.actionCategory, actionCategories),
+          approvalMode: optionalValue(input.approvalMode, approvalModes),
+          resourceSensitivity: optionalValue(input.resourceSensitivity, resourceSensitivities),
+          fieldClasses: fieldClassArray(input.fieldClasses),
+          actionConstraints: actionConstraints(input.actionConstraints),
+          provider: cleanString(input.provider) || undefined,
+          resourceSystem: cleanString(input.resourceSystem) || undefined,
           diagnosesActionId: cleanString(input.diagnosesActionId) || undefined,
           diagnosesActionLabel: cleanString(input.diagnosesActionLabel) || undefined
         };
