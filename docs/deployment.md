@@ -265,7 +265,83 @@ where attrelid = 'audit_events'::regclass
 
 Large audit table index rollout:
 
-For production-sized `audit_events`, treat the classification index build as operator-controlled rollout. The normal migration runner wraps migrations in a transaction, so it cannot run `CREATE INDEX CONCURRENTLY`. If lock or write impact is a concern, schedule a quiet window and run the following SQL from a database operator session before or alongside the expand migration. Build one index at a time on very large tables and monitor `pg_stat_progress_create_index`, `pg_locks`, write latency, CPU, and IO.
+For production-sized `audit_events`, treat the classification index build as an operator-controlled rollout with a state-gated runbook. The normal migration runner wraps migrations in a transaction, so it cannot run `CREATE INDEX CONCURRENTLY`. If lock or write impact is a concern, schedule a quiet window, build one index at a time, and monitor `pg_stat_progress_create_index`, `pg_locks`, write latency, CPU, and IO.
+
+Decision tree for large tables:
+
+1. Confirm schema state before any concurrent index command. Check whether `audit_events.outcome` and `audit_events.severity` exist, and separately check whether the required or equivalent indexes already exist.
+2. If columns are missing, do not run `CREATE INDEX CONCURRENTLY` yet. Run the expansion step first so the columns + fallback trigger/backfill path exists. In the standard lineage this means the restored `004` baseline plus forward `005_audit_event_classification_rolling_safety.sql`; for an already-large production table that cannot tolerate transactional index creation, stop and use a database-owner approved expand-only plan before index DDL.
+3. Run `CREATE INDEX CONCURRENTLY` only when the columns exist and equivalent indexes are absent. Use an explicit database operator session because concurrent index creation cannot run inside the migration runner transaction.
+4. If `004` already created the indexes non-concurrently, the index existence check returns the required rows. The concurrent commands are redundant; skip them and continue with the upgrade/validate/contract (`006`) sequence.
+5. After any needed concurrent index build, continue with the normal rolling flow: deploy upgraded app instances, validate no null classifications remain, run verification, and only then run contract migration `006_audit_event_classification_contract.sql`.
+
+Column existence check:
+
+```sql
+select column_name, is_nullable, data_type
+from information_schema.columns
+where table_schema = current_schema()
+  and table_name = 'audit_events'
+  and column_name in ('outcome', 'severity')
+order by column_name;
+```
+
+Index existence check:
+
+```sql
+select indexname, indexdef
+from pg_indexes
+where schemaname = current_schema()
+  and tablename = 'audit_events'
+  and indexname in (
+    'audit_events_tenant_created_at_id_idx',
+    'audit_events_tenant_outcome_created_at_id_idx',
+    'audit_events_tenant_severity_created_at_id_idx',
+    'audit_events_tenant_outcome_severity_created_at_id_idx'
+  )
+order by indexname;
+```
+
+Null classification count:
+
+```sql
+select count(*) as null_classification_count
+from audit_events
+where outcome is null or severity is null;
+```
+
+Readiness for contract migration after both columns exist:
+
+```sql
+with required_columns as (
+  select attname, attnotnull
+  from pg_attribute
+  where attrelid = 'audit_events'::regclass
+    and attname in ('outcome', 'severity')
+    and not attisdropped
+),
+valid_constraints as (
+  select conname, convalidated
+  from pg_constraint
+  where conrelid = 'audit_events'::regclass
+    and conname in ('audit_events_outcome_check', 'audit_events_severity_check')
+),
+nulls as (
+  select count(*)::bigint as null_classification_count
+  from audit_events
+  where outcome is null or severity is null
+)
+select
+  (select count(*) from required_columns) = 2 as columns_exist,
+  (select count(*) from valid_constraints where convalidated) = 2 as classification_checks_validated,
+  null_classification_count = 0 as no_null_classifications,
+  (select count(*) from required_columns) = 2
+    and (select count(*) from valid_constraints where convalidated) = 2
+    and null_classification_count = 0 as ready_for_006_contract_migration
+from nulls;
+```
+
+Concurrent index commands, only after the column existence and index existence checks above say they are needed:
 
 ```sql
 create index concurrently if not exists audit_events_tenant_created_at_id_idx
@@ -281,21 +357,9 @@ create index concurrently if not exists audit_events_tenant_outcome_severity_cre
   on audit_events (tenant_id, outcome, severity, created_at desc, id desc);
 ```
 
-Preflight and postflight checks:
+Postflight functional check:
 
 ```sql
-select count(*) from audit_events where outcome is null or severity is null;
-
-select indexname, indexdef
-from pg_indexes
-where tablename = 'audit_events'
-  and indexname in (
-    'audit_events_tenant_created_at_id_idx',
-    'audit_events_tenant_outcome_created_at_id_idx',
-    'audit_events_tenant_severity_created_at_id_idx',
-    'audit_events_tenant_outcome_severity_created_at_id_idx'
-  );
-
 select id, created_at, outcome, severity
 from audit_events
 where tenant_id = '<tenant-id>'

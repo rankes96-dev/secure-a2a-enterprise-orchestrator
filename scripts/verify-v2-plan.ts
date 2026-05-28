@@ -160,7 +160,20 @@ if (!existsSync(deploymentPath)) {
     "Reference A2A Token Issuer",
     "they do not validate Auth0 directly",
     "vendor-specific",
-    "vendor-neutral"
+    "vendor-neutral",
+    "Large audit table index rollout",
+    "state-gated runbook",
+    "Confirm schema state before any concurrent index command",
+    "If columns are missing, do not run `CREATE INDEX CONCURRENTLY` yet",
+    "columns + fallback trigger/backfill path",
+    "Run `CREATE INDEX CONCURRENTLY` only when the columns exist and equivalent indexes are absent",
+    "If `004` already created the indexes non-concurrently",
+    "continue with the upgrade/validate/contract (`006`) sequence",
+    "Column existence check",
+    "Index existence check",
+    "Null classification count",
+    "Readiness for contract migration after both columns exist",
+    "ready_for_006_contract_migration"
   ]) {
     if (!deployment.includes(phrase)) {
       fail(`deployment docs missing required phrase: ${phrase}`);
@@ -298,6 +311,9 @@ if (!existsSync(packageJsonPath)) {
   }
   if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:a2a-protocol-compatibility")) {
     fail("verify:v2-plan should run verify:a2a-protocol-compatibility");
+  }
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:platform-db-migrations")) {
+    fail("verify:v2-plan should run verify:platform-db-migrations");
   }
 }
 

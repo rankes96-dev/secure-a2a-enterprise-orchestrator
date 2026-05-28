@@ -5169,6 +5169,12 @@ async function start(): Promise<void> {
     return;
   }
 
+  const unsupportedA2AVersion = unsupportedExplicitA2AProtocolVersion(request.headers);
+  if (unsupportedA2AVersion) {
+    sendJson(response, 400, buildUnsupportedA2AProtocolVersionResponse(unsupportedA2AVersion), request, { "content-type": A2A_CONTENT_TYPE });
+    return;
+  }
+
   const requestBodyUnknown = await readJsonBody<unknown>(request);
   const resolveValidationError = validateResolveRequest(requestBodyUnknown);
   if (resolveValidationError) {
@@ -5200,12 +5206,6 @@ async function start(): Promise<void> {
     route: "/resolve",
     method: "POST"
   })) {
-    return;
-  }
-
-  const unsupportedA2AVersion = unsupportedExplicitA2AProtocolVersion(request.headers);
-  if (unsupportedA2AVersion) {
-    sendJson(response, 400, buildUnsupportedA2AProtocolVersionResponse(unsupportedA2AVersion), request, { "content-type": A2A_CONTENT_TYPE });
     return;
   }
 

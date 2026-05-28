@@ -119,6 +119,12 @@ for (const phrase of [
 }
 const resolveRoute = blockBetween(orchestrator, 'request.url !== "/resolve"', "});\n}");
 requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "await resolveIssue", "/resolve rejects unsupported A2A version before task execution");
+requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "readJsonBody<unknown>(request)", "/resolve rejects unsupported A2A version before JSON body parsing");
+requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "validateResolveRequest(requestBodyUnknown)", "/resolve rejects unsupported A2A version before request-body validation");
+requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "tenantContextForRequest(identitySession.identity", "/resolve rejects unsupported A2A version before downstream tenant policy");
+requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "requireGatewayCapability", "/resolve rejects unsupported A2A version before Gateway policy");
+requireIncludes(resolveRoute, 'sendJson(response, 400, buildUnsupportedA2AProtocolVersionResponse(unsupportedA2AVersion), request, { "content-type": A2A_CONTENT_TYPE });', "/resolve unsupported A2A version response uses protocol content type");
+requireBefore(resolveRoute, "buildUnsupportedA2AProtocolVersionResponse(unsupportedA2AVersion)", "readJsonBody<unknown>(request)", "/resolve malformed JSON plus unsupported A2A version cannot bypass protocol error");
 requireIncludes(connectorRuntime, "...a2aJsonRequestHeaders()", "connector runtime outbound A2A headers");
 requireIncludes(connectorActionPlanner, "...a2aJsonRequestHeaders()", "connector action-plan outbound A2A headers");
 requireIncludes(onboardingUtils, "a2aJsonAcceptHeaders()", "onboarding discovery outbound A2A accept/version headers");

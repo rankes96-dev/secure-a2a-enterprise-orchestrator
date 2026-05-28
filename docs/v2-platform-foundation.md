@@ -651,12 +651,13 @@ where attrelid = 'audit_events'::regclass
 
 ### Phase 2.19d  Audit Index Rollout Operational Hardening
 
-Large audit tables should treat classification indexes as an operator-controlled rollout, not a surprise lock during normal app deploy. The expand/upgrade/validate/contract sequence remains authoritative, but production operators can create the four classification indexes with `CREATE INDEX CONCURRENTLY IF NOT EXISTS` during a quiet window before or alongside the expand migration when the table is large enough that normal transactional index creation would create unacceptable lock or write-amplification risk.
+Large audit tables should treat classification indexes as an operator-controlled rollout, not a surprise lock during normal app deploy. The expand/upgrade/validate/contract sequence remains authoritative, and the deployment runbook is state-gated: confirm schema state first, run the expansion step before index DDL when `outcome`/`severity` columns are missing, and create the four classification indexes with `CREATE INDEX CONCURRENTLY IF NOT EXISTS` only when the columns exist and equivalent indexes are absent.
 
 Concurrent index rollout guidance:
 
 - Run in an explicit database operator session because `CREATE INDEX CONCURRENTLY` cannot run inside the migration runner transaction.
 - Prefer a quiet window and monitor `pg_stat_progress_create_index`, `pg_locks`, write latency, and database CPU/IO while each index builds.
+- If `004` already created the indexes non-concurrently, skip the concurrent index commands as redundant and continue with the upgrade/validate/contract (`006`) sequence.
 - Build one index at a time for very large tables: `audit_events_tenant_created_at_id_idx`, `audit_events_tenant_outcome_created_at_id_idx`, `audit_events_tenant_severity_created_at_id_idx`, and `audit_events_tenant_outcome_severity_created_at_id_idx`.
 - Validate before and after with `select count(*) from audit_events where outcome is null or severity is null;`, `select indexname from pg_indexes where tablename = 'audit_events';`, and a tenant-scoped filtered query ordered by `created_at desc, id desc`.
 - Keep the normal migration lineage intact. Do not edit published migrations to add concurrent DDL; use forward migrations or operator-run SQL documented in the deployment runbook.
