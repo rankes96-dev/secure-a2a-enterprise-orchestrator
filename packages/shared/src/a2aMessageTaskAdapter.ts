@@ -286,7 +286,7 @@ function looksLikeInboundEnvelope(value: unknown): boolean {
 
 export function isOgenA2AInboundMessageEnvelope(value: unknown): value is OgenA2AInboundMessageEnvelope {
   const record = asRecord(value);
-  return Boolean(record && envelopeKind(record) === "message" && Array.isArray(record.parts));
+  return Boolean(record && envelopeKind(record) === "message" && validateTextParts(record.parts, "A2A compatibility envelope").ok);
 }
 
 export function isOgenA2AOutboundTaskEnvelope(value: unknown): value is OgenA2AOutboundTaskEnvelope {
@@ -638,7 +638,7 @@ function taskStateFromAgentStatus(status: A2AAgentResponse["status"]): OgenA2ATa
   return "completed";
 }
 
-function agentStatusFromTaskState(state: OgenA2ATaskState, taskExecuted: boolean): A2AAgentResponse["status"] {
+function agentStatusFromTaskState(state: OgenA2ATaskState): A2AAgentResponse["status"] {
   if (state === "input-required") {
     return "needs_more_info";
   }
@@ -646,12 +646,12 @@ function agentStatusFromTaskState(state: OgenA2ATaskState, taskExecuted: boolean
     return "error";
   }
   if (state === "rejected") {
-    return taskExecuted ? "unsupported" : "blocked";
+    return "unsupported";
   }
   if (state === "submitted" || state === "working") {
     return "needs_more_info";
   }
-  return taskExecuted ? "diagnosed" : "unsupported";
+  return "diagnosed";
 }
 
 function taskExecutedForResponse(response: A2AAgentResponse | ResolveResponse): boolean {
@@ -695,11 +695,10 @@ export function internalA2AResponseToOutboundA2AEnvelope(
 export function outboundA2AEnvelopeToAgentResponse(agentId: string, envelope: OgenA2AOutboundTaskEnvelope): A2AAgentResponse {
   const messageParts = envelope.status.message?.parts ?? [];
   const summary = firstTextPart(messageParts)?.text.trim() || "A2A task envelope did not include a text response.";
-  const taskExecuted = typeof envelope.metadata.taskExecuted === "boolean" ? envelope.metadata.taskExecuted : envelope.status.state === "completed";
 
   return {
     agentId,
-    status: agentStatusFromTaskState(envelope.status.state, taskExecuted),
+    status: agentStatusFromTaskState(envelope.status.state),
     summary,
     trace: [
       {

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import {
   internalA2AResponseToOutboundA2AEnvelope,
+  isOgenA2AInboundMessageEnvelope,
   normalizeA2ATaskInput,
   normalizeResolveRequestInput,
   outboundA2AEnvelopeToAgentResponse,
@@ -249,6 +250,16 @@ const envelope = {
   }
 };
 
+assert(isOgenA2AInboundMessageEnvelope(envelope), "runtime inbound Message guard accepts text-only message parts");
+assert(
+  !isOgenA2AInboundMessageEnvelope({
+    kind: "message",
+    role: "user",
+    parts: [{ kind: "file", text: "unsupported file part" }]
+  }),
+  "runtime inbound Message guard rejects non-text file parts"
+);
+
 const taskNormalization = normalizeA2ATaskInput(envelope, { toAgent: "github-agent" });
 assert(taskNormalization.ok, "runtime adapter accepts valid inbound Message envelope");
 if (taskNormalization.ok && "userMessage" in taskNormalization.value) {
@@ -400,6 +411,27 @@ if (completedTaskEnvelope.ok) {
   const completedResponse = outboundA2AEnvelopeToAgentResponse("github-agent", completedTaskEnvelope.value);
   assert(completedResponse.status === "diagnosed", "completed Task envelope maps to resolver diagnosis success status");
   assert(completedResponse.summary === "Compatibility task completed with a diagnostic answer.", "completed Task envelope preserves response summary");
+}
+
+const completedTaskWithStaleMetadata = validateOgenA2AOutboundTaskEnvelope({
+  kind: "task",
+  id: "task-completed-stale-metadata",
+  contextId: "conversation-completed",
+  status: {
+    state: "completed",
+    message: {
+      role: "agent",
+      parts: [{ kind: "text", text: "Completed state remains canonical despite stale metadata." }]
+    }
+  },
+  metadata: {
+    taskExecuted: false
+  }
+});
+assert(completedTaskWithStaleMetadata.ok, "runtime adapter accepts completed Task envelope with stale informational taskExecuted metadata");
+if (completedTaskWithStaleMetadata.ok) {
+  const completedResponse = outboundA2AEnvelopeToAgentResponse("github-agent", completedTaskWithStaleMetadata.value);
+  assert(completedResponse.status === "diagnosed", "completed Task state is canonical over stale taskExecuted metadata");
 }
 
 if (failed) {
