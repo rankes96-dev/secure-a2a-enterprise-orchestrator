@@ -22,7 +22,7 @@ export type OgenA2AInboundMessageEnvelope = {
   messageId?: string;
   taskId?: string;
   contextId?: string;
-  parts: Array<OgenA2APartText | Record<string, unknown>>;
+  parts: OgenA2APartText[];
   metadata?: Record<string, unknown>;
 };
 
@@ -46,11 +46,11 @@ export type OgenA2AOutboundTaskEnvelope = {
     parts: OgenA2APartText[];
   }>;
   metadata: {
-    adapterProof: OgenA2AAdapterProof;
-    taskExecuted: boolean;
-    protectedMaterialExposed: false;
-    tokenMaterialStored: false;
-    rawPromptStored: false;
+    adapterProof?: OgenA2AAdapterProof;
+    taskExecuted?: boolean;
+    protectedMaterialExposed?: false;
+    tokenMaterialStored?: false;
+    rawPromptStored?: false;
   };
 };
 
@@ -139,6 +139,8 @@ const SAFE_MESSAGE_METADATA_KEYS = new Set([
 const PROTECTED_METADATA_KEY_PATTERN =
   /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|bearer|secret|password|cookie|client[_-]?assertion|private[_-]?key|raw[_-]?prompt|prompt/i;
 
+const OGEN_A2A_TASK_STATES = new Set<OgenA2ATaskState>(["submitted", "working", "input-required", "completed", "failed", "rejected"]);
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
@@ -216,6 +218,18 @@ function classificationFromMetadata(value: unknown): Classification | undefined 
   };
 }
 
+function fallbackClassification(contextHints?: Record<string, unknown>): Classification {
+  return {
+    system: optionalString(contextHints?.affectedSystem) ?? "Unknown",
+    issueType: "UNKNOWN",
+    confidence: "low",
+    reasoningSummary: "A2A compatibility message omitted Ogen classification metadata; fallback classification is non-authoritative.",
+    classificationSource: "rules_fallback",
+    reporterType: optionalReporterType(contextHints?.reporterType) ?? "unknown",
+    supportMode: optionalSupportMode(contextHints?.supportMode) ?? "technical_integration"
+  };
+}
+
 function metadataKeysAccepted(metadata: Record<string, unknown> | undefined): string[] {
   return Object.keys(metadata ?? {})
     .filter((key) => SAFE_MESSAGE_METADATA_KEYS.has(key))
@@ -276,13 +290,30 @@ export function isOgenA2AInboundMessageEnvelope(value: unknown): value is OgenA2
 }
 
 export function isOgenA2AOutboundTaskEnvelope(value: unknown): value is OgenA2AOutboundTaskEnvelope {
-  const record = asRecord(value);
-  return Boolean(record && envelopeKind(record) === "task" && asRecord(record.status) && asRecord(record.metadata));
+  return validateOgenA2AOutboundTaskEnvelope(value).ok;
 }
 
 function isTextPart(value: unknown): value is OgenA2APartText {
   const record = asRecord(value);
   return Boolean(record && (record.kind === "text" || record.type === "text") && typeof record.text === "string");
+}
+
+function isOgenA2ATaskState(value: unknown): value is OgenA2ATaskState {
+  return typeof value === "string" && OGEN_A2A_TASK_STATES.has(value as OgenA2ATaskState);
+}
+
+function validateTextParts(value: unknown, context: string): { ok: true; parts: OgenA2APartText[] } | { ok: false; message: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, message: `${context} parts must be an array.` };
+  }
+
+  for (const part of value) {
+    if (!isTextPart(part)) {
+      return { ok: false, message: `${context} supports only text parts with kind/type "text" and string text.` };
+    }
+  }
+
+  return { ok: true, parts: value };
 }
 
 function textParts(parts: unknown[]): OgenA2APartText[] {
@@ -291,6 +322,62 @@ function textParts(parts: unknown[]): OgenA2APartText[] {
 
 function firstTextPart(parts: unknown[]): OgenA2APartText | undefined {
   return textParts(parts).find((part) => part.text.trim().length > 0);
+}
+
+export function validateOgenA2AOutboundTaskEnvelope(value: unknown): { ok: true; value: OgenA2AOutboundTaskEnvelope } | { ok: false; response: InvalidOgenA2AEnvelopeResponse } {
+  const record = asRecord(value);
+  if (!record || envelopeKind(record) !== "task") {
+    return { ok: false, response: buildInvalidA2AEnvelopeResponse("Body is not an A2A task envelope.") };
+  }
+
+  const status = asRecord(record.status);
+  if (!status) {
+    return { ok: false, response: buildInvalidA2AEnvelopeResponse("A2A compatibility task envelope requires a status object.") };
+  }
+
+  if (!isOgenA2ATaskState(status.state)) {
+    return { ok: false, response: buildInvalidA2AEnvelopeResponse(`Unsupported A2A compatibility task state: ${String(status.state ?? "missing")}.`) };
+  }
+
+  const statusMessage = asRecord(status.message);
+  if (status.message !== undefined) {
+    if (!statusMessage) {
+      return { ok: false, response: buildInvalidA2AEnvelopeResponse("A2A compatibility task status.message must be an object when present.") };
+    }
+    if (statusMessage.role !== "user" && statusMessage.role !== "agent") {
+      return { ok: false, response: buildInvalidA2AEnvelopeResponse("A2A compatibility task status.message.role must be user or agent when present.") };
+    }
+    const partsValidation = validateTextParts(statusMessage.parts, "A2A compatibility task status.message");
+    if (!partsValidation.ok) {
+      return { ok: false, response: buildInvalidA2AEnvelopeResponse(partsValidation.message) };
+    }
+  }
+
+  const metadata = asRecord(record.metadata);
+  if (!metadata) {
+    return { ok: false, response: buildInvalidA2AEnvelopeResponse("A2A compatibility task envelope requires a metadata object.") };
+  }
+  if (metadata.protectedMaterialExposed === true || metadata.tokenMaterialStored === true || metadata.rawPromptStored === true) {
+    return { ok: false, response: buildInvalidA2AEnvelopeResponse("A2A compatibility task metadata reports protected material exposure.") };
+  }
+
+  if (record.artifacts !== undefined) {
+    if (!Array.isArray(record.artifacts)) {
+      return { ok: false, response: buildInvalidA2AEnvelopeResponse("A2A compatibility task artifacts must be an array when present.") };
+    }
+    for (const artifact of record.artifacts) {
+      const artifactRecord = asRecord(artifact);
+      if (!artifactRecord) {
+        return { ok: false, response: buildInvalidA2AEnvelopeResponse("A2A compatibility task artifacts must be objects.") };
+      }
+      const partsValidation = validateTextParts(artifactRecord.parts, "A2A compatibility task artifact");
+      if (!partsValidation.ok) {
+        return { ok: false, response: buildInvalidA2AEnvelopeResponse(partsValidation.message) };
+      }
+    }
+  }
+
+  return { ok: true, value: value as OgenA2AOutboundTaskEnvelope };
 }
 
 function buildAdapterProof(params: {
@@ -375,6 +462,10 @@ function normalizeInboundEnvelope(value: unknown): { ok: true; record: Record<st
   if (!Array.isArray(record.parts)) {
     return { ok: false, response: buildInvalidA2AEnvelopeResponse("A2A compatibility envelope requires a parts array.") };
   }
+  const partsValidation = validateTextParts(record.parts, "A2A compatibility envelope");
+  if (!partsValidation.ok) {
+    return { ok: false, response: buildInvalidA2AEnvelopeResponse(partsValidation.message) };
+  }
 
   const metadata = asRecord(record.metadata);
   const protectedKey = protectedMetadataKey(record);
@@ -447,19 +538,15 @@ export function normalizeA2ATaskInput(value: unknown, defaults: { toAgent: strin
     return normalized;
   }
 
-  const classification = classificationFromMetadata(normalized.metadata?.classification);
-  if (!classification) {
-    return { ok: false, response: buildInvalidA2AEnvelopeResponse("A2A compatibility envelope metadata.classification is required for direct agent task execution.") };
-  }
-
   const textPart = firstTextPart(normalized.parts)!;
+  const contextHints = asRecord(normalized.metadata?.contextHints);
+  const classification = classificationFromMetadata(normalized.metadata?.classification) ?? fallbackClassification(contextHints);
   const messageId = optionalString(normalized.record.messageId);
   const taskId = optionalString(normalized.record.taskId) ?? optionalString(normalized.metadata?.taskId) ?? messageId ?? "a2a-compat-task";
   const contextId = optionalString(normalized.record.contextId);
   const conversationId = contextId ?? optionalString(normalized.metadata?.conversationId) ?? "a2a-compat-conversation";
   const fromAgent = optionalString(normalized.metadata?.fromAgent) ?? defaults.fromAgent ?? "a2a-compat-client";
   const toAgent = optionalString(normalized.metadata?.toAgent) ?? defaults.toAgent;
-  const contextHints = asRecord(normalized.metadata?.contextHints);
   const textPartCount = textParts(normalized.parts).length;
   const proof = buildAdapterProof({
     direction: "inbound_message_to_internal_task",
@@ -564,7 +651,7 @@ function agentStatusFromTaskState(state: OgenA2ATaskState, taskExecuted: boolean
   if (state === "submitted" || state === "working") {
     return "needs_more_info";
   }
-  return "completed";
+  return taskExecuted ? "diagnosed" : "unsupported";
 }
 
 function taskExecutedForResponse(response: A2AAgentResponse | ResolveResponse): boolean {
@@ -608,7 +695,7 @@ export function internalA2AResponseToOutboundA2AEnvelope(
 export function outboundA2AEnvelopeToAgentResponse(agentId: string, envelope: OgenA2AOutboundTaskEnvelope): A2AAgentResponse {
   const messageParts = envelope.status.message?.parts ?? [];
   const summary = firstTextPart(messageParts)?.text.trim() || "A2A task envelope did not include a text response.";
-  const taskExecuted = envelope.metadata.taskExecuted;
+  const taskExecuted = typeof envelope.metadata.taskExecuted === "boolean" ? envelope.metadata.taskExecuted : envelope.status.state === "completed";
 
   return {
     agentId,

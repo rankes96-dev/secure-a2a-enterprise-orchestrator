@@ -2,7 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import {
   internalA2AResponseToOutboundA2AEnvelope,
   normalizeA2ATaskInput,
-  normalizeResolveRequestInput
+  normalizeResolveRequestInput,
+  outboundA2AEnvelopeToAgentResponse,
+  validateOgenA2AOutboundTaskEnvelope
 } from "../packages/shared/src/a2aMessageTaskAdapter.js";
 
 let failed = false;
@@ -95,11 +97,15 @@ for (const phrase of [
   "OgenA2AAdapterProof",
   "normalizeResolveRequestInput",
   "normalizeA2ATaskInput",
+  "validateOgenA2AOutboundTaskEnvelope",
   "internalA2ATaskToOutboundA2AEnvelope",
   "internalA2AResponseToOutboundA2AEnvelope",
   "outboundA2AEnvelopeToAgentResponse",
   "buildInvalidA2AEnvelopeResponse",
   "invalid_a2a_envelope",
+  "fallbackClassification",
+  "isOgenA2ATaskState",
+  "OGEN_A2A_TASK_STATES",
   "Compatibility subset only. This is not a full A2A Message/Task implementation.",
   "protocolMetadataAuthoritative: false",
   "tenantAuthority: \"verified_gateway_session\"",
@@ -121,8 +127,9 @@ for (const phrase of [
   "validateResolveRequest(normalizedResolve.value)",
   "normalizedResolve.requestedCompatibilityEnvelope ? undefined : requestedTenantIdFromBody(requestBodyUnknown)",
   "internalA2AResponseToOutboundA2AEnvelope(resolveResult, normalizedResolve.proof",
-  "isOgenA2AOutboundTaskEnvelope(response)",
-  "outboundA2AEnvelopeToAgentResponse(agentId, response)",
+  "validateOgenA2AOutboundTaskEnvelope(response)",
+  "outboundA2AEnvelopeToAgentResponse(agentId, taskEnvelopeValidation.value)",
+  "invalid_a2a_task_envelope",
   "postJson<AgentResponse | A2AAgentResponse | OgenA2AOutboundTaskEnvelope>"
 ]) {
   requireIncludes(orchestrator, phrase, "orchestrator wires adapter at protocol boundaries");
@@ -257,6 +264,22 @@ if (taskNormalization.ok && "userMessage" in taskNormalization.value) {
   assert(taskNormalization.proof.protectedMaterialExposed === false, "runtime adapter proof does not expose protected material");
 }
 
+const minimalTaskNormalization = normalizeA2ATaskInput(
+  {
+    kind: "message",
+    role: "user",
+    parts: [{ kind: "text", text: "  Minimal direct task message.  " }]
+  },
+  { toAgent: "github-agent" }
+);
+assert(minimalTaskNormalization.ok, "runtime adapter accepts minimal /task Message envelope without classification metadata");
+if (minimalTaskNormalization.ok && "userMessage" in minimalTaskNormalization.value) {
+  assert(minimalTaskNormalization.value.userMessage === "Minimal direct task message.", "minimal /task envelope maps first text part");
+  assert(minimalTaskNormalization.value.classification.issueType === "UNKNOWN", "minimal /task envelope uses safe UNKNOWN fallback classification");
+  assert(minimalTaskNormalization.value.classification.classificationSource === "rules_fallback", "minimal /task fallback classification is rules-based");
+  assert(minimalTaskNormalization.proof.authority.protocolMetadataAuthoritative === false, "minimal /task envelope proof keeps protocol metadata non-authoritative");
+}
+
 const resolveNormalization = normalizeResolveRequestInput({
   kind: "message",
   role: "user",
@@ -276,6 +299,55 @@ if (!invalidEnvelope.ok) {
   assert(invalidEnvelope.response.error === "invalid_a2a_envelope", "malformed envelope returns safe protocol error");
   assert(invalidEnvelope.response.taskExecuted === false, "malformed envelope has taskExecuted false");
 }
+
+const malformedPartsEnvelope = normalizeA2ATaskInput(
+  {
+    kind: "message",
+    role: "user",
+    parts: [
+      { kind: "text", text: "Valid text part." },
+      { kind: "file", text: "unsupported part kind" }
+    ]
+  },
+  { toAgent: "github-agent" }
+);
+assert(!malformedPartsEnvelope.ok, "runtime adapter rejects malformed message parts safely");
+if (!malformedPartsEnvelope.ok) {
+  assert(malformedPartsEnvelope.response.error === "invalid_a2a_envelope", "malformed message parts return invalid_a2a_envelope");
+  assert(malformedPartsEnvelope.response.taskExecuted === false, "malformed message parts have taskExecuted false");
+}
+
+const unsupportedTaskState = validateOgenA2AOutboundTaskEnvelope({
+  kind: "task",
+  id: "task-canceled",
+  status: {
+    state: "canceled",
+    message: {
+      role: "agent",
+      parts: [{ kind: "text", text: "Canceled task should not be accepted." }]
+    }
+  },
+  metadata: {}
+});
+assert(!unsupportedTaskState.ok, "runtime adapter rejects unsupported Task envelope state safely");
+if (!unsupportedTaskState.ok) {
+  assert(unsupportedTaskState.response.error === "invalid_a2a_envelope", "unsupported Task state returns invalid_a2a_envelope");
+  assert(unsupportedTaskState.response.taskExecuted === false, "unsupported Task state has taskExecuted false");
+}
+
+const malformedTaskParts = validateOgenA2AOutboundTaskEnvelope({
+  kind: "task",
+  id: "task-malformed-parts",
+  status: {
+    state: "completed",
+    message: {
+      role: "agent",
+      parts: { kind: "text", text: "parts must be an array" }
+    }
+  },
+  metadata: {}
+});
+assert(!malformedTaskParts.ok, "runtime adapter rejects malformed Task message parts safely");
 
 const secretValue = "super-secret-token-value";
 const protectedEnvelope = normalizeA2ATaskInput(
@@ -308,6 +380,26 @@ if (taskNormalization.ok) {
   assert(outbound.status.message?.parts[0]?.text === "GitHub rate limit diagnosis completed.", "runtime adapter maps response summary to outbound text part");
   assert(!JSON.stringify(outbound).includes(secretValue), "outbound Task envelope does not leak protected evidence data");
   assert(outbound.metadata.adapterProof.authority.protocolMetadataAuthoritative === false, "outbound Task proof preserves non-authoritative protocol metadata");
+}
+
+const completedTaskEnvelope = validateOgenA2AOutboundTaskEnvelope({
+  kind: "task",
+  id: "task-completed",
+  contextId: "conversation-completed",
+  status: {
+    state: "completed",
+    message: {
+      role: "agent",
+      parts: [{ kind: "text", text: "Compatibility task completed with a diagnostic answer." }]
+    }
+  },
+  metadata: {}
+});
+assert(completedTaskEnvelope.ok, "runtime adapter accepts valid completed Task envelope");
+if (completedTaskEnvelope.ok) {
+  const completedResponse = outboundA2AEnvelopeToAgentResponse("github-agent", completedTaskEnvelope.value);
+  assert(completedResponse.status === "diagnosed", "completed Task envelope maps to resolver diagnosis success status");
+  assert(completedResponse.summary === "Compatibility task completed with a diagnostic answer.", "completed Task envelope preserves response summary");
 }
 
 if (failed) {

@@ -104,7 +104,7 @@ Runtime execution responses must be safe to display and audit. The safe shape in
 
 Phase 2.20a keeps compatibility-first A2A 1.0 alignment without replacing Ogen's internal task model or adopting the official JavaScript SDK. Future SDK helpers should use the shared constants `A2A_PROTOCOL_VERSION`, `A2A_VERSION_HEADER`, `A2A_CONTENT_TYPE`, and `A2A_AGENT_CARD_WELL_KNOWN_PATH`.
 
-Phase 2.20b adds a narrow A2A Message/Task adapter subset without replacing Ogen's internal task model or adopting the official JavaScript SDK. The adapter accepts a minimal inbound `kind: "message"` envelope, maps the first text part to the internal message field, preserves conversation/task correlation IDs safely, and wraps internal responses as a minimal outbound `kind: "task"` envelope only when the compatibility path requested it. Full official Message/Task operations `list`, `get`, `cancel`, and `subscribe` remain deferred.
+Phase 2.20b adds a narrow A2A Message/Task adapter subset without replacing Ogen's internal task model or adopting the official JavaScript SDK. The adapter accepts a minimal inbound `kind: "message"` envelope, maps the first text part to the internal message field, treats `classification` as an optional safe hint with a non-authoritative `UNKNOWN` fallback, preserves conversation/task correlation IDs safely, validates inbound Task state and text parts strictly, and wraps internal responses as a minimal outbound `kind: "task"` envelope only when the compatibility path requested it. Full official Message/Task operations `list`, `get`, `cancel`, and `subscribe` remain deferred.
 
 Rules:
 
@@ -114,6 +114,7 @@ Rules:
 - Missing inbound `A2A-Version` remains legacy-compatible; unsupported explicit versions must return a safe protocol error before task execution.
 - Protocol metadata is not authorization. Ogen policy, verified identity, tenant resolution, scoped JWT validation, and Gateway RBAC remain authoritative.
 - Message/Task adapter metadata is not tenant, role, policy, authorization, or audit authority; adapter proof must report `protocolMetadataAuthoritative: false`.
+- Valid completed Task envelopes map to diagnostic success; unsupported Task states and malformed message parts return `invalid_a2a_envelope` instead of falling through as successful results.
 - Adapter outputs must not expose raw tokens, raw prompts, secrets, Authorization headers, private keys, client assertions, or protected metadata.
 
 ## Runtime Authorization API Contract

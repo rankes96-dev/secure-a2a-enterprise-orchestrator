@@ -37,11 +37,11 @@ import {
   assertSecureA2AAuthMode,
   buildUnsupportedA2AProtocolVersionResponse,
   internalA2AResponseToOutboundA2AEnvelope,
-  isOgenA2AOutboundTaskEnvelope,
   normalizeResolveRequestInput,
   outboundA2AEnvelopeToAgentResponse,
   secureA2AAuthRequired,
-  unsupportedExplicitA2AProtocolVersion
+  unsupportedExplicitA2AProtocolVersion,
+  validateOgenA2AOutboundTaskEnvelope
 } from "@a2a/shared";
 import { postJson, readJsonBody, sendJson, startJsonServer } from "@a2a/shared/http";
 import { discoverAgentCards, getAgentCard, getExecutableAgentCards, validateExecutableAgentCards, type AgentCard, type AgentCardSkill } from "./agentCards.js";
@@ -1875,20 +1875,41 @@ async function prepareA2ARequestAuth(params: {
 }
 
 function normalizeAgentResponse(agentId: AgentName, response: AgentResponse | A2AAgentResponse | OgenA2AOutboundTaskEnvelope): A2AAgentResponse {
-  if (isOgenA2AOutboundTaskEnvelope(response)) {
-    return outboundA2AEnvelopeToAgentResponse(agentId, response);
+  const taskEnvelopeValidation = validateOgenA2AOutboundTaskEnvelope(response);
+  if (taskEnvelopeValidation.ok) {
+    return outboundA2AEnvelopeToAgentResponse(agentId, taskEnvelopeValidation.value);
+  }
+
+  const responseRecord = objectRecord(response);
+  if (responseRecord && (responseRecord.kind === "task" || responseRecord.type === "task")) {
+    return {
+      agentId,
+      status: "error",
+      summary: taskEnvelopeValidation.response.error,
+      probableCause: taskEnvelopeValidation.response.message,
+      trace: [
+        {
+          agent: "orchestrator",
+          action: "invalid_a2a_task_envelope",
+          detail: taskEnvelopeValidation.response.message,
+          timestamp: new Date().toISOString()
+        }
+      ]
+    };
   }
 
   if ("agentId" in response && "status" in response) {
     return response;
   }
 
+  const legacyResponse = response as AgentResponse;
+  const legacyEvidence = Array.isArray(legacyResponse.evidence) ? legacyResponse.evidence : [];
   return {
     agentId,
-    status: response.evidence.length > 0 ? "diagnosed" : "unsupported",
-    summary: response.evidence[0]?.title ?? "Agent returned legacy evidence.",
-    evidence: response.evidence.map((item) => ({ title: item.title, data: item.data })),
-    trace: response.trace
+    status: legacyEvidence.length > 0 ? "diagnosed" : "unsupported",
+    summary: legacyEvidence[0]?.title ?? "Agent returned legacy evidence.",
+    evidence: legacyEvidence.map((item) => ({ title: item.title, data: item.data })),
+    trace: legacyResponse.trace
   };
 }
 

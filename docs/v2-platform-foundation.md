@@ -707,6 +707,7 @@ Adapter mapping rules:
 - The first non-empty text part maps deterministically to `ResolveRequest.message` at `/resolve` or `A2ATask.userMessage` at `/task`.
 - `messageId`, `taskId`, `contextId`, and safe `conversationId` metadata are preserved only as conversation/task correlation IDs.
 - Safe metadata fields such as `classification`, `skillId`, `fromAgent`, `toAgent`, `requestedScope`, and `contextHints` can become internal task context hints for direct `/task` execution.
+- `classification` metadata is optional for direct `/task` compatibility messages. When it is absent, the adapter synthesizes a non-authoritative `UNKNOWN` fallback classification so existing agents can keep using their internal `A2ATask` shape without treating protocol metadata as policy authority.
 - Protocol metadata is never tenant, role, policy, authorization, or audit authority. Client tenant hints in compatibility envelopes are ignored by `/resolve`; the verified Gateway session remains authoritative.
 - Adapter proof/output must report `protocolMetadataAuthoritative: false`, `protectedMaterialExposed: false`, `tokenMaterialStored: false`, and `rawPromptStored: false`.
 
@@ -715,6 +716,8 @@ Boundary behavior:
 - Legacy internal `/resolve` and `/task` payloads continue to work unchanged.
 - Compatibility envelopes are normalized before policy/execution and before local agent runtime handling.
 - Malformed or unsupported compatibility envelopes return `invalid_a2a_envelope` with `taskExecuted: false`; they do not run downstream policy/runtime work and do not expose raw prompts, tokens, secrets, Authorization headers, private keys, client assertions, or protected metadata.
+- Inbound Task envelopes are accepted only when `status.state` is in the supported subset and `status.message.parts` contains valid text part shapes. Unsupported states such as `canceled` are rejected safely instead of being mapped to success.
+- A valid inbound Task envelope with `status.state: "completed"` maps to the resolver's diagnostic success path; `failed`, `rejected`, `submitted`, and `working` remain non-success states.
 - Internal responses can be wrapped as compatibility `kind: "task"` envelopes when the request used the compatibility envelope path.
 - Full official Message/Task operations `list`, `get`, `cancel`, and `subscribe` are deferred to a later provider implementation.
 

@@ -575,7 +575,7 @@ Deliverables:
 
 - canonical A2A-to-MCP flow diagram and contracts
 - Ogen-owned Agent Card / provider metadata contract
-- narrow A2A Message/Task adapter subset that maps first text part to Ogen `A2ATask` input while preserving governance authority
+- narrow A2A Message/Task adapter subset that maps first text part to Ogen `A2ATask` input, uses non-authoritative fallback classification when omitted, validates Task states/parts strictly, and preserves governance authority
 - MCP/tool gateway responsibility boundary
 - runtime authorization handoff points
 - proof model for agent -> Ogen -> tool calls
