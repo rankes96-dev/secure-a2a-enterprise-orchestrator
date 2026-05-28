@@ -266,7 +266,7 @@ for (const phrase of [
 const resolveRoute = resolveRouteBlock(indexSource);
 for (const phrase of [
   "await requireFreshIdentitySession(request, response)",
-  "tenantContextForRequest(identitySession.identity, requestedTenantIdFromBody(requestBodyUnknown))",
+  "normalizedResolve.requestedCompatibilityEnvelope ? undefined : requestedTenantIdFromBody(requestBodyUnknown)",
   "requireGatewayCapability",
   'capability: "gateway.resolve"',
   'route: "/resolve"',

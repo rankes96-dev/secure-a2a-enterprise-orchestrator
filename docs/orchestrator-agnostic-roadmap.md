@@ -575,10 +575,15 @@ Deliverables:
 
 - canonical A2A-to-MCP flow diagram and contracts
 - Ogen-owned Agent Card / provider metadata contract
+- narrow A2A Message/Task adapter subset that maps first text part to Ogen `A2ATask` input while preserving governance authority
 - MCP/tool gateway responsibility boundary
 - runtime authorization handoff points
 - proof model for agent -> Ogen -> tool calls
 - verification that Ogen remains centered on governing tool use, not becoming a vendor-specific adapter
+
+Non-goal:
+
+- no full A2A provider operation set yet; Message/Task `list`, `get`, `cancel`, and `subscribe` are deferred
 
 ### Phase 2.21 — Orchestrator-Agnostic Provider Model
 

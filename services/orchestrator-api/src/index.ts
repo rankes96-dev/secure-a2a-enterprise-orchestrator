@@ -20,6 +20,7 @@ import type {
   PendingInteraction,
   PendingInteractionResolution,
   PlanningFollowUpResolution,
+  OgenA2AOutboundTaskEnvelope,
   ResolveRequest,
   ResolveResponse,
   RuntimeAuthorizationRequest,
@@ -35,6 +36,10 @@ import {
   a2aJsonRequestHeaders,
   assertSecureA2AAuthMode,
   buildUnsupportedA2AProtocolVersionResponse,
+  internalA2AResponseToOutboundA2AEnvelope,
+  isOgenA2AOutboundTaskEnvelope,
+  normalizeResolveRequestInput,
+  outboundA2AEnvelopeToAgentResponse,
   secureA2AAuthRequired,
   unsupportedExplicitA2AProtocolVersion
 } from "@a2a/shared";
@@ -1869,7 +1874,11 @@ async function prepareA2ARequestAuth(params: {
   };
 }
 
-function normalizeAgentResponse(agentId: AgentName, response: AgentResponse | A2AAgentResponse): A2AAgentResponse {
+function normalizeAgentResponse(agentId: AgentName, response: AgentResponse | A2AAgentResponse | OgenA2AOutboundTaskEnvelope): A2AAgentResponse {
+  if (isOgenA2AOutboundTaskEnvelope(response)) {
+    return outboundA2AEnvelopeToAgentResponse(agentId, response);
+  }
+
   if ("agentId" in response && "status" in response) {
     return response;
   }
@@ -4343,7 +4352,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
           traceEntries: orchestratorTrace,
           cards: requestAgentCards
         });
-        const response = await postJson<AgentResponse | A2AAgentResponse>(targetCard!.endpoint, delegatedTask, headers);
+        const response = await postJson<AgentResponse | A2AAgentResponse | OgenA2AOutboundTaskEnvelope>(targetCard!.endpoint, delegatedTask, headers);
         const normalizedResponse = normalizeAgentResponse(delegation.targetAgentId, response);
         a2aResponses.push(normalizedResponse);
         delegationExecutionSteps.push({
@@ -4469,7 +4478,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
         traceEntries: orchestratorTrace,
         cards: requestAgentCards
       });
-      const response = await postJson<AgentResponse | A2AAgentResponse>(executableCard.endpoint, a2aTask, headers);
+      const response = await postJson<AgentResponse | A2AAgentResponse | OgenA2AOutboundTaskEnvelope>(executableCard.endpoint, a2aTask, headers);
       const normalizedResponse = normalizeAgentResponse(agent.agentId, response);
       a2aResponses.push(normalizedResponse);
       await processRequestedDelegations(normalizedResponse, a2aTask);
@@ -5176,7 +5185,13 @@ async function start(): Promise<void> {
   }
 
   const requestBodyUnknown = await readJsonBody<unknown>(request);
-  const resolveValidationError = validateResolveRequest(requestBodyUnknown);
+  const normalizedResolve = normalizeResolveRequestInput(requestBodyUnknown);
+  if (!normalizedResolve.ok) {
+    sendJson(response, 400, normalizedResolve.response, request, { "content-type": A2A_CONTENT_TYPE });
+    return;
+  }
+
+  const resolveValidationError = validateResolveRequest(normalizedResolve.value);
   if (resolveValidationError) {
     sendJson(response, 400, {
       error: "invalid_resolve_request",
@@ -5184,15 +5199,18 @@ async function start(): Promise<void> {
     }, request);
     return;
   }
-  const requestBody = requestBodyUnknown as ResolveRequest;
+  const requestBody = normalizedResolve.value as ResolveRequest;
 
-  const tenantContext = tenantContextForRequest(identitySession.identity, requestedTenantIdFromBody(requestBodyUnknown));
+  const tenantContext = tenantContextForRequest(
+    identitySession.identity,
+    normalizedResolve.requestedCompatibilityEnvelope ? undefined : requestedTenantIdFromBody(requestBodyUnknown)
+  );
   if (!requireRequestedTenantAllowed(tenantContext)) {
     await appendTenantAccessDeniedAuditEvent({
       actor: identitySession.identity,
       tenantContext,
       route: "/resolve",
-      conversationId: safeConversationIdFromBody(requestBodyUnknown)
+      conversationId: requestBody.conversationId
     });
     sendTenantAccessDenied(response, request, tenantContext);
     return;
@@ -5209,7 +5227,22 @@ async function start(): Promise<void> {
     return;
   }
 
-  sendJson(response, 200, await resolveIssue(requestBody, identitySession.sessionToken, tenantContext));
+  const resolveResult = await resolveIssue(requestBody, identitySession.sessionToken, tenantContext);
+  if (normalizedResolve.requestedCompatibilityEnvelope) {
+    sendJson(
+      response,
+      200,
+      internalA2AResponseToOutboundA2AEnvelope(resolveResult, normalizedResolve.proof, {
+        taskId: normalizedResolve.proof.correlation.taskId,
+        contextId: resolveResult.conversationId
+      }),
+      request,
+      { "content-type": A2A_CONTENT_TYPE }
+    );
+    return;
+  }
+
+  sendJson(response, 200, resolveResult);
   });
 }
 

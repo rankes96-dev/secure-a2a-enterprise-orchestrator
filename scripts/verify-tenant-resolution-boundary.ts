@@ -158,13 +158,14 @@ requireExcludes(runtimeRoute, "appendRuntimeAuthorizationTenantDeniedAuditEvent"
 const resolveRoute = indexSource.slice(resolveRouteStart);
 for (const phrase of [
   "const requestBodyUnknown = await readJsonBody<unknown>(request)",
-  "const resolveValidationError = validateResolveRequest(requestBodyUnknown)",
+  "const normalizedResolve = normalizeResolveRequestInput(requestBodyUnknown)",
+  "const resolveValidationError = validateResolveRequest(normalizedResolve.value)",
   'error: "invalid_resolve_request"',
-  "const requestBody = requestBodyUnknown as ResolveRequest",
-  "tenantContextForRequest(identitySession.identity, requestedTenantIdFromBody(requestBodyUnknown))",
+  "const requestBody = normalizedResolve.value as ResolveRequest",
+  "normalizedResolve.requestedCompatibilityEnvelope ? undefined : requestedTenantIdFromBody(requestBodyUnknown)",
   "if (!requireRequestedTenantAllowed(tenantContext))",
   "await appendTenantAccessDeniedAuditEvent",
-  "conversationId: safeConversationIdFromBody(requestBodyUnknown)",
+  "conversationId: requestBody.conversationId",
   "await resolveIssue(requestBody, identitySession.sessionToken, tenantContext)"
 ]) {
   requireIncludes(resolveRoute, phrase, "/resolve uses resolved tenant context");
@@ -233,10 +234,10 @@ for (const forbidden of [
 ]) {
   requireExcludes(tenantDeniedAuditHelper, forbidden, "tenant denied audit helper avoids protected material");
 }
-if (indexSource.includes("conversationId: requestBody.conversationId")) {
-  fail("/resolve tenant denial must not audit raw requestBody.conversationId");
+if (resolveRoute.includes("conversationId: requestBodyUnknown") || resolveRoute.includes("conversationId: (requestBodyUnknown")) {
+  fail("/resolve tenant denial must not audit raw requestBodyUnknown conversationId");
 } else {
-  ok("/resolve tenant denial does not audit raw requestBody.conversationId");
+  ok("/resolve tenant denial does not audit raw requestBodyUnknown conversationId");
 }
 if (indexSource.includes("requestId: requestBody.requestId")) {
   fail("tenant denial audit must not audit raw requestBody.requestId");

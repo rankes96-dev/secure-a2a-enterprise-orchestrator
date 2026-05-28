@@ -7,6 +7,8 @@ import {
   assertSecureA2AAuthMode,
   buildUnsupportedA2AProtocolVersionResponse,
   formatA2AAuthTraceDetail,
+  internalA2AResponseToOutboundA2AEnvelope,
+  normalizeA2ATaskInput,
   requireA2AAuth,
   unsupportedExplicitA2AProtocolVersion
 } from "@a2a/shared";
@@ -55,6 +57,34 @@ function requiredScopeForTask(task: A2ATask | AgentTask): string | undefined {
   return skill?.requiredPermission ?? skill?.requiredScopes?.[0];
 }
 
+type NormalizedA2ATaskInput = Extract<ReturnType<typeof normalizeA2ATaskInput>, { ok: true }>;
+
+function sendTaskResult(
+  response: Parameters<typeof sendJson>[0],
+  request: NonNullable<Parameters<typeof sendJson>[3]>,
+  taskInput: NormalizedA2ATaskInput,
+  task: A2ATask | AgentTask,
+  result: A2AAgentResponse,
+  statusCode = 200
+): void {
+  if (taskInput.requestedCompatibilityEnvelope) {
+    sendJson(
+      response,
+      statusCode,
+      internalA2AResponseToOutboundA2AEnvelope(result, taskInput.proof, {
+        taskId: "taskId" in task ? task.taskId : undefined,
+        contextId: "conversationId" in task ? task.conversationId : undefined,
+        agentId: agentCard.agentId
+      }),
+      request,
+      { "content-type": A2A_CONTENT_TYPE }
+    );
+    return;
+  }
+
+  sendJson(response, statusCode, result, request);
+}
+
 startJsonServer(port, async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, { status: "ok", agentId: "end-user-triage-agent" }, request);
@@ -77,7 +107,13 @@ startJsonServer(port, async (request, response) => {
     return;
   }
 
-  const task = await readJsonBody<A2ATask | AgentTask>(request);
+  const taskInput = normalizeA2ATaskInput(await readJsonBody<unknown>(request), { toAgent: agentCard.agentId });
+  if (!taskInput.ok) {
+    sendJson(response, 400, taskInput.response, request, { "content-type": A2A_CONTENT_TYPE });
+    return;
+  }
+
+  const task = taskInput.value;
   const auth = await requireA2AAuth({
     request,
     task,
@@ -86,7 +122,7 @@ startJsonServer(port, async (request, response) => {
     requiredScope: requiredScopeForTask(task)
   });
   if (!auth.ok) {
-    sendJson(response, auth.statusCode, auth.response, request);
+    sendTaskResult(response, request, taskInput, task, auth.response, auth.statusCode);
     return;
   }
   if ("context" in task && auth.taskAuth) {
@@ -186,7 +222,7 @@ startJsonServer(port, async (request, response) => {
       ]
     };
 
-    sendJson(response, 200, result);
+    sendTaskResult(response, request, taskInput, task, result);
     return;
   }
 
@@ -236,5 +272,5 @@ startJsonServer(port, async (request, response) => {
     ]
   };
 
-  sendJson(response, 200, result);
+  sendTaskResult(response, request, taskInput, task, result);
 });

@@ -697,6 +697,27 @@ Version and media handling:
 
 Governance does not move into protocol metadata. Ogen policy remains authority, verified identity and Gateway RBAC remain authority, client tenant hints remain hints only, and `/runtime/authorize` remains authorization-only and does not execute runtime.
 
+### Phase 2.20b  A2A Message/Task Adapter
+
+Phase 2.20b adds a narrow A2A Message/Task adapter layer only. Ogen remains the governance authority: the internal `A2ATask`, tenant resolution, Gateway RBAC, scoped JWT validation, policy evaluation, runtime authorization, and audit boundaries remain the execution model. This phase does not add `@a2a-js/sdk`, does not replace Ogen contracts, and does not implement the full official Message/Task operation set.
+
+Adapter mapping rules:
+
+- Inbound compatibility envelopes use the explicit subset `kind: "message"`, `role: "user"`, and text `parts`.
+- The first non-empty text part maps deterministically to `ResolveRequest.message` at `/resolve` or `A2ATask.userMessage` at `/task`.
+- `messageId`, `taskId`, `contextId`, and safe `conversationId` metadata are preserved only as conversation/task correlation IDs.
+- Safe metadata fields such as `classification`, `skillId`, `fromAgent`, `toAgent`, `requestedScope`, and `contextHints` can become internal task context hints for direct `/task` execution.
+- Protocol metadata is never tenant, role, policy, authorization, or audit authority. Client tenant hints in compatibility envelopes are ignored by `/resolve`; the verified Gateway session remains authoritative.
+- Adapter proof/output must report `protocolMetadataAuthoritative: false`, `protectedMaterialExposed: false`, `tokenMaterialStored: false`, and `rawPromptStored: false`.
+
+Boundary behavior:
+
+- Legacy internal `/resolve` and `/task` payloads continue to work unchanged.
+- Compatibility envelopes are normalized before policy/execution and before local agent runtime handling.
+- Malformed or unsupported compatibility envelopes return `invalid_a2a_envelope` with `taskExecuted: false`; they do not run downstream policy/runtime work and do not expose raw prompts, tokens, secrets, Authorization headers, private keys, client assertions, or protected metadata.
+- Internal responses can be wrapped as compatibility `kind: "task"` envelopes when the request used the compatibility envelope path.
+- Full official Message/Task operations `list`, `get`, `cancel`, and `subscribe` are deferred to a later provider implementation.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
@@ -1024,6 +1045,7 @@ V2 verification should layer new checks without weakening V1:
 - `npm run verify:user-directory-access-gate`
 - `npm run verify:audit-viewer-boundary`
 - `npm run verify:a2a-protocol-compatibility`
+- `npm run verify:a2a-message-task-adapter`
 - future Auth0 verification for JWT/JWKS validation and claim mapping
 - Phase 2.6 adds the first opt-in Postgres schema and `PostgresPlatformStateStore`; Phase 2.19 verifies tenant-scoped persisted audit viewer reads, and Phase 2.19c verifies indexed outcome/severity pagination
 - future connected-account verification for `authorization_required`, token vault status, user-specific OAuth tokens, and raw token redaction
@@ -1112,6 +1134,10 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.20a: expose `/.well-known/agent-card.json` beside legacy `/agent-card`
 - [ ] Phase 2.20a: send `A2A-Version: 1.0` and `application/a2a+json` on outbound A2A calls
 - [ ] Phase 2.20a: reject unsupported explicit inbound A2A versions without task execution
+- [ ] Phase 2.20b: add narrow A2A Message/Task adapter types and mapping functions without replacing `A2ATask`
+- [ ] Phase 2.20b: normalize compatibility envelopes at `/resolve` and local `/task` boundaries before policy/execution
+- [ ] Phase 2.20b: keep protocol metadata out of tenant, role, policy, authorization, and audit authority
+- [ ] Phase 2.20b: defer official Message/Task operations `list`, `get`, `cancel`, and `subscribe`
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

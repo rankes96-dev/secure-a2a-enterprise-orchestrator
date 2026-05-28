@@ -52,8 +52,11 @@ if (!existsSync(path)) {
     "Phase 2.19c rolling-safe rollout",
     "Phase 2.19d  Audit Index Rollout Operational Hardening",
     "Phase 2.20a  A2A 1.0 Protocol Compatibility Layer",
+    "Phase 2.20b  A2A Message/Task Adapter",
     "A2A-Version: 1.0",
     "application/a2a+json",
+    "invalid_a2a_envelope",
+    "Full official Message/Task operations `list`, `get`, `cancel`, and `subscribe` are deferred",
     "GET `/audit/events`",
     "`audit.read`",
     "audit_events_filter_scan_limit_exceeded",
@@ -143,7 +146,8 @@ if (!existsSync(sharedPath)) {
     "AuditViewerEvent",
     "AuditEventsResponse",
     "safeMetadataReturned: false",
-    "./a2aProtocol.js"
+    "./a2aProtocol.js",
+    "./a2aMessageTaskAdapter.js"
   ]) {
     if (!shared.includes(phrase)) {
       fail(`shared contracts missing required phrase: ${phrase}`);
@@ -322,6 +326,12 @@ if (!existsSync(packageJsonPath)) {
   }
   if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:a2a-protocol-compatibility")) {
     fail("verify:v2-plan should run verify:a2a-protocol-compatibility");
+  }
+  if (packageJson.scripts?.["verify:a2a-message-task-adapter"] !== "tsx scripts/verify-a2a-message-task-adapter.ts") {
+    fail("package.json missing verify:a2a-message-task-adapter script");
+  }
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:a2a-message-task-adapter")) {
+    fail("verify:v2-plan should run verify:a2a-message-task-adapter");
   }
   if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:platform-db-migrations")) {
     fail("verify:v2-plan should run verify:platform-db-migrations");

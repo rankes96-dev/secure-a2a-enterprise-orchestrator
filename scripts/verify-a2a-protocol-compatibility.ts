@@ -120,8 +120,9 @@ for (const phrase of [
 const resolveRoute = blockBetween(orchestrator, 'request.url !== "/resolve"', "});\n}");
 requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "await resolveIssue", "/resolve rejects unsupported A2A version before task execution");
 requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "readJsonBody<unknown>(request)", "/resolve rejects unsupported A2A version before JSON body parsing");
-requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "validateResolveRequest(requestBodyUnknown)", "/resolve rejects unsupported A2A version before request-body validation");
-requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "tenantContextForRequest(identitySession.identity", "/resolve rejects unsupported A2A version before downstream tenant policy");
+requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "validateResolveRequest(normalizedResolve.value)", "/resolve rejects unsupported A2A version before request-body validation");
+requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "normalizeResolveRequestInput(requestBodyUnknown)", "/resolve rejects unsupported A2A version before A2A Message/Task adapter normalization");
+requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "tenantContextForRequest(", "/resolve rejects unsupported A2A version before downstream tenant policy");
 requireBefore(resolveRoute, "unsupportedExplicitA2AProtocolVersion(request.headers)", "requireGatewayCapability", "/resolve rejects unsupported A2A version before Gateway policy");
 requireIncludes(resolveRoute, 'sendJson(response, 400, buildUnsupportedA2AProtocolVersionResponse(unsupportedA2AVersion), request, { "content-type": A2A_CONTENT_TYPE });', "/resolve unsupported A2A version response uses protocol content type");
 requireBefore(resolveRoute, "buildUnsupportedA2AProtocolVersionResponse(unsupportedA2AVersion)", "readJsonBody<unknown>(request)", "/resolve malformed JSON plus unsupported A2A version cannot bypass protocol error");
@@ -145,7 +146,8 @@ for (const path of localAgentPaths) {
   requireIncludes(source, "compatibility: OGEN_A2A_AGENT_CARD_COMPATIBILITY", `${path} advertises safe A2A compatibility metadata`);
   requireIncludes(source, "unsupportedExplicitA2AProtocolVersion(request.headers)", `${path} rejects unsupported explicit A2A versions`);
   requireIncludes(source, "buildUnsupportedA2AProtocolVersionResponse(unsupportedVersion)", `${path} returns structured protocol error`);
-  requireBefore(source, "unsupportedExplicitA2AProtocolVersion(request.headers)", "readJsonBody<A2ATask | AgentTask>(request)", `${path} checks A2A version before task body execution`);
+  requireIncludes(source, "normalizeA2ATaskInput(await readJsonBody<unknown>(request)", `${path} accepts A2A Message/Task adapter body after version guard`);
+  requireBefore(source, "unsupportedExplicitA2AProtocolVersion(request.headers)", "readJsonBody<unknown>(request)", `${path} checks A2A version before task body execution`);
 }
 
 requireIncludes(realExternalPackage, '"@a2a/shared": "0.1.0"', "real external agent consumes shared A2A protocol helper");
