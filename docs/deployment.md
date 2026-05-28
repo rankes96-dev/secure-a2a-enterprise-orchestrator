@@ -269,11 +269,13 @@ For production-sized `audit_events`, treat the classification index build as an 
 
 Decision tree for large tables:
 
-1. Confirm schema state before any concurrent index command. Check whether `audit_events.outcome` and `audit_events.severity` exist, and separately check whether the required or equivalent indexes already exist.
+1. Confirm schema state before any concurrent index command. Check whether `audit_events.outcome` and `audit_events.severity` exist, and separately check whether the required or equivalent indexes exist and are valid/ready in `pg_index`.
 2. If columns are missing, do not run `CREATE INDEX CONCURRENTLY` yet. Run the expansion step first so the columns + fallback trigger/backfill path exists. In the standard lineage this means the restored `004` baseline plus forward `005_audit_event_classification_rolling_safety.sql`; for an already-large production table that cannot tolerate transactional index creation, stop and use a database-owner approved expand-only plan before index DDL.
-3. Run `CREATE INDEX CONCURRENTLY` only when the columns exist and equivalent indexes are absent. Use an explicit database operator session because concurrent index creation cannot run inside the migration runner transaction.
-4. If `004` already created the indexes non-concurrently, the index existence check returns the required rows. The concurrent commands are redundant; skip them and continue with the upgrade/validate/contract (`006`) sequence.
-5. After any needed concurrent index build, continue with the normal rolling flow: deploy upgraded app instances, validate no null classifications remain, run verification, and only then run contract migration `006_audit_event_classification_contract.sql`.
+3. For each required index, use this flow: index missing -> run `CREATE INDEX CONCURRENTLY`; index exists and `indisvalid = true` and `indisready = true` -> keep it and skip recreation; index exists but is invalid or not ready -> run `DROP INDEX CONCURRENTLY`, then recreate it with `CREATE INDEX CONCURRENTLY`.
+4. Do not rely on `pg_indexes` name presence alone. A canceled or failed `CREATE INDEX CONCURRENTLY` can leave an invalid named index, and `CREATE INDEX CONCURRENTLY IF NOT EXISTS` can skip invalid named indexes because the name exists.
+5. Run `CREATE INDEX CONCURRENTLY` only when the columns exist and equivalent usable indexes are absent. Use an explicit database operator session because concurrent index creation cannot run inside the migration runner transaction.
+6. If `004` already created the indexes non-concurrently, the index validity/readiness check returns the required rows with `indisvalid = true` and `indisready = true`. The concurrent commands are redundant; skip them and continue with the upgrade/validate/contract (`006`) sequence.
+7. After any needed concurrent index build, continue with the normal rolling flow: deploy upgraded app instances, validate no null classifications remain, run verification, and only then run contract migration `006_audit_event_classification_contract.sql`.
 
 Column existence check:
 
@@ -286,20 +288,30 @@ where table_schema = current_schema()
 order by column_name;
 ```
 
-Index existence check:
+Index validity/readiness check:
 
 ```sql
-select indexname, indexdef
-from pg_indexes
-where schemaname = current_schema()
-  and tablename = 'audit_events'
-  and indexname in (
+select
+  index_class.relname as indexname,
+  index_state.indisvalid,
+  index_state.indisready,
+  pg_get_indexdef(index_state.indexrelid) as indexdef
+from pg_class table_class
+join pg_namespace table_namespace
+  on table_namespace.oid = table_class.relnamespace
+join pg_index index_state
+  on index_state.indrelid = table_class.oid
+join pg_class index_class
+  on index_class.oid = index_state.indexrelid
+where table_namespace.nspname = current_schema()
+  and table_class.relname = 'audit_events'
+  and index_class.relname in (
     'audit_events_tenant_created_at_id_idx',
     'audit_events_tenant_outcome_created_at_id_idx',
     'audit_events_tenant_severity_created_at_id_idx',
     'audit_events_tenant_outcome_severity_created_at_id_idx'
   )
-order by indexname;
+order by index_class.relname;
 ```
 
 Null classification count:
@@ -341,7 +353,19 @@ select
 from nulls;
 ```
 
-Concurrent index commands, only after the column existence and index existence checks above say they are needed:
+Drop invalid/not-ready indexes concurrently before retrying, only for indexes returned by the validity/readiness check with `indisvalid = false` or `indisready = false`:
+
+```sql
+drop index concurrently if exists audit_events_tenant_created_at_id_idx;
+
+drop index concurrently if exists audit_events_tenant_outcome_created_at_id_idx;
+
+drop index concurrently if exists audit_events_tenant_severity_created_at_id_idx;
+
+drop index concurrently if exists audit_events_tenant_outcome_severity_created_at_id_idx;
+```
+
+Recreate missing or dropped invalid indexes concurrently, only after the column existence and index validity/readiness checks above say they are needed:
 
 ```sql
 create index concurrently if not exists audit_events_tenant_created_at_id_idx
@@ -355,6 +379,31 @@ create index concurrently if not exists audit_events_tenant_severity_created_at_
 
 create index concurrently if not exists audit_events_tenant_outcome_severity_created_at_id_idx
   on audit_events (tenant_id, outcome, severity, created_at desc, id desc);
+```
+
+Post-create validation query:
+
+```sql
+select
+  index_class.relname as indexname,
+  index_state.indisvalid,
+  index_state.indisready
+from pg_class table_class
+join pg_namespace table_namespace
+  on table_namespace.oid = table_class.relnamespace
+join pg_index index_state
+  on index_state.indrelid = table_class.oid
+join pg_class index_class
+  on index_class.oid = index_state.indexrelid
+where table_namespace.nspname = current_schema()
+  and table_class.relname = 'audit_events'
+  and index_class.relname in (
+    'audit_events_tenant_created_at_id_idx',
+    'audit_events_tenant_outcome_created_at_id_idx',
+    'audit_events_tenant_severity_created_at_id_idx',
+    'audit_events_tenant_outcome_severity_created_at_id_idx'
+  )
+order by index_class.relname;
 ```
 
 Postflight functional check:
