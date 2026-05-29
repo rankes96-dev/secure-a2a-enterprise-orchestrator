@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
+import type { ResolveResponse } from "@a2a/shared";
+import { tokenOutcomeLabel as runtimeTokenOutcomeLabel, tokenStatusLabel as runtimeTokenStatusLabel } from "../apps/web-ui/src/securitySummary";
 
 let failed = false;
 
@@ -75,6 +77,68 @@ const types = read("apps/web-ui/src/components/types.ts");
 const packageJsonText = read("package.json");
 const v2Plan = read("scripts/verify-v2-plan.ts");
 
+const minimalClassification: ResolveResponse["classification"] = {
+  system: "monday",
+  issueType: "UNKNOWN",
+  confidence: "high",
+  reasoningSummary: "test fixture",
+  classificationSource: "rules_fallback",
+  reporterType: "it_engineer",
+  supportMode: "technical_integration"
+};
+
+const connectorRuntimeFailureWithLegacyIssuedTask: ResolveResponse = {
+  finalAnswer: "Runtime failed before execution.",
+  classification: minimalClassification,
+  selectedAgents: [],
+  skippedAgents: [],
+  routingSource: "rules_fallback",
+  routingConfidence: "high",
+  routingReasoningSummary: "test fixture",
+  resolutionStatus: "needs_more_info",
+  evidence: [],
+  agentTrace: [],
+  executionTrace: [],
+  connectorRuntime: {
+    executed: false,
+    runtimeMode: "external_runtime_failed",
+    connectorId: "monday-connector",
+    resourceSystem: "monday",
+    skillId: "monday.create_item",
+    error: "connector_configuration_changed",
+    errorMessage: "Connector configuration changed before runtime execution."
+  },
+  userIdentity: {
+    authenticated: true,
+    provider: "mock",
+    email: "engineer@example.com",
+    roles: ["it_engineer"]
+  },
+  a2aTasks: [
+    {
+      taskId: "legacy-internal-task",
+      conversationId: "conversation-1",
+      fromAgent: "orchestrator",
+      toAgent: "legacy-agent",
+      userMessage: "Create a Monday item",
+      classification: minimalClassification,
+      context: {
+        authMode: "oauth2_client_credentials_jwt",
+        auth: {
+          authMode: "oauth2_client_credentials_jwt",
+          tokenIssued: true,
+          audience: "legacy-agent",
+          scope: "a2a:task"
+        }
+      }
+    }
+  ],
+  diagnosis: {
+    probableCause: "Runtime failed before execution.",
+    recommendedFix: "Refresh connector configuration."
+  }
+};
+
 requireIncludes(main, 'from "./securitySummary";', "main imports connector runtime security summary helpers");
 
 const primaryPolicyLabel = functionBody(securitySummary, "primaryPolicyLabel");
@@ -95,10 +159,26 @@ for (const phrase of [
   'return "runtime token issued";',
   'return "user authorization required";',
   'return "runtime executed; token proof unavailable";',
+  'return "runtime token not issued";',
   'return "raw token hidden";',
   'return "not applicable";'
 ]) {
   requireIncludes(tokenStatusLabel, phrase, "tokenStatusLabel returns connector-aware token summaries");
+}
+requireBefore(tokenStatusLabel, 'return "runtime token not issued";', "const tasks = response?.a2aTasks ?? [];", "tokenStatusLabel returns connector runtime token status before legacy A2A tasks");
+
+const runtimeFailureTokenStatus = runtimeTokenStatusLabel(connectorRuntimeFailureWithLegacyIssuedTask);
+if (runtimeFailureTokenStatus !== "runtime token not issued") {
+  fail(`connector runtime failures should not fall back to legacy A2A issued tokens; received ${runtimeFailureTokenStatus}`);
+} else {
+  ok("connector runtime failures ignore legacy A2A token issuance");
+}
+
+const runtimeFailureTokenOutcome = runtimeTokenOutcomeLabel(runtimeFailureTokenStatus);
+if (runtimeFailureTokenOutcome !== "Runtime token not issued") {
+  fail(`connector runtime failure token outcome should stay connector-specific; received ${runtimeFailureTokenOutcome}`);
+} else {
+  ok("connector runtime failure token outcome stays connector-specific");
 }
 
 const finalAnswerEventStart = securitySummary.indexOf('id: "final-answer"');

@@ -115,6 +115,7 @@ export function tokenStatusLabel(response: ResolveResponse | null): string {
     if (tokenMetadata) {
       return "raw token hidden";
     }
+    return "runtime token not issued";
   }
 
   const tasks = response?.a2aTasks ?? [];
@@ -261,6 +262,9 @@ export function tokenOutcomeLabel(token: string): string {
   }
   if (token === "runtime executed; token proof unavailable") {
     return "Runtime executed; token proof unavailable";
+  }
+  if (token === "runtime token not issued") {
+    return "Runtime token not issued";
   }
   if (token === "raw token hidden") {
     return "Raw token hidden";
