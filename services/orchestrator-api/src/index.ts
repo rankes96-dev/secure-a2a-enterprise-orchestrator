@@ -1393,7 +1393,7 @@ function governedPlanningGateStack(params: {
       {
         id: "gateway_governance",
         label: "Gateway Governance",
-        status: "passed",
+        status: params.finalOutcome === "blocked_at_gateway" ? "blocked" : "passed",
         reason: params.gatewayReason
       },
       {
@@ -3564,91 +3564,93 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
     conversationState.pendingInteraction = undefined;
   }
 
-  const initialPlanningState = initialGovernedPlanningState({ message: requestBody.message, installedAgents });
-  if (initialPlanningState) {
-    const pendingInteraction = initialPlanningState.missingInputs.length
-      ? buildGovernedPlanningPendingInteraction({
-          originalUserRequest: requestBody.message,
-          tenantContext,
-          conversationState,
-          actor: verifiedUser,
-          state: initialPlanningState
-        })
-      : undefined;
-    return finalizeEarly({
-      conversationId,
-      finalAnswer: initialPlanningState.missingInputs.length
-        ? [
-            "NEEDS MORE INFO",
-            governedPlanningQuestion(initialPlanningState.missingInputs),
-            "",
-            `Target: ${initialPlanningState.targetResourceSystem} ${initialPlanningState.targetResourceName}.`,
-            "",
-            "No changes were made.",
-            "No request was submitted."
-          ].join("\n")
-        : [
-            "PLANNING READY",
-            `I prepared the planning inputs for ${initialPlanningState.targetResourceSystem} ${initialPlanningState.targetResourceName} ${initialPlanningState.requestedAccessLevel ?? "requested"} access.`,
-            initialPlanningState.businessReason ? `Business reason: ${initialPlanningState.businessReason}.` : undefined,
-            "",
-            "No changes were made.",
-            "No request was submitted.",
-            "This is ready for review/approval/request submission in a later step."
-          ].filter((line): line is string => line !== undefined).join("\n"),
-      classification: governedPlanningClassification(initialPlanningState.targetResourceSystem),
-      selectedAgents: [],
-      skippedAgents: [],
-      routingSource: "rules_fallback",
-      routingConfidence: "high",
-      routingReasoningSummary: initialPlanningState.missingInputs.length
-        ? "Stored tenant/user/conversation-scoped governed planning state before runtime routing."
-        : "Collected complete governed planning inputs without submitting or executing the request.",
-      resolutionStatus: "needs_more_info",
-      evidence: [
-        governedPlanningEvidence({
-          state: initialPlanningState,
-          pendingInteractionId: pendingInteraction?.id,
-          pendingInteractionResumed: false
-        })
-      ],
-      agentTrace: [
-        trace(
-          initialPlanningState.missingInputs.length ? "pending_planning_created" : "planning_ready_without_submission",
-          initialPlanningState.missingInputs.length
-            ? `Missing inputs: ${initialPlanningState.missingInputs.join(", ")}`
-            : "All required planning inputs are present; no request submitted."
-        )
-      ],
-      executionTrace: [
-        executionStep("user", "submit_issue", requestBody.message),
-        executionStep("orchestrator", "detect_governed_access_planning", "Detected connector access planning request with deterministic routing intent."),
-        ...(initialPlanningState.missingInputs.length
-          ? [executionStep("orchestrator", "store_pending_planning_state", `Stored missing inputs: ${initialPlanningState.missingInputs.join(", ")}.`)]
-          : [executionStep("orchestrator", "complete_planning_without_submission", "Planning inputs are complete. No request was submitted.")]),
-        executionStep("orchestrator", "skip_runtime_execution", "No request was submitted, no runtime token was issued, and no external connector runtime was called.")
-      ],
-      securityDecisions: [],
-      requestInterpretation: governedPlanningInterpretation(initialPlanningState),
-      pendingInteraction,
-      executionGateStack: governedPlanningGateStack({
-        finalOutcome: initialPlanningState.missingInputs.length ? "needs_more_info" : "planned",
-        stoppedAt: initialPlanningState.missingInputs.length ? "gateway_governance" : "runtime_execution",
-        gatewayReason: initialPlanningState.missingInputs.length
-          ? "Gateway stored governed pending planning state and asked for missing inputs."
-          : "Gateway completed planning inputs without submission or runtime execution."
-      }),
-      a2aTasks: [],
-      a2aResponses: [],
-      diagnosis: {
-        probableCause: initialPlanningState.missingInputs.length
-          ? "Governed connector planning requires missing inputs"
-          : "Governed connector planning inputs are complete",
-        recommendedFix: initialPlanningState.missingInputs.length
-          ? governedPlanningQuestion(initialPlanningState.missingInputs)
-          : "Review the plan and submit through a governed approval/request flow later."
-      }
-    });
+  if (!earlySecurityIntent.detected) {
+    const initialPlanningState = initialGovernedPlanningState({ message: requestBody.message, installedAgents });
+    if (initialPlanningState) {
+      const pendingInteraction = initialPlanningState.missingInputs.length
+        ? buildGovernedPlanningPendingInteraction({
+            originalUserRequest: requestBody.message,
+            tenantContext,
+            conversationState,
+            actor: verifiedUser,
+            state: initialPlanningState
+          })
+        : undefined;
+      return finalizeEarly({
+        conversationId,
+        finalAnswer: initialPlanningState.missingInputs.length
+          ? [
+              "NEEDS MORE INFO",
+              governedPlanningQuestion(initialPlanningState.missingInputs),
+              "",
+              `Target: ${initialPlanningState.targetResourceSystem} ${initialPlanningState.targetResourceName}.`,
+              "",
+              "No changes were made.",
+              "No request was submitted."
+            ].join("\n")
+          : [
+              "PLANNING READY",
+              `I prepared the planning inputs for ${initialPlanningState.targetResourceSystem} ${initialPlanningState.targetResourceName} ${initialPlanningState.requestedAccessLevel ?? "requested"} access.`,
+              initialPlanningState.businessReason ? `Business reason: ${initialPlanningState.businessReason}.` : undefined,
+              "",
+              "No changes were made.",
+              "No request was submitted.",
+              "This is ready for review/approval/request submission in a later step."
+            ].filter((line): line is string => line !== undefined).join("\n"),
+        classification: governedPlanningClassification(initialPlanningState.targetResourceSystem),
+        selectedAgents: [],
+        skippedAgents: [],
+        routingSource: "rules_fallback",
+        routingConfidence: "high",
+        routingReasoningSummary: initialPlanningState.missingInputs.length
+          ? "Stored tenant/user/conversation-scoped governed planning state before runtime routing."
+          : "Collected complete governed planning inputs without submitting or executing the request.",
+        resolutionStatus: "needs_more_info",
+        evidence: [
+          governedPlanningEvidence({
+            state: initialPlanningState,
+            pendingInteractionId: pendingInteraction?.id,
+            pendingInteractionResumed: false
+          })
+        ],
+        agentTrace: [
+          trace(
+            initialPlanningState.missingInputs.length ? "pending_planning_created" : "planning_ready_without_submission",
+            initialPlanningState.missingInputs.length
+              ? `Missing inputs: ${initialPlanningState.missingInputs.join(", ")}`
+              : "All required planning inputs are present; no request submitted."
+          )
+        ],
+        executionTrace: [
+          executionStep("user", "submit_issue", requestBody.message),
+          executionStep("orchestrator", "detect_governed_access_planning", "Detected connector access planning request with deterministic routing intent."),
+          ...(initialPlanningState.missingInputs.length
+            ? [executionStep("orchestrator", "store_pending_planning_state", `Stored missing inputs: ${initialPlanningState.missingInputs.join(", ")}.`)]
+            : [executionStep("orchestrator", "complete_planning_without_submission", "Planning inputs are complete. No request was submitted.")]),
+          executionStep("orchestrator", "skip_runtime_execution", "No request was submitted, no runtime token was issued, and no external connector runtime was called.")
+        ],
+        securityDecisions: [],
+        requestInterpretation: governedPlanningInterpretation(initialPlanningState),
+        pendingInteraction,
+        executionGateStack: governedPlanningGateStack({
+          finalOutcome: initialPlanningState.missingInputs.length ? "needs_more_info" : "planned",
+          stoppedAt: initialPlanningState.missingInputs.length ? "gateway_governance" : "runtime_execution",
+          gatewayReason: initialPlanningState.missingInputs.length
+            ? "Gateway stored governed pending planning state and asked for missing inputs."
+            : "Gateway completed planning inputs without submission or runtime execution."
+        }),
+        a2aTasks: [],
+        a2aResponses: [],
+        diagnosis: {
+          probableCause: initialPlanningState.missingInputs.length
+            ? "Governed connector planning requires missing inputs"
+            : "Governed connector planning inputs are complete",
+          recommendedFix: initialPlanningState.missingInputs.length
+            ? governedPlanningQuestion(initialPlanningState.missingInputs)
+            : "Review the plan and submit through a governed approval/request flow later."
+        }
+      });
+    }
   }
 
   const followUp = await interpretFollowUp({

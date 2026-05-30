@@ -96,6 +96,18 @@ async function verifyDeterministicMissingInputResolver(): Promise<void> {
   if (extractPendingBusinessReasonFromMessage("business reason is that I need that for my daily job") !== "I need that for my daily job") {
     fail("business reason phrase should be extracted deterministically");
   }
+  if (extractPendingBusinessReasonFromMessage("I need access to Jira project FIN") !== undefined) {
+    fail("target-only access request must not be extracted as businessReason");
+  }
+  if (extractPendingBusinessReasonFromMessage("I need it for my daily job") !== "my daily job") {
+    fail("pronoun/object phrasing should still extract businessReason");
+  }
+  if (extractPendingBusinessReasonFromMessage("I need this for daily work") !== "daily work") {
+    fail("this-for phrasing should still extract businessReason");
+  }
+  if (extractPendingBusinessReasonFromMessage("for my daily job") !== "my daily job") {
+    fail("short for-my-daily-job phrasing should still extract businessReason");
+  }
 
   const provided = await assertResolution(
     "I want viewer access, and the business reason is that I need that for my daily job",
@@ -234,6 +246,12 @@ function verifyStatic(): void {
     if (!resolver.includes(phrase)) {
       fail(`pending interaction resolver missing governed planning phrase: ${phrase}`);
     }
+  }
+  if (!resolver.includes("\\bi need (?:it|that|this)\\s+(?:for|to)\\s+(.+)$/i")) {
+    fail("pending interaction resolver must only accept explicit pronoun/object business-reason phrasing");
+  }
+  if (resolver.includes("(?:it|that|this|access)?")) {
+    fail("pending interaction resolver must not treat target-only access requests as businessReason");
   }
 
   for (const forbidden of ["servicenow", "github", "git hub", "aws", "catalog", "pull request", "incident"]) {

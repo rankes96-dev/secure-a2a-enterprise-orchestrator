@@ -169,7 +169,7 @@ export function extractPendingBusinessReasonFromMessage(message: string): string
   const patterns = [
     /\b(?:business reason|reason|justification)\s*(?:is|:|-)\s*(.+)$/i,
     /\bbecause\s+(.+)$/i,
-    /\bi need (?:it|that|this|access)?\s*(?:for|to)\s+(.+)$/i,
+    /\bi need (?:it|that|this)\s+(?:for|to)\s+(.+)$/i,
     /\bfor\s+(my\s+daily\s+job|daily work|work|my job|the project|project work|my team)\b/i
   ];
 
