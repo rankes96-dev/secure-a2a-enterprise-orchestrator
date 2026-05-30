@@ -762,6 +762,16 @@ Mapping proof is audit-safe and deterministic. It records source type, source/to
 
 Product proof must keep connector runtime execution and A2A task execution distinct; connector runtime execution and A2A task execution are distinct proof concepts. A connector runtime executes only when `connectorRuntime.executed === true`; legacy/internal A2A task creation or token issuance does not imply the external connector runtime ran. Security summary, timeline proof, raw execution proof, and Run Task summary cards should label connector runtime activity and legacy/internal A2A task activity separately.
 
+### Phase 2.24  Governed Multi-turn Task State
+
+Phase 2.24 adds governed planning-state continuity for connector access planning. When a request such as "I need access to Jira project FIN" is missing planning inputs, the Gateway stores a tenant/user/conversation-scoped pending interaction with safe summary, original request hash, connector/resource context, target resource system/name, any known access level or business reason, missing inputs, and proof flags `rawPromptStored: false`, `tokenMaterialStored: false`, and `protectedMaterialExposed: false`.
+
+The next user message is evaluated against the active pending interaction before new routing. The Gateway resumes only when tenant, verified actor/session ownership, conversation, expiration, and relation checks pass. Pending interactions are resolved through schema-driven slot filling, deterministic validation, and optional AI-assisted extraction. Deterministic extraction can collect `accessLevel` values such as viewer/read/read-only, contributor/write/edit, or admin/project admin, and business reasons from clear phrases such as "business reason is", "because", "I need it for", or "for my daily job". AI-assisted extraction may propose candidate slot values only; Gateway validation still enforces expected slots, allowed enum values, length limits, unsafe-content rejection, and continuation safety. These values are planning inputs only; they are not policy authority.
+
+When all required inputs are present, the Gateway returns a planning-ready response and explicit proof that no request was submitted, no changes were made, no runtime token was issued, and no external connector runtime was called. Cancellation clears the pending planning state safely. Unrelated or adversarial follow-ups are not merged into the prior request; bypass attempts remain blocked at Gateway governance.
+
+Product proof must label planning resume as planning, not execution. UI/security summary/timeline/raw proof must not claim runtime execution unless `connectorRuntime.executed === true`, must not claim no token was issued when token metadata exists, and must keep connector runtime activity distinct from legacy/internal A2A task activity.
+
 ### Phase 3  Connector SDK
 
 Goal: prove this is a platform, not a hardcoded Jira/ServiceNow/GitHub demo.
@@ -1196,6 +1206,10 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.23: keep AI descriptions, OAuth scopes, and provenance out of authorization authority
 - [ ] Phase 2.23: expose audit-safe mapping proof with deterministicMapping true and aiInferred false
 - [ ] Phase 2.23: keep connector runtime execution and A2A task execution distinct in product copy and raw proof
+- [ ] Phase 2.24: persist tenant/user/conversation-scoped governed pending planning state with safe summary, original request hash, target resource context, missing inputs, and proof flags
+- [ ] Phase 2.24: resume pending connector access planning before new routing only when ownership, tenant, expiration, and relation checks pass
+- [ ] Phase 2.24: collect deterministic accessLevel and businessReason planning inputs without treating them as policy authority
+- [ ] Phase 2.24: return planning-ready proof with no request submitted, no changes made, no runtime token issued, and no external runtime called
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

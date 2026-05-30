@@ -92,6 +92,12 @@ export type StoredPendingInteractionRecord = {
   createdAt: string;
   expiresAt?: string;
   safeOriginalUserRequestSummary?: string;
+  originalUserRequestHash?: string;
+  tenantId?: string;
+  conversationId?: string;
+  actorProvider?: string;
+  actorSubject?: string;
+  actorEmail?: string;
   safeContext: Record<string, unknown>;
 };
 

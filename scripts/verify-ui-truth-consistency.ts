@@ -66,6 +66,10 @@ for (const phrase of [
 }
 
 for (const phrase of [
+  "planningResumed(response)",
+  "Connector planning resumed",
+  "Pending interaction resumed",
+  "External runtime called",
   "Tool mapping",
   "Tool mapping deterministic",
   "Tool mapping AI inferred",
@@ -82,6 +86,11 @@ for (const phrase of [
   "tokenProofTruthLabel",
   "policyProofTruthLabel",
   "selectedWorkloadTruthLabel",
+  "planningResumed(response)",
+  "Connector planning resumed; runtime not executed",
+  "No runtime token issued for planning",
+  "Planning governance evaluated",
+  "connector planning state active / connector runtime not executed / 0 A2A tasks",
   "Connector runtime executed",
   "Connector runtime not executed",
   "A2A task response received",
@@ -131,6 +140,9 @@ requireNotIncludes(runTask, "No policy decision recorded.", "RunTask does not cl
 for (const phrase of [
   "function safeRawExecutionData(response: ResolveResponse)",
   "executionGateStack: response.executionGateStack",
+  "pendingInteraction: response.pendingInteraction",
+  "pendingInteractionResolution: response.pendingInteractionResolution",
+  "planningFollowUpResolution: response.planningFollowUpResolution",
   "connectorActionPlan: response.connectorActionPlan",
   "evaluatedActionPlan: response.evaluatedActionPlan",
   "connectorRouting: response.connectorRouting",
@@ -147,10 +159,10 @@ if (packageJson.scripts?.["verify:ui-truth-consistency"] !== "tsx scripts/verify
 } else {
   ok("package.json includes verify:ui-truth-consistency");
 }
-if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:tool-to-action-metadata-mapping && npm run verify:ui-truth-consistency")) {
-  fail("verify:v2-plan should run UI truth consistency after tool/action mapping");
+if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:pending-interaction-resolver && npm run verify:planning-follow-up && npm run verify:ui-truth-consistency")) {
+  fail("verify:v2-plan should run pending interaction, planning follow-up, and UI truth consistency checks together");
 } else {
-  ok("verify:v2-plan runs UI truth consistency after tool/action mapping");
+  ok("verify:v2-plan runs governed planning and UI truth consistency checks together");
 }
 requireIncludes(v2PlanVerifier, "verify:ui-truth-consistency", "v2 plan verifier checks UI truth consistency wiring");
 

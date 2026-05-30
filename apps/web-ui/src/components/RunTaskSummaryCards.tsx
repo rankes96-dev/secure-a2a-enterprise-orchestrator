@@ -15,9 +15,27 @@ function highestSeveritySecurityDecision(decisions: NonNullable<ResolveResponse[
     .sort((left, right) => securityDecisionSeverity[right] - securityDecisionSeverity[left])[0];
 }
 
+function planningResumed(response: ResolveResponse | null): boolean {
+  return Boolean(
+    response?.pendingInteractionResolution?.relation === "provide_missing_input" &&
+    response.executionGateStack?.finalOutcome === "planned"
+  );
+}
+
+function governedPlanningStatePresent(response: ResolveResponse | null): boolean {
+  return Boolean(
+    planningResumed(response) ||
+    response?.pendingInteraction?.type === "missing_input" ||
+    response?.evidence.some((item) => item.title === "Governed planning resume" || item.title === "Governed pending planning state")
+  );
+}
+
 export function connectorRuntimeExecutionTruthLabel(response: ResolveResponse | null): string {
   if (!response) {
     return "No task run yet";
+  }
+  if (planningResumed(response)) {
+    return "Connector planning resumed; runtime not executed";
   }
   if (response.connectorRuntime) {
     return response.connectorRuntime.executed ? "Connector runtime executed" : "Connector runtime not executed";
@@ -31,6 +49,9 @@ export function connectorRuntimeExecutionTruthLabel(response: ResolveResponse | 
 export function connectorRuntimeModeTruthLabel(response: ResolveResponse | null): string {
   if (!response) {
     return "runtime not executed";
+  }
+  if (planningResumed(response)) {
+    return "connector planning resumed without runtime execution";
   }
   if (response.connectorRuntime?.executed === true) {
     return "external connector runtime executed";
@@ -47,6 +68,9 @@ export function connectorRuntimeModeTruthLabel(response: ResolveResponse | null)
 export function tokenProofTruthLabel(response: ResolveResponse | null): string {
   if (!response) {
     return "No token proof yet";
+  }
+  if (planningResumed(response)) {
+    return "No runtime token issued for planning";
   }
   if (response.connectorRuntime?.tokenMetadata) {
     return response.connectorRuntime.tokenMetadata.tokenIssued
@@ -69,6 +93,9 @@ export function policyProofTruthLabel(response: ResolveResponse | null): string 
   if (!response) {
     return "Policy not evaluated";
   }
+  if (planningResumed(response)) {
+    return "Planning governance evaluated";
+  }
   if (response.connectorPolicy) {
     return `Connector policy ${response.connectorPolicy.effect.replace(/_/g, " ")}`;
   }
@@ -82,6 +109,9 @@ export function policyProofTruthLabel(response: ResolveResponse | null): string 
 export function selectedWorkloadTruthLabel(response: ResolveResponse | null): string {
   if (!response) {
     return "No route selected yet";
+  }
+  if (governedPlanningStatePresent(response)) {
+    return "connector planning state active / connector runtime not executed / 0 A2A tasks";
   }
   const connector = response.connectorRouting
     ? `connector route ${response.connectorRouting.connectorId ?? response.connectorRouting.resourceSystem ?? "selected"}`

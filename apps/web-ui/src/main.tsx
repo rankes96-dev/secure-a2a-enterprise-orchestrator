@@ -533,6 +533,13 @@ function buildEndUserSupportAnswer(response: ResolveResponse): string {
     return ["AUTHORIZATION REQUIRED", `Connect your ${authorizationRequirement.provider} account to continue.`, "", "Why:", authorizationRequirement.reason, "", "Requested scopes:", scopes, "", "No changes were made.", "", "Next step:", `Connect your ${authorizationRequirement.provider} account, then retry this request.`].join("\n");
   }
 
+  if (
+    response.pendingInteraction?.type === "missing_input" ||
+    (response.pendingInteractionResolution?.relation === "provide_missing_input" && response.executionGateStack?.finalOutcome === "planned")
+  ) {
+    return response.finalAnswer;
+  }
+
   if (response.finalAnswer.startsWith("CHECK READY")) {
     return [
       "CHECK READY",
@@ -766,6 +773,9 @@ function safeRawExecutionData(response: ResolveResponse) {
     requestInterpretation: response.requestInterpretation,
     securityIntent: response.securityIntent,
     executionGateStack: response.executionGateStack,
+    pendingInteraction: response.pendingInteraction,
+    pendingInteractionResolution: response.pendingInteractionResolution,
+    planningFollowUpResolution: response.planningFollowUpResolution,
     connectorActionPlan: response.connectorActionPlan,
     evaluatedActionPlan: response.evaluatedActionPlan,
     connectorRouting: response.connectorRouting,

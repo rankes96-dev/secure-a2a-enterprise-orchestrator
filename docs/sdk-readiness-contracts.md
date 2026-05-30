@@ -146,6 +146,8 @@ Phase 2.22 adds generic action taxonomy contracts. Vendor-specific tools normali
 
 Phase 2.23 adds deterministic Tool-to-Action Metadata Mapping. MCP/A2A/vendor tools become normalized Ogen actions through explicit metadata and safe mapping proof. Mapping is deterministic and non-AI-derived; `incomplete_metadata`, `unsupported_tool_shape`, and `blocked_unknown_tool` fail closed.
 
+Phase 2.24 adds Governed Multi-turn Task State for planning continuity. Connector planning follow-ups may resume only from tenant/user/conversation-scoped pending interactions that have not expired and whose relation is `provide_missing_input` or cancellation. Follow-up values such as `accessLevel` and `businessReason` are planning inputs only; they do not grant approval, runtime permission, OAuth scope, tenant access, or connector execution authority.
+
 Rules:
 
 - Discovery should serve `GET /.well-known/agent-card.json`; local legacy providers may keep `GET /agent-card` as an alias.
@@ -159,6 +161,7 @@ Rules:
 - Adapter outputs must not expose raw tokens, raw prompts, secrets, Authorization headers, private keys, client assertions, or protected metadata.
 - Provenance outputs must not expose raw tokens, raw prompts, secrets, Authorization headers, private keys, client assertions, protected metadata, or sensitive key material.
 - Tool mapping proof must not store raw descriptions, prompts, tokens, secrets, Authorization headers, private keys, client assertions, protected metadata, or sensitive key material.
+- Governed planning state proof must not store raw prompts, tokens, secrets, Authorization headers, private keys, client assertions, protected metadata, or sensitive key material. Planning completion must prove `requestSubmitted: false`, `runtimeExecution.executed: false`, `runtimeExecution.runtimeTokenIssued: false`, and `runtimeExecution.externalRuntimeCalled: false`.
 
 ## Runtime Authorization API Contract
 

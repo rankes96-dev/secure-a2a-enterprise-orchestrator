@@ -60,6 +60,13 @@ function responseRuntimeActorMetadataObserved(response: ResolveResponse): boolea
   return Boolean(tokenMetadata && tokenActorMetadataObserved(tokenMetadata));
 }
 
+function planningResumed(response: ResolveResponse | null): boolean {
+  return Boolean(
+    response?.pendingInteractionResolution?.relation === "provide_missing_input" &&
+    response.executionGateStack?.finalOutcome === "planned"
+  );
+}
+
 export function securityDecisions(response: ResolveResponse | null): NonNullable<ResolveResponse["securityDecisions"]> {
   if (!response) {
     return [];
@@ -100,6 +107,10 @@ export function primaryPolicyLabel(response: ResolveResponse | null): string {
 }
 
 export function tokenStatusLabel(response: ResolveResponse | null): string {
+  if (planningResumed(response)) {
+    return "runtime token not issued";
+  }
+
   const runtime = response?.connectorRuntime;
   if (runtime) {
     const tokenMetadata = runtime.tokenMetadata;
@@ -228,6 +239,9 @@ export function resultSummaryLabel(response: ResolveResponse | null): string {
   if (!response) {
     return "No task run yet";
   }
+  if (planningResumed(response)) {
+    return "planning resumed";
+  }
   if (response.connectorRuntime?.executed) {
     return response.connectorRuntime.agentResponse?.status ?? "executed";
   }
@@ -323,6 +337,28 @@ export function buildSecurityTimelineEvents(response: ResolveResponse): Security
         { label: "Target system", value: response.requestInterpretation.targetSystemText },
         { label: "Skill", value: response.requestInterpretation.requestedCapability },
         { label: "Action", value: response.requestInterpretation.requestedActionText }
+      ])
+    });
+  }
+
+  if (planningResumed(response)) {
+    events.push({
+      id: "governed-planning-resumed",
+      category: "routing",
+      title: "Connector planning resumed",
+      description: "Gateway resumed governed planning state before new routing; no request was submitted and connector runtime was not executed.",
+      status: "info",
+      timestamp: response.executionTrace.find((entry) => entry.action === "complete_planning_without_submission")?.timestamp,
+      actor: "orchestrator",
+      metadata: metadataList([
+        { label: "Pending interaction resumed", value: "yes" },
+        { label: "Missing inputs collected", value: response.evidence.find((item) => item.title === "Governed planning resume")?.data.missingInputsCollected },
+        { label: "Request submitted", value: "false" },
+        { label: "Runtime executed", value: "false" },
+        { label: "Runtime token issued", value: "false" },
+        { label: "External runtime called", value: "false" },
+        { label: "Raw prompt stored", value: "false" },
+        { label: "Protected material exposed", value: "false" }
       ])
     });
   }

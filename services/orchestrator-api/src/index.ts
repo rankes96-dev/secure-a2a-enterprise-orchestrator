@@ -71,7 +71,7 @@ import { detectSensitiveAction } from "./sensitiveActionGuard.js";
 import { discoverAgentOnboarding, listSupportedConnectorTemplates, listTrustedOnboardedAgentsForOwner, startAgentOnboarding } from "./agentOnboarding.js";
 import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
 import { listAuditViewerEventsPage, type AuditEventsPageQuery } from "./audit/auditViewerPagination.js";
-import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting.js";
+import { inferConnectorRoutingIntent, routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting.js";
 import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime.js";
 import { requestConnectorActionPlan } from "./connectorActionPlanner.js";
 import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation.js";
@@ -87,9 +87,9 @@ import { evaluateConnectorPolicy, type ConnectorPolicyEvaluation } from "./polic
 import { evaluateRuntimeAuthorization } from "./runtimeAuthorization/runtimeAuthorizationEvaluator.js";
 import { detectAdversarialIntent } from "./adversarialIntent.js";
 import { buildExecutionGateStack } from "./executionGateStack.js";
-import { resolvePendingInteraction } from "./pendingInteractionResolver.js";
+import { extractPendingAccessLevelFromMessage, extractPendingBusinessReasonFromMessage, resolvePendingInteraction } from "./pendingInteractionResolver.js";
 import type { ConversationState } from "./conversation/conversationTypes.js";
-import { persistConversationStateSnapshot } from "./conversation/conversationStateStore.js";
+import { persistConversationStateSnapshot, safeConversationSummary } from "./conversation/conversationStateStore.js";
 import { applyConversationOwner, conversationBelongsToOwner, conversationOwnerContext, type ConversationOwnerContext } from "./conversation/conversationOwnership.js";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
@@ -739,6 +739,7 @@ function updateConversationState(state: ConversationState, response: ResolveResp
     response.pendingInteractionResolution?.relation === "confirm" ||
     response.pendingInteractionResolution?.relation === "cancel" ||
     response.pendingInteractionResolution?.relation === "provide_missing_target" ||
+    response.pendingInteractionResolution?.relation === "provide_missing_input" ||
     response.pendingInteractionResolution?.relation === "unrelated_new_request" ||
     response.pendingInteractionResolution?.relation === "adversarial_attempt"
   ) {
@@ -1017,6 +1018,404 @@ function buildPlannedSafeActionPendingInteraction(params: {
 function pendingString(context: Record<string, unknown>, key: string): string | undefined {
   const value = context[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+const governedPlanningPendingTtlMs = 15 * 60 * 1000;
+
+type GovernedPlanningState = {
+  connectorId?: string;
+  resourceSystem?: string;
+  targetResourceSystem: string;
+  targetResourceName: string;
+  requestedAccessLevel?: string;
+  businessReason?: string;
+  missingInputs: string[];
+};
+
+function governedPlanningCollectedInputs(state: GovernedPlanningState): Record<string, string> {
+  return Object.fromEntries([
+    ["targetResourceSystem", state.targetResourceSystem],
+    ["targetResourceName", state.targetResourceName],
+    ["accessLevel", state.requestedAccessLevel],
+    ["businessReason", state.businessReason]
+  ].filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0));
+}
+
+function governedPlanningInputSchema() {
+  return {
+    schemaVersion: "governed-planning.missing-input.v1",
+    allowAiAssistedExtraction: true,
+    strongUnrelatedIntentHints: [
+      "new request",
+      "different request",
+      "separate request",
+      "unrelated to that",
+      "ignore the previous request",
+      "start over"
+    ],
+    slots: [
+      {
+        name: "accessLevel",
+        required: true,
+        allowedValues: ["viewer", "contributor", "project admin"],
+        maxLength: 32,
+        description: "Requested planning access level."
+      },
+      {
+        name: "businessReason",
+        required: true,
+        maxLength: 240,
+        description: "Concise business justification for the planned access request."
+      }
+    ]
+  };
+}
+
+function pendingStringArray(context: Record<string, unknown>, key: string): string[] {
+  const value = context[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
+    : [];
+}
+
+function planningConnectorForResource(resourceSystem: string | undefined, installedAgents: InstalledTrustedAgents): TrustedOnboardedAgent | undefined {
+  const normalized = resourceSystem?.toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  return installedAgents.find((agent) =>
+    agent.connectorProfile?.planning?.supported === true &&
+    [agent.resourceSystem, agent.connectorProfile?.resourceSystem]
+      .filter((value): value is string => Boolean(value))
+      .some((value) => value.toLowerCase() === normalized)
+  );
+}
+
+function governedPlanningMissingInputs(input: {
+  targetResourceName?: string;
+  requestedAccessLevel?: string;
+  businessReason?: string;
+}): string[] {
+  return [
+    input.targetResourceName ? undefined : "resource/project/site",
+    input.requestedAccessLevel ? undefined : "accessLevel",
+    input.businessReason ? undefined : "businessReason"
+  ].filter((item): item is string => Boolean(item));
+}
+
+function governedPlanningQuestion(missingInputs: string[]): string {
+  const fields = missingInputs.map((field) => {
+    if (field === "accessLevel") {
+      return "access level (viewer, contributor, or project admin)";
+    }
+    if (field === "businessReason") {
+      return "business reason";
+    }
+    return field;
+  });
+  if (fields.length <= 1) {
+    return `I need the ${fields[0] ?? "missing detail"} before I can continue planning.`;
+  }
+  return `I need the ${fields.slice(0, -1).join(", ")} and ${fields[fields.length - 1]} before I can continue planning.`;
+}
+
+function governedPlanningClassification(targetResourceSystem: string): Classification {
+  return {
+    system: targetResourceSystem,
+    issueType: "AUTHORIZATION_FAILURE",
+    confidence: "high",
+    reasoningSummary: "Deterministic connector planning state handled an access request without runtime execution.",
+    classificationSource: "rules_fallback",
+    reporterType: "end_user",
+    supportMode: "end_user_support"
+  };
+}
+
+function governedPlanningInterpretation(state: GovernedPlanningState): RequestInterpretation {
+  return {
+    scope: "enterprise_support",
+    intentType: "access_request",
+    requestedCapability: "access.request.prepare",
+    targetSystemText: state.targetResourceSystem,
+    targetResourceType: "project",
+    targetResourceName: state.targetResourceName,
+    requestedActionText: [
+      state.requestedAccessLevel ? `${state.requestedAccessLevel} access` : "access",
+      `to ${state.targetResourceSystem} ${state.targetResourceName}`
+    ].join(" "),
+    requiresApproval: true,
+    confidence: "high",
+    reason: "Governed connector planning state preserved the target resource and collected missing planning inputs.",
+    interpretationSource: "fallback"
+  };
+}
+
+function hashOriginalUserRequest(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function buildGovernedPlanningPendingInteraction(params: {
+  originalUserRequest: string;
+  tenantContext: ResolvedTenantContext;
+  conversationState: ConversationState;
+  actor?: VerifiedUserIdentity;
+  state: GovernedPlanningState;
+  createdAt?: Date;
+}): PendingInteraction {
+  const createdAt = params.createdAt ?? new Date();
+  const expiresAt = new Date(createdAt.getTime() + governedPlanningPendingTtlMs);
+  const safeOriginalUserRequestSummary = safeConversationSummary(params.originalUserRequest);
+  const originalUserRequestHash = hashOriginalUserRequest(params.originalUserRequest);
+  const proof = {
+    rawPromptStored: false as const,
+    tokenMaterialStored: false as const,
+    protectedMaterialExposed: false as const
+  };
+
+  return {
+    id: createTaskId(),
+    type: "missing_input",
+    originalUserRequest: safeOriginalUserRequestSummary,
+    safeOriginalUserRequestSummary,
+    originalUserRequestHash,
+    tenantId: params.tenantContext.tenantId,
+    conversationId: params.conversationState.conversationId,
+    actorProvider: params.actor?.provider,
+    actorSubject: params.actor?.subject,
+    actorEmail: params.actor?.email,
+    ...proof,
+    createdAt: createdAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    context: {
+      tenantId: params.tenantContext.tenantId,
+      conversationId: params.conversationState.conversationId,
+      actorProvider: params.actor?.provider,
+      actorSubject: params.actor?.subject,
+      actorEmail: params.actor?.email,
+      originalUserRequestHash,
+      originalUserRequest: safeOriginalUserRequestSummary,
+      safeOriginalUserRequestSummary,
+      connectorId: params.state.connectorId,
+      resourceSystem: params.state.resourceSystem,
+      targetResourceSystem: params.state.targetResourceSystem,
+      targetResourceName: params.state.targetResourceName,
+      requestedAccessLevel: params.state.requestedAccessLevel,
+      businessReason: params.state.businessReason,
+      missingInputs: params.state.missingInputs,
+      collectedInputs: governedPlanningCollectedInputs(params.state),
+      inputSchema: governedPlanningInputSchema(),
+      inputHints: {
+        expectedSlots: ["accessLevel", "businessReason"],
+        cancellationPhrases: ["cancel", "never mind", "stop", "forget it", "don't continue"],
+        confirmationPhrases: []
+      },
+      recommendedAction: "access.request.prepare",
+      planContext: "governed_connector_access_planning",
+      ...proof
+    }
+  };
+}
+
+function pendingGovernedPlanningState(pending: PendingInteraction): GovernedPlanningState | undefined {
+  const targetResourceSystem = pendingString(pending.context, "targetResourceSystem");
+  const targetResourceName = pendingString(pending.context, "targetResourceName");
+  if (pending.type !== "missing_input" || !targetResourceSystem || !targetResourceName) {
+    return undefined;
+  }
+
+  const requestedAccessLevel = pendingString(pending.context, "requestedAccessLevel");
+  const businessReason = pendingString(pending.context, "businessReason");
+  const collectedInputs = typeof pending.context.collectedInputs === "object" && pending.context.collectedInputs !== null && !Array.isArray(pending.context.collectedInputs)
+    ? pending.context.collectedInputs as Record<string, unknown>
+    : {};
+  const collectedAccessLevel = typeof collectedInputs.accessLevel === "string" ? collectedInputs.accessLevel.trim() : undefined;
+  const collectedBusinessReason = typeof collectedInputs.businessReason === "string" ? collectedInputs.businessReason.trim() : undefined;
+  return {
+    connectorId: pendingString(pending.context, "connectorId"),
+    resourceSystem: pendingString(pending.context, "resourceSystem"),
+    targetResourceSystem,
+    targetResourceName,
+    requestedAccessLevel: requestedAccessLevel ?? collectedAccessLevel,
+    businessReason: businessReason ?? collectedBusinessReason,
+    missingInputs: pendingStringArray(pending.context, "missingInputs").length
+      ? pendingStringArray(pending.context, "missingInputs")
+      : governedPlanningMissingInputs({ targetResourceName, requestedAccessLevel: requestedAccessLevel ?? collectedAccessLevel, businessReason: businessReason ?? collectedBusinessReason })
+  };
+}
+
+function pendingInteractionExpired(pending: PendingInteraction, now = new Date()): boolean {
+  return Boolean(pending.expiresAt && Number.isFinite(Date.parse(pending.expiresAt)) && Date.parse(pending.expiresAt) <= now.getTime());
+}
+
+function pendingInteractionMatchesResolvedOwner(params: {
+  pending: PendingInteraction;
+  conversationState: ConversationState;
+  tenantContext: ResolvedTenantContext;
+  actor?: VerifiedUserIdentity;
+}): boolean {
+  const pendingTenantId = params.pending.tenantId ?? pendingString(params.pending.context, "tenantId");
+  if (pendingTenantId && pendingTenantId !== params.tenantContext.tenantId) {
+    return false;
+  }
+  const pendingConversationId = params.pending.conversationId ?? pendingString(params.pending.context, "conversationId");
+  if (pendingConversationId && pendingConversationId !== params.conversationState.conversationId) {
+    return false;
+  }
+  const pendingActorProvider = params.pending.actorProvider ?? pendingString(params.pending.context, "actorProvider");
+  const pendingActorSubject = params.pending.actorSubject ?? pendingString(params.pending.context, "actorSubject");
+  const pendingActorEmail = params.pending.actorEmail ?? pendingString(params.pending.context, "actorEmail");
+  if ((pendingActorProvider || pendingActorSubject || pendingActorEmail) && !params.actor) {
+    return false;
+  }
+  if (pendingActorProvider && params.actor?.provider && pendingActorProvider !== params.actor.provider) {
+    return false;
+  }
+  if (pendingActorSubject && params.actor?.subject && pendingActorSubject !== params.actor.subject) {
+    return false;
+  }
+  if (pendingActorEmail && params.actor?.email && pendingActorEmail !== params.actor.email) {
+    return false;
+  }
+  return true;
+}
+
+function mergeGovernedPlanningInputs(params: {
+  pending: PendingInteraction;
+  resolution: PendingInteractionResolution;
+}): { state: GovernedPlanningState; collectedInputs: string[] } | undefined {
+  const current = pendingGovernedPlanningState(params.pending);
+  if (!current) {
+    return undefined;
+  }
+
+  const extracted = params.resolution.extractedValues ?? {};
+  const requestedAccessLevel = extracted.accessLevel ?? current.requestedAccessLevel;
+  const businessReason = extracted.businessReason ?? current.businessReason;
+  const missingInputs = governedPlanningMissingInputs({
+    targetResourceName: current.targetResourceName,
+    requestedAccessLevel,
+    businessReason
+  });
+  return {
+    state: {
+      ...current,
+      requestedAccessLevel,
+      businessReason,
+      missingInputs
+    },
+    collectedInputs: ["accessLevel", "businessReason"].filter((key) => Boolean(extracted[key]))
+  };
+}
+
+function initialGovernedPlanningState(params: {
+  message: string;
+  installedAgents: InstalledTrustedAgents;
+}): GovernedPlanningState | undefined {
+  const intent = inferConnectorRoutingIntent(params.message);
+  if (intent.fulfillmentCapability !== "access.request.prepare" || !intent.targetResourceSystem || !intent.targetResourceName) {
+    return undefined;
+  }
+  const planningConnector = planningConnectorForResource(intent.targetResourceSystem, params.installedAgents);
+  if (!planningConnector) {
+    return undefined;
+  }
+
+  const requestedAccessLevel = intent.requestedAccessLevel ?? extractPendingAccessLevelFromMessage(params.message);
+  const businessReason = extractPendingBusinessReasonFromMessage(params.message);
+  return {
+    connectorId: planningConnector.connectorId ?? planningConnector.connectorProfile?.connectorId,
+    resourceSystem: planningConnector.resourceSystem ?? planningConnector.connectorProfile?.resourceSystem ?? intent.targetResourceSystem,
+    targetResourceSystem: intent.targetResourceSystem,
+    targetResourceName: intent.targetResourceName,
+    requestedAccessLevel,
+    businessReason,
+    missingInputs: governedPlanningMissingInputs({
+      targetResourceName: intent.targetResourceName,
+      requestedAccessLevel,
+      businessReason
+    })
+  };
+}
+
+function governedPlanningRuntimeExecutionProof() {
+  return {
+    executed: false,
+    runtimeTokenIssued: false,
+    externalRuntimeCalled: false
+  };
+}
+
+function governedPlanningEvidence(params: {
+  state: GovernedPlanningState;
+  pendingInteractionId?: string;
+  pendingInteractionResumed: boolean;
+  missingInputsCollected?: string[];
+}) {
+  return {
+    agent: orchestratorAgentId,
+    title: params.pendingInteractionResumed ? "Governed planning resume" : "Governed pending planning state",
+    data: {
+      pendingInteractionId: params.pendingInteractionId,
+      pendingInteractionResumed: params.pendingInteractionResumed,
+      missingInputsCollected: params.missingInputsCollected ?? [],
+      requestSubmitted: false,
+      runtimeExecution: governedPlanningRuntimeExecutionProof(),
+      connectorId: params.state.connectorId,
+      resourceSystem: params.state.resourceSystem,
+      targetResourceSystem: params.state.targetResourceSystem,
+      targetResourceName: params.state.targetResourceName,
+      accessLevel: params.state.requestedAccessLevel,
+      businessReason: params.state.businessReason,
+      missingInputs: params.state.missingInputs,
+      rawPromptStored: false,
+      tokenMaterialStored: false,
+      protectedMaterialExposed: false
+    }
+  };
+}
+
+function governedPlanningGateStack(params: {
+  finalOutcome: NonNullable<ResolveResponse["executionGateStack"]>["finalOutcome"];
+  stoppedAt: NonNullable<ResolveResponse["executionGateStack"]>["stoppedAt"];
+  gatewayReason: string;
+  aiReason?: string;
+}): NonNullable<ResolveResponse["executionGateStack"]> {
+  return {
+    stoppedAt: params.stoppedAt,
+    finalOutcome: params.finalOutcome,
+    gates: [
+      {
+        id: "ai_interpretation",
+        label: "AI Interpretation",
+        status: "not_evaluated",
+        reason: params.aiReason ?? "Governed pending planning state was evaluated before new AI routing."
+      },
+      {
+        id: "gateway_governance",
+        label: "Gateway Governance",
+        status: "passed",
+        reason: params.gatewayReason
+      },
+      {
+        id: "oauth_scope",
+        label: "OAuth Scope Gate",
+        status: "not_evaluated",
+        reason: "No runtime token was issued for connector planning."
+      },
+      {
+        id: "service_account_permission",
+        label: "Service Account Permission Gate",
+        status: "not_evaluated",
+        reason: "No permission change or connector write request was submitted."
+      },
+      {
+        id: "runtime_execution",
+        label: "Runtime Execution",
+        status: "not_evaluated",
+        reason: "No connector runtime was called."
+      }
+    ]
+  };
 }
 
 function contextlessContinuationRequest(message: string): boolean {
@@ -2855,20 +3254,403 @@ async function buildAgentsHealthResponse(): Promise<AgentsHealthResponse> {
 
 async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, tenantContext = tenantContextForRequest(currentUserIdentity(sessionToken))): Promise<ResolveResponse> {
   const verifiedUser = currentUserIdentity(sessionToken);
-  const conversationOwner = conversationOwnerContext({ sessionToken, actor: verifiedUser });
+  const conversationOwner = conversationOwnerContext({ sessionToken, actor: verifiedUser, tenantId: tenantContext.tenantId });
   const conversationState = getOrCreateConversationState(requestBody.conversationId, conversationOwner);
+  const conversationId = conversationState.conversationId;
   const responseUserIdentity = safeUserIdentity(sessionToken);
   const requestAgentCards = getExecutableAgentCards();
   const installedAgents = sessionToken ? await listTrustedOnboardedAgentsForOwner(sessionToken) : [];
   appendConversationMessage(conversationState, "user", requestBody.message);
   const earlySecurityIntent = detectAdversarialIntent(requestBody.message);
-  const pendingInteractionResolution = conversationState.pendingInteraction
+  let activePendingInteraction = conversationState.pendingInteraction;
+  if (
+    activePendingInteraction &&
+    (pendingInteractionExpired(activePendingInteraction) || !pendingInteractionMatchesResolvedOwner({
+      pending: activePendingInteraction,
+      conversationState,
+      tenantContext,
+      actor: verifiedUser
+    }))
+  ) {
+    conversationState.pendingInteraction = undefined;
+    activePendingInteraction = undefined;
+  }
+  const pendingInteractionResolution = activePendingInteraction
     ? await resolvePendingInteraction({
-        pendingInteraction: conversationState.pendingInteraction,
+        pendingInteraction: activePendingInteraction,
         userMessage: requestBody.message,
         securityIntent: earlySecurityIntent
       })
     : undefined;
+
+  const finalizeEarly = (response: Omit<ResolveResponse, "userIdentity">): ResolveResponse => {
+    const userIdentityTrace = verifiedUser
+      ? [
+          executionStep(
+            "orchestrator",
+            "user_identity_verified",
+            `Verified ${verifiedUser.provider} user ${verifiedUser.email}; actor context attached to gateway session.`
+          )
+        ]
+      : [];
+    const finalResponse: ResolveResponse = {
+      ...response,
+      conversationId,
+      userIdentity: responseUserIdentity,
+      executionTrace: [...userIdentityTrace, ...response.executionTrace]
+    };
+    updateConversationState(conversationState, finalResponse);
+    void persistConversationStateSnapshot({
+      state: conversationState,
+      actor: verifiedUser,
+      response: finalResponse
+    });
+    return finalResponse;
+  };
+
+  if (activePendingInteraction?.type === "missing_input" && pendingInteractionResolution?.relation === "unrelated_new_request") {
+    conversationState.pendingInteraction = undefined;
+  } else if (activePendingInteraction?.type === "missing_input" && pendingInteractionResolution?.relation === "cancel") {
+    const state = pendingGovernedPlanningState(activePendingInteraction) ?? {
+      targetResourceSystem: pendingString(activePendingInteraction.context, "targetResourceSystem") ?? "connector",
+      targetResourceName: pendingString(activePendingInteraction.context, "targetResourceName") ?? "target",
+      missingInputs: pendingStringArray(activePendingInteraction.context, "missingInputs")
+    };
+    return finalizeEarly({
+      conversationId,
+      finalAnswer: "CANCELLED\nI stopped the pending planning flow.\nNo changes were made.\nNo request was submitted.",
+      classification: governedPlanningClassification(state.targetResourceSystem),
+      selectedAgents: [],
+      skippedAgents: [],
+      routingSource: "rules_fallback",
+      routingConfidence: "high",
+      routingReasoningSummary: "User cancelled governed pending planning state before new routing.",
+      resolutionStatus: "resolved",
+      evidence: [
+        governedPlanningEvidence({
+          state,
+          pendingInteractionId: activePendingInteraction.id,
+          pendingInteractionResumed: false
+        })
+      ],
+      agentTrace: [
+        trace("pending_planning_cancelled", pendingInteractionResolution.reason)
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "resolve_pending_interaction", pendingInteractionResolution.reason),
+        executionStep("orchestrator", "cancel_pending_planning", "Cleared governed pending planning state without submission or runtime execution."),
+        executionStep("orchestrator", "skip_runtime_execution", "No runtime token was issued and no external connector runtime was called.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: governedPlanningInterpretation(state),
+      pendingInteractionResolution,
+      executionGateStack: governedPlanningGateStack({
+        finalOutcome: "needs_more_info",
+        stoppedAt: "gateway_governance",
+        gatewayReason: "User cancelled the pending planning interaction; Gateway took no runtime action."
+      }),
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis: {
+        probableCause: "Pending governed planning flow was cancelled",
+        recommendedFix: "Start a new request when you are ready."
+      }
+    });
+  } else if (activePendingInteraction?.type === "missing_input" && (pendingInteractionResolution?.relation === "adversarial_attempt" || pendingInteractionResolution?.securityConcern)) {
+    const state = pendingGovernedPlanningState(activePendingInteraction) ?? {
+      targetResourceSystem: pendingString(activePendingInteraction.context, "targetResourceSystem") ?? "connector",
+      targetResourceName: pendingString(activePendingInteraction.context, "targetResourceName") ?? "target",
+      missingInputs: pendingStringArray(activePendingInteraction.context, "missingInputs")
+    };
+    await appendSecurityBlockedAuditEvent({
+      actor: verifiedUser,
+      category: earlySecurityIntent.category ?? "adversarial_or_governance_bypass",
+      reason: earlySecurityIntent.detected ? earlySecurityIntent.reason : pendingInteractionResolution.reason,
+      finalOutcome: "blocked_at_gateway"
+    });
+    return finalizeEarly({
+      conversationId,
+      finalAnswer: "BLOCKED\nI cannot use follow-up text to bypass approval, policy, identity, tenant, or connector controls.\nNo changes were made.\nNo request was submitted.",
+      classification: governedPlanningClassification(state.targetResourceSystem),
+      selectedAgents: [],
+      skippedAgents: [],
+      routingSource: "rules_fallback",
+      routingConfidence: "high",
+      routingReasoningSummary: "Blocked adversarial pending planning follow-up before new routing.",
+      resolutionStatus: "resolved",
+      evidence: [
+        governedPlanningEvidence({
+          state,
+          pendingInteractionId: activePendingInteraction.id,
+          pendingInteractionResumed: false
+        })
+      ],
+      agentTrace: [
+        trace("pending_planning_adversarial_blocked", pendingInteractionResolution.reason)
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "resolve_pending_interaction", pendingInteractionResolution.reason),
+        executionStep("orchestrator", "block_at_gateway_governance", "Follow-up attempted to bypass governed controls."),
+        executionStep("orchestrator", "skip_runtime_execution", "No runtime token was issued and no external connector runtime was called.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: governedPlanningInterpretation(state),
+      securityIntent: earlySecurityIntent.detected ? earlySecurityIntent : {
+        detected: true,
+        category: "policy_bypass_attempt",
+        reason: pendingInteractionResolution.reason
+      },
+      pendingInteractionResolution,
+      executionGateStack: governedPlanningGateStack({
+        finalOutcome: "blocked_at_gateway",
+        stoppedAt: "gateway_governance",
+        gatewayReason: "Gateway blocked the pending planning follow-up because it attempted to bypass governed controls."
+      }),
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis: {
+        probableCause: "Governance bypass attempt in pending planning follow-up",
+        recommendedFix: "Use normal approved request and review steps. Prompt text cannot grant permissions or bypass policy."
+      }
+    });
+  } else if (
+    activePendingInteraction?.type === "missing_input" &&
+    pendingInteractionResolution &&
+    (pendingInteractionResolution.relation === "provide_missing_input" ||
+      pendingInteractionResolution.relation === "ask_question" ||
+      pendingInteractionResolution.relation === "unclear")
+  ) {
+    const merged = pendingInteractionResolution.relation === "provide_missing_input"
+      ? mergeGovernedPlanningInputs({ pending: activePendingInteraction, resolution: pendingInteractionResolution })
+      : undefined;
+    const state = merged?.state ?? pendingGovernedPlanningState(activePendingInteraction);
+    if (state) {
+      const remainingInputs = state.missingInputs;
+      if (remainingInputs.length) {
+        const updatedPendingInteraction: PendingInteraction = {
+          ...activePendingInteraction,
+          context: {
+            ...activePendingInteraction.context,
+            connectorId: state.connectorId,
+            resourceSystem: state.resourceSystem,
+            targetResourceSystem: state.targetResourceSystem,
+            targetResourceName: state.targetResourceName,
+            requestedAccessLevel: state.requestedAccessLevel,
+            businessReason: state.businessReason,
+            missingInputs: remainingInputs,
+            collectedInputs: governedPlanningCollectedInputs(state),
+            inputSchema: activePendingInteraction.context.inputSchema ?? governedPlanningInputSchema(),
+            inputHints: activePendingInteraction.context.inputHints ?? {
+              expectedSlots: ["accessLevel", "businessReason"],
+              cancellationPhrases: ["cancel", "never mind", "stop", "forget it", "don't continue"],
+              confirmationPhrases: []
+            },
+            rawPromptStored: false,
+            tokenMaterialStored: false,
+            protectedMaterialExposed: false
+          }
+        };
+        return finalizeEarly({
+          conversationId,
+          finalAnswer: [
+            "NEEDS MORE INFO",
+            governedPlanningQuestion(remainingInputs),
+            "",
+            `Target: ${state.targetResourceSystem} ${state.targetResourceName}.`,
+            state.requestedAccessLevel ? `Access level: ${state.requestedAccessLevel}.` : undefined,
+            state.businessReason ? `Business reason: ${state.businessReason}.` : undefined,
+            "",
+            "No changes were made.",
+            "No request was submitted."
+          ].filter((line): line is string => line !== undefined).join("\n"),
+          classification: governedPlanningClassification(state.targetResourceSystem),
+          selectedAgents: [],
+          skippedAgents: [],
+          routingSource: "rules_fallback",
+          routingConfidence: "high",
+          routingReasoningSummary: "Pending governed planning state was resumed and still needs remaining inputs.",
+          resolutionStatus: "needs_more_info",
+          evidence: [
+            governedPlanningEvidence({
+              state,
+              pendingInteractionId: activePendingInteraction.id,
+              pendingInteractionResumed: true,
+              missingInputsCollected: merged?.collectedInputs
+            })
+          ],
+          agentTrace: [
+            trace("pending_planning_resumed", pendingInteractionResolution.reason),
+            trace("pending_planning_needs_more_info", `Remaining inputs: ${remainingInputs.join(", ")}`)
+          ],
+          executionTrace: [
+            executionStep("user", "submit_issue", requestBody.message),
+            executionStep("orchestrator", "resolve_pending_interaction", pendingInteractionResolution.reason),
+            executionStep("orchestrator", "collect_missing_planning_inputs", `Collected: ${(merged?.collectedInputs ?? []).join(", ") || "none"}. Remaining: ${remainingInputs.join(", ")}.`),
+            executionStep("orchestrator", "skip_runtime_execution", "No request was submitted, no runtime token was issued, and no external connector runtime was called.")
+          ],
+          securityDecisions: [],
+          requestInterpretation: governedPlanningInterpretation(state),
+          pendingInteraction: updatedPendingInteraction,
+          pendingInteractionResolution,
+          executionGateStack: governedPlanningGateStack({
+            finalOutcome: "needs_more_info",
+            stoppedAt: "gateway_governance",
+            gatewayReason: "Gateway resumed pending planning state and asked only for remaining planning inputs."
+          }),
+          a2aTasks: [],
+          a2aResponses: [],
+          diagnosis: {
+            probableCause: "Governed connector planning still needs missing inputs",
+            recommendedFix: governedPlanningQuestion(remainingInputs)
+          }
+        });
+      }
+
+      return finalizeEarly({
+        conversationId,
+        finalAnswer: [
+          "PLANNING READY",
+          `I continued the planning flow for ${state.targetResourceSystem} ${state.targetResourceName} ${state.requestedAccessLevel ?? "requested"} access.`,
+          state.businessReason ? `Business reason: ${state.businessReason}.` : undefined,
+          "",
+          "No changes were made.",
+          "No request was submitted.",
+          "This is ready for review/approval/request submission in a later step."
+        ].filter((line): line is string => line !== undefined).join("\n"),
+        classification: governedPlanningClassification(state.targetResourceSystem),
+        selectedAgents: [],
+        skippedAgents: [],
+        routingSource: "rules_fallback",
+        routingConfidence: "high",
+        routingReasoningSummary: "Pending governed planning state resumed before new routing and collected all required inputs.",
+        resolutionStatus: "needs_more_info",
+        evidence: [
+          governedPlanningEvidence({
+            state,
+            pendingInteractionId: activePendingInteraction.id,
+            pendingInteractionResumed: true,
+            missingInputsCollected: merged?.collectedInputs
+          })
+        ],
+        agentTrace: [
+          trace("pending_planning_resumed", pendingInteractionResolution.reason),
+          trace("pending_planning_ready", "All required planning inputs were collected without submission or runtime execution.")
+        ],
+        executionTrace: [
+          executionStep("user", "submit_issue", requestBody.message),
+          executionStep("orchestrator", "resolve_pending_interaction", pendingInteractionResolution.reason),
+          executionStep("orchestrator", "collect_missing_planning_inputs", `Collected: ${(merged?.collectedInputs ?? []).join(", ") || "none"}.`),
+          executionStep("orchestrator", "complete_planning_without_submission", "Planning inputs are complete. No request was submitted."),
+          executionStep("orchestrator", "skip_runtime_execution", "runtimeExecution.executed=false; runtimeExecution.runtimeTokenIssued=false; runtimeExecution.externalRuntimeCalled=false.")
+        ],
+        securityDecisions: [],
+        requestInterpretation: governedPlanningInterpretation(state),
+        pendingInteractionResolution,
+        executionGateStack: governedPlanningGateStack({
+          finalOutcome: "planned",
+          stoppedAt: "runtime_execution",
+          gatewayReason: "Gateway resumed tenant/user/conversation-scoped planning state and completed planning without submission."
+        }),
+        a2aTasks: [],
+        a2aResponses: [],
+        diagnosis: {
+          probableCause: "Governed connector planning inputs are complete",
+          recommendedFix: "Review the plan and submit through a governed approval/request flow later."
+        }
+      });
+    }
+    conversationState.pendingInteraction = undefined;
+  }
+
+  const initialPlanningState = initialGovernedPlanningState({ message: requestBody.message, installedAgents });
+  if (initialPlanningState) {
+    const pendingInteraction = initialPlanningState.missingInputs.length
+      ? buildGovernedPlanningPendingInteraction({
+          originalUserRequest: requestBody.message,
+          tenantContext,
+          conversationState,
+          actor: verifiedUser,
+          state: initialPlanningState
+        })
+      : undefined;
+    return finalizeEarly({
+      conversationId,
+      finalAnswer: initialPlanningState.missingInputs.length
+        ? [
+            "NEEDS MORE INFO",
+            governedPlanningQuestion(initialPlanningState.missingInputs),
+            "",
+            `Target: ${initialPlanningState.targetResourceSystem} ${initialPlanningState.targetResourceName}.`,
+            "",
+            "No changes were made.",
+            "No request was submitted."
+          ].join("\n")
+        : [
+            "PLANNING READY",
+            `I prepared the planning inputs for ${initialPlanningState.targetResourceSystem} ${initialPlanningState.targetResourceName} ${initialPlanningState.requestedAccessLevel ?? "requested"} access.`,
+            initialPlanningState.businessReason ? `Business reason: ${initialPlanningState.businessReason}.` : undefined,
+            "",
+            "No changes were made.",
+            "No request was submitted.",
+            "This is ready for review/approval/request submission in a later step."
+          ].filter((line): line is string => line !== undefined).join("\n"),
+      classification: governedPlanningClassification(initialPlanningState.targetResourceSystem),
+      selectedAgents: [],
+      skippedAgents: [],
+      routingSource: "rules_fallback",
+      routingConfidence: "high",
+      routingReasoningSummary: initialPlanningState.missingInputs.length
+        ? "Stored tenant/user/conversation-scoped governed planning state before runtime routing."
+        : "Collected complete governed planning inputs without submitting or executing the request.",
+      resolutionStatus: "needs_more_info",
+      evidence: [
+        governedPlanningEvidence({
+          state: initialPlanningState,
+          pendingInteractionId: pendingInteraction?.id,
+          pendingInteractionResumed: false
+        })
+      ],
+      agentTrace: [
+        trace(
+          initialPlanningState.missingInputs.length ? "pending_planning_created" : "planning_ready_without_submission",
+          initialPlanningState.missingInputs.length
+            ? `Missing inputs: ${initialPlanningState.missingInputs.join(", ")}`
+            : "All required planning inputs are present; no request submitted."
+        )
+      ],
+      executionTrace: [
+        executionStep("user", "submit_issue", requestBody.message),
+        executionStep("orchestrator", "detect_governed_access_planning", "Detected connector access planning request with deterministic routing intent."),
+        ...(initialPlanningState.missingInputs.length
+          ? [executionStep("orchestrator", "store_pending_planning_state", `Stored missing inputs: ${initialPlanningState.missingInputs.join(", ")}.`)]
+          : [executionStep("orchestrator", "complete_planning_without_submission", "Planning inputs are complete. No request was submitted.")]),
+        executionStep("orchestrator", "skip_runtime_execution", "No request was submitted, no runtime token was issued, and no external connector runtime was called.")
+      ],
+      securityDecisions: [],
+      requestInterpretation: governedPlanningInterpretation(initialPlanningState),
+      pendingInteraction,
+      executionGateStack: governedPlanningGateStack({
+        finalOutcome: initialPlanningState.missingInputs.length ? "needs_more_info" : "planned",
+        stoppedAt: initialPlanningState.missingInputs.length ? "gateway_governance" : "runtime_execution",
+        gatewayReason: initialPlanningState.missingInputs.length
+          ? "Gateway stored governed pending planning state and asked for missing inputs."
+          : "Gateway completed planning inputs without submission or runtime execution."
+      }),
+      a2aTasks: [],
+      a2aResponses: [],
+      diagnosis: {
+        probableCause: initialPlanningState.missingInputs.length
+          ? "Governed connector planning requires missing inputs"
+          : "Governed connector planning inputs are complete",
+        recommendedFix: initialPlanningState.missingInputs.length
+          ? governedPlanningQuestion(initialPlanningState.missingInputs)
+          : "Review the plan and submit through a governed approval/request flow later."
+      }
+    });
+  }
+
   const followUp = await interpretFollowUp({
     currentMessage: requestBody.message,
     previousUserMessage: lastUserMessageBeforeLatest(conversationState),
@@ -2892,7 +3674,6 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
     actor: verifiedUser
   });
   const classification = routingDecision.classification;
-  const conversationId = conversationState.conversationId;
   const incidentInterpretation =
     followUp.isFollowUp && conversationState.lastRequestInterpretation
       ? {

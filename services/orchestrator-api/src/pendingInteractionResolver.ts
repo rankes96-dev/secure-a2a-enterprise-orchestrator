@@ -1,4 +1,4 @@
-import type { PendingInteraction, PendingInteractionResolution, SecurityIntent } from "@a2a/shared";
+import type { PendingInputSchema, PendingInputSchemaSlot, PendingInteraction, PendingInteractionResolution, SecurityIntent } from "@a2a/shared";
 import { getAiConfig, getSafeAiConfigSummary } from "./config/aiConfig.js";
 import { callOpenRouterJson } from "./openRouterClient.js";
 
@@ -11,7 +11,7 @@ You receive:
 Classify the relation only. Do not decide execution. Do not grant permissions. Do not expose secrets.
 AI may classify the follow-up message, but Gateway enforcement decides what can happen next.
 
-Return strict JSON only:
+For most pending interaction types, return strict JSON only:
 {
   "relation": "confirm|cancel|provide_missing_target|provide_missing_input|modify_request|ask_question|unrelated_new_request|adversarial_attempt|unclear",
   "confidence": "high|medium|low",
@@ -29,6 +29,23 @@ Guidance:
 - If the user asks a question about what will happen, classify ask_question.
 - If the message starts a different request, classify unrelated_new_request.
 - If uncertain, classify unclear.`;
+
+const pendingSlotExtractionPrompt = `You are a Gateway missing-input slot extraction assistant.
+Return candidate slot values only. Do not classify routing. Do not decide execution. Do not grant permissions. Do not approve requests.
+
+Return strict JSON only:
+{
+  "extractedValues": {
+    "slotName": "candidate value"
+  }
+}
+
+Rules:
+- Extract only slots listed in expectedSlots.
+- Do not invent values.
+- Do not include policy, approval, execution, tokens, secrets, prompts, Authorization headers, or protected material.
+- accessLevel candidates must be one of: viewer, contributor, project admin.
+- businessReason must be concise and must not contain bypass, token, secret, or protected material requests.`;
 
 const allowedRelations = new Set<PendingInteractionResolution["relation"]>([
   "confirm",
@@ -56,6 +73,12 @@ function optionalRecordOfStrings(value: unknown): Record<string, string> | undef
     .map(([key, item]) => [key, item.trim()] as const)
     .filter(([, item]) => item.length > 0);
   return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function optionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function normalizeResolution(value: unknown, fallback: PendingInteractionResolution): PendingInteractionResolution {
@@ -105,15 +128,201 @@ function looksQuestionLike(message: string): boolean {
     /\b(options|available|explain|why do you need|what systems|which systems)\b/.test(normalized);
 }
 
-function looksUnrelatedOrUnsafeTargetAnswer(message: string): boolean {
+function unsafePendingMessageReason(message: string): string | undefined {
   const normalized = message.trim().toLowerCase();
-  return /\b(raw token|bearer|authorization header|client secret|private key|api key|cookie|internal service token|bypass|ignore policy|admin permissions)\b/.test(normalized) ||
-    normalized.split(/\s+/).length > 8;
+  if (/\b(raw token|bearer|authorization header|client secret|private key|api key|cookie|internal service token|bypass|ignore policy|skip approval|override approval|admin token|admin permissions)\b/.test(normalized)) {
+    return "Deterministic pending interaction guard detected protected material or governance bypass terms.";
+  }
+  return undefined;
+}
+
+export function extractPendingAccessLevelFromMessage(message: string): string | undefined {
+  const normalized = message.trim().toLowerCase();
+  if (/\b(project admin|admin|administrator)\b/.test(normalized)) {
+    return "project admin";
+  }
+  if (/\b(contributor|write|edit|developer)\b/.test(normalized)) {
+    return "contributor";
+  }
+  if (/\b(viewer|view|read-only|read only|read|browse)\b/.test(normalized)) {
+    return "viewer";
+  }
+  return undefined;
+}
+
+function cleanBusinessReason(value: string): string | undefined {
+  const cleaned = value
+    .replace(/^[\s,.:;-]+/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^that\s+/i, "");
+  if (cleaned.length < 3) {
+    return undefined;
+  }
+  if (/\b(raw token|bearer|authorization header|client secret|private key|api key|cookie|internal service token|bypass|ignore policy|skip approval|override approval|admin permissions)\b/i.test(cleaned)) {
+    return undefined;
+  }
+  return cleaned.slice(0, 240);
+}
+
+export function extractPendingBusinessReasonFromMessage(message: string): string | undefined {
+  const patterns = [
+    /\b(?:business reason|reason|justification)\s*(?:is|:|-)\s*(.+)$/i,
+    /\bbecause\s+(.+)$/i,
+    /\bi need (?:it|that|this|access)?\s*(?:for|to)\s+(.+)$/i,
+    /\bfor\s+(my\s+daily\s+job|daily work|work|my job|the project|project work|my team)\b/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    const value = match?.[1] ?? match?.[0];
+    const cleaned = value ? cleanBusinessReason(value) : undefined;
+    if (cleaned) {
+      return cleaned;
+    }
+  }
+
+  return undefined;
+}
+
+function pendingMissingInputs(pendingInteraction: PendingInteraction): string[] {
+  const missingInputs = pendingInteraction.context.missingInputs;
+  return Array.isArray(missingInputs)
+    ? missingInputs.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function pendingCollectedInputs(pendingInteraction: PendingInteraction): Record<string, string> {
+  const collected = optionalRecord(pendingInteraction.context.collectedInputs);
+  if (!collected) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(collected)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0)
+      .map(([key, value]) => [key, value.trim()])
+  );
+}
+
+function parsePendingInputSchema(pendingInteraction: PendingInteraction): PendingInputSchema | undefined {
+  const record = optionalRecord(pendingInteraction.context.inputSchema);
+  const slotsValue = record?.slots;
+  if (!record || !Array.isArray(slotsValue)) {
+    return undefined;
+  }
+
+  const slots: PendingInputSchemaSlot[] = slotsValue
+    .map((slot): PendingInputSchemaSlot | undefined => {
+      const slotRecord = optionalRecord(slot);
+      const name = optionalString(slotRecord?.name);
+      if (!name) {
+        return undefined;
+      }
+      const allowedValues = Array.isArray(slotRecord?.allowedValues)
+        ? slotRecord.allowedValues.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
+        : undefined;
+      const maxLength = typeof slotRecord?.maxLength === "number" && Number.isFinite(slotRecord.maxLength) && slotRecord.maxLength > 0
+        ? Math.floor(slotRecord.maxLength)
+        : undefined;
+      return {
+        name,
+        required: typeof slotRecord?.required === "boolean" ? slotRecord.required : undefined,
+        allowedValues,
+        maxLength,
+        description: optionalString(slotRecord?.description)
+      };
+    })
+    .filter((slot): slot is PendingInputSchemaSlot => Boolean(slot));
+
+  const strongUnrelatedIntentHints = Array.isArray(record.strongUnrelatedIntentHints)
+    ? record.strongUnrelatedIntentHints.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim().toLowerCase())
+    : undefined;
+
+  return {
+    schemaVersion: optionalString(record.schemaVersion) ?? "pending-input-schema.v1",
+    slots,
+    allowAiAssistedExtraction: record.allowAiAssistedExtraction === true,
+    strongUnrelatedIntentHints
+  };
+}
+
+function pendingInputHintSlots(pendingInteraction: PendingInteraction): string[] {
+  const hints = optionalRecord(pendingInteraction.context.inputHints);
+  const expectedSlots = hints?.expectedSlots;
+  return Array.isArray(expectedSlots)
+    ? expectedSlots.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
+    : [];
+}
+
+function expectedMissingSlotNames(pendingInteraction: PendingInteraction): string[] {
+  const missing = pendingMissingInputs(pendingInteraction);
+  const schema = parsePendingInputSchema(pendingInteraction);
+  const hinted = pendingInputHintSlots(pendingInteraction);
+  const collected = pendingCollectedInputs(pendingInteraction);
+  const schemaSlots = schema?.slots.map((slot) => slot.name).filter((name) => !collected[name]) ?? [];
+  return [...new Set((missing.length ? missing : [...hinted, ...schemaSlots]).filter((name) => !collected[name]))];
+}
+
+function slotSchema(pendingInteraction: PendingInteraction, name: string): PendingInputSchemaSlot | undefined {
+  return parsePendingInputSchema(pendingInteraction)?.slots.find((slot) => slot.name === name);
+}
+
+function stronglyUnrelatedToPendingInput(pendingInteraction: PendingInteraction, message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  const schemaHints = parsePendingInputSchema(pendingInteraction)?.strongUnrelatedIntentHints ?? [];
+  const configuredHintMatch = schemaHints.some((hint) => normalized.includes(hint));
+  return configuredHintMatch ||
+    /^(new|different|separate|unrelated)\s+(request|question|issue)\b/.test(normalized) ||
+    /^(start over|start a new request|new request|different request|separate request)\b/.test(normalized) ||
+    /\b(forget the previous|ignore the previous request|unrelated to that)\b/.test(normalized);
+}
+
+function validateSlotValue(pendingInteraction: PendingInteraction, slotName: string, value: string): string | undefined {
+  const slot = slotSchema(pendingInteraction, slotName);
+  const maxLength = slot?.maxLength ?? (slotName === "businessReason" ? 240 : 80);
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  if (!trimmed || trimmed.length > maxLength) {
+    return undefined;
+  }
+  if (unsafePendingMessageReason(trimmed)) {
+    return undefined;
+  }
+  if (slotName === "accessLevel") {
+    return ["viewer", "contributor", "project admin"].includes(trimmed) ? trimmed : undefined;
+  }
+  if (slot?.allowedValues?.length && !slot.allowedValues.includes(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function extractExpectedSlots(pendingInteraction: PendingInteraction, message: string, candidates?: Record<string, string>): Record<string, string> {
+  const expectedSlots = expectedMissingSlotNames(pendingInteraction);
+  const extractedValues: Record<string, string> = {};
+
+  for (const slot of expectedSlots) {
+    const rawCandidate = candidates?.[slot] ?? (
+      slot === "accessLevel" ? extractPendingAccessLevelFromMessage(message) :
+      slot === "businessReason" ? extractPendingBusinessReasonFromMessage(message) :
+      undefined
+    );
+    const candidate =
+      rawCandidate && slot === "accessLevel" ? extractPendingAccessLevelFromMessage(rawCandidate) ?? rawCandidate :
+      rawCandidate && slot === "businessReason" ? cleanBusinessReason(rawCandidate) :
+      rawCandidate;
+    const validated = candidate ? validateSlotValue(pendingInteraction, slot, candidate) : undefined;
+    if (validated) {
+      extractedValues[slot] = validated;
+    }
+  }
+
+  return extractedValues;
 }
 
 export function looksLikeTargetSelectionAnswer(pendingInteraction: PendingInteraction, message: string): boolean {
   const normalized = message.trim().toLowerCase();
-  if (!normalized || looksQuestionLike(message) || looksUnrelatedOrUnsafeTargetAnswer(message)) {
+  if (!normalized || looksQuestionLike(message) || unsafePendingMessageReason(message)) {
     return false;
   }
 
@@ -123,10 +332,6 @@ export function looksLikeTargetSelectionAnswer(pendingInteraction: PendingIntera
 
   const optionTerms = targetOptionTerms(pendingInteraction);
   if (optionTerms.some((term) => normalized === term || normalized === `use ${term}` || normalized === `${term} for the previous access request`)) {
-    return true;
-  }
-
-  if (/\b(jira|github|git hub|servicenow|service now)\b/.test(normalized)) {
     return true;
   }
 
@@ -153,7 +358,19 @@ function fallbackResolvePendingInteraction(params: {
   const message = params.userMessage.trim();
   const normalized = message.toLowerCase();
   const hasText = normalized.length > 0;
-  const looksLikeCancel = /\b(cancel|stop|nevermind|never mind|no thanks|don't|do not)\b/i.test(message);
+  const unsafeReason = unsafePendingMessageReason(message);
+  if (unsafeReason) {
+    return {
+      relation: "adversarial_attempt",
+      confidence: "high",
+      normalizedUserIntent: "attempted governance bypass or protected data access",
+      requiresNewRouting: false,
+      securityConcern: true,
+      reason: unsafeReason
+    };
+  }
+
+  const looksLikeCancel = /\b(cancel|stop|nevermind|never mind|no thanks|forget it|don't continue|do not continue)\b/i.test(message);
   if (looksLikeCancel) {
     return {
       relation: "cancel",
@@ -163,6 +380,44 @@ function fallbackResolvePendingInteraction(params: {
       securityConcern: false,
       reason: params.reason ?? "Deterministic fallback detected a cancellation."
     };
+  }
+
+  if (params.pendingInteraction.type === "missing_input") {
+    if (hasText && looksQuestionLike(message)) {
+      return {
+        relation: "ask_question",
+        confidence: "high",
+        normalizedUserIntent: message,
+        requiresNewRouting: false,
+        securityConcern: false,
+        reason: params.reason ?? "Deterministic fallback preserved missing-input planning state because the user asked a question."
+      };
+    }
+
+    const extractedValues = extractExpectedSlots(params.pendingInteraction, message);
+
+    if (Object.keys(extractedValues).length) {
+      return {
+        relation: "provide_missing_input",
+        confidence: "high",
+        normalizedUserIntent: message,
+        extractedValues,
+        requiresNewRouting: false,
+        securityConcern: false,
+        reason: params.reason ?? "Deterministic fallback extracted missing governed planning inputs."
+      };
+    }
+
+    if (hasText && stronglyUnrelatedToPendingInput(params.pendingInteraction, message)) {
+      return {
+        relation: "unrelated_new_request",
+        confidence: "medium",
+        normalizedUserIntent: message,
+        requiresNewRouting: true,
+        securityConcern: false,
+        reason: params.reason ?? "Deterministic fallback treated the message as a new unrelated request instead of merging it into the pending plan."
+      };
+    }
   }
 
   if (params.pendingInteraction.type === "target_selection" && hasText && looksQuestionLike(message)) {
@@ -222,6 +477,23 @@ async function callOpenRouter(input: unknown, apiKey: string, baseURL: string, m
   });
 }
 
+async function callOpenRouterSlotExtraction(input: unknown, apiKey: string, baseURL: string, model: string): Promise<string | undefined> {
+  return callOpenRouterJson({
+    apiKey,
+    baseURL,
+    model,
+    messages: [
+      { role: "system", content: pendingSlotExtractionPrompt },
+      { role: "user", content: JSON.stringify(input) }
+    ]
+  });
+}
+
+function normalizeSlotExtraction(value: unknown): Record<string, string> | undefined {
+  const record = optionalRecord(value);
+  return optionalRecordOfStrings(record?.extractedValues);
+}
+
 export async function resolvePendingInteraction(params: {
   pendingInteraction: PendingInteraction;
   userMessage: string;
@@ -231,6 +503,73 @@ export async function resolvePendingInteraction(params: {
 
   if (params.securityIntent?.detected) {
     return fallback;
+  }
+
+  if (params.pendingInteraction.type === "missing_input") {
+    if (fallback.relation !== "unclear") {
+      return fallback;
+    }
+
+    const schema = parsePendingInputSchema(params.pendingInteraction);
+    if (schema?.allowAiAssistedExtraction !== true) {
+      return fallback;
+    }
+
+    const aiConfig = getAiConfig();
+    console.info(`[pending-interaction-resolver] slot-extraction provider=${aiConfig.provider} model=${aiConfig.model} hasKey=${aiConfig.hasApiKey}`);
+
+    if (!aiConfig.apiKey?.trim()) {
+      const summary = getSafeAiConfigSummary();
+      console.info(`[pending-interaction-resolver] slot-extraction fallback used reason=OpenRouter API key is not configured expectedKey=${summary.expectedKeyName} envFileHint=${summary.envFileHint}`);
+      return {
+        ...fallback,
+        reason: "OpenRouter API key is not configured; schema-driven deterministic slot extraction was used."
+      };
+    }
+
+    try {
+      const content = await callOpenRouterSlotExtraction({
+        pendingInteraction: {
+          id: params.pendingInteraction.id,
+          type: params.pendingInteraction.type,
+          inputSchema: schema,
+          missingInputs: pendingMissingInputs(params.pendingInteraction),
+          collectedInputs: pendingCollectedInputs(params.pendingInteraction),
+          contextSummary: {
+            connectorId: params.pendingInteraction.context.connectorId,
+            resourceSystem: params.pendingInteraction.context.resourceSystem,
+            targetResourceSystem: params.pendingInteraction.context.targetResourceSystem,
+            targetResourceName: params.pendingInteraction.context.targetResourceName
+          }
+        },
+        expectedSlots: expectedMissingSlotNames(params.pendingInteraction),
+        userMessage: params.userMessage
+      }, aiConfig.apiKey, aiConfig.baseURL, aiConfig.model);
+
+      if (!content) {
+        return fallback;
+      }
+
+      const candidateValues = normalizeSlotExtraction(JSON.parse(content));
+      const extractedValues = candidateValues ? extractExpectedSlots(params.pendingInteraction, params.userMessage, candidateValues) : {};
+      if (Object.keys(extractedValues).length) {
+        console.info("[pending-interaction-resolver] AI slot extraction produced Gateway-validated candidate values");
+        return {
+          relation: "provide_missing_input",
+          confidence: "medium",
+          normalizedUserIntent: params.userMessage.trim() || "empty response",
+          extractedValues,
+          requiresNewRouting: false,
+          securityConcern: false,
+          reason: "AI-assisted slot extraction produced candidate values; Gateway schema validation accepted expected missing slots only."
+        };
+      }
+      return fallback;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown AI slot extraction error";
+      console.info(`[pending-interaction-resolver] slot-extraction fallback used reason=${detail}`);
+      return fallback;
+    }
   }
 
   const aiConfig = getAiConfig();

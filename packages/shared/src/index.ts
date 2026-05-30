@@ -589,10 +589,47 @@ export type PendingInteractionType =
   | "approval_required_action"
   | "support_ticket_handoff";
 
+export type PendingInputSlotName =
+  | "accessLevel"
+  | "businessReason"
+  | "target"
+  | string;
+
+export type PendingInputSchemaSlot = {
+  name: PendingInputSlotName;
+  required?: boolean;
+  allowedValues?: string[];
+  maxLength?: number;
+  description?: string;
+};
+
+export type PendingInputSchema = {
+  schemaVersion: string;
+  slots: PendingInputSchemaSlot[];
+  allowAiAssistedExtraction?: boolean;
+  strongUnrelatedIntentHints?: string[];
+};
+
+export type PendingInputHints = {
+  expectedSlots?: PendingInputSlotName[];
+  cancellationPhrases?: string[];
+  confirmationPhrases?: string[];
+};
+
 export type PendingInteraction = {
   id: string;
   type: PendingInteractionType;
   originalUserRequest: string;
+  safeOriginalUserRequestSummary?: string;
+  originalUserRequestHash?: string;
+  tenantId?: string;
+  conversationId?: string;
+  actorProvider?: string;
+  actorSubject?: string;
+  actorEmail?: string;
+  rawPromptStored?: false;
+  tokenMaterialStored?: false;
+  protectedMaterialExposed?: false;
   createdAt: string;
   expiresAt?: string;
   context: Record<string, unknown>;

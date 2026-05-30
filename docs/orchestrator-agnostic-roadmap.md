@@ -667,7 +667,29 @@ Rules:
 - OAuth scopes prove possible connected-account/API reach only. Broad scopes do not grant Ogen action permission.
 - Connector runtime execution and A2A task execution are distinct proof concepts. Product copy must not use legacy A2A task activity to imply an external connector runtime executed.
 
-### Phase 2.24 — Optional Policy Consumption of Verified Provenance
+### Phase 2.24 - Governed Multi-turn Task State
+
+Goal: preserve governed connector planning state across turns without executing or submitting requests.
+
+Deliverables:
+
+- tenant/user/conversation-scoped pending interaction state with safe original request summary, original request hash, connector/resource context, target resource system/name, known planning inputs, missing inputs, expiration, and proof flags
+- schema-driven slot filling, deterministic validation, and optional AI-assisted extraction for expected missing inputs
+- deterministic follow-up resolver that resumes before new routing for `provide_missing_input` or cancellation only
+- deterministic extraction for access levels (`viewer`, `contributor`, `project admin`) and business reasons from clear phrasing
+- AI-assisted extraction may return candidate slot values only; Ogen still validates enum values, length limits, unsafe content, and whether the pending interaction can continue
+- planning-ready response proof that says no request was submitted, no changes were made, no runtime token was issued, and no external connector runtime was called
+- UI/security summary/timeline/raw proof labels that distinguish connector planning from connector runtime execution and legacy/internal A2A task execution
+
+Non-goals:
+
+- no approval execution
+- no permission change submission
+- no runtime write action
+- no runtime token issuance for planning completion
+- no merge of unrelated, expired, wrong-tenant, wrong-user, or adversarial follow-ups into the pending request
+
+### Phase 2.24b - Optional Policy Consumption of Verified Provenance
 
 Goal: optionally consume verified Agent Card provenance under explicit tenant rules without making provenance a global authorization shortcut.
 

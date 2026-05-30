@@ -82,8 +82,19 @@ function pendingInteractionRecord(state: ConversationState): StoredPendingIntera
     type: pending.type,
     createdAt: pending.createdAt,
     expiresAt: pending.expiresAt,
-    safeOriginalUserRequestSummary: safeConversationSummary(pending.originalUserRequest),
-    safeContext: sanitizeConversationMetadata(pending.context)
+    safeOriginalUserRequestSummary: pending.safeOriginalUserRequestSummary ?? safeConversationSummary(pending.originalUserRequest),
+    originalUserRequestHash: pending.originalUserRequestHash,
+    tenantId: pending.tenantId,
+    conversationId: pending.conversationId,
+    actorProvider: pending.actorProvider,
+    actorSubject: pending.actorSubject,
+    actorEmail: pending.actorEmail,
+    safeContext: sanitizeConversationMetadata({
+      ...pending.context,
+      rawPromptStored: false,
+      tokenMaterialStored: false,
+      protectedMaterialExposed: false
+    })
   };
 }
 

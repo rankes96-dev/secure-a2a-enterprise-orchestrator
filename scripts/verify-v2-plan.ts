@@ -57,9 +57,17 @@ if (!existsSync(path)) {
     "Phase 2.21  Signed Agent Card Provenance",
     "Phase 2.22  Generic Action Taxonomy & Policy Conditions",
     "Phase 2.23  Tool-to-Action Metadata Mapping",
+    "Phase 2.24  Governed Multi-turn Task State",
     "deterministicMapping: true",
     "aiInferred: false",
     "connector runtime execution and A2A task execution are distinct",
+    "tenant/user/conversation-scoped pending interaction",
+    "schema-driven slot filling",
+    "optional AI-assisted extraction",
+    "no request was submitted",
+    "no changes were made",
+    "no runtime token was issued",
+    "no external connector runtime was called",
     "A2A-Version: 1.0",
     "application/a2a+json",
     "invalid_a2a_envelope",
@@ -111,6 +119,18 @@ if (!existsSync(path)) {
 
 if (!existsSync(orchestratorAgnosticRoadmapPath)) {
   fail(`${orchestratorAgnosticRoadmapPath} should exist`);
+} else {
+  const roadmap = readFileSync(orchestratorAgnosticRoadmapPath, "utf8");
+  for (const phrase of [
+    "Phase 2.24 - Governed Multi-turn Task State",
+    "provide_missing_input",
+    "planning-ready response proof",
+    "Optional Policy Consumption of Verified Provenance"
+  ]) {
+    if (!roadmap.includes(phrase)) {
+      fail(`orchestrator-agnostic roadmap missing Phase 2.24 phrase: ${phrase}`);
+    }
+  }
 }
 
 if (!existsSync(stateInventoryPath)) {
@@ -154,6 +174,11 @@ if (!existsSync(sharedPath)) {
     "AuditViewerEvent",
     "AuditEventsResponse",
     "safeMetadataReturned: false",
+    "safeOriginalUserRequestSummary?: string",
+    "originalUserRequestHash?: string",
+    "rawPromptStored?: false",
+    "tokenMaterialStored?: false",
+    "protectedMaterialExposed?: false",
     "./a2aProtocol.js",
     "./a2aMessageTaskAdapter.js",
     "./ogenActionTaxonomy.js"
@@ -245,7 +270,13 @@ if (!existsSync(orchestratorPath)) {
     "function connectorRuntimeResolutionStatus",
     'runtime?.agentResponse?.status === "needs_more_info"',
     "connectorRuntimeResolutionStatus(effectiveConnectorRouting, connectorRuntime)",
-    '"return_connector_authorization_required"'
+    '"return_connector_authorization_required"',
+    "pendingInteractionMatchesResolvedOwner",
+    "initialGovernedPlanningState",
+    "pendingInteractionResumed: true",
+    "requestSubmitted: false",
+    "runtimeExecution: governedPlanningRuntimeExecutionProof()",
+    "complete_planning_without_submission"
   ]) {
     if (!orchestrator.includes(phrase)) {
       fail(`orchestrator authorization-required semantics missing required phrase: ${phrase}`);
@@ -295,7 +326,11 @@ if (!existsSync(webPath)) {
     "Requested scopes",
     "Actor provider",
     "Raw tokens",
-    "hidden"
+    "hidden",
+    "Connector planning resumed",
+    "Pending interaction resumed",
+    "Runtime token issued",
+    "External runtime called"
   ]) {
     if (!webSecurityProofSource.includes(phrase)) {
       fail(`Security Timeline authorization-required proof missing required phrase: ${phrase}`);
@@ -368,8 +403,14 @@ if (!existsSync(packageJsonPath)) {
   if (packageJson.scripts?.["verify:ui-truth-consistency"] !== "tsx scripts/verify-ui-truth-consistency.ts") {
     fail("package.json missing verify:ui-truth-consistency script");
   }
-  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:tool-to-action-metadata-mapping && npm run verify:ui-truth-consistency")) {
-    fail("verify:v2-plan should run verify:ui-truth-consistency after verify:tool-to-action-metadata-mapping");
+  if (packageJson.scripts?.["verify:pending-interaction-resolver"] !== "tsx scripts/verify-pending-interaction-resolver.ts") {
+    fail("package.json missing verify:pending-interaction-resolver script");
+  }
+  if (packageJson.scripts?.["verify:planning-follow-up"] !== "tsx scripts/verify-planning-follow-up.ts") {
+    fail("package.json missing verify:planning-follow-up script");
+  }
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:tool-to-action-metadata-mapping && npm run verify:pending-interaction-resolver && npm run verify:planning-follow-up && npm run verify:ui-truth-consistency")) {
+    fail("verify:v2-plan should run pending interaction, planning follow-up, and UI truth consistency after verify:tool-to-action-metadata-mapping");
   }
   if (packageJson.scripts?.["verify:connector-runtime-ui-summary"] !== "tsx scripts/verify-connector-runtime-ui-summary.ts") {
     fail("package.json missing verify:connector-runtime-ui-summary script");
