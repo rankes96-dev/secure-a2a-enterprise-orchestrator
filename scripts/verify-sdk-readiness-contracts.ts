@@ -7,6 +7,8 @@ import {
   forbiddenSafeRoutingViewFields,
   genericPolicyConditionFields,
   requiredExecutableActionMetadataFields,
+  requiredToolMappingProofFields,
+  requiredToolToActionMappingFields,
   requiredPolicyProofFields,
   SDK_READINESS_VERSION,
   sdkCertificationChecks
@@ -52,6 +54,7 @@ for (const section of [
   "Connector Profile Contract",
   "Skill / Action Metadata Contract",
   "Safe Routing View Contract",
+  "Tool-to-Action Metadata Mapping Contract",
   "Authorization Required Contract",
   "Runtime Execution Response Contract",
   "Policy Decision Proof Contract",
@@ -69,6 +72,12 @@ for (const phrase of [
   "approval is a policy outcome",
   "AI output cannot classify risk.",
   "Natural language cannot classify risk.",
+  "AI descriptions are not authority",
+  "Broad OAuth scopes do not grant action permission.",
+  "Unknown or incomplete tools fail closed",
+  "Connector runtime execution and A2A task execution are distinct concepts.",
+  "mapping proof",
+  "certification result",
   "Reference metadata fallback is allowed only for known built-in/reference connector skills.",
   "No raw tokens.",
   "No OAuth authorization code in browser-visible response.",
@@ -108,6 +117,45 @@ for (const field of [
 }
 
 for (const field of [
+  "sourceType",
+  "sourceId",
+  "toolId",
+  "provider",
+  "resourceSystem",
+  "deterministicMapping",
+  "aiInferred",
+  "rawDescriptionStored",
+  "protectedMaterialExposed"
+]) {
+  if (!requiredToolMappingProofFields.includes(field as typeof requiredToolMappingProofFields[number])) {
+    fail(`required tool mapping proof fields should include ${field}`);
+  } else {
+    ok(`required tool mapping proof fields include ${field}`);
+  }
+}
+
+for (const field of [
+  "sourceType",
+  "toolId",
+  "actionCategory",
+  "approvalMode",
+  "resourceSensitivity",
+  "fieldClasses",
+  "actionConstraints",
+  "requiredApplicationGrants",
+  "requiredEffectivePermissions",
+  "requestedScopes",
+  "proof",
+  "certificationResult"
+]) {
+  if (!requiredToolToActionMappingFields.includes(field as typeof requiredToolToActionMappingFields[number])) {
+    fail(`required tool/action mapping fields should include ${field}`);
+  } else {
+    ok(`required tool/action mapping fields include ${field}`);
+  }
+}
+
+for (const field of [
   "actionCategories",
   "executionTypes",
   "riskLevels",
@@ -143,6 +191,9 @@ for (const check of [
   "action-metadata-complete",
   "normalized-action-taxonomy-complete",
   "missing-taxonomy-fields-fail-closed",
+  "tool-action-mapping-complete",
+  "tool-action-mapping-proof-safe",
+  "tool-action-mapping-certification",
   "write-actions-require-approval",
   "safe-routing-view-no-secrets",
   "runtime-requires-scoped-jwt",
@@ -169,6 +220,9 @@ for (const phrase of [
   "actionConstraints?:",
   "provider?: string",
   "resourceSystem?: string",
+  "requestedScopes?: string[]",
+  "requiredApplicationGrants?: string[]",
+  "requiredEffectivePermissions?: string[]",
   "requiresApproval?: boolean",
   'sensitivity?: "standard" | "sensitive"'
 ]) {

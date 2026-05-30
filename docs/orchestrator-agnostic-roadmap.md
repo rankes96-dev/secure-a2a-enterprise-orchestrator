@@ -660,6 +660,12 @@ Rules:
 - no AI-only risk classification
 - no natural-language-only safety inference
 - unknown tool metadata fails closed
+- MCP tools, A2A Agent Card skills, connector profile actions, SDK catalogs, and manually imported tools must map into normalized Ogen action metadata before policy evaluation.
+- `mapped` means the tool had explicit deterministic metadata for provider, resource system, execution type, risk, approval mode, resource sensitivity, field classes, constraints, and required scopes/grants/permissions.
+- `incomplete_metadata`, `unsupported_tool_shape`, and `blocked_unknown_tool` fail closed; Ogen does not substitute AI interpretation, OAuth scope breadth, provenance, or natural-language descriptions as authorization authority.
+- Mapping proof is audit-safe: source type, source/tool IDs, provider/resource system, `deterministicMapping: true`, `aiInferred: false`, `rawDescriptionStored: false`, and `protectedMaterialExposed: false`.
+- OAuth scopes prove possible connected-account/API reach only. Broad scopes do not grant Ogen action permission.
+- Connector runtime execution and A2A task execution are distinct proof concepts. Product copy must not use legacy A2A task activity to imply an external connector runtime executed.
 
 ### Phase 2.24 — Optional Policy Consumption of Verified Provenance
 

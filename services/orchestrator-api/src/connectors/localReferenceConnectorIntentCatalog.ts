@@ -1,6 +1,7 @@
 // Deterministic local demo routing catalog. Production connectors should provide
 // intent hints through connector profiles or a managed connector registry.
-import type { OgenActionCategory, OgenActionConstraints, OgenApprovalMode, OgenFieldClass, OgenResourceSensitivity } from "@a2a/shared";
+import type { OgenActionCategory, OgenActionConstraints, OgenApprovalMode, OgenFieldClass, OgenResourceSensitivity, OgenToolDefinition, OgenToolMappingProof, OgenToolMappingStatus } from "@a2a/shared";
+import { mapToolToActionMetadata } from "../toolMapping/toolToActionMetadataMapper.js";
 
 export type ReferenceConnectorRiskLevel = "low" | "medium" | "high" | "sensitive";
 export type ReferenceConnectorExecutionType = "diagnostic_read_only" | "inspection_read_only" | "write_action" | "unsupported";
@@ -22,8 +23,13 @@ export type ConnectorIntentSkillHint = {
   resourceSensitivity?: OgenResourceSensitivity;
   fieldClasses?: OgenFieldClass[];
   actionConstraints?: OgenActionConstraints;
+  toolMappingStatus?: OgenToolMappingStatus;
+  toolMappingProof?: OgenToolMappingProof;
   provider?: string;
   resourceSystem?: string;
+  requiredApplicationGrants?: string[];
+  requiredEffectivePermissions?: string[];
+  requestedScopes?: string[];
 };
 
 export type ConnectorIntentHint = {
@@ -397,3 +403,31 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
     ]
   }
 ];
+
+export function localReferenceToolDefinitions(): OgenToolDefinition[] {
+  return localReferenceConnectorIntentCatalog.flatMap((connector) =>
+    connector.skillHints.map((skill) => ({
+      sourceType: "connector_profile_action",
+      sourceId: connector.connectorId,
+      toolId: skill.skillId,
+      actionId: skill.skillId,
+      label: skill.label,
+      provider: skill.provider ?? connector.resourceSystem,
+      resourceSystem: skill.resourceSystem ?? connector.resourceSystem,
+      executionType: skill.executionType,
+      riskLevel: skill.riskLevel,
+      requiresApproval: skill.requiresApproval ?? false,
+      sensitivity: skill.sensitivity ?? (skill.riskLevel === "sensitive" ? "sensitive" : "standard"),
+      actionCategory: skill.actionCategory,
+      approvalMode: skill.approvalMode,
+      resourceSensitivity: skill.resourceSensitivity,
+      fieldClasses: skill.fieldClasses,
+      actionConstraints: skill.actionConstraints,
+      requiredApplicationGrants: skill.requiredApplicationGrants ?? [],
+      requiredEffectivePermissions: skill.requiredEffectivePermissions ?? [],
+      requestedScopes: skill.requestedScopes ?? []
+    }))
+  );
+}
+
+export const localReferenceToolToActionMappings = localReferenceToolDefinitions().map((tool) => mapToolToActionMetadata(tool));

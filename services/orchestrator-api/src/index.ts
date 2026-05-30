@@ -373,6 +373,21 @@ function sendTenantAccessDenied(response: ServerResponse, request: IncomingMessa
   }, request);
 }
 
+const runtimeToolSourceTypes = new Set([
+  "mcp_tool_manifest",
+  "a2a_agent_card_skill",
+  "connector_profile_action",
+  "sdk_action_catalog",
+  "manually_imported_catalog"
+]);
+
+const runtimeToolMappingStatuses = new Set([
+  "mapped",
+  "incomplete_metadata",
+  "unsupported_tool_shape",
+  "blocked_unknown_tool"
+]);
+
 function validateRuntimeAuthorizationRequest(value: unknown): string | undefined {
   const body = objectRecord(value);
   if (!body) {
@@ -416,6 +431,69 @@ function validateRuntimeAuthorizationRequest(value: unknown): string | undefined
     action.riskLevel !== "sensitive"
   ) {
     return "action.riskLevel is required";
+  }
+
+  if (!runtimeToolMappingStatuses.has(String(action.toolMappingStatus))) {
+    return "action.toolMappingStatus must be a supported tool mapping status";
+  }
+
+  const toolMappingProof = objectRecord(action.toolMappingProof);
+  if (!toolMappingProof) {
+    return "action.toolMappingProof is required";
+  }
+
+  if (!runtimeToolSourceTypes.has(String(toolMappingProof.sourceType))) {
+    return "action.toolMappingProof.sourceType is required";
+  }
+
+  for (const field of ["sourceId", "toolId"]) {
+    if (typeof toolMappingProof[field] !== "string" || !String(toolMappingProof[field]).trim()) {
+      return `action.toolMappingProof.${field} is required`;
+    }
+  }
+
+  if (
+    toolMappingProof.deterministicMapping !== true ||
+    toolMappingProof.aiInferred !== false ||
+    toolMappingProof.rawDescriptionStored !== false ||
+    toolMappingProof.protectedMaterialExposed !== false
+  ) {
+    return "action.toolMappingProof must be deterministic, non-AI-derived, and audit-safe";
+  }
+
+  const connectorRoute = objectRecord(body.connectorRoute);
+  const targetAgent = objectRecord(body.targetAgent);
+  const resource = objectRecord(body.resource);
+  const trustedResourceSystem =
+    typeof connectorRoute?.resourceSystem === "string" && connectorRoute.resourceSystem.trim()
+      ? connectorRoute.resourceSystem.trim()
+      : typeof targetAgent?.resourceSystem === "string" && targetAgent.resourceSystem.trim()
+        ? targetAgent.resourceSystem.trim()
+        : typeof resource?.resourceSystem === "string" && resource.resourceSystem.trim()
+          ? resource.resourceSystem.trim()
+          : undefined;
+  if (action.toolMappingStatus === "mapped") {
+    for (const field of ["provider", "resourceSystem"]) {
+      if (typeof toolMappingProof[field] !== "string" || !String(toolMappingProof[field]).trim()) {
+        return `action.toolMappingProof.${field} is required for mapped tool proof`;
+      }
+    }
+
+    if (toolMappingProof.toolId !== action.skillId) {
+      return "action.toolMappingProof.toolId must match action.skillId";
+    }
+
+    if (typeof action.provider === "string" && action.provider.trim() && toolMappingProof.provider !== action.provider.trim()) {
+      return "action.toolMappingProof.provider must match action.provider";
+    }
+
+    if (typeof action.resourceSystem === "string" && action.resourceSystem.trim() && toolMappingProof.resourceSystem !== action.resourceSystem.trim()) {
+      return "action.toolMappingProof.resourceSystem must match action.resourceSystem";
+    }
+
+    if (trustedResourceSystem && toolMappingProof.resourceSystem !== trustedResourceSystem) {
+      return "action.toolMappingProof.resourceSystem must match trusted route resourceSystem";
+    }
   }
 
   return undefined;
@@ -1062,6 +1140,13 @@ function connectorRuntimeFinalAnswer(decision: ConnectorRoutingDecision, runtime
 
 function connectorRoutingDiagnosis(decision: ConnectorRoutingDecision): ResolveResponse["diagnosis"] {
   if (decision.status === "connector_skill_approved") {
+    if (decision.toolMappingStatus === "mapped" && !connectorRuntimeToolMappingProofBound(decision)) {
+      return {
+        probableCause: "Tool-to-action mapping proof is not bound to the approved connector action and trusted route/resource",
+        recommendedFix: "Update the connector profile or reference action metadata so the mapping proof toolId, provider, and resource system match the requested connector action."
+      };
+    }
+
     if (decision.runtimeMode === "metadata_only") {
       return {
         probableCause: "Connector profile approved the skill, but runtime was metadata-only",
@@ -1076,6 +1161,20 @@ function connectorRoutingDiagnosis(decision: ConnectorRoutingDecision): ResolveR
   }
 
   if (decision.status === "connector_skill_blocked") {
+    if (decision.toolMappingStatus === "mapped" && !connectorRuntimeToolMappingProofBound(decision)) {
+      return {
+        probableCause: "Tool-to-action mapping proof is not bound to the approved connector action and trusted route/resource",
+        recommendedFix: decision.recommendedNextStep
+      };
+    }
+
+    if (decision.toolMappingStatus && decision.toolMappingStatus !== "mapped") {
+      return {
+        probableCause: "Tool-to-action metadata mapping did not produce a mapped connector action",
+        recommendedFix: decision.recommendedNextStep
+      };
+    }
+
     return {
       probableCause: "The onboarded connector profile blocks the requested action",
       recommendedFix: decision.recommendedNextStep
@@ -1154,6 +1253,10 @@ function connectorRoutingResolutionStatus(decision: ConnectorRoutingDecision): R
 function connectorRuntimeResolutionStatus(decision: ConnectorRoutingDecision, runtime?: ConnectorRuntimeResult): ResolveResponse["resolutionStatus"] {
   if (runtime?.authorizationRequirement || runtime?.agentResponse?.authorizationRequirement || runtime?.agentResponse?.status === "needs_more_info") {
     return "needs_more_info";
+  }
+
+  if (decision.status === "connector_skill_blocked" && decision.toolMappingStatus === "mapped" && !connectorRuntimeToolMappingProofBound(decision)) {
+    return "unsupported";
   }
 
   return connectorRoutingResolutionStatus(decision);
@@ -1346,6 +1449,9 @@ async function appendConnectorPolicyDecisionAuditEvent(params: {
       resourceSensitivity: connectorRouting.resourceSensitivity,
       fieldClasses: connectorRouting.fieldClasses,
       actionConstraints: connectorRouting.actionConstraints,
+      requestedScopes: connectorRouting.requestedScopes,
+      toolMappingStatus: connectorRouting.toolMappingStatus,
+      toolMappingProof: connectorRouting.toolMappingProof,
       provider: connectorRouting.provider,
       actionResourceSystem: connectorRouting.actionResourceSystem,
       actionMetadataSource: connectorRouting.actionMetadataSource,
@@ -2399,8 +2505,66 @@ function safeUserIdentity(sessionToken?: string): UserIdentitySummary {
   return userIdentityProvider.publicIdentity(currentUserIdentity(sessionToken));
 }
 
+function cleanRuntimeProofString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function connectorRuntimeToolMappingProofBound(decision: ConnectorRoutingDecision): boolean {
+  const proof = decision.toolMappingProof;
+  if (!proof) {
+    return false;
+  }
+
+  const skillId = cleanRuntimeProofString(decision.skillId);
+  const routeResourceSystem = cleanRuntimeProofString(decision.resourceSystem);
+  const actionResourceSystem = cleanRuntimeProofString(decision.actionResourceSystem);
+  const provider = cleanRuntimeProofString(decision.provider);
+  const proofToolId = cleanRuntimeProofString(proof?.toolId);
+  const proofProvider = cleanRuntimeProofString(proof?.provider);
+  const proofResourceSystem = cleanRuntimeProofString(proof?.resourceSystem);
+
+  return decision.toolMappingStatus === "mapped" &&
+    runtimeToolSourceTypes.has(proof.sourceType) &&
+    typeof proof.sourceId === "string" &&
+    proof.sourceId.trim().length > 0 &&
+    proofToolId === skillId &&
+    provider !== undefined &&
+    actionResourceSystem !== undefined &&
+    proofProvider !== undefined &&
+    proofResourceSystem !== undefined &&
+    routeResourceSystem !== undefined &&
+    proofResourceSystem === routeResourceSystem &&
+    proofResourceSystem === actionResourceSystem &&
+    proofProvider === provider &&
+    proof.deterministicMapping === true &&
+    proof.aiInferred === false &&
+    proof.rawDescriptionStored === false &&
+    proof.protectedMaterialExposed === false;
+}
+
+function connectorRoutingWithProofBindingStatus(decision: ConnectorRoutingDecision): ConnectorRoutingDecision {
+  if (
+    decision.status !== "connector_skill_approved" ||
+    decision.toolMappingStatus !== "mapped" ||
+    connectorRuntimeToolMappingProofBound(decision)
+  ) {
+    return decision;
+  }
+
+  return {
+    ...decision,
+    status: "connector_skill_blocked",
+    runtimeMode: "not_available",
+    reason: "Tool-to-action mapping proof is not bound to the requested connector action and trusted route/resource.",
+    recommendedNextStep: "Update the connector profile or reference action metadata so the mapping proof toolId, provider, and resource system match the requested connector action before runtime execution."
+  };
+}
+
 function canExecuteConnectorRuntime(decision: ConnectorRoutingDecision, policy: ConnectorPolicyEvaluation): boolean {
   return decision.status === "connector_skill_approved" &&
+    decision.toolMappingStatus === "mapped" &&
+    connectorRuntimeToolMappingProofBound(decision) &&
     decision.runtimeMode === "external_runtime_available" &&
     policy.effect === "allow" &&
     decision.requiresApproval !== true;
@@ -2413,6 +2577,34 @@ function missingActionRiskMetadata(policy: ConnectorPolicyEvaluation): boolean {
 
 function connectorPolicyFinalAnswer(decision: ConnectorRoutingDecision, policy: ConnectorPolicyEvaluation): string | undefined {
   const skill = decision.skillLabel ?? decision.skillId ?? "requested connector skill";
+  if (decision.toolMappingStatus && decision.toolMappingStatus !== "mapped") {
+    return [
+      "BLOCKED",
+      "Ogen could not execute this connector action because tool-to-action metadata mapping did not produce a mapped action.",
+      "",
+      "Reason:",
+      `Mapping status was ${decision.toolMappingStatus}; runtime execution requires explicit deterministic provider, resource system, taxonomy, grants, permissions, and scope metadata.`,
+      "",
+      "No runtime token was issued. No external connector runtime was called.",
+      "",
+      "Next step:",
+      "Update the connector profile or reference action metadata, then retry."
+    ].join("\n");
+  }
+  if (decision.toolMappingStatus === "mapped" && !connectorRuntimeToolMappingProofBound(decision)) {
+    return [
+      "BLOCKED",
+      "Ogen could not execute this connector action because the tool-to-action mapping proof is not bound to the requested action and trusted route/resource.",
+      "",
+      "Reason:",
+      "Runtime execution requires mapping proof with the same tool ID, provider, and resource system as the approved connector route.",
+      "",
+      "No runtime token was issued. No external connector runtime was called.",
+      "",
+      "Next step:",
+      "Update the connector profile or reference action metadata, then retry."
+    ].join("\n");
+  }
   if (policy.effect === "needs_approval") {
     return `Approval required: Gateway policy stopped ${skill} before runtime execution. ${policy.reason} No runtime token was issued and no external connector runtime was called.`;
   }
@@ -3744,17 +3936,18 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
   }
 
   if (connectorRouting.status !== "needs_more_info") {
-    const connectorStatus = connectorRoutingStatusLabel(connectorRouting.status);
+    const effectiveConnectorRouting = connectorRoutingWithProofBindingStatus(connectorRouting);
+    const connectorStatus = connectorRoutingStatusLabel(effectiveConnectorRouting.status);
     const policyInterpretation = incidentInterpretation ?? routingDecision.requestInterpretation;
     const connectorPolicy = evaluateConnectorPolicy({
       tenantId: tenantContext.tenantId,
       conversationId,
-      connectorRouteStatus: connectorRouting.status,
-      runtimeMode: connectorRouting.runtimeMode,
-      connectorId: connectorRouting.connectorId,
-      resourceSystem: connectorRouting.resourceSystem,
-      skillId: connectorRouting.skillId,
-      skillLabel: connectorRouting.skillLabel,
+      connectorRouteStatus: effectiveConnectorRouting.status,
+      runtimeMode: effectiveConnectorRouting.runtimeMode,
+      connectorId: effectiveConnectorRouting.connectorId,
+      resourceSystem: effectiveConnectorRouting.resourceSystem,
+      skillId: effectiveConnectorRouting.skillId,
+      skillLabel: effectiveConnectorRouting.skillLabel,
       interpretation: policyInterpretation
         ? {
             interpretationId: interpretationProof.interpretationId,
@@ -3777,37 +3970,38 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
         roles: verifiedUser?.roles ?? []
       },
       resource: {
-        connectorId: connectorRouting.connectorId,
-        resourceSystem: connectorRouting.resourceSystem,
-        resourceId: connectorRouting.targetResourceName,
-        resourceType: connectorRouting.targetResourceSystem,
+        connectorId: effectiveConnectorRouting.connectorId,
+        resourceSystem: effectiveConnectorRouting.resourceSystem,
+        resourceId: effectiveConnectorRouting.targetResourceName,
+        resourceType: effectiveConnectorRouting.targetResourceSystem,
         environment: "unknown"
       },
       action: {
-        skillId: connectorRouting.skillId,
-        skillLabel: connectorRouting.skillLabel,
-        actionCategory: connectorRouting.actionCategory,
-        approvalMode: connectorRouting.approvalMode,
-        resourceSensitivity: connectorRouting.resourceSensitivity,
-        fieldClasses: connectorRouting.fieldClasses,
-        actionConstraints: connectorRouting.actionConstraints,
-        requiredApplicationGrants: connectorRouting.requiredApplicationGrants,
-        requiredEffectivePermissions: connectorRouting.requiredEffectivePermissions,
-        provider: connectorRouting.provider,
-        resourceSystem: connectorRouting.actionResourceSystem
+        skillId: effectiveConnectorRouting.skillId,
+        skillLabel: effectiveConnectorRouting.skillLabel,
+        actionCategory: effectiveConnectorRouting.actionCategory,
+        approvalMode: effectiveConnectorRouting.approvalMode,
+        resourceSensitivity: effectiveConnectorRouting.resourceSensitivity,
+        fieldClasses: effectiveConnectorRouting.fieldClasses,
+        actionConstraints: effectiveConnectorRouting.actionConstraints,
+        requiredApplicationGrants: effectiveConnectorRouting.requiredApplicationGrants,
+        requiredEffectivePermissions: effectiveConnectorRouting.requiredEffectivePermissions,
+        requestedScopes: effectiveConnectorRouting.requestedScopes,
+        provider: effectiveConnectorRouting.provider,
+        resourceSystem: effectiveConnectorRouting.actionResourceSystem
       },
-      riskLevel: connectorRouting.riskLevel,
-      executionType: connectorRouting.executionType,
-      requiresApproval: connectorRouting.requiresApproval,
-      sensitivity: connectorRouting.sensitivity
+      riskLevel: effectiveConnectorRouting.riskLevel,
+      executionType: effectiveConnectorRouting.executionType,
+      requiresApproval: effectiveConnectorRouting.requiresApproval,
+      sensitivity: effectiveConnectorRouting.sensitivity
     });
     await appendConnectorPolicyDecisionAuditEvent({
-      connectorRouting,
+      connectorRouting: effectiveConnectorRouting,
       connectorPolicy,
       actor: verifiedUser,
       tenantContext
     });
-    const runtimeExecutable = canExecuteConnectorRuntime(connectorRouting, connectorPolicy);
+    const runtimeExecutable = canExecuteConnectorRuntime(effectiveConnectorRouting, connectorPolicy);
     const policyProof = {
       policyVersion: connectorPolicy.policyVersion,
       decisionId: connectorPolicy.decisionId,
@@ -3828,37 +4022,40 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
           message: effectiveMessage,
           currentUserMessage: requestBody.message,
           conversationId,
-          connectorRoute: connectorRouting,
+          connectorRoute: effectiveConnectorRouting,
           actor: verifiedUser
         })
       : undefined;
     const runtimeAgentResponse = connectorRuntime?.agentResponse;
-    const diagnosis = connectorRuntime ? connectorRuntimeDiagnosis(connectorRouting, connectorRuntime) : connectorRoutingDiagnosis(connectorRouting);
+    const diagnosis = connectorRuntime ? connectorRuntimeDiagnosis(effectiveConnectorRouting, connectorRuntime) : connectorRoutingDiagnosis(effectiveConnectorRouting);
     const connectorEvidence: AgentEvidence[] = [
       {
         agent: orchestratorAgentId,
         title: "Connector route decision",
         data: {
-          status: connectorRouting.status,
-          targetSystem: connectorRouting.targetSystem,
-          connectorId: connectorRouting.connectorId,
-          skillId: connectorRouting.skillId,
-          skillLabel: connectorRouting.skillLabel,
-          reason: connectorRouting.reason,
-          recommendedNextStep: connectorRouting.recommendedNextStep,
-          riskLevel: connectorRouting.riskLevel,
-          executionType: connectorRouting.executionType,
-          requiresApproval: connectorRouting.requiresApproval,
-          sensitivity: connectorRouting.sensitivity,
-          actionCategory: connectorRouting.actionCategory,
-          approvalMode: connectorRouting.approvalMode,
-          resourceSensitivity: connectorRouting.resourceSensitivity,
-          fieldClasses: connectorRouting.fieldClasses,
-          actionConstraints: connectorRouting.actionConstraints,
-          provider: connectorRouting.provider,
-          actionResourceSystem: connectorRouting.actionResourceSystem,
-          actionMetadataSource: connectorRouting.actionMetadataSource,
-          runtimeMode: connectorRouting.runtimeMode,
+          status: effectiveConnectorRouting.status,
+          targetSystem: effectiveConnectorRouting.targetSystem,
+          connectorId: effectiveConnectorRouting.connectorId,
+          skillId: effectiveConnectorRouting.skillId,
+          skillLabel: effectiveConnectorRouting.skillLabel,
+          reason: effectiveConnectorRouting.reason,
+          recommendedNextStep: effectiveConnectorRouting.recommendedNextStep,
+          riskLevel: effectiveConnectorRouting.riskLevel,
+          executionType: effectiveConnectorRouting.executionType,
+          requiresApproval: effectiveConnectorRouting.requiresApproval,
+          sensitivity: effectiveConnectorRouting.sensitivity,
+          actionCategory: effectiveConnectorRouting.actionCategory,
+          approvalMode: effectiveConnectorRouting.approvalMode,
+          resourceSensitivity: effectiveConnectorRouting.resourceSensitivity,
+          fieldClasses: effectiveConnectorRouting.fieldClasses,
+          actionConstraints: effectiveConnectorRouting.actionConstraints,
+          requestedScopes: effectiveConnectorRouting.requestedScopes,
+          toolMappingStatus: effectiveConnectorRouting.toolMappingStatus,
+          toolMappingProof: effectiveConnectorRouting.toolMappingProof,
+          provider: effectiveConnectorRouting.provider,
+          actionResourceSystem: effectiveConnectorRouting.actionResourceSystem,
+          actionMetadataSource: effectiveConnectorRouting.actionMetadataSource,
+          runtimeMode: effectiveConnectorRouting.runtimeMode,
           runtimeExecution: runtimeExecutable ? "external_runtime_available" : "not_executed",
           policy: connectorPolicy,
           policyProof
@@ -3877,8 +4074,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
     const runtimeTrace = runtimeAgentResponse?.trace?.map((entry) => ({
       ...trace(entry.action, entry.detail),
       agent: entry.agent,
-      toAgent: connectorRouting.connectorId,
-      skillId: connectorRouting.skillId,
+      toAgent: effectiveConnectorRouting.connectorId,
+      skillId: effectiveConnectorRouting.skillId,
       timestamp: entry.timestamp
     })) ?? [];
     const runtimeExecutionTrace = connectorRuntime
@@ -3894,7 +4091,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
             "orchestrator",
             AuditEvents.CONNECTOR_RUNTIME_CALL_STARTED,
             connectorRuntime.executed
-              ? `Called allowlisted external connector runtime for ${connectorRouting.skillId}.`
+              ? `Called allowlisted external connector runtime for ${effectiveConnectorRouting.skillId}.`
               : `External connector runtime was not executed: ${connectorRuntime.error ?? "unknown failure"}.`
           ),
           executionStep(
@@ -3910,7 +4107,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
           )
         ]
       : [];
-    const metadataOnlyExecutionTrace = connectorRouting.status === "connector_skill_approved" && connectorRouting.runtimeMode === "metadata_only"
+    const metadataOnlyExecutionTrace = effectiveConnectorRouting.status === "connector_skill_approved" && effectiveConnectorRouting.runtimeMode === "metadata_only"
       ? [
           executionStep(
             "orchestrator",
@@ -3922,7 +4119,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
     const a2aResponses = runtimeAgentResponse ? [runtimeAgentResponse] : [];
     if (connectorRuntime) {
       await appendConnectorRuntimeAuditEvents({
-        connectorRouting,
+        connectorRouting: effectiveConnectorRouting,
         connectorRuntime,
         actor: verifiedUser
       });
@@ -3930,28 +4127,28 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
 
     return finalize({
       conversationId,
-      finalAnswer: connectorRuntime ? connectorRuntimeFinalAnswer(connectorRouting, connectorRuntime) : connectorPolicyFinalAnswer(connectorRouting, connectorPolicy) ?? connectorRoutingFinalAnswer(connectorRouting),
+      finalAnswer: connectorRuntime ? connectorRuntimeFinalAnswer(effectiveConnectorRouting, connectorRuntime) : connectorPolicyFinalAnswer(effectiveConnectorRouting, connectorPolicy) ?? connectorRoutingFinalAnswer(effectiveConnectorRouting),
       classification,
       selectedAgents: [],
       skippedAgents,
       routingSource: "rules_fallback",
       routingConfidence: routingDecision.routingConfidence,
-      routingReasoningSummary: connectorRouting.reason,
-      resolutionStatus: connectorPolicy.effect === "needs_approval" ? "needs_more_info" : connectorRuntimeResolutionStatus(connectorRouting, connectorRuntime),
+      routingReasoningSummary: effectiveConnectorRouting.reason,
+      resolutionStatus: connectorPolicy.effect === "needs_approval" ? "needs_more_info" : connectorRuntimeResolutionStatus(effectiveConnectorRouting, connectorRuntime),
       evidence: [...connectorEvidence, ...runtimeEvidence],
       agentTrace: [
         trace("classify_issue", `Detected ${classification.system}, ${classification.errorCode ?? "no error code"}, ${classification.issueType}`),
         {
-          ...trace("connector_intent_detected", connectorRouting.reason),
-          toAgent: connectorRouting.connectorId,
-          skillId: connectorRouting.skillId,
-          decision: connectorRouting.status === "connector_skill_approved" ? "Allowed" : connectorRouting.status === "connector_skill_blocked" || connectorRouting.status === "connector_skill_not_declared" || connectorRouting.status === "connector_skill_not_enabled" ? "Blocked" : "NeedsMoreContext"
+          ...trace("connector_intent_detected", effectiveConnectorRouting.reason),
+          toAgent: effectiveConnectorRouting.connectorId,
+          skillId: effectiveConnectorRouting.skillId,
+          decision: effectiveConnectorRouting.status === "connector_skill_approved" ? "Allowed" : effectiveConnectorRouting.status === "connector_skill_blocked" || effectiveConnectorRouting.status === "connector_skill_not_declared" || effectiveConnectorRouting.status === "connector_skill_not_enabled" ? "Blocked" : "NeedsMoreContext"
         },
         {
-          ...trace("connector_route_decision", `${connectorStatus}: ${connectorRouting.recommendedNextStep}`),
-          toAgent: connectorRouting.connectorId,
-          skillId: connectorRouting.skillId,
-          decision: connectorRouting.status === "connector_skill_approved" ? "Allowed" : connectorRouting.status === "connector_skill_blocked" || connectorRouting.status === "connector_skill_not_declared" || connectorRouting.status === "connector_skill_not_enabled" ? "Blocked" : "NeedsMoreContext"
+          ...trace("connector_route_decision", `${connectorStatus}: ${effectiveConnectorRouting.recommendedNextStep}`),
+          toAgent: effectiveConnectorRouting.connectorId,
+          skillId: effectiveConnectorRouting.skillId,
+          decision: effectiveConnectorRouting.status === "connector_skill_approved" ? "Allowed" : effectiveConnectorRouting.status === "connector_skill_blocked" || effectiveConnectorRouting.status === "connector_skill_not_declared" || effectiveConnectorRouting.status === "connector_skill_not_enabled" ? "Blocked" : "NeedsMoreContext"
         },
         ...runtimeTrace
       ],
@@ -3966,22 +4163,22 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
               )
             ]
           : []),
-        executionStep("orchestrator", "route_connector_intent", `${connectorRouting.targetSystem ?? "unknown"} / ${connectorRouting.connectorId ?? "no connector"} / ${connectorRouting.skillId ?? "no skill"}`),
-        executionStep("orchestrator", "evaluate_onboarded_connector", `${connectorStatus}: ${connectorRouting.reason}`),
+        executionStep("orchestrator", "route_connector_intent", `${effectiveConnectorRouting.targetSystem ?? "unknown"} / ${effectiveConnectorRouting.connectorId ?? "no connector"} / ${effectiveConnectorRouting.skillId ?? "no skill"}`),
+        executionStep("orchestrator", "evaluate_onboarded_connector", `${connectorStatus}: ${effectiveConnectorRouting.reason}`),
         executionStep("orchestrator", "evaluate_connector_policy", `${connectorPolicy.effect}: ${connectorPolicy.reason}`),
         ...runtimeExecutionTrace,
         ...metadataOnlyExecutionTrace,
         executionStep(
           "orchestrator",
           connectorRuntime?.authorizationRequirement ? "return_connector_authorization_required" : connectorRuntime?.executed ? "return_connector_runtime_response" : runtimeExecutable ? "return_connector_runtime_failure" : "return_connector_guidance",
-          connectorRouting.recommendedNextStep
+          effectiveConnectorRouting.recommendedNextStep
         )
       ],
       securityDecisions: [],
       requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
       followUpInterpretation: followUp,
       incidentContext: mergedIncidentContext,
-      connectorRouting,
+      connectorRouting: effectiveConnectorRouting,
       connectorPolicy,
       connectorRuntime,
       a2aTasks: [],

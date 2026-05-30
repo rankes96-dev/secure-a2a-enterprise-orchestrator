@@ -1,4 +1,5 @@
 import type { OgenActionCategory, OgenActionConstraints, OgenApprovalMode, OgenFieldClass, OgenResourceSensitivity } from "./ogenActionTaxonomy.js";
+import type { OgenToolMappingProof, OgenToolMappingStatus } from "./toolActionMapping.js";
 
 export type IssueType =
   | "AUTHENTICATION_FAILURE"
@@ -505,6 +506,8 @@ export type ConnectorActionPlanOption = {
   resourceSensitivity?: OgenResourceSensitivity;
   fieldClasses?: OgenFieldClass[];
   actionConstraints?: OgenActionConstraints;
+  toolMappingStatus?: OgenToolMappingStatus;
+  toolMappingProof?: OgenToolMappingProof;
   provider?: string;
   resourceSystem?: string;
   sideEffects: PlannedActionSideEffects;
@@ -715,6 +718,8 @@ export type RuntimeAuthorizationRequest = {
     resourceSensitivity?: OgenResourceSensitivity;
     fieldClasses?: OgenFieldClass[];
     actionConstraints?: OgenActionConstraints;
+    toolMappingStatus: OgenToolMappingStatus;
+    toolMappingProof: OgenToolMappingProof;
     requiredApplicationGrants?: string[];
     requiredEffectivePermissions?: string[];
     provider?: string;
@@ -962,6 +967,7 @@ export interface ResolveResponse {
     connectorProfileHash?: string;
     requiredApplicationGrants?: string[];
     requiredEffectivePermissions?: string[];
+    requestedScopes?: string[];
     riskLevel?: "low" | "medium" | "high" | "sensitive";
     executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
     requiresApproval?: boolean;
@@ -971,6 +977,8 @@ export interface ResolveResponse {
     resourceSensitivity?: OgenResourceSensitivity;
     fieldClasses?: OgenFieldClass[];
     actionConstraints?: OgenActionConstraints;
+    toolMappingStatus?: OgenToolMappingStatus;
+    toolMappingProof?: OgenToolMappingProof;
     provider?: string;
     actionMetadataSource?: "approved_action" | "reference_catalog" | "missing";
     missingApplicationGrants?: string[];
@@ -1084,6 +1092,7 @@ export * from "./a2aProtocol.js";
 export * from "./a2aMessageTaskAdapter.js";
 export * from "./a2aAgentCardProvenance.js";
 export * from "./ogenActionTaxonomy.js";
+export * from "./toolActionMapping.js";
 export * from "./a2aResourceRegistry.js";
 export * from "./state/StateStore.js";
 export * from "./state/InMemoryStateStore.js";

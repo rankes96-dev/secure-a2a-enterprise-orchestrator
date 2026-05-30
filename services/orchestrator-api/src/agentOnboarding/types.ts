@@ -1,4 +1,4 @@
-import type { OgenActionCategory, OgenActionConstraints, OgenApprovalMode, OgenFieldClass, OgenResourceSensitivity } from "@a2a/shared";
+import type { OgenActionCategory, OgenActionConstraints, OgenApprovalMode, OgenFieldClass, OgenResourceSensitivity, OgenToolMappingProof, OgenToolMappingStatus } from "@a2a/shared";
 import type { ConnectorProfile } from "../connectors/types.js";
 import type { InstalledConnectorLifecycle } from "../connectors/installedConnectorLifecycle.js";
 import type { gatewayMetadata } from "../security/gatewayIdentity.js";
@@ -120,10 +120,13 @@ export type DerivedCapability = {
   resourceSensitivity?: OgenResourceSensitivity;
   fieldClasses?: OgenFieldClass[];
   actionConstraints?: OgenActionConstraints;
+  toolMappingStatus?: OgenToolMappingStatus;
+  toolMappingProof?: OgenToolMappingProof;
   provider?: string;
   resourceSystem?: string;
   requiredApplicationGrants?: string[];
   requiredEffectivePermissions?: string[];
+  requestedScopes?: string[];
   missingApplicationGrants?: string[];
   missingEffectivePermissions?: string[];
   deniedEffectivePermissions?: string[];

@@ -38,7 +38,7 @@ export const runtimeAuthorizationRequestSchema = {
     action: {
       type: "object",
       additionalProperties: false,
-      required: ["skillId", "executionType", "riskLevel"],
+      required: ["skillId", "executionType", "riskLevel", "toolMappingStatus", "toolMappingProof"],
       properties: {
         skillId: { type: "string" },
         skillLabel: { type: "string" },
@@ -91,6 +91,37 @@ export const runtimeAuthorizationRequestSchema = {
               "admin_config",
               "external_message"
             ]
+          }
+        },
+        toolMappingStatus: {
+          type: "string",
+          enum: ["mapped", "incomplete_metadata", "unsupported_tool_shape", "blocked_unknown_tool"]
+        },
+        toolMappingProof: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "sourceType",
+            "sourceId",
+            "toolId",
+            "deterministicMapping",
+            "aiInferred",
+            "rawDescriptionStored",
+            "protectedMaterialExposed"
+          ],
+          properties: {
+            sourceType: {
+              type: "string",
+              enum: ["mcp_tool_manifest", "a2a_agent_card_skill", "connector_profile_action", "sdk_action_catalog", "manually_imported_catalog"]
+            },
+            sourceId: { type: "string" },
+            toolId: { type: "string" },
+            provider: { type: "string" },
+            resourceSystem: { type: "string" },
+            deterministicMapping: { const: true },
+            aiInferred: { const: false },
+            rawDescriptionStored: { const: false },
+            protectedMaterialExposed: { const: false }
           }
         },
         actionConstraints: {

@@ -30,6 +30,14 @@ function requireIncludes(source: string, phrase: string, context: string): void 
   ok(context);
 }
 
+function requireNotIncludes(source: string, phrase: string, context: string): void {
+  if (source.includes(phrase)) {
+    fail(`${context} should not include forbidden phrase: ${phrase}`);
+    return;
+  }
+  ok(context);
+}
+
 const sharedTypes = read("packages/shared/src/index.ts");
 const auditEvents = read("services/orchestrator-api/src/audit/auditEvents.ts");
 const evaluatorSource = read("services/orchestrator-api/src/runtimeAuthorization/runtimeAuthorizationEvaluator.ts");
@@ -108,6 +116,9 @@ if (runtimeAuthorizeRouteStart < 0) {
 for (const phrase of [
   "appendRuntimeAuthorizationEvaluatedAuditEvent",
   "AuditEvents.RUNTIME_AUTHORIZATION_EVALUATED",
+  "runtimeToolMappingStatuses.has(String(action.toolMappingStatus))",
+  'for (const field of ["sourceId", "toolId"])',
+  "is required for mapped tool proof",
   "runtimeTokenIssued: false",
   "externalRuntimeCalled: false",
   "protectedMaterialExposed: false",
@@ -116,6 +127,16 @@ for (const phrase of [
 ]) {
   requireIncludes(indexSource, phrase, "runtime authorization route/audit includes safe proof");
 }
+requireNotIncludes(
+  indexSource,
+  'action.toolMappingStatus !== "mapped"',
+  "runtime authorization HTTP validator lets non-mapped tool statuses reach policy evaluation"
+);
+requireNotIncludes(
+  indexSource,
+  '["sourceId", "toolId", "provider", "resourceSystem"]',
+  "runtime authorization HTTP validator allows non-mapped proof without provider/resourceSystem"
+);
 
 for (const phrase of [
   "runtimeAuthorizationRequestSchema",
@@ -193,6 +214,20 @@ const identity: VerifiedUserIdentity = {
   subject: "user-runtime-authorize"
 };
 
+function mappedToolProof(provider: string, resourceSystem: string, toolId: string): RuntimeAuthorizationRequest["action"]["toolMappingProof"] {
+  return {
+    sourceType: "connector_profile_action",
+    sourceId: `${provider}.${resourceSystem}`,
+    toolId,
+    provider,
+    resourceSystem,
+    deterministicMapping: true,
+    aiInferred: false,
+    rawDescriptionStored: false,
+    protectedMaterialExposed: false
+  };
+}
+
 function request(overrides: Partial<RuntimeAuthorizationRequest> = {}): RuntimeAuthorizationRequest {
   return {
     actor: {
@@ -221,6 +256,8 @@ function request(overrides: Partial<RuntimeAuthorizationRequest> = {}): RuntimeA
         requiresConnectedAccount: true,
         auditRequired: true
       },
+      toolMappingStatus: "mapped",
+      toolMappingProof: mappedToolProof("servicenow", "servicenow", "servicenow.ticket.status.lookup"),
       provider: "servicenow",
       resourceSystem: "servicenow"
     },
@@ -246,6 +283,95 @@ if (readOnly.decision !== "allow" || !readOnly.allowed) {
   fail("read-only authorization response must not execute runtime, issue token, or call external runtime");
 } else {
   ok("read-only low risk external runtime authorization allows without execution");
+}
+
+const missingToolMappingRequest = request();
+delete (missingToolMappingRequest.action as Record<string, unknown>).toolMappingStatus;
+delete (missingToolMappingRequest.action as Record<string, unknown>).toolMappingProof;
+const missingToolMapping = evaluate(missingToolMappingRequest);
+if (missingToolMapping.decision !== "block" || missingToolMapping.allowed || !missingToolMapping.reason.includes("Tool-to-action metadata mapping must be mapped")) {
+  fail("runtime authorization without mapped tool proof should fail closed");
+} else {
+  ok("runtime authorization without mapped tool proof fails closed");
+}
+
+const incompleteToolMapping = evaluate(request({
+  action: {
+    ...request().action,
+    toolMappingStatus: "incomplete_metadata"
+  }
+}));
+if (incompleteToolMapping.decision !== "block" || incompleteToolMapping.allowed || !incompleteToolMapping.reason.includes("Tool-to-action metadata mapping must be mapped")) {
+  fail("runtime authorization with non-mapped tool status should fail closed");
+} else {
+  ok("runtime authorization with non-mapped tool status fails closed");
+}
+
+const incompleteToolMappingWithoutProviderProof = evaluate(request({
+  action: {
+    ...request().action,
+    toolMappingStatus: "incomplete_metadata",
+    toolMappingProof: {
+      sourceType: "connector_profile_action",
+      sourceId: "servicenow.servicenow",
+      toolId: "servicenow.ticket.status.lookup",
+      deterministicMapping: true,
+      aiInferred: false,
+      rawDescriptionStored: false,
+      protectedMaterialExposed: false
+    }
+  }
+}));
+if (incompleteToolMappingWithoutProviderProof.decision !== "block" || incompleteToolMappingWithoutProviderProof.allowed || !incompleteToolMappingWithoutProviderProof.reason.includes("Tool-to-action metadata mapping must be mapped")) {
+  fail("runtime authorization with incomplete mapping proof missing provider/resource should fail closed through evaluation");
+} else {
+  ok("runtime authorization with incomplete mapping proof missing provider/resource fails closed through evaluation");
+}
+
+const missingActionProviderRequest = request();
+delete (missingActionProviderRequest.action as Record<string, unknown>).provider;
+const missingActionProvider = evaluate(missingActionProviderRequest);
+if (missingActionProvider.decision !== "block" || missingActionProvider.allowed || !missingActionProvider.reason.includes("Tool-to-action metadata mapping must be mapped")) {
+  fail("runtime authorization with mapped proof but missing action provider should fail closed");
+} else {
+  ok("runtime authorization with mapped proof but missing action provider fails closed");
+}
+
+const missingActionResourceSystemRequest = request();
+delete (missingActionResourceSystemRequest.action as Record<string, unknown>).resourceSystem;
+const missingActionResourceSystem = evaluate(missingActionResourceSystemRequest);
+if (missingActionResourceSystem.decision !== "block" || missingActionResourceSystem.allowed || !missingActionResourceSystem.reason.includes("Tool-to-action metadata mapping must be mapped")) {
+  fail("runtime authorization with mapped proof but missing action resource system should fail closed");
+} else {
+  ok("runtime authorization with mapped proof but missing action resource system fails closed");
+}
+
+const mismatchedToolProof = evaluate(request({
+  action: {
+    ...request().action,
+    toolMappingProof: mappedToolProof("servicenow", "servicenow", "jira.issue.create")
+  }
+}));
+if (mismatchedToolProof.decision !== "block" || mismatchedToolProof.allowed || !mismatchedToolProof.reason.includes("bound to the requested action")) {
+  fail("runtime authorization with mapping proof for another tool should fail closed");
+} else {
+  ok("runtime authorization with mapping proof for another tool fails closed");
+}
+
+const mismatchedResourceProof = evaluate(request({
+  connectorRoute: {
+    runtimeMode: "external_runtime_available",
+    resourceSystem: "servicenow"
+  },
+  action: {
+    ...request().action,
+    toolMappingProof: mappedToolProof("servicenow", "jira", "servicenow.ticket.status.lookup")
+  }
+}));
+if (mismatchedResourceProof.decision !== "block" || mismatchedResourceProof.allowed || !mismatchedResourceProof.reason.includes("trusted route/resource")) {
+  fail("runtime authorization with mapping proof for another resource should fail closed");
+} else {
+  ok("runtime authorization with mapping proof for another resource fails closed");
 }
 
 const withoutActor = request();
@@ -317,6 +443,8 @@ const writeAction = evaluate(request({
       requiresConnectedAccount: true,
       auditRequired: true
     },
+    toolMappingStatus: "mapped",
+    toolMappingProof: mappedToolProof("atlassian", "jira", "jira.issue.create"),
     provider: "atlassian",
     resourceSystem: "jira"
   }

@@ -17,12 +17,25 @@ const connectorRouteStatuses: ReadonlySet<string> = new Set([
   "connector_not_onboarded"
 ]);
 
+const toolSourceTypes: ReadonlySet<string> = new Set([
+  "mcp_tool_manifest",
+  "a2a_agent_card_skill",
+  "connector_profile_action",
+  "sdk_action_catalog",
+  "manually_imported_catalog"
+]);
+
 function connectorId(request: RuntimeAuthorizationRequest): string | undefined {
   return request.connectorRoute?.connectorId ?? request.targetAgent?.connectorId ?? request.resource?.connectorId;
 }
 
 function resourceSystem(request: RuntimeAuthorizationRequest): string | undefined {
   return request.connectorRoute?.resourceSystem ?? request.targetAgent?.resourceSystem ?? request.resource?.resourceSystem;
+}
+
+function cleanString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 function runtimeMode(request: RuntimeAuthorizationRequest): RuntimeMode {
@@ -40,7 +53,41 @@ function hasExplicitTarget(request: RuntimeAuthorizationRequest): boolean {
   );
 }
 
+function hasMappedToolProof(request: RuntimeAuthorizationRequest): boolean {
+  const proof = request.action.toolMappingProof;
+  const skillId = cleanString(request.action.skillId);
+  const trustedResourceSystem = cleanString(resourceSystem(request));
+  const actionProvider = cleanString(request.action.provider);
+  const actionResourceSystem = cleanString(request.action.resourceSystem);
+  const proofToolId = cleanString(proof?.toolId);
+  const proofProvider = cleanString(proof?.provider);
+  const proofResourceSystem = cleanString(proof?.resourceSystem);
+
+  return request.action.toolMappingStatus === "mapped" &&
+    Boolean(proof) &&
+    toolSourceTypes.has(proof.sourceType) &&
+    typeof proof.sourceId === "string" &&
+    proof.sourceId.trim().length > 0 &&
+    proofToolId === skillId &&
+    actionProvider !== undefined &&
+    actionResourceSystem !== undefined &&
+    proofProvider !== undefined &&
+    proofResourceSystem !== undefined &&
+    trustedResourceSystem !== undefined &&
+    proofResourceSystem === trustedResourceSystem &&
+    proofProvider === actionProvider &&
+    proofResourceSystem === actionResourceSystem &&
+    proof.deterministicMapping === true &&
+    proof.aiInferred === false &&
+    proof.rawDescriptionStored === false &&
+    proof.protectedMaterialExposed === false;
+}
+
 function connectorRouteStatus(request: RuntimeAuthorizationRequest): ConnectorRouteStatus {
+  if (!hasMappedToolProof(request)) {
+    return "connector_skill_blocked";
+  }
+
   if (request.connectorRoute?.status && connectorRouteStatuses.has(request.connectorRoute.status)) {
     return request.connectorRoute.status as ConnectorRouteStatus;
   }
@@ -61,6 +108,7 @@ export function evaluateRuntimeAuthorization(input: {
   const { request, identity, tenantId, tenantResolution } = input;
   const evaluatedConnectorId = connectorId(request);
   const evaluatedResourceSystem = resourceSystem(request);
+  const toolMappingBlocked = !hasMappedToolProof(request);
   const policy = evaluateConnectorPolicy({
     tenantId,
     requestId: request.requestId,
@@ -120,7 +168,9 @@ export function evaluateRuntimeAuthorization(input: {
     decision: policy.effect,
     allowed: policy.effect === "allow",
     requiresApproval: policy.effect === "needs_approval",
-    reason: policy.reason,
+    reason: toolMappingBlocked && policy.effect === "block"
+      ? "Tool-to-action metadata mapping must be mapped and bound to the requested action and trusted route/resource before runtime authorization."
+      : policy.reason,
     tenantId,
     tenantResolution: tenantResolution
       ? {

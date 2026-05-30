@@ -568,7 +568,7 @@ Node.js >= 20 is required. Fastify mode is public-metadata-only for now. startJs
 
 ### Phase 2.15  Runtime Authorization Decision API
 
-`POST /runtime/authorize` is an authorization-only API for agent actions. It evaluates Ogen policy, returns policy decision proof, and requires a fresh identity session through the User Directory Access Gate. `request.actor` is optional context only; the verified identity session is authoritative for authorization.
+`POST /runtime/authorize` is an authorization-only API for agent actions. It evaluates Ogen policy, returns policy decision proof, and requires a fresh identity session through the User Directory Access Gate. `request.actor` is optional context only; the verified identity session is authoritative for authorization. Runtime authorization requests must include `toolMappingStatus: "mapped"` and deterministic audit-safe `toolMappingProof`; missing, incomplete, unsupported, or unknown tool mappings fail closed before allow. Mapping proof is bound to the requested action and trusted route/resource: `toolMappingProof.toolId` must match the requested `skillId`, `toolMappingProof.provider` must match the action provider, and `toolMappingProof.resourceSystem` must match both the action resource system and trusted connector route/resource system.
 
 The endpoint does not execute runtime, does not issue a runtime token, and does not call an external connector runtime. It is intended for future SDK, MCP proxy, and external agent flows that need to ask Ogen whether an action is allowed before using a separate execution path.
 
@@ -749,6 +749,18 @@ Missing normalized action metadata fails certification for future external execu
 Resource-scoped policy matches use the trusted connector route/resource context, not caller-supplied action metadata. If an action body includes `resourceSystem` and it conflicts with the routed/resource system, Ogen fails closed before tenant allow rules are evaluated and records the trusted resource system in the policy proof.
 
 Signed Agent Card provenance remains advisory only. It can describe card integrity, but it is not tenant, role, policy, authorization, runtime, or audit authority.
+
+### Phase 2.23  Tool-to-Action Metadata Mapping
+
+Phase 2.23 adds a deterministic mapping foundation that converts MCP tools, A2A Agent Card skills, connector profile actions, SDK action catalogs, and manually imported catalogs into normalized Ogen actions. The mapping output carries `actionCategory`, `approvalMode`, `resourceSensitivity`, `fieldClasses`, `actionConstraints`, `executionType`, `riskLevel`, `requiresApproval`, `sensitivity`, provider/resource system, and explicit required scopes/grants/permissions.
+
+Unknown or incomplete tools fail closed. The mapper returns `mapped` only when all deterministic fields are present and valid. It returns `incomplete_metadata`, `unsupported_tool_shape`, or `blocked_unknown_tool` when metadata is missing, malformed, or absent. `fieldClasses: []` and `actionConstraints: {}` are preserved as explicit metadata, not treated as missing.
+
+AI descriptions are not authority. Natural-language tool descriptions, AI interpretation, OAuth scope breadth, and signed provenance cannot classify read/write safety, risk, resource sensitivity, or approval posture. OAuth scopes can prove possible API reach for a connected account, but broad OAuth scopes do not grant Ogen action permission.
+
+Mapping proof is audit-safe and deterministic. It records source type, source/tool IDs, provider/resource system, `deterministicMapping: true`, `aiInferred: false`, `rawDescriptionStored: false`, and `protectedMaterialExposed: false`. Raw descriptions, prompts, tokens, secrets, Authorization headers, and protected metadata are not stored in proof.
+
+Product proof must keep connector runtime execution and A2A task execution distinct; connector runtime execution and A2A task execution are distinct proof concepts. A connector runtime executes only when `connectorRuntime.executed === true`; legacy/internal A2A task creation or token issuance does not imply the external connector runtime ran. Security summary, timeline proof, raw execution proof, and Run Task summary cards should label connector runtime activity and legacy/internal A2A task activity separately.
 
 ### Phase 3  Connector SDK
 
@@ -1179,6 +1191,11 @@ V2 verification should layer new checks without weakening V1:
 - [ ] Phase 2.22: propagate normalized action metadata through connector/action contracts
 - [ ] Phase 2.22: keep OAuth scopes separate from Ogen action permission and approval policy
 - [ ] Phase 2.22: fail SDK certification for missing normalized action metadata on future executable connectors
+- [ ] Phase 2.23: map MCP/A2A/vendor tools into normalized Ogen action metadata deterministically
+- [ ] Phase 2.23: fail unknown, malformed, or incomplete tool mappings closed as incomplete_metadata, unsupported_tool_shape, or blocked_unknown_tool
+- [ ] Phase 2.23: keep AI descriptions, OAuth scopes, and provenance out of authorization authority
+- [ ] Phase 2.23: expose audit-safe mapping proof with deterministicMapping true and aiInferred false
+- [ ] Phase 2.23: keep connector runtime execution and A2A task execution distinct in product copy and raw proof
 - [ ] Add database package
 - [ ] Add schema
 - [ ] Persist tenants and users

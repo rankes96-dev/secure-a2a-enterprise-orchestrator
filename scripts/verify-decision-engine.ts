@@ -20,7 +20,8 @@ const profile: ConnectorProfile = {
       label: "Read demo data",
       description: "Read demo data.",
       requiredApplicationGrants: ["grant.read"],
-      requiredEffectivePermissions: ["permission.read"]
+      requiredEffectivePermissions: ["permission.read"],
+      requestedScopes: []
     }
   ],
   actionCatalog: []

@@ -55,7 +55,8 @@ function trustedAgent(input: Partial<TrustedOnboardedAgent> & Pick<TrustedOnboar
         label: "Look up Jira issue status",
         reason: "Verification fixture approval.",
         requiredApplicationGrants: ["read:jira-work"],
-        requiredEffectivePermissions: ["browse_projects", "view_issues"]
+        requiredEffectivePermissions: ["browse_projects", "view_issues"],
+        requestedScopes: []
       }
     ],
     blockedActions: [],
@@ -65,7 +66,8 @@ function trustedAgent(input: Partial<TrustedOnboardedAgent> & Pick<TrustedOnboar
         label: "Look up Jira issue status",
         reason: "Verification fixture approval.",
         requiredApplicationGrants: ["read:jira-work"],
-        requiredEffectivePermissions: ["browse_projects", "view_issues"]
+        requiredEffectivePermissions: ["browse_projects", "view_issues"],
+        requestedScopes: []
       }
     ],
     blockedCapabilities: [],
@@ -239,6 +241,7 @@ function verifyMetadataOnlyGateStack(): void {
       runtimeMode: "metadata_only",
       requiredApplicationGrants: ["read:jira-work"],
       requiredEffectivePermissions: ["browse_projects"],
+      requestedScopes: [],
       reason: "Approved metadata-only route.",
       recommendedNextStep: "Use connector guidance."
     }

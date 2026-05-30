@@ -409,7 +409,19 @@ const request: RuntimeAuthorizationRequest = {
     executionType: "inspection_read_only",
     riskLevel: "low",
     requiresApproval: false,
-    sensitivity: "standard"
+    sensitivity: "standard",
+    toolMappingStatus: "mapped",
+    toolMappingProof: {
+      sourceType: "connector_profile_action",
+      sourceId: "servicenow-reference",
+      toolId: "servicenow.ticket.status.lookup",
+      provider: "servicenow",
+      resourceSystem: "servicenow",
+      deterministicMapping: true,
+      aiInferred: false,
+      rawDescriptionStored: false,
+      protectedMaterialExposed: false
+    }
   },
   connectorRoute: {
     runtimeMode: "external_runtime_available"

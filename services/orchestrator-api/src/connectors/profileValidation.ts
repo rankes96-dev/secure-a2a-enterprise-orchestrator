@@ -20,7 +20,18 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+  return Array.isArray(value)
+    ? value.flatMap((item) => typeof item === "string" && item.trim().length > 0 ? [item.trim()] : [])
+    : [];
+}
+
+function explicitStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const trimmed = value.map((item) => typeof item === "string" ? item.trim() : undefined);
+  return trimmed.every((item): item is string => item !== undefined && item.length > 0) ? trimmed : undefined;
 }
 
 const actionCategories: ReadonlyArray<NonNullable<ConnectorActionRequirement["actionCategory"]>> = [
@@ -42,6 +53,19 @@ const actionCategories: ReadonlyArray<NonNullable<ConnectorActionRequirement["ac
 ];
 
 const approvalModes: ReadonlyArray<NonNullable<ConnectorActionRequirement["approvalMode"]>> = ["never", "policy", "always", "blocked"];
+const toolMappingStatuses: ReadonlyArray<NonNullable<ConnectorActionRequirement["toolMappingStatus"]>> = [
+  "mapped",
+  "incomplete_metadata",
+  "unsupported_tool_shape",
+  "blocked_unknown_tool"
+];
+const toolSourceTypes: ReadonlyArray<NonNullable<ConnectorActionRequirement["toolMappingProof"]>["sourceType"]> = [
+  "mcp_tool_manifest",
+  "a2a_agent_card_skill",
+  "connector_profile_action",
+  "sdk_action_catalog",
+  "manually_imported_catalog"
+];
 const resourceSensitivities: ReadonlyArray<NonNullable<ConnectorActionRequirement["resourceSensitivity"]>> = [
   "standard",
   "sensitive",
@@ -123,6 +147,36 @@ function actionConstraints(value: unknown): ConnectorActionRequirement["actionCo
   return Object.keys(input).length === 0 || Object.values(constraints).some((entry) => entry !== undefined) ? constraints : undefined;
 }
 
+function toolMappingProof(value: unknown): ConnectorActionRequirement["toolMappingProof"] {
+  const input = record(value);
+  const sourceType = optionalValue(input.sourceType, toolSourceTypes);
+  const sourceId = cleanString(input.sourceId);
+  const toolId = cleanString(input.toolId);
+  if (
+    !sourceType ||
+    !sourceId ||
+    !toolId ||
+    input.deterministicMapping !== true ||
+    input.aiInferred !== false ||
+    input.rawDescriptionStored !== false ||
+    input.protectedMaterialExposed !== false
+  ) {
+    return undefined;
+  }
+
+  return {
+    sourceType,
+    sourceId,
+    toolId,
+    provider: cleanString(input.provider) || undefined,
+    resourceSystem: cleanString(input.resourceSystem) || undefined,
+    deterministicMapping: true,
+    aiInferred: false,
+    rawDescriptionStored: false,
+    protectedMaterialExposed: false
+  };
+}
+
 function hasSecretMarker(value: unknown): boolean {
   const text = JSON.stringify(value);
   return forbiddenSecretPatterns.some((pattern) => pattern.test(text));
@@ -178,8 +232,9 @@ function actionCatalog(value: unknown) {
           id: cleanString(input.id),
           label: cleanString(input.label),
           description: cleanString(input.description),
-          requiredApplicationGrants: stringArray(input.requiredApplicationGrants),
-          requiredEffectivePermissions: stringArray(input.requiredEffectivePermissions),
+          requiredApplicationGrants: explicitStringArray(input.requiredApplicationGrants),
+          requiredEffectivePermissions: explicitStringArray(input.requiredEffectivePermissions),
+          requestedScopes: explicitStringArray(input.requestedScopes),
           capabilityIds: capabilityIds.length ? capabilityIds : undefined,
           riskLevel,
           executionType,
@@ -190,6 +245,8 @@ function actionCatalog(value: unknown) {
           resourceSensitivity: optionalValue(input.resourceSensitivity, resourceSensitivities),
           fieldClasses: fieldClassArray(input.fieldClasses),
           actionConstraints: actionConstraints(input.actionConstraints),
+          toolMappingStatus: optionalValue(input.toolMappingStatus, toolMappingStatuses),
+          toolMappingProof: toolMappingProof(input.toolMappingProof),
           provider: cleanString(input.provider) || undefined,
           resourceSystem: cleanString(input.resourceSystem) || undefined,
           diagnosesActionId: cleanString(input.diagnosesActionId) || undefined,

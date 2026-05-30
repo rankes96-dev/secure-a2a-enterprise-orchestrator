@@ -116,6 +116,50 @@ function actionConstraints(value: unknown): ConnectorActionPlanOption["actionCon
   return constraints;
 }
 
+function toolMappingStatus(value: unknown): ConnectorActionPlanOption["toolMappingStatus"] {
+  return value === "mapped" || value === "incomplete_metadata" || value === "unsupported_tool_shape" || value === "blocked_unknown_tool"
+    ? value
+    : undefined;
+}
+
+function toolMappingProof(value: unknown): ConnectorActionPlanOption["toolMappingProof"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const sourceType = record.sourceType === "mcp_tool_manifest" ||
+    record.sourceType === "a2a_agent_card_skill" ||
+    record.sourceType === "connector_profile_action" ||
+    record.sourceType === "sdk_action_catalog" ||
+    record.sourceType === "manually_imported_catalog"
+    ? record.sourceType
+    : undefined;
+  if (
+    !sourceType ||
+    typeof record.sourceId !== "string" ||
+    typeof record.toolId !== "string" ||
+    record.deterministicMapping !== true ||
+    record.aiInferred !== false ||
+    record.rawDescriptionStored !== false ||
+    record.protectedMaterialExposed !== false
+  ) {
+    return undefined;
+  }
+
+  return {
+    sourceType,
+    sourceId: record.sourceId,
+    toolId: record.toolId,
+    provider: cleanString(record.provider),
+    resourceSystem: cleanString(record.resourceSystem),
+    deterministicMapping: true,
+    aiInferred: false,
+    rawDescriptionStored: false,
+    protectedMaterialExposed: false
+  };
+}
+
 function executionType(value: unknown): PlannedActionExecutionType {
   return value === "inspection_read_only" || value === "diagnostic_read_only" || value === "write_action" || value === "admin_action" || value === "unsupported"
     ? value
@@ -150,6 +194,8 @@ function normalizeConnectorActionPlan(value: unknown): ConnectorActionPlan | und
           resourceSensitivity: resourceSensitivity(item.resourceSensitivity),
           fieldClasses: fieldClasses(item.fieldClasses),
           actionConstraints: actionConstraints(item.actionConstraints),
+          toolMappingStatus: toolMappingStatus(item.toolMappingStatus),
+          toolMappingProof: toolMappingProof(item.toolMappingProof),
           provider: cleanString(item.provider),
           resourceSystem: cleanString(item.resourceSystem),
           sideEffects: sideEffects(item.sideEffects),

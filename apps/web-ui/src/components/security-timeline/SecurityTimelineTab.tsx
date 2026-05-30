@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import type { AuditViewerEvent, ResolveResponse } from "@a2a/shared";
 import type { AuditViewerFilters, ExtractedScreenContext, SecurityTimelineEvent } from "../types";
+import { connectorRuntimeExecutionTruthLabel, policyProofTruthLabel, selectedWorkloadTruthLabel, tokenProofTruthLabel } from "../RunTaskSummaryCards";
 
 type ScreenContext = ExtractedScreenContext;
 
@@ -48,23 +49,6 @@ function targetConnectorSystem(response: ResolveResponse): string {
     route.connectorId,
     route.targetSystem ?? route.resourceSystem
   ].filter(Boolean).join(" / ") || "No connector selected";
-}
-
-function tokenIssued(response: ResolveResponse): string {
-  if (response.connectorRuntime?.tokenMetadata?.tokenIssued) {
-    return "Yes";
-  }
-  if (response.a2aTasks?.some((task) => task.context.auth?.tokenIssued)) {
-    return "Yes";
-  }
-  return "No";
-}
-
-function runtimeExecuted(response: ResolveResponse): string {
-  if (response.connectorRuntime) {
-    return response.connectorRuntime.executed ? "Yes" : "No";
-  }
-  return response.a2aResponses?.length ? "Yes" : "No";
 }
 
 function groupedEvents(events: SecurityTimelineEvent[]): Array<{ label: string; events: SecurityTimelineEvent[] }> {
@@ -395,8 +379,10 @@ export function SecurityTimelineTab({ ctx }: { ctx: ScreenContext }) {
       { label: "Outcome", value: outcomeLabel(response) },
       { label: "Target connector / system", value: targetConnectorSystem(response) },
       { label: "Gate stopped at", value: gateStoppedAt(response) },
-      { label: "Token issued", value: tokenIssued(response) },
-      { label: "Runtime executed", value: runtimeExecuted(response) },
+      { label: "Policy proof", value: policyProofTruthLabel(response) },
+      { label: "Token proof", value: tokenProofTruthLabel(response) },
+      { label: "Connector runtime execution", value: connectorRuntimeExecutionTruthLabel(response) },
+      { label: "Route / task activity", value: selectedWorkloadTruthLabel(response) },
       { label: "Raw tokens exposed", value: "No" },
       { label: "Security intent detected", value: securityIntent }
     ];

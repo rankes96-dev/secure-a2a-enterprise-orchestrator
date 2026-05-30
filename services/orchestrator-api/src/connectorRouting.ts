@@ -1,6 +1,7 @@
 import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
 import { localReferenceConnectorIntentCatalog, type ConnectorIntentHint, type ConnectorIntentSkillHint, type ReferenceConnectorExecutionType, type ReferenceConnectorRiskLevel, type ReferenceConnectorSensitivity } from "./connectors/localReferenceConnectorIntentCatalog.js";
 import { isConnectorRuntimeEndpointAllowed } from "./security/connectorRuntimeSafety.js";
+import { mapToolToActionMetadata } from "./toolMapping/toolToActionMetadataMapper.js";
 
 type ConnectorActionMetadataSource = "approved_action" | "reference_catalog" | "missing";
 
@@ -46,6 +47,7 @@ export type ConnectorRoutingDecision = {
   connectorProfileHash?: string;
   requiredApplicationGrants?: string[];
   requiredEffectivePermissions?: string[];
+  requestedScopes?: string[];
   riskLevel?: "low" | "medium" | "high" | "sensitive";
   executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
   requiresApproval?: boolean;
@@ -55,6 +57,8 @@ export type ConnectorRoutingDecision = {
   resourceSensitivity?: ConnectorIntentSkillHint["resourceSensitivity"];
   fieldClasses?: ConnectorIntentSkillHint["fieldClasses"];
   actionConstraints?: ConnectorIntentSkillHint["actionConstraints"];
+  toolMappingStatus?: ConnectorIntentSkillHint["toolMappingStatus"];
+  toolMappingProof?: ConnectorIntentSkillHint["toolMappingProof"];
   provider?: string;
   actionMetadataSource?: ConnectorActionMetadataSource;
   missingApplicationGrants?: string[];
@@ -226,8 +230,13 @@ function referenceSkillMetadata(
   resourceSensitivity?: ConnectorIntentSkillHint["resourceSensitivity"];
   fieldClasses?: ConnectorIntentSkillHint["fieldClasses"];
   actionConstraints?: ConnectorIntentSkillHint["actionConstraints"];
+  toolMappingStatus?: ConnectorIntentSkillHint["toolMappingStatus"];
+  toolMappingProof?: ConnectorIntentSkillHint["toolMappingProof"];
   provider?: string;
   resourceSystem?: string;
+  requiredApplicationGrants?: string[];
+  requiredEffectivePermissions?: string[];
+  requestedScopes?: string[];
   source: ConnectorActionMetadataSource;
 } {
   const referenceSkill = supported.skillHints.find((hint) => hint.skillId === skillId);
@@ -240,6 +249,9 @@ function referenceSkillMetadata(
   const resourceSensitivity = approved.resourceSensitivity ?? referenceSkill?.resourceSensitivity;
   const fieldClasses = approved.fieldClasses ?? referenceSkill?.fieldClasses;
   const actionConstraints = approved.actionConstraints ?? referenceSkill?.actionConstraints;
+  const requiredApplicationGrants = approved.requiredApplicationGrants ?? (referenceSkill ? referenceSkill.requiredApplicationGrants ?? [] : undefined);
+  const requiredEffectivePermissions = approved.requiredEffectivePermissions ?? (referenceSkill ? referenceSkill.requiredEffectivePermissions ?? [] : undefined);
+  const requestedScopes = approved.requestedScopes ?? (referenceSkill ? referenceSkill.requestedScopes ?? [] : undefined);
   const provider = approved.provider ?? referenceSkill?.provider;
   const resourceSystem = approved.resourceSystem ?? referenceSkill?.resourceSystem ?? supported.resourceSystem;
   const mergedMetadataComplete = hasCompleteNormalizedActionMetadata({
@@ -258,6 +270,26 @@ function referenceSkillMetadata(
       : approvedMetadataComplete
         ? "approved_action"
         : "reference_catalog";
+  const toolMapping = mapToolToActionMetadata({
+    sourceType: approved.toolMappingProof?.sourceType ?? referenceSkill?.toolMappingProof?.sourceType ?? "connector_profile_action",
+    sourceId: approved.toolMappingProof?.sourceId ?? referenceSkill?.toolMappingProof?.sourceId ?? supported.connectorId,
+    toolId: approved.toolMappingProof?.toolId ?? referenceSkill?.toolMappingProof?.toolId ?? skillId,
+    actionId: skillId,
+    provider,
+    resourceSystem,
+    executionType,
+    riskLevel,
+    requiresApproval,
+    sensitivity,
+    actionCategory,
+    approvalMode,
+    resourceSensitivity,
+    fieldClasses,
+    actionConstraints,
+    requiredApplicationGrants,
+    requiredEffectivePermissions,
+    requestedScopes
+  });
 
   return {
     riskLevel,
@@ -269,8 +301,13 @@ function referenceSkillMetadata(
     resourceSensitivity,
     fieldClasses: fieldClasses ? [...fieldClasses] : undefined,
     actionConstraints: actionConstraints ? { ...actionConstraints } : undefined,
+    toolMappingStatus: toolMapping.status,
+    toolMappingProof: toolMapping.proof,
     provider,
     resourceSystem,
+    requiredApplicationGrants: requiredApplicationGrants ? [...requiredApplicationGrants] : undefined,
+    requiredEffectivePermissions: requiredEffectivePermissions ? [...requiredEffectivePermissions] : undefined,
+    requestedScopes: requestedScopes ? [...requestedScopes] : undefined,
     source
   };
 }
@@ -462,6 +499,43 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
   const approved = approvedActions.find((item) => item.capability === skillId);
   if (approved) {
     const actionMetadata = referenceSkillMetadata(supported, skillId, approved);
+    if (actionMetadata.toolMappingStatus !== "mapped") {
+      return {
+        status: "connector_skill_blocked",
+        targetSystem: supported.resourceSystem,
+        resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.resourceSystem,
+        connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
+        skillId,
+        skillLabel: approved.label ?? skillId,
+        requiredApplicationGrants: actionMetadata.requiredApplicationGrants ?? [],
+        requiredEffectivePermissions: actionMetadata.requiredEffectivePermissions ?? [],
+        requestedScopes: actionMetadata.requestedScopes,
+        riskLevel: actionMetadata.riskLevel,
+        executionType: actionMetadata.executionType,
+        requiresApproval: actionMetadata.requiresApproval,
+        sensitivity: actionMetadata.sensitivity,
+        actionCategory: actionMetadata.actionCategory,
+        approvalMode: actionMetadata.approvalMode,
+        resourceSensitivity: actionMetadata.resourceSensitivity,
+        fieldClasses: actionMetadata.fieldClasses,
+        actionConstraints: actionMetadata.actionConstraints,
+        toolMappingStatus: actionMetadata.toolMappingStatus,
+        toolMappingProof: actionMetadata.toolMappingProof,
+        provider: actionMetadata.provider,
+        actionResourceSystem: actionMetadata.resourceSystem,
+        actionMetadataSource: actionMetadata.source,
+        runtimeMode: "not_available",
+        reason: `Tool-to-action metadata mapping failed closed with status ${actionMetadata.toolMappingStatus}.`,
+        recommendedNextStep: "Update the connector profile or reference action metadata with deterministic provider, resource system, taxonomy, grants, permissions, and scope metadata before runtime execution.",
+        intentClass: intent.intentClass,
+        targetResourceSystem: intent.targetResourceSystem,
+        targetResourceName: intent.targetResourceName,
+        requestedAccessLevel: intent.requestedAccessLevel,
+        fulfillmentCapability: intent.fulfillmentCapability,
+        missingFields: intent.missingFields
+      };
+    }
+
     const persistedMetadataOnly = isPersistedMetadataOnlyTrust(onboarded);
     const runtimeAvailable = !persistedMetadataOnly && isConnectorRuntimeEndpointAllowed(onboarded.runtimeEndpoint);
     // In V1, the selected runtime endpoint is the trusted runtime endpoint stored during onboarding.
@@ -478,8 +552,9 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       audience: onboarded.audience,
       externalConfigHash: onboarded.externalConfigHash,
       connectorProfileHash: onboarded.connectorProfileHash,
-      requiredApplicationGrants: approved.requiredApplicationGrants ?? [],
-      requiredEffectivePermissions: approved.requiredEffectivePermissions ?? [],
+      requiredApplicationGrants: actionMetadata.requiredApplicationGrants ?? [],
+      requiredEffectivePermissions: actionMetadata.requiredEffectivePermissions ?? [],
+      requestedScopes: actionMetadata.requestedScopes,
       riskLevel: actionMetadata.riskLevel,
       executionType: actionMetadata.executionType,
       requiresApproval: actionMetadata.requiresApproval,
@@ -489,6 +564,8 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
       resourceSensitivity: actionMetadata.resourceSensitivity,
       fieldClasses: actionMetadata.fieldClasses,
       actionConstraints: actionMetadata.actionConstraints,
+      toolMappingStatus: actionMetadata.toolMappingStatus,
+      toolMappingProof: actionMetadata.toolMappingProof,
       provider: actionMetadata.provider,
       actionResourceSystem: actionMetadata.resourceSystem,
       actionMetadataSource: actionMetadata.source,

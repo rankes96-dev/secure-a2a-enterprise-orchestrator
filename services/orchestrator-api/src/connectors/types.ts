@@ -1,4 +1,12 @@
-import type { OgenActionCategory, OgenActionConstraints, OgenApprovalMode, OgenFieldClass, OgenResourceSensitivity } from "@a2a/shared";
+import type {
+  OgenActionCategory,
+  OgenActionConstraints,
+  OgenApprovalMode,
+  OgenFieldClass,
+  OgenResourceSensitivity,
+  OgenToolMappingProof,
+  OgenToolMappingStatus
+} from "@a2a/shared";
 
 export type ConnectorCatalogItem = {
   id: string;
@@ -10,8 +18,9 @@ export type ConnectorActionRequirement = {
   id: string;
   label: string;
   description: string;
-  requiredApplicationGrants: string[];
-  requiredEffectivePermissions: string[];
+  requiredApplicationGrants?: string[];
+  requiredEffectivePermissions?: string[];
+  requestedScopes?: string[];
   capabilityIds?: string[];
   riskLevel?: "low" | "medium" | "high" | "sensitive";
   executionType?: "diagnostic_read_only" | "write_action" | "inspection_read_only" | "unsupported";
@@ -22,6 +31,8 @@ export type ConnectorActionRequirement = {
   resourceSensitivity?: OgenResourceSensitivity;
   fieldClasses?: OgenFieldClass[];
   actionConstraints?: OgenActionConstraints;
+  toolMappingStatus?: OgenToolMappingStatus;
+  toolMappingProof?: OgenToolMappingProof;
   provider?: string;
   resourceSystem?: string;
   diagnosesActionId?: string;
@@ -108,10 +119,13 @@ export type ConnectorActionDecision = {
   resourceSensitivity?: ConnectorActionRequirement["resourceSensitivity"];
   fieldClasses?: ConnectorActionRequirement["fieldClasses"];
   actionConstraints?: ConnectorActionRequirement["actionConstraints"];
+  toolMappingStatus?: ConnectorActionRequirement["toolMappingStatus"];
+  toolMappingProof?: ConnectorActionRequirement["toolMappingProof"];
   provider?: string;
   resourceSystem?: string;
-  requiredApplicationGrants: string[];
-  requiredEffectivePermissions: string[];
+  requiredApplicationGrants?: string[];
+  requiredEffectivePermissions?: string[];
+  requestedScopes?: string[];
   missingApplicationGrants: string[];
   missingEffectivePermissions: string[];
   deniedEffectivePermissions: string[];

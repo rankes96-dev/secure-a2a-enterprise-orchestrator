@@ -56,6 +56,10 @@ if (!existsSync(path)) {
     "Phase 2.20b  A2A Message/Task Adapter",
     "Phase 2.21  Signed Agent Card Provenance",
     "Phase 2.22  Generic Action Taxonomy & Policy Conditions",
+    "Phase 2.23  Tool-to-Action Metadata Mapping",
+    "deterministicMapping: true",
+    "aiInferred: false",
+    "connector runtime execution and A2A task execution are distinct",
     "A2A-Version: 1.0",
     "application/a2a+json",
     "invalid_a2a_envelope",
@@ -240,7 +244,7 @@ if (!existsSync(orchestratorPath)) {
     "Raw OAuth tokens, authorization codes, refresh tokens, Authorization headers, and secrets were not exposed.",
     "function connectorRuntimeResolutionStatus",
     'runtime?.agentResponse?.status === "needs_more_info"',
-    "connectorRuntimeResolutionStatus(connectorRouting, connectorRuntime)",
+    "connectorRuntimeResolutionStatus(effectiveConnectorRouting, connectorRuntime)",
     '"return_connector_authorization_required"'
   ]) {
     if (!orchestrator.includes(phrase)) {
@@ -354,6 +358,18 @@ if (!existsSync(packageJsonPath)) {
   }
   if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:generic-action-taxonomy")) {
     fail("verify:v2-plan should run verify:generic-action-taxonomy");
+  }
+  if (packageJson.scripts?.["verify:tool-to-action-metadata-mapping"] !== "tsx scripts/verify-tool-to-action-metadata-mapping.ts") {
+    fail("package.json missing verify:tool-to-action-metadata-mapping script");
+  }
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:generic-action-taxonomy && npm run verify:tool-to-action-metadata-mapping")) {
+    fail("verify:v2-plan should run verify:tool-to-action-metadata-mapping after verify:generic-action-taxonomy");
+  }
+  if (packageJson.scripts?.["verify:ui-truth-consistency"] !== "tsx scripts/verify-ui-truth-consistency.ts") {
+    fail("package.json missing verify:ui-truth-consistency script");
+  }
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:tool-to-action-metadata-mapping && npm run verify:ui-truth-consistency")) {
+    fail("verify:v2-plan should run verify:ui-truth-consistency after verify:tool-to-action-metadata-mapping");
   }
   if (packageJson.scripts?.["verify:connector-runtime-ui-summary"] !== "tsx scripts/verify-connector-runtime-ui-summary.ts") {
     fail("package.json missing verify:connector-runtime-ui-summary script");

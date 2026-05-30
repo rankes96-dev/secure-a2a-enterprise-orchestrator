@@ -28,6 +28,7 @@ Every executable skill/action must declare:
 
 - `id` or `actionId`
 - `label`
+- `toolSourceType`
 - `riskLevel`
 - `executionType`
 - `actionCategory`
@@ -39,8 +40,11 @@ Every executable skill/action must declare:
 - `sensitivity`
 - `requiredApplicationGrants`
 - `requiredEffectivePermissions`
+- `requestedScopes`
 - `provider`
 - `resourceSystem`
+- `toolMappingProof`
+- `certificationResult`
 
 Rules:
 
@@ -50,12 +54,29 @@ Rules:
 - Executable external runtime actions fail closed before default allow when `actionCategory`, `approvalMode`, `resourceSensitivity`, explicit `fieldClasses`, or explicit `actionConstraints` are missing or invalid.
 - Write, high-risk, or sensitive actions require governed approval.
 - OAuth scopes do not equal Ogen action permission.
+- Broad OAuth scopes do not grant action permission.
 - approval is a policy outcome, not automatic for every write.
 - `approvalMode: "blocked"` blocks, `"always"` requires approval, `"policy"` defers to policy evaluation, and `"never"` adds no approval requirement by itself.
 - AI output cannot classify risk.
 - Natural language cannot classify risk.
 - Reference metadata fallback is allowed only for known built-in/reference connector skills.
 - Production connectors must publish this metadata explicitly.
+
+## Tool-to-Action Metadata Mapping Contract
+
+Future SDKs must convert MCP tools, A2A Agent Card skills, connector profile actions, SDK catalogs, and manually imported catalogs into normalized Ogen action metadata before authorization. Required source types are `mcp_tool_manifest`, `a2a_agent_card_skill`, `connector_profile_action`, `sdk_action_catalog`, and `manually_imported_catalog`.
+
+The SDK must emit:
+
+- tool source type, source ID, and tool ID
+- normalized action metadata
+- required scopes/grants/permissions
+- mapping proof in the `proof` field
+- certification result
+
+Mapping proof must be audit-safe: `deterministicMapping: true`, `aiInferred: false`, `rawDescriptionStored: false`, and `protectedMaterialExposed: false`. AI descriptions are not authority, natural-language tool text must not classify safety, and OAuth scopes only describe connected-account/API reach. Unknown or incomplete tools fail closed as `incomplete_metadata`, `unsupported_tool_shape`, or `blocked_unknown_tool`; they are not upgraded by AI, broad scopes, or provenance.
+
+Connector runtime execution and A2A task execution are distinct concepts. SDK and product surfaces must not use A2A task creation, A2A task token issuance, or Agent Card metadata as proof that an external connector runtime executed.
 
 ## Safe Routing View Contract
 
@@ -123,6 +144,8 @@ Phase 2.21 adds signed Agent Card provenance as safe discovery metadata. Provena
 
 Phase 2.22 adds generic action taxonomy contracts. Vendor-specific tools normalize to Ogen action categories before policy evaluation; for example ServiceNow ticket reads, Jira issue reads, GitHub permission inspection, Microsoft Graph changes, MCP tools, and monday item updates are governed through shared action metadata instead of vendor-specific policy shortcuts.
 
+Phase 2.23 adds deterministic Tool-to-Action Metadata Mapping. MCP/A2A/vendor tools become normalized Ogen actions through explicit metadata and safe mapping proof. Mapping is deterministic and non-AI-derived; `incomplete_metadata`, `unsupported_tool_shape`, and `blocked_unknown_tool` fail closed.
+
 Rules:
 
 - Discovery should serve `GET /.well-known/agent-card.json`; local legacy providers may keep `GET /agent-card` as an alias.
@@ -135,6 +158,7 @@ Rules:
 - Valid completed Task envelopes map to diagnostic success; unsupported Task states and malformed message parts return `invalid_a2a_envelope` instead of falling through as successful results.
 - Adapter outputs must not expose raw tokens, raw prompts, secrets, Authorization headers, private keys, client assertions, or protected metadata.
 - Provenance outputs must not expose raw tokens, raw prompts, secrets, Authorization headers, private keys, client assertions, protected metadata, or sensitive key material.
+- Tool mapping proof must not store raw descriptions, prompts, tokens, secrets, Authorization headers, private keys, client assertions, protected metadata, or sensitive key material.
 
 ## Runtime Authorization API Contract
 
@@ -150,6 +174,8 @@ Rules:
 - Ogen verified identity session is authoritative.
 - SDK must not rely on caller-supplied actor for authorization.
 - SDK must not treat its own local decision as authority.
+- SDK must send `toolMappingStatus: "mapped"` plus audit-safe `toolMappingProof`; missing or non-mapped tool metadata fails closed before allow.
+- Mapping proof must be bound to the requested action and trusted route/resource: `toolMappingProof.toolId` must match the requested `skillId`, `toolMappingProof.provider` must match the action provider, and `toolMappingProof.resourceSystem` must match both the action resource system and trusted connector route/resource system.
 - Ogen response includes policy proof.
 - Execution requires a separate future runtime execution path.
 - Authorization-only responses do not issue runtime tokens.
@@ -203,6 +229,9 @@ The SDK contracts must align with [`docs/orchestrator-agnostic-roadmap.md`](./or
 - `resourceSensitivity`
 - `fieldClasses`
 - `actionConstraints`
+- `toolMappingProof`
+- `toolSourceType`
+- `requestedScopes`
 - `requiredApplicationGrants`
 - `requiredEffectivePermissions`
 - `provider`
@@ -210,6 +239,8 @@ The SDK contracts must align with [`docs/orchestrator-agnostic-roadmap.md`](./or
 - normalized action categories policy
 
 These requirements are contract-level inputs for safe authorization and audit proof. Vendor-specific adapters may map native fields, but they must normalize into this shared Ogen policy shape before authorization decisions. Empty `fieldClasses: []` and `actionConstraints: {}` are valid explicit declarations. Unknown taxonomy values, unknown constraint keys, malformed constraint values, or unnormalized field classes are treated as incomplete and fail closed.
+
+Tool-to-action mapping is a trust boundary. AI descriptions, natural-language tool text, broad OAuth scopes, and provenance/signature metadata are not authorization authority. The SDK may preserve only safe source identifiers and deterministic mapping proof; it must not store raw tool descriptions as proof.
 
 Generic policy conditions may match `actionCategories`, `executionTypes`, `riskLevels`, `approvalModes`, `resourceSensitivities`, `actorRolesAny`, `connectorIds`, `resourceSystems`, `providers`, `fieldClasses`, `bulk`, `maxRecordsPerRequest`, `maxActionsPerHour`, `requiresConnectedAccount`, and `auditRequired`. OAuth scopes remain connected-account/API authorization evidence; they do not grant Ogen action permission by themselves. Resource system policy conditions are matched against trusted route/resource context; caller-supplied action metadata cannot override the routed resource system, and mismatches fail closed.
 
@@ -220,6 +251,8 @@ A future SDK connector must pass:
 - all executable actions include `riskLevel` and `executionType`
 - all future executable actions include `actionCategory`, `approvalMode`, `resourceSensitivity`, `fieldClasses`, and `actionConstraints`
 - missing normalized taxonomy fields are certification gaps and fail-closed for future external execution safety
+- tool/action mapping includes source type, normalized action metadata, required scopes/grants/permissions, mapping proof, and certification result
+- mapping proof is deterministic, non-AI-derived, and audit-safe
 - write, high-risk, or sensitive actions require approval
 - runtime validates scoped JWT
 - wrong audience rejected

@@ -35,12 +35,18 @@ export function decideConnectorActions(input: ConnectorDecisionInput): Connector
 
     const requiredApplicationGrants = action.requiredApplicationGrants;
     const requiredEffectivePermissions = action.requiredEffectivePermissions;
-    const missingRequestedApplicationGrants = requiredApplicationGrants.filter((grant) => !requestedApplicationGrants.has(grant));
-    const missingApplicationGrants = requiredApplicationGrants.filter((grant) => !applicationAccessGrants.has(grant));
-    const missingEffectivePermissions = requiredEffectivePermissions.filter((permission) => !effectivePermissions.has(permission) && !deniedPermissions.has(permission));
-    const deniedEffectivePermissions = requiredEffectivePermissions.filter((permission) => deniedPermissions.has(permission));
+    const requestedScopes = action.requestedScopes;
+    const requiredApplicationGrantList = requiredApplicationGrants ?? [];
+    const requiredEffectivePermissionList = requiredEffectivePermissions ?? [];
+    const missingRequestedApplicationGrants = requiredApplicationGrantList.filter((grant) => !requestedApplicationGrants.has(grant));
+    const missingApplicationGrants = requiredApplicationGrantList.filter((grant) => !applicationAccessGrants.has(grant));
+    const missingEffectivePermissions = requiredEffectivePermissionList.filter((permission) => !effectivePermissions.has(permission) && !deniedPermissions.has(permission));
+    const deniedEffectivePermissions = requiredEffectivePermissionList.filter((permission) => deniedPermissions.has(permission));
     const effectiveMissingApplicationGrants = [...new Set([...missingRequestedApplicationGrants, ...missingApplicationGrants])];
     const blockReasons = [
+      ...(requiredApplicationGrants === undefined ? ["missing deterministic metadata requiredApplicationGrants"] : []),
+      ...(requiredEffectivePermissions === undefined ? ["missing deterministic metadata requiredEffectivePermissions"] : []),
+      ...(requestedScopes === undefined ? ["missing deterministic metadata requestedScopes"] : []),
       ...effectiveMissingApplicationGrants.map((grant) => `missing application access grant ${grant}`),
       ...missingEffectivePermissions.map((permission) => `missing effective permission ${permission}`),
       ...deniedEffectivePermissions.map((permission) => `denied permission ${permission}`)
@@ -60,10 +66,13 @@ export function decideConnectorActions(input: ConnectorDecisionInput): Connector
       resourceSensitivity: action.resourceSensitivity,
       fieldClasses: action.fieldClasses ? [...action.fieldClasses] : undefined,
       actionConstraints: action.actionConstraints ? { ...action.actionConstraints } : undefined,
+      toolMappingStatus: action.toolMappingStatus,
+      toolMappingProof: action.toolMappingProof ? { ...action.toolMappingProof } : undefined,
       provider: action.provider,
       resourceSystem: action.resourceSystem ?? input.connectorProfile.resourceSystem,
-      requiredApplicationGrants: [...requiredApplicationGrants],
-      requiredEffectivePermissions: [...requiredEffectivePermissions],
+      requiredApplicationGrants: requiredApplicationGrants ? [...requiredApplicationGrants] : undefined,
+      requiredEffectivePermissions: requiredEffectivePermissions ? [...requiredEffectivePermissions] : undefined,
+      requestedScopes: requestedScopes ? [...requestedScopes] : undefined,
       missingApplicationGrants: effectiveMissingApplicationGrants,
       missingEffectivePermissions,
       deniedEffectivePermissions

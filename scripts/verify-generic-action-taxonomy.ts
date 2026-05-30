@@ -155,7 +155,7 @@ for (const phrase of [
 for (const phrase of ["requiredApplicationGrants?: string[]", "requiredEffectivePermissions?: string[]"]) {
   requireIncludes(sharedIndex, phrase, "shared runtime/action contracts carry normalized action metadata");
 }
-for (const phrase of ["requiredApplicationGrants: string[]", "requiredEffectivePermissions: string[]"]) {
+for (const phrase of ["requiredApplicationGrants?: string[]", "requiredEffectivePermissions?: string[]", "requestedScopes?: string[]"]) {
   requireIncludes(connectorTypes, phrase, "connector action contracts carry grant/permission metadata");
 }
 
@@ -313,7 +313,7 @@ for (const phrase of [
 ]) {
   requireIncludes(`${connectorPolicy}\n${runtimeAuthorization}`, phrase, "policy wrappers propagate normalized action metadata");
 }
-requireIncludes(backend, "resourceSystem: connectorRouting.actionResourceSystem", "resolve path propagates action resource system into policy action metadata");
+requireIncludes(backend, "resourceSystem: effectiveConnectorRouting.actionResourceSystem", "resolve path propagates action resource system into policy action metadata");
 
 for (const phrase of [
   '"actionCategory"',

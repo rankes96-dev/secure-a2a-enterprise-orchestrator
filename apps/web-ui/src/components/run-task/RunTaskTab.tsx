@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { ResolveResponse } from "@a2a/shared";
 import type { ExtractedScreenContext, Scenario } from "../types";
+import { connectorRuntimeModeTruthLabel, policyProofTruthLabel, selectedWorkloadTruthLabel, tokenProofTruthLabel } from "../RunTaskSummaryCards";
 
 type ScreenContext = ExtractedScreenContext;
 
@@ -793,7 +794,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
             <div className="section-heading-row compact-heading">
               <div>
                 <span>Connector Runtime Result</span>
-                <h3>{diagnosticRuntime ? "Read-only diagnostic runtime executed" : latestResponse.connectorRuntime.executed ? "Runtime executed with scoped A2A JWT" : runtimeFailure?.title}</h3>
+                <h3>{diagnosticRuntime ? "Read-only diagnostic runtime executed" : latestResponse.connectorRuntime.executed ? "Connector runtime executed with scoped A2A JWT" : runtimeFailure?.title}</h3>
               </div>
               <strong className={`summary-chip status-${latestResponse.connectorRuntime.executed ? "success" : "warning"}`}>
                 {latestResponse.connectorRuntime.executed ? gatewayOutcomeLabel(latestResponse) : statusDisplayLabel(latestResponse.connectorRuntime.runtimeMode)}
@@ -920,16 +921,16 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                   <dd>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</dd>
                 </div>
                 <div>
-                  <dt>Runtime mode</dt>
-                  <dd>{latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "runtime not executed"}</dd>
+                  <dt>Connector runtime</dt>
+                  <dd>{connectorRuntimeModeTruthLabel(latestResponse)}</dd>
                 </div>
               </dl>
               <p className="muted-note">
                 {latestResponse.connectorRuntime?.executed
-                  ? "Runtime executed with scoped A2A JWT. Raw token hidden."
+                  ? "Connector runtime executed with scoped A2A JWT. Raw token hidden."
                   : latestResponse.connectorRuntime
                     ? "Connector was approved, but runtime failed safely. No legacy mock diagnosis was used."
-                    : "Runtime mode: runtime not executed yet."}
+                    : "Connector runtime mode: runtime not executed yet."}
               </p>
             </div>
           ) : null}
@@ -1025,7 +1026,7 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
           </div>
           <div>
             <span>Token status</span>
-            <strong className={`summary-chip status-${cockpitStatusClass(tokenSummary)}`}>{tokenSummary}</strong>
+            <strong className={`summary-chip status-${cockpitStatusClass(tokenSummary)}`}>{tokenProofTruthLabel(latestResponse)}</strong>
           </div>
           <div>
             <span>Actor status</span>
@@ -1108,16 +1109,16 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
                 </div>
                 <p>{decision.reason}</p>
               </div>
-            )) : <p className="muted-note">No policy decision recorded.</p>}
+            )) : <p className="muted-note">{policyProofTruthLabel(latestResponse)}</p>}
           </section>
           <section>
-            <h2>A2A Tasks</h2>
+            <h2>Legacy/internal A2A Tasks</h2>
             {latestResponse.a2aTasks?.length ? latestResponse.a2aTasks.map((task) => (
               <article className="evidence" key={task.taskId}>
                 <strong>{task.fromAgent} to {task.toAgent}</strong>
-                <span>{task.skillId ?? "no skill"} / token {task.context.auth?.tokenIssued ? "issued" : "not issued"}</span>
+                <span>{task.skillId ?? "no skill"} / legacy A2A token {task.context.auth?.tokenIssued ? "issued" : "not issued"}</span>
               </article>
-            )) : <p className="muted-note">No A2A task created.</p>}
+            )) : <p className="muted-note">No legacy/internal A2A task created.</p>}
           </section>
           <section>
             <h2>Sanitized JSON</h2>
@@ -1146,7 +1147,8 @@ export function RunTaskTab({ ctx }: { ctx: ScreenContext }) {
               <strong>{connectorRoutingStatusLabel(latestResponse.connectorRouting.status)}</strong>
               <span>{latestResponse.connectorRouting.targetSystem ?? "unknown"} / {latestResponse.connectorRouting.connectorId ?? "no connector"}</span>
               <p>{latestResponse.connectorRouting.skillLabel ?? latestResponse.connectorRouting.skillId ?? "No skill/action mapped"}</p>
-              <small>Runtime mode: {latestResponse.connectorRuntime?.executed ? "external runtime executed" : latestResponse.connectorRuntime ? "external runtime failed safely" : "runtime not executed"}</small>
+              <small>Runtime mode: {connectorRuntimeModeTruthLabel(latestResponse)}</small>
+              <small>{selectedWorkloadTruthLabel(latestResponse)}</small>
             </div>
           ) : null}
           {latestResponse?.selectedAgents.length ? (

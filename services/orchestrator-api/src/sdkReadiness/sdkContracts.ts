@@ -24,7 +24,46 @@ export const requiredExecutableActionMetadataFields = [
   "requiresApproval",
   "sensitivity",
   "requiredApplicationGrants",
-  "requiredEffectivePermissions"
+  "requiredEffectivePermissions",
+  "requestedScopes",
+  "provider",
+  "resourceSystem",
+  "toolMappingStatus",
+  "toolMappingProof"
+] as const;
+
+export const requiredToolToActionMappingFields = [
+  "sourceType",
+  "sourceId",
+  "toolId",
+  "provider",
+  "resourceSystem",
+  "executionType",
+  "riskLevel",
+  "requiresApproval",
+  "sensitivity",
+  "actionCategory",
+  "approvalMode",
+  "resourceSensitivity",
+  "fieldClasses",
+  "actionConstraints",
+  "requiredApplicationGrants",
+  "requiredEffectivePermissions",
+  "requestedScopes",
+  "proof",
+  "certificationResult"
+] as const;
+
+export const requiredToolMappingProofFields = [
+  "sourceType",
+  "sourceId",
+  "toolId",
+  "provider",
+  "resourceSystem",
+  "deterministicMapping",
+  "aiInferred",
+  "rawDescriptionStored",
+  "protectedMaterialExposed"
 ] as const;
 
 export const genericPolicyConditionFields = [
@@ -86,6 +125,9 @@ export const sdkCertificationChecks = [
   "action-metadata-complete",
   "normalized-action-taxonomy-complete",
   "missing-taxonomy-fields-fail-closed",
+  "tool-action-mapping-complete",
+  "tool-action-mapping-proof-safe",
+  "tool-action-mapping-certification",
   "write-actions-require-approval",
   "safe-routing-view-no-secrets",
   "runtime-requires-scoped-jwt",

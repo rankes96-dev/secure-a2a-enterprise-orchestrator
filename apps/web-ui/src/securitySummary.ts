@@ -345,6 +345,9 @@ export function buildSecurityTimelineEvents(response: ResolveResponse): Security
         { label: "Skill ID", value: response.connectorRouting.skillId },
         { label: "Skill label", value: response.connectorRouting.skillLabel },
         { label: "Runtime mode", value: response.connectorRouting.runtimeMode },
+        { label: "Tool mapping", value: response.connectorRouting.toolMappingStatus },
+        { label: "Tool mapping deterministic", value: response.connectorRouting.toolMappingProof?.deterministicMapping },
+        { label: "Tool mapping AI inferred", value: response.connectorRouting.toolMappingProof?.aiInferred },
         { label: "Legacy/internal A2A tasks", value: response.a2aTasks?.length ?? 0 }
       ])
     });
@@ -514,6 +517,9 @@ export function buildSecurityTimelineEvents(response: ResolveResponse): Security
           { label: "Skill label", value: response.connectorRouting?.skillLabel },
           { label: "Runtime executed", value: response.connectorRuntime ? response.connectorRuntime.executed : false },
           { label: "Agent response status", value: response.connectorRuntime?.agentResponse?.status },
+          { label: "Tool mapping", value: response.connectorRouting?.toolMappingStatus },
+          { label: "Tool mapping deterministic", value: response.connectorRouting?.toolMappingProof?.deterministicMapping },
+          { label: "Tool mapping AI inferred", value: response.connectorRouting?.toolMappingProof?.aiInferred },
           { label: "Legacy/internal A2A tasks", value: response.a2aTasks?.length ?? 0 },
           { label: "Final answer", value: response.finalAnswer }
         ]

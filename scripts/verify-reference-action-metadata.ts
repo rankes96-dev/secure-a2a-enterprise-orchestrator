@@ -157,7 +157,7 @@ requireIncludes(connectorRouting, "actionMetadataSource: actionMetadata.source",
 requireIncludes(connectorRouting, "actionResourceSystem?: string", "connector routing carries action-level resource system separately");
 requireIncludes(connectorRouting, "actionResourceSystem: actionMetadata.resourceSystem", "connector route decision propagates action-level resource system");
 requireIncludes(backend, "actionResourceSystem: connectorRouting.actionResourceSystem", "backend evidence includes action-level resource system");
-requireIncludes(backend, "resourceSystem: connectorRouting.actionResourceSystem", "backend policy input uses action-level resource system for action metadata");
+requireIncludes(backend, "resourceSystem: effectiveConnectorRouting.actionResourceSystem", "backend policy input uses action-level resource system for action metadata");
 requireIncludes(shared, "actionResourceSystem?: string", "shared connector routing response exposes action-level resource system");
 
 const metadataHelper = connectorRouting.slice(connectorRouting.indexOf("function referenceSkillMetadata"), connectorRouting.indexOf("function exactConnectorIdMatch"));
@@ -344,14 +344,16 @@ const unknownPolicy = evaluateConnectorPolicy({
   sensitivity: unknownDecision.sensitivity
 });
 if (
-  unknownDecision.status !== "connector_skill_approved" ||
+  unknownDecision.status !== "connector_skill_blocked" ||
   unknownDecision.actionMetadataSource !== "missing" ||
+  unknownDecision.toolMappingStatus !== "blocked_unknown_tool" ||
+  unknownDecision.runtimeMode !== "not_available" ||
   unknownPolicy.effect !== "block" ||
-  unknownPolicy.primaryRuleId !== "block-missing-action-risk-metadata"
+  unknownPolicy.primaryRuleId !== "block-unapproved-route"
 ) {
-  fail("unknown approved action without metadata should still fail closed at policy");
+  fail("unknown approved action without metadata should fail closed before approved runtime routing");
 } else {
-  ok("unknown approved action without metadata still fails closed");
+  ok("unknown approved action without metadata fails closed before approved runtime routing");
 }
 
 for (const phrase of [
