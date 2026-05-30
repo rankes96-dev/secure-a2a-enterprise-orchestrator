@@ -3,6 +3,9 @@ import type { DerivedCapability, TrustedOnboardedAgent } from "../services/orche
 import { decideConnectorRoute, routeConnectorRequest, type ConnectorRoutingIntent } from "../services/orchestrator-api/src/connectorRouting.js";
 import { localReferenceConnectorIntentCatalog, localReferenceToolToActionMappings } from "../services/orchestrator-api/src/connectors/localReferenceConnectorIntentCatalog.js";
 import { evaluateConnectorPolicy } from "../services/orchestrator-api/src/policy/connectorPolicy.js";
+import { jiraReferenceConnector } from "../real-external-agent/src/connectors/jiraReferenceConnector";
+import { serviceNowReferenceConnector } from "../real-external-agent/src/connectors/servicenowReferenceConnector";
+import { githubReferenceConnector } from "../real-external-agent/src/connectors/githubReferenceConnector";
 
 let failed = false;
 
@@ -145,9 +148,7 @@ for (const phrase of [
 
 const expectedMetadata = {
   "servicenow.ticket.status.lookup": { riskLevel: "low", executionType: "inspection_read_only", requiresApproval: false, sensitivity: "standard" },
-  "servicenow.request.status.lookup": { riskLevel: "low", executionType: "inspection_read_only", requiresApproval: false, sensitivity: "standard" },
   "servicenow.catalog.item.recommend": { riskLevel: "low", executionType: "inspection_read_only", requiresApproval: false, sensitivity: "standard" },
-  "servicenow.catalog.recommend": { riskLevel: "low", executionType: "inspection_read_only", requiresApproval: false, sensitivity: "standard" },
   "servicenow.catalog.request.diagnose": { riskLevel: "low", executionType: "diagnostic_read_only", requiresApproval: false, sensitivity: "standard" },
   "servicenow.user.role.inspect": { riskLevel: "medium", executionType: "inspection_read_only", requiresApproval: false, sensitivity: "standard" },
   "servicenow.incident.assignment.diagnose": { riskLevel: "medium", executionType: "diagnostic_read_only", requiresApproval: false, sensitivity: "standard" },
@@ -172,6 +173,26 @@ for (const [skillId, expected] of Object.entries(expectedMetadata)) {
     ok(`${skillId} maps to complete deterministic tool-to-action metadata`);
   }
 }
+
+const referenceConnectorsById = new Map([
+  [jiraReferenceConnector.connectorId, jiraReferenceConnector],
+  [serviceNowReferenceConnector.connectorId, serviceNowReferenceConnector],
+  [githubReferenceConnector.connectorId, githubReferenceConnector]
+]);
+for (const connector of localReferenceConnectorIntentCatalog) {
+  const referenceConnector = referenceConnectorsById.get(connector.connectorId);
+  if (!referenceConnector) {
+    fail(`${connector.connectorId} should have a reference connector profile for skill declaration checks`);
+    continue;
+  }
+  const declaredSkillIds = new Set([...referenceConnector.skillCatalog, ...referenceConnector.actionCatalog].map((skill) => skill.id));
+  for (const hint of connector.skillHints) {
+    if (!declaredSkillIds.has(hint.skillId)) {
+      fail(`${connector.connectorId} local reference skill ${hint.skillId} should be declared in the reference connector profile`);
+    }
+  }
+}
+ok("local reference connector skill hints use declared reference connector skills");
 
 requireIncludes(connectorRouting, "function referenceSkillMetadata", "connector routing has explicit reference metadata helper");
 requireIncludes(connectorRouting, "supported.skillHints.find((hint) => hint.skillId === skillId)", "reference metadata is selected by exact skill ID");
@@ -266,6 +287,25 @@ if (servicenowPolicy.effect !== "allow" || servicenowPolicy.primaryRuleId !== "a
 } else {
   ok("ServiceNow ticket status lookup is allowed by read-only approved runtime policy");
 }
+
+function assertServiceNowApprovedRoute(message: string, approvedCapability: string, expectedSkillId: string): void {
+  const decision = routeConnectorRequest(message, [
+    fakeTrustedAgent({
+      connectorId: "servicenow-reference",
+      resourceSystem: "servicenow",
+      approvedCapability
+    })
+  ]);
+  if (decision.status !== "connector_skill_approved" || decision.skillId !== expectedSkillId) {
+    fail(`${message} should route to approved declared ServiceNow skill ${expectedSkillId}, got ${JSON.stringify(decision)}`);
+    return;
+  }
+  ok(`${message} routes to approved declared ServiceNow skill ${expectedSkillId}`);
+}
+
+assertServiceNowApprovedRoute("status of my request", "servicenow.ticket.status.lookup", "servicenow.ticket.status.lookup");
+assertServiceNowApprovedRoute("RITM status", "servicenow.ticket.status.lookup", "servicenow.ticket.status.lookup");
+assertServiceNowApprovedRoute("service catalog recommendation", "servicenow.catalog.item.recommend", "servicenow.catalog.item.recommend");
 
 const staleMetadataBlockedJiraDecision = routeConnectorRequest("Jira issue creation fails with 403 when creating issues in FIN project", [
   fakeTrustedAgent({
