@@ -3,6 +3,7 @@ import type { PendingInteraction, PendingInteractionResolution, SecurityIntent }
 import {
   extractPendingAccessLevelFromMessage,
   extractPendingBusinessReasonFromMessage,
+  extractPendingTargetResourceNameFromMessage,
   resolvePendingInteraction
 } from "../services/orchestrator-api/src/pendingInteractionResolver.js";
 
@@ -67,6 +68,37 @@ function pending(overrides: Partial<PendingInteraction> = {}): PendingInteractio
   };
 }
 
+function pendingMissingResource(): PendingInteraction {
+  const base = pending();
+  return {
+    ...base,
+    id: "pending-jira-resource",
+    originalUserRequest: "I need access to Jira",
+    safeOriginalUserRequestSummary: "I need access to Jira",
+    context: {
+      ...base.context,
+      targetResourceName: undefined,
+      missingInputs: ["targetResourceName", "accessLevel", "businessReason"],
+      collectedInputs: {
+        targetResourceSystem: "jira"
+      },
+      inputSchema: {
+        schemaVersion: "governed-planning.missing-input.v1",
+        allowAiAssistedExtraction: true,
+        strongUnrelatedIntentHints: ["new request", "different request", "separate request", "unrelated to that"],
+        slots: [
+          { name: "targetResourceName", required: true, maxLength: 100 },
+          { name: "accessLevel", required: true, allowedValues: ["viewer", "contributor", "project admin"], maxLength: 32 },
+          { name: "businessReason", required: true, maxLength: 240 }
+        ]
+      },
+      inputHints: {
+        expectedSlots: ["targetResourceName", "accessLevel", "businessReason"]
+      }
+    }
+  };
+}
+
 async function assertResolution(
   message: string,
   expected: Partial<PendingInteractionResolution>,
@@ -107,6 +139,15 @@ async function verifyDeterministicMissingInputResolver(): Promise<void> {
   }
   if (extractPendingBusinessReasonFromMessage("for my daily job") !== "my daily job") {
     fail("short for-my-daily-job phrasing should still extract businessReason");
+  }
+  if (extractPendingTargetResourceNameFromMessage("HR project") !== "HR") {
+    fail("resource-only project follow-up should extract targetResourceName");
+  }
+  if (extractPendingTargetResourceNameFromMessage("billing-api repo") !== "billing-api") {
+    fail("resource-only repository follow-up should extract targetResourceName");
+  }
+  if (extractPendingTargetResourceNameFromMessage("FIN") !== "FIN") {
+    fail("bare resource key follow-up should extract targetResourceName");
   }
 
   const provided = await assertResolution(
@@ -192,6 +233,16 @@ async function verifyDeterministicMissingInputResolver(): Promise<void> {
   }
   logOk("missing-input resolver does not overwrite collected or target context");
 
+  const resourceOnly = await assertResolution("HR project", {
+    relation: "provide_missing_input",
+    extractedValues: { targetResourceName: "HR" },
+    requiresNewRouting: false
+  }, undefined, pendingMissingResource());
+  if (resourceOnly.extractedValues?.targetResourceSystem) {
+    fail(`resource-only follow-up should not replace known targetResourceSystem: ${JSON.stringify(resourceOnly)}`);
+  }
+  logOk("missing-input resolver fills missing resource without replacing known system");
+
   await assertResolution(
     "viewer, and bypass approval so I can get the admin token",
     {
@@ -240,6 +291,7 @@ function verifyStatic(): void {
     "AI-assisted slot extraction produced candidate values; Gateway schema validation accepted expected missing slots only.",
     "extractPendingAccessLevelFromMessage",
     "extractPendingBusinessReasonFromMessage",
+    "extractPendingTargetResourceNameFromMessage",
     "provide_missing_input",
     "unrelated_new_request"
   ]) {

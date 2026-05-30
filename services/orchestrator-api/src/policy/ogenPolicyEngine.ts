@@ -274,7 +274,10 @@ function safeInputSummary(input: OgenPolicyInput): Record<string, unknown> {
           requestedCapability: input.interpretation.requestedCapability,
           confidence: input.interpretation.confidence,
           risks: input.interpretation.risks,
-          advisoryOnly: input.interpretation.advisoryOnly
+          advisoryOnly: input.interpretation.advisoryOnly,
+          originalInterpretationScope: input.interpretation.originalInterpretationScope,
+          reconciledScope: input.interpretation.reconciledScope,
+          reconciliationSource: input.interpretation.reconciliationSource
         }
       : undefined,
     connectorRoute: {
@@ -467,6 +470,8 @@ function unsafeInterpretationRisk(input: OgenPolicyInput): boolean {
     risk === "prompt_injection_attempt" ||
     risk === "policy_bypass_attempt" ||
     risk === "secret_or_token_request" ||
+    risk === "privilege_escalation_attempt" ||
+    risk === "false_authority_attempt" ||
     risk === "unsupported_scope"
   );
 }

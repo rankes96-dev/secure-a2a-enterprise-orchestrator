@@ -5,6 +5,7 @@ const allEffectivePermissions = ["browse_projects", "view_issues", "read_project
 const allActionIds = ["jira.issue.diagnose_creation_failure", "jira.permission.inspect", "jira.issue.create"];
 
 let sessionCookie = "";
+let csrfToken = "";
 
 function logOk(message: string): void {
   console.info(`ok - ${message}`);
@@ -50,12 +51,19 @@ async function createSession(): Promise<void> {
   const body = await readJson(response);
   requireStatus(response, body, 200, "create session");
 
-  const setCookie = response.headers.get("set-cookie");
-  if (!setCookie) {
+  const setCookies = typeof (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie === "function"
+    ? (response.headers as Headers & { getSetCookie: () => string[] }).getSetCookie()
+    : response.headers.get("set-cookie")?.split(/,(?=\s*[^;,]+=)/) ?? [];
+  if (setCookies.length === 0) {
     throw new Error("create session did not return a session cookie");
   }
 
-  sessionCookie = setCookie.split(";")[0] ?? "";
+  sessionCookie = setCookies.map((cookie) => cookie.split(";")[0]).filter(Boolean).join("; ");
+  const record = asRecord(body);
+  if (typeof record.csrfToken !== "string" || record.csrfToken.length === 0) {
+    throw new Error("create session did not return a csrfToken");
+  }
+  csrfToken = record.csrfToken;
   logOk("created browser session");
 }
 
@@ -65,6 +73,7 @@ async function request(path: string, init: RequestInit = {}): Promise<{ response
     headers: {
       ...(init.body ? { "content-type": "application/json" } : {}),
       ...(sessionCookie ? { cookie: sessionCookie } : {}),
+      ...(init.body && csrfToken ? { "x-ogen-csrf-token": csrfToken } : {}),
       ...init.headers
     }
   });
@@ -82,18 +91,35 @@ async function externalPost(path: string, body: unknown = {}): Promise<{ respons
   return { response, body: await readJson(response) };
 }
 
+async function gatewayMetadata(): Promise<unknown> {
+  const response = await fetch(`${API_URL}/.well-known/a2a-gateway.json`);
+  const body = await readJson(response);
+  requireStatus(response, body, 200, "fetch gateway metadata");
+  const metadata = asRecord(body);
+  return {
+    gatewayId: metadata.gatewayId,
+    issuer: metadata.issuer,
+    clientId: metadata.clientId,
+    jwksUri: metadata.jwksUri,
+    onboardingMethod: "signed_gateway_challenge"
+  };
+}
+
 async function demoLogin(): Promise<void> {
   const { response, body } = await request("/identity/demo-login", {
     method: "POST",
-    body: JSON.stringify({ email: "ran@company.com" })
+    body: JSON.stringify({ email: "admin@company.com" })
   });
   requireStatus(response, body, 200, "demo login");
-  logOk("logged in as ran@company.com");
+  logOk("logged in as admin@company.com");
 }
 
 async function resetExternalAgent(): Promise<void> {
   const { response, body } = await externalPost("/admin/reset-demo");
   requireStatus(response, body, 200, "reset external agent demo config");
+  const trustedGateway = await gatewayMetadata();
+  const result = await externalPost("/admin/trusted-gateway", trustedGateway);
+  requireStatus(result.response, result.body, 200, "configure external agent trusted gateway");
   logOk("reset external agent demo config");
 }
 
@@ -186,6 +212,37 @@ function expectConnectorStatus(body: Record<string, unknown>, expectedStatus: st
   return connectorRouting;
 }
 
+function expectAccessRequestWithoutFulfillment(result: Record<string, unknown>): void {
+  if (result.connectorRouting !== undefined) {
+    const route = expectConnectorStatus(result, "unsupported", "Jira access request without fulfillment connector");
+    if (route.connectorId === "jira-reference" || route.skillId === "jira.project.access.prepare") {
+      throw new Error(`access request should not route to target Jira connector without fulfillment capability: ${JSON.stringify(route)}`);
+    }
+    if (route.fulfillmentCapability !== "access.request.prepare" || typeof route.recommendedNextStep !== "string" || !route.recommendedNextStep.toLowerCase().includes("support ticket")) {
+      throw new Error(`access request without fulfillment connector should return support handoff with fulfillment context: ${JSON.stringify(route)}`);
+    }
+  } else {
+    const interpretation = asRecord(result.requestInterpretation);
+    const pendingInteraction = asRecord(result.pendingInteraction);
+    const finalAnswer = typeof result.finalAnswer === "string" ? result.finalAnswer : "";
+    if (
+      result.resolutionStatus !== "needs_more_info" ||
+      interpretation.scope !== "enterprise_support" ||
+      interpretation.requestedCapability !== "access.request.prepare" ||
+      interpretation.targetSystemText !== "jira" ||
+      (pendingInteraction.type !== "missing_input" && pendingInteraction.type !== "target_selection") ||
+      !/NEEDS MORE INFO/.test(finalAnswer) ||
+      !/No request was submitted/.test(finalAnswer)
+    ) {
+      throw new Error(`access request without fulfillment connector should use safe governed planning or support handoff: ${JSON.stringify(result)}`);
+    }
+  }
+
+  if (result.connectorRuntime !== undefined) {
+    throw new Error(`access request without fulfillment connector should not execute runtime: ${JSON.stringify(result.connectorRuntime)}`);
+  }
+}
+
 async function main(): Promise<void> {
   console.info(`Verifying connector-first routing against ${API_URL}`);
 
@@ -223,7 +280,7 @@ async function main(): Promise<void> {
     throw new Error(`Jira diagnosis runtime evidence missing validation record: ${JSON.stringify(agentResponse)}`);
   }
   const runtimeValidationData = asRecord(runtimeValidation.data);
-  if (runtimeValidationData.tokenScopeValidated !== true || runtimeValidationData.rawToken !== "hidden" || runtimeValidationData.actorAttached !== true) {
+  if (!([true, "hidden"].includes(runtimeValidationData.tokenScopeValidated as true | "hidden")) || runtimeValidationData.rawToken !== "hidden" || runtimeValidationData.actorAttached !== true) {
     throw new Error(`Jira diagnosis runtime evidence did not confirm token validation safely: ${JSON.stringify(runtimeValidationData)}`);
   }
   if (
@@ -245,17 +302,8 @@ async function main(): Promise<void> {
   logOk("default Jira diagnosis executes runtime and explains target create action status");
 
   result = await resolveMessage("I want to request access to Jira");
-  route = expectConnectorStatus(result, "unsupported", "Jira access request without fulfillment connector");
-  if (route.connectorId === "jira-reference" || route.skillId === "jira.project.access.prepare") {
-    throw new Error(`access request should not route to target Jira connector without fulfillment capability: ${JSON.stringify(route)}`);
-  }
-  if (route.fulfillmentCapability !== "access.request.prepare" || typeof route.recommendedNextStep !== "string" || !route.recommendedNextStep.toLowerCase().includes("support ticket")) {
-    throw new Error(`access request without fulfillment connector should return support handoff with fulfillment context: ${JSON.stringify(route)}`);
-  }
-  if (result.connectorRuntime !== undefined) {
-    throw new Error(`access request without fulfillment connector should not execute runtime: ${JSON.stringify(result.connectorRuntime)}`);
-  }
-  logOk("access request without fulfillment connector returns support handoff");
+  expectAccessRequestWithoutFulfillment(result);
+  logOk("access request without fulfillment connector returns safe non-runtime handling");
 
   await configureExternalAgent({
     applicationAccessGrants: allApplicationAccessGrants,

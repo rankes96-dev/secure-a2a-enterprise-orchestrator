@@ -341,6 +341,26 @@ export function buildSecurityTimelineEvents(response: ResolveResponse): Security
     });
   }
 
+  if (response.interpretationProof?.reconciliationSource === "connector_route") {
+    events.push({
+      id: "interpretation-scope-reconciled",
+      category: "routing",
+      title: "Interpretation scope reconciled",
+      description: "Gateway normalized the interpretation scope using approved connector route support before policy evaluation.",
+      status: "success",
+      timestamp: response.executionTrace.find((entry) => entry.action === "reconcile_interpretation_scope")?.timestamp,
+      actor: "orchestrator",
+      agentId: response.connectorRouting?.connectorId,
+      metadata: metadataList([
+        { label: "Original scope", value: response.interpretationProof.originalInterpretationScope },
+        { label: "Reconciled scope", value: response.interpretationProof.reconciledScope },
+        { label: "Source", value: response.interpretationProof.reconciliationSource },
+        { label: "Advisory only", value: response.interpretationProof.advisoryOnly },
+        { label: "Reason", value: response.interpretationProof.reconciliationReason }
+      ])
+    });
+  }
+
   if (planningResumed(response)) {
     events.push({
       id: "governed-planning-resumed",

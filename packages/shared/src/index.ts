@@ -208,6 +208,10 @@ export type InterpretationProofSummary = {
   advisoryOnly: true;
   rawPromptStored: false;
   rawAiResponseStored: false;
+  originalInterpretationScope?: RequestScope;
+  reconciledScope?: RequestScope;
+  reconciliationSource?: "connector_route";
+  reconciliationReason?: string;
 };
 
 export type AiRoutingProofSummary = {

@@ -400,6 +400,12 @@ if (!existsSync(packageJsonPath)) {
   if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:generic-action-taxonomy && npm run verify:tool-to-action-metadata-mapping")) {
     fail("verify:v2-plan should run verify:tool-to-action-metadata-mapping after verify:generic-action-taxonomy");
   }
+  if (packageJson.scripts?.["verify:connector-supported-interpretation-reconciliation"] !== "tsx scripts/verify-connector-supported-interpretation-reconciliation.ts") {
+    fail("package.json missing verify:connector-supported-interpretation-reconciliation script");
+  }
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:tool-to-action-metadata-mapping && npm run verify:connector-supported-interpretation-reconciliation")) {
+    fail("verify:v2-plan should run verify:connector-supported-interpretation-reconciliation after verify:tool-to-action-metadata-mapping");
+  }
   if (packageJson.scripts?.["verify:ui-truth-consistency"] !== "tsx scripts/verify-ui-truth-consistency.ts") {
     fail("package.json missing verify:ui-truth-consistency script");
   }
@@ -409,8 +415,8 @@ if (!existsSync(packageJsonPath)) {
   if (packageJson.scripts?.["verify:planning-follow-up"] !== "tsx scripts/verify-planning-follow-up.ts") {
     fail("package.json missing verify:planning-follow-up script");
   }
-  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:tool-to-action-metadata-mapping && npm run verify:pending-interaction-resolver && npm run verify:planning-follow-up && npm run verify:ui-truth-consistency")) {
-    fail("verify:v2-plan should run pending interaction, planning follow-up, and UI truth consistency after verify:tool-to-action-metadata-mapping");
+  if (!packageJson.scripts?.["verify:v2-plan"]?.includes("verify:connector-supported-interpretation-reconciliation && npm run verify:pending-interaction-resolver && npm run verify:planning-follow-up && npm run verify:ui-truth-consistency")) {
+    fail("verify:v2-plan should run pending interaction, planning follow-up, and UI truth consistency after verify:connector-supported-interpretation-reconciliation");
   }
   if (packageJson.scripts?.["verify:connector-runtime-ui-summary"] !== "tsx scripts/verify-connector-runtime-ui-summary.ts") {
     fail("package.json missing verify:connector-runtime-ui-summary script");

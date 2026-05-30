@@ -185,6 +185,30 @@ export function extractPendingBusinessReasonFromMessage(message: string): string
   return undefined;
 }
 
+export function extractPendingTargetResourceNameFromMessage(message: string): string | undefined {
+  const trimmed = message.replace(/\s+/g, " ").trim();
+  if (!trimmed || unsafePendingMessageReason(trimmed) || looksQuestionLike(trimmed)) {
+    return undefined;
+  }
+
+  const patterns = [
+    /\b([A-Za-z0-9][A-Za-z0-9._-]{1,80})\s+(?:repo|repository)\b/i,
+    /\b(?:repo|repository)\s+([A-Za-z0-9][A-Za-z0-9._-]{1,80})\b/i,
+    /\b([A-Z][A-Z0-9_-]{1,20})\s+project\b/,
+    /\bproject\s+([A-Z][A-Z0-9_-]{1,20})\b/,
+    /^([A-Z][A-Z0-9_-]{1,20})$/
+  ];
+
+  for (const pattern of patterns) {
+    const value = trimmed.match(pattern)?.[1];
+    if (value) {
+      return value.trim().replace(/[.?!]$/, "");
+    }
+  }
+
+  return undefined;
+}
+
 function pendingMissingInputs(pendingInteraction: PendingInteraction): string[] {
   const missingInputs = pendingInteraction.context.missingInputs;
   return Array.isArray(missingInputs)
@@ -280,7 +304,7 @@ function stronglyUnrelatedToPendingInput(pendingInteraction: PendingInteraction,
 
 function validateSlotValue(pendingInteraction: PendingInteraction, slotName: string, value: string): string | undefined {
   const slot = slotSchema(pendingInteraction, slotName);
-  const maxLength = slot?.maxLength ?? (slotName === "businessReason" ? 240 : 80);
+  const maxLength = slot?.maxLength ?? (slotName === "businessReason" ? 240 : slotName === "targetResourceName" || slotName === "target" ? 100 : 80);
   const trimmed = value.replace(/\s+/g, " ").trim();
   if (!trimmed || trimmed.length > maxLength) {
     return undefined;
@@ -290,6 +314,9 @@ function validateSlotValue(pendingInteraction: PendingInteraction, slotName: str
   }
   if (slotName === "accessLevel") {
     return ["viewer", "contributor", "project admin"].includes(trimmed) ? trimmed : undefined;
+  }
+  if (slotName === "targetResourceName" || slotName === "target") {
+    return extractPendingTargetResourceNameFromMessage(trimmed) ?? trimmed;
   }
   if (slot?.allowedValues?.length && !slot.allowedValues.includes(trimmed)) {
     return undefined;
@@ -305,11 +332,13 @@ function extractExpectedSlots(pendingInteraction: PendingInteraction, message: s
     const rawCandidate = candidates?.[slot] ?? (
       slot === "accessLevel" ? extractPendingAccessLevelFromMessage(message) :
       slot === "businessReason" ? extractPendingBusinessReasonFromMessage(message) :
+      slot === "targetResourceName" || slot === "target" ? extractPendingTargetResourceNameFromMessage(message) :
       undefined
     );
     const candidate =
       rawCandidate && slot === "accessLevel" ? extractPendingAccessLevelFromMessage(rawCandidate) ?? rawCandidate :
       rawCandidate && slot === "businessReason" ? cleanBusinessReason(rawCandidate) :
+      rawCandidate && (slot === "targetResourceName" || slot === "target") ? extractPendingTargetResourceNameFromMessage(rawCandidate) ?? rawCandidate :
       rawCandidate;
     const validated = candidate ? validateSlotValue(pendingInteraction, slot, candidate) : undefined;
     if (validated) {

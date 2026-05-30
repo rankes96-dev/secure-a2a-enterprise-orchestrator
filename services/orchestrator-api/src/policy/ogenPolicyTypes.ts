@@ -76,6 +76,9 @@ export type OgenPolicyInput = {
     confidence?: "low" | "medium" | "high";
     risks?: string[];
     advisoryOnly?: true;
+    originalInterpretationScope?: string;
+    reconciledScope?: string;
+    reconciliationSource?: "connector_route";
   };
   connectorRoute: {
     status: string;

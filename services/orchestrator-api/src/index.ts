@@ -71,10 +71,12 @@ import { detectSensitiveAction } from "./sensitiveActionGuard.js";
 import { discoverAgentOnboarding, listSupportedConnectorTemplates, listTrustedOnboardedAgentsForOwner, startAgentOnboarding } from "./agentOnboarding.js";
 import type { TrustedOnboardedAgent } from "./agentOnboarding.js";
 import { listAuditViewerEventsPage, type AuditEventsPageQuery } from "./audit/auditViewerPagination.js";
-import { inferConnectorRoutingIntent, routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting.js";
+import { routeConnectorRequest, type ConnectorRoutingDecision } from "./connectorRouting.js";
+import { reconcileConnectorSupportedInterpretation } from "./connectorSupportedInterpretationReconciliation.js";
 import { executeApprovedConnectorSkill, type ConnectorRuntimeResult } from "./connectorRuntime.js";
 import { requestConnectorActionPlan } from "./connectorActionPlanner.js";
 import { evaluateConnectorActionPlan } from "./connectorActionPlanEvaluation.js";
+import { interpretGovernedAccessIntent, type GovernedAccessIntent } from "./governedAccessIntent.js";
 import { AuditEvents } from "./audit/auditEvents.js";
 import { appendPlatformAuditEvent } from "./audit/platformAuditStore.js";
 import { evaluateGatewayAuthorization, isGatewayAuthorized } from "./authorization/gatewayAuthorization.js";
@@ -87,7 +89,7 @@ import { evaluateConnectorPolicy, type ConnectorPolicyEvaluation } from "./polic
 import { evaluateRuntimeAuthorization } from "./runtimeAuthorization/runtimeAuthorizationEvaluator.js";
 import { detectAdversarialIntent } from "./adversarialIntent.js";
 import { buildExecutionGateStack } from "./executionGateStack.js";
-import { extractPendingAccessLevelFromMessage, extractPendingBusinessReasonFromMessage, resolvePendingInteraction } from "./pendingInteractionResolver.js";
+import { resolvePendingInteraction } from "./pendingInteractionResolver.js";
 import type { ConversationState } from "./conversation/conversationTypes.js";
 import { persistConversationStateSnapshot, safeConversationSummary } from "./conversation/conversationStateStore.js";
 import { applyConversationOwner, conversationBelongsToOwner, conversationOwnerContext, type ConversationOwnerContext } from "./conversation/conversationOwnership.js";
@@ -1023,10 +1025,14 @@ function pendingString(context: Record<string, unknown>, key: string): string | 
 const governedPlanningPendingTtlMs = 15 * 60 * 1000;
 
 type GovernedPlanningState = {
+  intentType?: GovernedAccessIntent["intentType"];
+  intentSource?: GovernedAccessIntent["source"];
+  intentConfidence?: GovernedAccessIntent["confidence"];
   connectorId?: string;
   resourceSystem?: string;
   targetResourceSystem: string;
-  targetResourceName: string;
+  targetResourceType?: string;
+  targetResourceName?: string;
   requestedAccessLevel?: string;
   businessReason?: string;
   missingInputs: string[];
@@ -1035,6 +1041,7 @@ type GovernedPlanningState = {
 function governedPlanningCollectedInputs(state: GovernedPlanningState): Record<string, string> {
   return Object.fromEntries([
     ["targetResourceSystem", state.targetResourceSystem],
+    ["targetResourceType", state.targetResourceType],
     ["targetResourceName", state.targetResourceName],
     ["accessLevel", state.requestedAccessLevel],
     ["businessReason", state.businessReason]
@@ -1054,6 +1061,12 @@ function governedPlanningInputSchema() {
       "start over"
     ],
     slots: [
+      {
+        name: "targetResourceName",
+        required: true,
+        maxLength: 100,
+        description: "Target project, repository, site, group, or resource name for the planned access request."
+      },
       {
         name: "accessLevel",
         required: true,
@@ -1097,7 +1110,7 @@ function governedPlanningMissingInputs(input: {
   businessReason?: string;
 }): string[] {
   return [
-    input.targetResourceName ? undefined : "resource/project/site",
+    input.targetResourceName ? undefined : "targetResourceName",
     input.requestedAccessLevel ? undefined : "accessLevel",
     input.businessReason ? undefined : "businessReason"
   ].filter((item): item is string => Boolean(item));
@@ -1111,12 +1124,21 @@ function governedPlanningQuestion(missingInputs: string[]): string {
     if (field === "businessReason") {
       return "business reason";
     }
+    if (field === "targetResourceName") {
+      return "resource/project/site";
+    }
     return field;
   });
   if (fields.length <= 1) {
     return `I need the ${fields[0] ?? "missing detail"} before I can continue planning.`;
   }
   return `I need the ${fields.slice(0, -1).join(", ")} and ${fields[fields.length - 1]} before I can continue planning.`;
+}
+
+function governedPlanningTargetLine(state: Pick<GovernedPlanningState, "targetResourceSystem" | "targetResourceName">): string {
+  return state.targetResourceName
+    ? `Target: ${state.targetResourceSystem} ${state.targetResourceName}.`
+    : `Target system: ${state.targetResourceSystem}.`;
 }
 
 function governedPlanningClassification(targetResourceSystem: string): Classification {
@@ -1131,22 +1153,37 @@ function governedPlanningClassification(targetResourceSystem: string): Classific
   };
 }
 
+function governedPlanningRoutingSource(state: Pick<GovernedPlanningState, "intentSource">): ResolveResponse["routingSource"] {
+  return state.intentSource === "ai" ? "ai" : "rules_fallback";
+}
+
+function governedPlanningRoutingConfidence(state: Pick<GovernedPlanningState, "intentConfidence">): ResolveResponse["routingConfidence"] {
+  return state.intentConfidence ?? "high";
+}
+
 function governedPlanningInterpretation(state: GovernedPlanningState): RequestInterpretation {
+  const intentType: RequestInterpretation["intentType"] =
+    state.intentType === "permission_request" ? "permission_change" :
+    state.intentType === "service_request" ? "manual_service_request" :
+    "access_request";
+  const targetText = state.targetResourceName
+    ? `${state.targetResourceSystem} ${state.targetResourceName}`
+    : state.targetResourceSystem;
   return {
     scope: "enterprise_support",
-    intentType: "access_request",
+    intentType,
     requestedCapability: "access.request.prepare",
     targetSystemText: state.targetResourceSystem,
-    targetResourceType: "project",
+    targetResourceType: state.targetResourceType ?? "resource",
     targetResourceName: state.targetResourceName,
     requestedActionText: [
       state.requestedAccessLevel ? `${state.requestedAccessLevel} access` : "access",
-      `to ${state.targetResourceSystem} ${state.targetResourceName}`
+      `to ${targetText}`
     ].join(" "),
     requiresApproval: true,
-    confidence: "high",
-    reason: "Governed connector planning state preserved the target resource and collected missing planning inputs.",
-    interpretationSource: "fallback"
+    confidence: state.intentConfidence ?? "high",
+    reason: "Governed connector planning state preserved normalized target resource fields and collected missing planning inputs.",
+    interpretationSource: state.intentSource === "ai" ? "ai" : "fallback"
   };
 }
 
@@ -1195,9 +1232,13 @@ function buildGovernedPlanningPendingInteraction(params: {
       originalUserRequestHash,
       originalUserRequest: safeOriginalUserRequestSummary,
       safeOriginalUserRequestSummary,
+      intentType: params.state.intentType,
+      intentSource: params.state.intentSource,
+      intentConfidence: params.state.intentConfidence,
       connectorId: params.state.connectorId,
       resourceSystem: params.state.resourceSystem,
       targetResourceSystem: params.state.targetResourceSystem,
+      targetResourceType: params.state.targetResourceType,
       targetResourceName: params.state.targetResourceName,
       requestedAccessLevel: params.state.requestedAccessLevel,
       businessReason: params.state.businessReason,
@@ -1205,7 +1246,7 @@ function buildGovernedPlanningPendingInteraction(params: {
       collectedInputs: governedPlanningCollectedInputs(params.state),
       inputSchema: governedPlanningInputSchema(),
       inputHints: {
-        expectedSlots: ["accessLevel", "businessReason"],
+        expectedSlots: ["targetResourceName", "accessLevel", "businessReason"],
         cancellationPhrases: ["cancel", "never mind", "stop", "forget it", "don't continue"],
         confirmationPhrases: []
       },
@@ -1216,10 +1257,71 @@ function buildGovernedPlanningPendingInteraction(params: {
   };
 }
 
+function buildGovernedAccessTargetSelectionPendingInteraction(params: {
+  originalUserRequest: string;
+  tenantContext: ResolvedTenantContext;
+  conversationState: ConversationState;
+  actor?: VerifiedUserIdentity;
+  intent: GovernedAccessIntent;
+  detectedIntentClasses: string[];
+  createdAt?: Date;
+}): PendingInteraction {
+  const createdAt = params.createdAt ?? new Date();
+  const expiresAt = new Date(createdAt.getTime() + governedPlanningPendingTtlMs);
+  const safeOriginalUserRequestSummary = safeConversationSummary(params.originalUserRequest);
+  const originalUserRequestHash = hashOriginalUserRequest(params.originalUserRequest);
+  const proof = {
+    rawPromptStored: false as const,
+    tokenMaterialStored: false as const,
+    protectedMaterialExposed: false as const
+  };
+
+  return {
+    id: createTaskId(),
+    type: "target_selection",
+    originalUserRequest: safeOriginalUserRequestSummary,
+    safeOriginalUserRequestSummary,
+    originalUserRequestHash,
+    tenantId: params.tenantContext.tenantId,
+    conversationId: params.conversationState.conversationId,
+    actorProvider: params.actor?.provider,
+    actorSubject: params.actor?.subject,
+    actorEmail: params.actor?.email,
+    ...proof,
+    createdAt: createdAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    context: {
+      tenantId: params.tenantContext.tenantId,
+      conversationId: params.conversationState.conversationId,
+      actorProvider: params.actor?.provider,
+      actorSubject: params.actor?.subject,
+      actorEmail: params.actor?.email,
+      originalUserRequestHash,
+      originalUserRequest: safeOriginalUserRequestSummary,
+      safeOriginalUserRequestSummary,
+      detectedIntentClasses: params.detectedIntentClasses,
+      missingFields: [
+        params.intent.targetResourceSystem ? undefined : "targetSystem",
+        params.intent.targetResourceName ? undefined : "targetResourceName"
+      ].filter((item): item is string => Boolean(item)),
+      intentType: params.intent.intentType,
+      intentSource: params.intent.source,
+      intentConfidence: params.intent.confidence,
+      targetResourceSystem: params.intent.targetResourceSystem,
+      targetResourceType: params.intent.targetResourceType,
+      targetResourceName: params.intent.targetResourceName,
+      requestedAccessLevel: params.intent.requestedAccessLevel,
+      businessReason: params.intent.businessReason,
+      planContext: "governed_connector_access_planning_target_selection",
+      ...proof
+    }
+  };
+}
+
 function pendingGovernedPlanningState(pending: PendingInteraction): GovernedPlanningState | undefined {
   const targetResourceSystem = pendingString(pending.context, "targetResourceSystem");
   const targetResourceName = pendingString(pending.context, "targetResourceName");
-  if (pending.type !== "missing_input" || !targetResourceSystem || !targetResourceName) {
+  if (pending.type !== "missing_input" || !targetResourceSystem) {
     return undefined;
   }
 
@@ -1230,16 +1332,21 @@ function pendingGovernedPlanningState(pending: PendingInteraction): GovernedPlan
     : {};
   const collectedAccessLevel = typeof collectedInputs.accessLevel === "string" ? collectedInputs.accessLevel.trim() : undefined;
   const collectedBusinessReason = typeof collectedInputs.businessReason === "string" ? collectedInputs.businessReason.trim() : undefined;
+  const collectedTargetResourceName = typeof collectedInputs.targetResourceName === "string" ? collectedInputs.targetResourceName.trim() : undefined;
   return {
+    intentType: pendingString(pending.context, "intentType") as GovernedAccessIntent["intentType"] | undefined,
+    intentSource: pendingString(pending.context, "intentSource") as GovernedAccessIntent["source"] | undefined,
+    intentConfidence: pendingString(pending.context, "intentConfidence") as GovernedAccessIntent["confidence"] | undefined,
     connectorId: pendingString(pending.context, "connectorId"),
     resourceSystem: pendingString(pending.context, "resourceSystem"),
     targetResourceSystem,
-    targetResourceName,
+    targetResourceType: pendingString(pending.context, "targetResourceType"),
+    targetResourceName: targetResourceName ?? collectedTargetResourceName,
     requestedAccessLevel: requestedAccessLevel ?? collectedAccessLevel,
     businessReason: businessReason ?? collectedBusinessReason,
     missingInputs: pendingStringArray(pending.context, "missingInputs").length
       ? pendingStringArray(pending.context, "missingInputs")
-      : governedPlanningMissingInputs({ targetResourceName, requestedAccessLevel: requestedAccessLevel ?? collectedAccessLevel, businessReason: businessReason ?? collectedBusinessReason })
+      : governedPlanningMissingInputs({ targetResourceName: targetResourceName ?? collectedTargetResourceName, requestedAccessLevel: requestedAccessLevel ?? collectedAccessLevel, businessReason: businessReason ?? collectedBusinessReason })
   };
 }
 
@@ -1289,30 +1396,40 @@ function mergeGovernedPlanningInputs(params: {
   }
 
   const extracted = params.resolution.extractedValues ?? {};
+  const targetResourceName = extracted.targetResourceName ?? extracted.target ?? current.targetResourceName;
   const requestedAccessLevel = extracted.accessLevel ?? current.requestedAccessLevel;
   const businessReason = extracted.businessReason ?? current.businessReason;
   const missingInputs = governedPlanningMissingInputs({
-    targetResourceName: current.targetResourceName,
+    targetResourceName,
     requestedAccessLevel,
     businessReason
   });
   return {
     state: {
       ...current,
+      targetResourceName,
       requestedAccessLevel,
       businessReason,
       missingInputs
     },
-    collectedInputs: ["accessLevel", "businessReason"].filter((key) => Boolean(extracted[key]))
+    collectedInputs: [
+      Boolean(extracted.targetResourceName ?? extracted.target) ? "targetResourceName" : undefined,
+      extracted.accessLevel ? "accessLevel" : undefined,
+      extracted.businessReason ? "businessReason" : undefined
+    ].filter((key): key is string => Boolean(key))
   };
 }
 
 function initialGovernedPlanningState(params: {
-  message: string;
+  intent: GovernedAccessIntent;
   installedAgents: InstalledTrustedAgents;
 }): GovernedPlanningState | undefined {
-  const intent = inferConnectorRoutingIntent(params.message);
-  if (intent.fulfillmentCapability !== "access.request.prepare" || !intent.targetResourceSystem || !intent.targetResourceName) {
+  const intent = params.intent;
+  if (
+    intent.intentType === "unknown" ||
+    intent.confidence === "low" ||
+    !intent.targetResourceSystem
+  ) {
     return undefined;
   }
   const planningConnector = planningConnectorForResource(intent.targetResourceSystem, params.installedAgents);
@@ -1320,19 +1437,21 @@ function initialGovernedPlanningState(params: {
     return undefined;
   }
 
-  const requestedAccessLevel = intent.requestedAccessLevel ?? extractPendingAccessLevelFromMessage(params.message);
-  const businessReason = extractPendingBusinessReasonFromMessage(params.message);
   return {
+    intentType: intent.intentType,
+    intentSource: intent.source,
+    intentConfidence: intent.confidence,
     connectorId: planningConnector.connectorId ?? planningConnector.connectorProfile?.connectorId,
     resourceSystem: planningConnector.resourceSystem ?? planningConnector.connectorProfile?.resourceSystem ?? intent.targetResourceSystem,
     targetResourceSystem: intent.targetResourceSystem,
+    targetResourceType: intent.targetResourceType,
     targetResourceName: intent.targetResourceName,
-    requestedAccessLevel,
-    businessReason,
+    requestedAccessLevel: intent.requestedAccessLevel,
+    businessReason: intent.businessReason,
     missingInputs: governedPlanningMissingInputs({
       targetResourceName: intent.targetResourceName,
-      requestedAccessLevel,
-      businessReason
+      requestedAccessLevel: intent.requestedAccessLevel,
+      businessReason: intent.businessReason
     })
   };
 }
@@ -1362,7 +1481,11 @@ function governedPlanningEvidence(params: {
       runtimeExecution: governedPlanningRuntimeExecutionProof(),
       connectorId: params.state.connectorId,
       resourceSystem: params.state.resourceSystem,
+      intentType: params.state.intentType,
+      intentSource: params.state.intentSource,
+      intentConfidence: params.state.intentConfidence,
       targetResourceSystem: params.state.targetResourceSystem,
+      targetResourceType: params.state.targetResourceType,
       targetResourceName: params.state.targetResourceName,
       accessLevel: params.state.requestedAccessLevel,
       businessReason: params.state.businessReason,
@@ -1415,6 +1538,78 @@ function governedPlanningGateStack(params: {
         reason: "No connector runtime was called."
       }
     ]
+  };
+}
+
+function governedAccessIntentClasses(intent: GovernedAccessIntent): string[] {
+  return [
+    intent.intentType === "permission_request" ? "permission_request" : undefined,
+    intent.intentType === "service_request" ? "service_request" : undefined,
+    intent.intentType === "access_request" ? "access_request" : undefined,
+    intent.targetResourceType === "project" ? "project_access" : undefined,
+    intent.targetResourceType === "repository" ? "repository_access" : undefined
+  ].filter((item): item is string => Boolean(item));
+}
+
+function governedAccessIntentNeedsTargetClarification(intent: GovernedAccessIntent): boolean {
+  return intent.intentType !== "unknown" &&
+    intent.confidence !== "low" &&
+    (!intent.targetResourceSystem || !intent.targetResourceName);
+}
+
+function governedAccessClarificationQuestion(intent: GovernedAccessIntent): string {
+  if (!intent.targetResourceSystem && intent.targetResourceName) {
+    return `Which system is ${intent.targetResourceName} in?`;
+  }
+  if (intent.targetResourceSystem && !intent.targetResourceName) {
+    const resourceType = intent.targetResourceType ?? "resource";
+    return `Which ${resourceType} in ${targetSystemLabel(intent.targetResourceSystem)} do you need access to?`;
+  }
+  return "Which system and resource do you need access to?";
+}
+
+function governedAccessIntentEvidence(intent: GovernedAccessIntent): AgentEvidence {
+  return {
+    agent: orchestratorAgentId,
+    title: "Governed access intent interpretation",
+    data: {
+      intentType: intent.intentType,
+      targetResourceSystem: intent.targetResourceSystem,
+      targetResourceType: intent.targetResourceType,
+      targetResourceName: intent.targetResourceName,
+      requestedAccessLevel: intent.requestedAccessLevel,
+      businessReason: intent.businessReason,
+      confidence: intent.confidence,
+      source: intent.source,
+      aiAdvisoryOnly: true,
+      requestSubmitted: false,
+      runtimeExecution: governedPlanningRuntimeExecutionProof(),
+      rawPromptStored: false,
+      tokenMaterialStored: false,
+      protectedMaterialExposed: false
+    }
+  };
+}
+
+function governedAccessIntentInterpretation(intent: GovernedAccessIntent): RequestInterpretation {
+  return {
+    scope: "enterprise_support",
+    intentType: intent.intentType === "permission_request"
+      ? "permission_change"
+      : intent.intentType === "service_request"
+        ? "manual_service_request"
+        : "access_request",
+    requestedCapability: "access.request.prepare",
+    targetSystemText: intent.targetResourceSystem,
+    targetResourceType: intent.targetResourceType,
+    targetResourceName: intent.targetResourceName,
+    requestedActionText: intent.intentType === "permission_request" ? "permission request" : "access request",
+    requiresApproval: true,
+    confidence: intent.confidence,
+    reason: intent.reason,
+    interpretationSource: intent.source === "ai" ? "ai" : "fallback",
+    aiProvider: intent.aiProvider,
+    aiModel: intent.aiModel
   };
 }
 
@@ -1859,6 +2054,10 @@ async function appendAiInterpretationEvaluatedAuditEvent(params: {
       advisoryOnly: true,
       rawPromptStored: false,
       rawAiResponseStored: false,
+      originalInterpretationScope: proof.originalInterpretationScope,
+      reconciledScope: proof.reconciledScope,
+      reconciliationSource: proof.reconciliationSource,
+      reconciliationReason: proof.reconciliationReason,
       protectedMaterialExposed: false,
       tokenMaterialStored: false
     }
@@ -3322,8 +3521,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
       classification: governedPlanningClassification(state.targetResourceSystem),
       selectedAgents: [],
       skippedAgents: [],
-      routingSource: "rules_fallback",
-      routingConfidence: "high",
+      routingSource: governedPlanningRoutingSource(state),
+      routingConfidence: governedPlanningRoutingConfidence(state),
       routingReasoningSummary: "User cancelled governed pending planning state before new routing.",
       resolutionStatus: "resolved",
       evidence: [
@@ -3375,8 +3574,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
       classification: governedPlanningClassification(state.targetResourceSystem),
       selectedAgents: [],
       skippedAgents: [],
-      routingSource: "rules_fallback",
-      routingConfidence: "high",
+      routingSource: governedPlanningRoutingSource(state),
+      routingConfidence: governedPlanningRoutingConfidence(state),
       routingReasoningSummary: "Blocked adversarial pending planning follow-up before new routing.",
       resolutionStatus: "resolved",
       evidence: [
@@ -3433,9 +3632,13 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
           ...activePendingInteraction,
           context: {
             ...activePendingInteraction.context,
+            intentType: state.intentType,
+            intentSource: state.intentSource,
+            intentConfidence: state.intentConfidence,
             connectorId: state.connectorId,
             resourceSystem: state.resourceSystem,
             targetResourceSystem: state.targetResourceSystem,
+            targetResourceType: state.targetResourceType,
             targetResourceName: state.targetResourceName,
             requestedAccessLevel: state.requestedAccessLevel,
             businessReason: state.businessReason,
@@ -3443,7 +3646,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
             collectedInputs: governedPlanningCollectedInputs(state),
             inputSchema: activePendingInteraction.context.inputSchema ?? governedPlanningInputSchema(),
             inputHints: activePendingInteraction.context.inputHints ?? {
-              expectedSlots: ["accessLevel", "businessReason"],
+              expectedSlots: ["targetResourceName", "accessLevel", "businessReason"],
               cancellationPhrases: ["cancel", "never mind", "stop", "forget it", "don't continue"],
               confirmationPhrases: []
             },
@@ -3458,7 +3661,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
             "NEEDS MORE INFO",
             governedPlanningQuestion(remainingInputs),
             "",
-            `Target: ${state.targetResourceSystem} ${state.targetResourceName}.`,
+            governedPlanningTargetLine(state),
             state.requestedAccessLevel ? `Access level: ${state.requestedAccessLevel}.` : undefined,
             state.businessReason ? `Business reason: ${state.businessReason}.` : undefined,
             "",
@@ -3468,8 +3671,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
           classification: governedPlanningClassification(state.targetResourceSystem),
           selectedAgents: [],
           skippedAgents: [],
-          routingSource: "rules_fallback",
-          routingConfidence: "high",
+          routingSource: governedPlanningRoutingSource(state),
+          routingConfidence: governedPlanningRoutingConfidence(state),
           routingReasoningSummary: "Pending governed planning state was resumed and still needs remaining inputs.",
           resolutionStatus: "needs_more_info",
           evidence: [
@@ -3512,7 +3715,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
         conversationId,
         finalAnswer: [
           "PLANNING READY",
-          `I continued the planning flow for ${state.targetResourceSystem} ${state.targetResourceName} ${state.requestedAccessLevel ?? "requested"} access.`,
+          `I continued the planning flow for ${state.targetResourceSystem} ${state.targetResourceName ?? "target"} ${state.requestedAccessLevel ?? "requested"} access.`,
           state.businessReason ? `Business reason: ${state.businessReason}.` : undefined,
           "",
           "No changes were made.",
@@ -3522,8 +3725,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
         classification: governedPlanningClassification(state.targetResourceSystem),
         selectedAgents: [],
         skippedAgents: [],
-        routingSource: "rules_fallback",
-        routingConfidence: "high",
+        routingSource: governedPlanningRoutingSource(state),
+        routingConfidence: governedPlanningRoutingConfidence(state),
         routingReasoningSummary: "Pending governed planning state resumed before new routing and collected all required inputs.",
         resolutionStatus: "needs_more_info",
         evidence: [
@@ -3565,7 +3768,12 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
   }
 
   if (!earlySecurityIntent.detected) {
-    const initialPlanningState = initialGovernedPlanningState({ message: requestBody.message, installedAgents });
+    const initialAccessIntent = await interpretGovernedAccessIntent({
+      message: requestBody.message,
+      installedAgents,
+      previousInterpretation: conversationState.lastRequestInterpretation
+    });
+    const initialPlanningState = initialGovernedPlanningState({ intent: initialAccessIntent, installedAgents });
     if (initialPlanningState) {
       const pendingInteraction = initialPlanningState.missingInputs.length
         ? buildGovernedPlanningPendingInteraction({
@@ -3583,14 +3791,14 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
               "NEEDS MORE INFO",
               governedPlanningQuestion(initialPlanningState.missingInputs),
               "",
-              `Target: ${initialPlanningState.targetResourceSystem} ${initialPlanningState.targetResourceName}.`,
+              governedPlanningTargetLine(initialPlanningState),
               "",
               "No changes were made.",
               "No request was submitted."
             ].join("\n")
           : [
               "PLANNING READY",
-              `I prepared the planning inputs for ${initialPlanningState.targetResourceSystem} ${initialPlanningState.targetResourceName} ${initialPlanningState.requestedAccessLevel ?? "requested"} access.`,
+              `I prepared the planning inputs for ${initialPlanningState.targetResourceSystem} ${initialPlanningState.targetResourceName ?? "target"} ${initialPlanningState.requestedAccessLevel ?? "requested"} access.`,
               initialPlanningState.businessReason ? `Business reason: ${initialPlanningState.businessReason}.` : undefined,
               "",
               "No changes were made.",
@@ -3600,8 +3808,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
         classification: governedPlanningClassification(initialPlanningState.targetResourceSystem),
         selectedAgents: [],
         skippedAgents: [],
-        routingSource: "rules_fallback",
-        routingConfidence: "high",
+        routingSource: initialAccessIntent.source === "ai" ? "ai" : "rules_fallback",
+        routingConfidence: initialAccessIntent.confidence,
         routingReasoningSummary: initialPlanningState.missingInputs.length
           ? "Stored tenant/user/conversation-scoped governed planning state before runtime routing."
           : "Collected complete governed planning inputs without submitting or executing the request.",
@@ -3618,12 +3826,12 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
             initialPlanningState.missingInputs.length ? "pending_planning_created" : "planning_ready_without_submission",
             initialPlanningState.missingInputs.length
               ? `Missing inputs: ${initialPlanningState.missingInputs.join(", ")}`
-              : "All required planning inputs are present; no request submitted."
+              : "All required normalized planning inputs are present; no request submitted."
           )
         ],
         executionTrace: [
           executionStep("user", "submit_issue", requestBody.message),
-          executionStep("orchestrator", "detect_governed_access_planning", "Detected connector access planning request with deterministic routing intent."),
+          executionStep("orchestrator", "interpret_governed_access_intent", `Normalized governed access planning intent from ${initialAccessIntent.source}; AI output is advisory only and Gateway validation retained safe fields.`),
           ...(initialPlanningState.missingInputs.length
             ? [executionStep("orchestrator", "store_pending_planning_state", `Stored missing inputs: ${initialPlanningState.missingInputs.join(", ")}.`)]
             : [executionStep("orchestrator", "complete_planning_without_submission", "Planning inputs are complete. No request was submitted.")]),
@@ -3651,6 +3859,80 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
         }
       });
     }
+
+    if (governedAccessIntentNeedsTargetClarification(initialAccessIntent)) {
+      const detectedIntentClasses = governedAccessIntentClasses(initialAccessIntent);
+      const safeDetectedIntentClasses = detectedIntentClasses.length ? detectedIntentClasses : ["access_request"];
+      const createdAt = new Date();
+      const pendingInteraction = buildGovernedAccessTargetSelectionPendingInteraction({
+        originalUserRequest: requestBody.message,
+        tenantContext,
+        conversationState,
+        actor: verifiedUser,
+        intent: initialAccessIntent,
+        detectedIntentClasses: safeDetectedIntentClasses,
+        createdAt
+      });
+      const planningInterpretation = governedAccessIntentInterpretation(initialAccessIntent);
+      return finalizeEarly({
+        conversationId,
+        finalAnswer: [
+          "NEEDS MORE INFO",
+          governedAccessClarificationQuestion(initialAccessIntent),
+          "",
+          "No changes were made.",
+          "No request was submitted."
+        ].join("\n"),
+        classification: governedPlanningClassification(initialAccessIntent.targetResourceSystem ?? "Unknown"),
+        selectedAgents: [],
+        skippedAgents: [],
+        routingSource: initialAccessIntent.source === "ai" ? "ai" : "rules_fallback",
+        routingConfidence: initialAccessIntent.confidence,
+        routingReasoningSummary: "Normalized governed access-planning intent needs target/resource clarification before a planning state can be created.",
+        resolutionStatus: "needs_more_info",
+        evidence: [
+          governedAccessIntentEvidence(initialAccessIntent)
+        ],
+        agentTrace: [
+          trace("governed_access_intent_needs_target", initialAccessIntent.reason)
+        ],
+        executionTrace: [
+          executionStep("user", "submit_issue", requestBody.message),
+          executionStep("orchestrator", "interpret_governed_access_intent", `Normalized governed access planning intent from ${initialAccessIntent.source}; AI output is advisory only and cannot grant policy authority.`),
+          executionStep("orchestrator", "ask_for_governed_access_target", "Target system or resource was unclear, so Gateway asked a clarification question before creating planning state."),
+          executionStep("orchestrator", "skip_runtime_execution", "No request was submitted, no runtime token was issued, and no external connector runtime was called.")
+        ],
+        securityDecisions: [],
+        requestInterpretation: planningInterpretation,
+        connectorPlanningTargetResolution: {
+          strategy: "needs_clarification",
+          detectedIntentClasses: safeDetectedIntentClasses,
+          reason: "Normalized governed access-planning intent did not contain a clear target system and resource."
+        },
+        safeTargetSelection: !initialAccessIntent.targetResourceSystem
+          ? buildSafeTargetSelection(safeDetectedIntentClasses, installedAgents)
+          : undefined,
+        pendingFollowUp: {
+          type: "connector_planning_target",
+          originalMessage: requestBody.message,
+          detectedIntentClasses: safeDetectedIntentClasses,
+          missingFields: ["targetSystem"],
+          createdAt: createdAt.toISOString()
+        },
+        pendingInteraction,
+        executionGateStack: governedPlanningGateStack({
+          finalOutcome: "needs_more_info",
+          stoppedAt: "gateway_governance",
+          gatewayReason: "Gateway asked for target/resource clarification before governed access planning."
+        }),
+        a2aTasks: [],
+        a2aResponses: [],
+        diagnosis: {
+          probableCause: "Governed connector planning target is unclear",
+          recommendedFix: governedAccessClarificationQuestion(initialAccessIntent)
+        }
+      });
+    }
   }
 
   const followUp = await interpretFollowUp({
@@ -3667,14 +3949,6 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
   });
   const effectiveMessage = planningFollowUpResolution?.resolvedMessage ?? buildEffectiveMessageForRouting(conversationState, requestBody.message, followUp);
   const { routingDecision, interpretationProof, routingProof } = await routeWithAIWithProof(effectiveMessage, { agentCards: requestAgentCards });
-  await appendAiInterpretationEvaluatedAuditEvent({
-    proof: interpretationProof,
-    actor: verifiedUser
-  });
-  await appendAiRoutingEvaluatedAuditEvent({
-    proof: routingProof,
-    actor: verifiedUser
-  });
   const classification = routingDecision.classification;
   const incidentInterpretation =
     followUp.isFollowUp && conversationState.lastRequestInterpretation
@@ -3713,6 +3987,23 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
     effectiveMessage,
     installedAgents
   );
+  const interpretationReconciliation = reconcileConnectorSupportedInterpretation({
+    inputText: effectiveMessage,
+    interpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+    proof: interpretationProof,
+    connectorRouting,
+    hasExplicitSecurityRisk: effectiveSecurityIntent.detected || sensitiveAction.isSensitive
+  });
+  const effectiveRequestInterpretation = interpretationReconciliation.interpretation;
+  const effectiveInterpretationProof = interpretationReconciliation.proof;
+  await appendAiInterpretationEvaluatedAuditEvent({
+    proof: effectiveInterpretationProof,
+    actor: verifiedUser
+  });
+  await appendAiRoutingEvaluatedAuditEvent({
+    proof: routingProof,
+    actor: verifiedUser
+  });
   const finalize = (response: Omit<ResolveResponse, "userIdentity">): ResolveResponse => {
     const userIdentityTrace = verifiedUser
       ? [
@@ -3730,7 +4021,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
       executionTrace: [...userIdentityTrace, ...response.executionTrace],
       followUpInterpretation: response.followUpInterpretation ?? followUp,
       incidentContext: response.incidentContext ?? mergedIncidentContext,
-      interpretationProof: response.interpretationProof ?? interpretationProof,
+      interpretationProof: response.interpretationProof ?? effectiveInterpretationProof,
       aiRoutingProof: response.aiRoutingProof ?? routingProof
     };
     const finalResponse: ResolveResponse = {
@@ -4817,7 +5108,7 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
   if (connectorRouting.status !== "needs_more_info") {
     const effectiveConnectorRouting = connectorRoutingWithProofBindingStatus(connectorRouting);
     const connectorStatus = connectorRoutingStatusLabel(effectiveConnectorRouting.status);
-    const policyInterpretation = incidentInterpretation ?? routingDecision.requestInterpretation;
+    const policyInterpretation = effectiveRequestInterpretation;
     const connectorPolicy = evaluateConnectorPolicy({
       tenantId: tenantContext.tenantId,
       conversationId,
@@ -4829,15 +5120,18 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
       skillLabel: effectiveConnectorRouting.skillLabel,
       interpretation: policyInterpretation
         ? {
-            interpretationId: interpretationProof.interpretationId,
-            schemaVersion: interpretationProof.schemaVersion,
+            interpretationId: effectiveInterpretationProof.interpretationId,
+            schemaVersion: effectiveInterpretationProof.schemaVersion,
             interpretationSource: policyInterpretation.interpretationSource,
             scope: policyInterpretation.scope,
             intentType: policyInterpretation.intentType,
             requestedCapability: policyInterpretation.requestedCapability,
             confidence: policyInterpretation.confidence,
-            risks: interpretationProof.risks,
-            advisoryOnly: interpretationProof.advisoryOnly
+            risks: effectiveInterpretationProof.risks,
+            advisoryOnly: effectiveInterpretationProof.advisoryOnly,
+            originalInterpretationScope: effectiveInterpretationProof.originalInterpretationScope,
+            reconciledScope: effectiveInterpretationProof.reconciledScope,
+            reconciliationSource: effectiveInterpretationProof.reconciliationSource
           }
         : undefined,
       subject: {
@@ -4935,6 +5229,15 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
           actionResourceSystem: effectiveConnectorRouting.actionResourceSystem,
           actionMetadataSource: effectiveConnectorRouting.actionMetadataSource,
           runtimeMode: effectiveConnectorRouting.runtimeMode,
+          interpretationReconciliation: interpretationReconciliation.reconciled
+            ? {
+                originalInterpretationScope: interpretationReconciliation.originalInterpretationScope,
+                reconciledScope: interpretationReconciliation.reconciledScope,
+                reconciliationSource: "connector_route",
+                advisoryOnly: true,
+                reason: interpretationReconciliation.reason
+              }
+            : undefined,
           runtimeExecution: runtimeExecutable ? "external_runtime_available" : "not_executed",
           policy: connectorPolicy,
           policyProof
@@ -5029,16 +5332,30 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
           skillId: effectiveConnectorRouting.skillId,
           decision: effectiveConnectorRouting.status === "connector_skill_approved" ? "Allowed" : effectiveConnectorRouting.status === "connector_skill_blocked" || effectiveConnectorRouting.status === "connector_skill_not_declared" || effectiveConnectorRouting.status === "connector_skill_not_enabled" ? "Blocked" : "NeedsMoreContext"
         },
+        ...(interpretationReconciliation.reconciled
+          ? [
+              trace("interpretation_scope_reconciled", interpretationReconciliation.reason ?? "Interpretation scope was reconciled by approved connector route support.")
+            ]
+          : []),
         ...runtimeTrace
       ],
       executionTrace: [
         executionStep("user", "submit_issue", requestBody.message),
-        ...(routingDecision.requestInterpretation
+        ...(policyInterpretation
           ? [
               executionStep(
                 "orchestrator",
                 "interpret_request",
-                `${routingDecision.requestInterpretation.scope} / ${routingDecision.requestInterpretation.intentType}: ${routingDecision.requestInterpretation.reason}`
+                `${policyInterpretation.scope} / ${policyInterpretation.intentType}: ${policyInterpretation.reason}`
+              )
+            ]
+          : []),
+        ...(interpretationReconciliation.reconciled
+          ? [
+              executionStep(
+                "orchestrator",
+                "reconcile_interpretation_scope",
+                interpretationReconciliation.reason ?? "Interpretation scope was reconciled by approved connector route support."
               )
             ]
           : []),
@@ -5054,7 +5371,8 @@ async function resolveIssue(requestBody: ResolveRequest, sessionToken?: string, 
         )
       ],
       securityDecisions: [],
-      requestInterpretation: incidentInterpretation ?? routingDecision.requestInterpretation,
+      requestInterpretation: policyInterpretation,
+      interpretationProof: effectiveInterpretationProof,
       followUpInterpretation: followUp,
       incidentContext: mergedIncidentContext,
       connectorRouting: effectiveConnectorRouting,

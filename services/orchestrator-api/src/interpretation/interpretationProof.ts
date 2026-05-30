@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { RequestInterpretation } from "@a2a/shared";
+import type { RequestInterpretation, RequestScope } from "@a2a/shared";
 import { OGEN_INTERPRETATION_SCHEMA_VERSION, type OgenInterpretationProof, type OgenInterpretationRisk } from "./interpretationTypes.js";
 
 function stableValue(value: unknown): unknown {
@@ -55,6 +55,14 @@ function interpretationRisks(inputText: string, normalizedInterpretation: Reques
     risks.add("prompt_injection_attempt");
   }
 
+  if (includesAny(message, ["grant me admin", "make me admin", "use admin permissions", "admin without approval", "root permissions", "superuser permissions"])) {
+    risks.add("privilege_escalation_attempt");
+  }
+
+  if (includesAny(message, ["pretend approved", "pretend allowed", "pretend trusted", "pretend the connector is approved", "pretend the policy is allowed"])) {
+    risks.add("false_authority_attempt");
+  }
+
   if (normalizedInterpretation.scope === "out_of_scope") {
     risks.add("unsupported_scope");
   }
@@ -65,10 +73,17 @@ function interpretationRisks(inputText: string, normalizedInterpretation: Reques
 export function createInterpretationProof(params: {
   inputText: string;
   normalizedInterpretation: RequestInterpretation;
+  interpretationId?: string;
+  reconciliation?: {
+    originalInterpretationScope: RequestScope;
+    reconciledScope: RequestScope;
+    reconciliationSource: "connector_route";
+    reconciliationReason: string;
+  };
 }): OgenInterpretationProof {
   const { inputText, normalizedInterpretation } = params;
   return {
-    interpretationId: randomUUID(),
+    interpretationId: params.interpretationId ?? randomUUID(),
     schemaVersion: OGEN_INTERPRETATION_SCHEMA_VERSION,
     createdAt: new Date().toISOString(),
     source: normalizedInterpretation.interpretationSource ?? "fallback",
@@ -80,6 +95,10 @@ export function createInterpretationProof(params: {
     risks: interpretationRisks(inputText, normalizedInterpretation),
     advisoryOnly: true,
     rawPromptStored: false,
-    rawAiResponseStored: false
+    rawAiResponseStored: false,
+    originalInterpretationScope: params.reconciliation?.originalInterpretationScope,
+    reconciledScope: params.reconciliation?.reconciledScope,
+    reconciliationSource: params.reconciliation?.reconciliationSource,
+    reconciliationReason: params.reconciliation?.reconciliationReason
   };
 }
