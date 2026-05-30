@@ -501,19 +501,19 @@ export type ConnectorActionPlanOption = {
   description: string;
   executionType: PlannedActionExecutionType;
   riskLevel: PlannedActionRiskLevel;
-  actionCategory?: OgenActionCategory;
-  approvalMode?: OgenApprovalMode;
-  resourceSensitivity?: OgenResourceSensitivity;
-  fieldClasses?: OgenFieldClass[];
-  actionConstraints?: OgenActionConstraints;
-  toolMappingStatus?: OgenToolMappingStatus;
-  toolMappingProof?: OgenToolMappingProof;
-  provider?: string;
-  resourceSystem?: string;
+  actionCategory: OgenActionCategory;
+  approvalMode: OgenApprovalMode;
+  resourceSensitivity: OgenResourceSensitivity;
+  fieldClasses: OgenFieldClass[];
+  actionConstraints: OgenActionConstraints;
+  toolMappingStatus: OgenToolMappingStatus;
+  toolMappingProof: OgenToolMappingProof;
+  provider: string;
+  resourceSystem: string;
   sideEffects: PlannedActionSideEffects;
   requiredApplicationGrants: string[];
   requiredEffectivePermissions: string[];
-  requiresApproval?: boolean;
+  requiresApproval: boolean;
   targetObjectTypes?: string[];
   missingInputs?: string[];
 };
@@ -684,6 +684,47 @@ export type RuntimeAuthorizationEffect =
   | "block"
   | "needs_approval";
 
+export type RuntimeAuthorizationBaseAction = {
+  skillId: string;
+  skillLabel?: string;
+  executionType: "diagnostic_read_only" | "inspection_read_only" | "write_action" | "unsupported";
+  riskLevel: "low" | "medium" | "high" | "sensitive";
+  requiresApproval?: boolean;
+  sensitivity?: "standard" | "sensitive";
+  actionCategory?: OgenActionCategory;
+  approvalMode?: OgenApprovalMode;
+  resourceSensitivity?: OgenResourceSensitivity;
+  fieldClasses?: OgenFieldClass[];
+  actionConstraints?: OgenActionConstraints;
+  requiredApplicationGrants?: string[];
+  requiredEffectivePermissions?: string[];
+  provider?: string;
+  resourceSystem?: string;
+  requestedScopes?: string[];
+};
+
+export type RuntimeAuthorizationMappedAction = RuntimeAuthorizationBaseAction & {
+  toolMappingStatus: "mapped";
+  toolMappingProof: OgenToolMappingProof;
+  requiresApproval: boolean;
+  sensitivity: "standard" | "sensitive";
+  actionCategory: OgenActionCategory;
+  approvalMode: OgenApprovalMode;
+  resourceSensitivity: OgenResourceSensitivity;
+  fieldClasses: OgenFieldClass[];
+  actionConstraints: OgenActionConstraints;
+  requiredApplicationGrants: string[];
+  requiredEffectivePermissions: string[];
+  provider: string;
+  resourceSystem: string;
+  requestedScopes: string[];
+};
+
+export type RuntimeAuthorizationFailClosedAction = RuntimeAuthorizationBaseAction & {
+  toolMappingStatus?: Exclude<OgenToolMappingStatus, "mapped">;
+  toolMappingProof?: OgenToolMappingProof;
+};
+
 export type RuntimeAuthorizationRequest = {
   requestId?: string;
   conversationId?: string;
@@ -706,26 +747,7 @@ export type RuntimeAuthorizationRequest = {
     connectorId?: string;
     resourceSystem?: string;
   };
-  action: {
-    skillId: string;
-    skillLabel?: string;
-    executionType: "diagnostic_read_only" | "inspection_read_only" | "write_action" | "unsupported";
-    riskLevel: "low" | "medium" | "high" | "sensitive";
-    requiresApproval?: boolean;
-    sensitivity?: "standard" | "sensitive";
-    actionCategory?: OgenActionCategory;
-    approvalMode?: OgenApprovalMode;
-    resourceSensitivity?: OgenResourceSensitivity;
-    fieldClasses?: OgenFieldClass[];
-    actionConstraints?: OgenActionConstraints;
-    toolMappingStatus: OgenToolMappingStatus;
-    toolMappingProof: OgenToolMappingProof;
-    requiredApplicationGrants?: string[];
-    requiredEffectivePermissions?: string[];
-    provider?: string;
-    resourceSystem?: string;
-    requestedScopes?: string[];
-  };
+  action: RuntimeAuthorizationMappedAction | RuntimeAuthorizationFailClosedAction;
   resource?: {
     connectorId?: string;
     resourceSystem?: string;

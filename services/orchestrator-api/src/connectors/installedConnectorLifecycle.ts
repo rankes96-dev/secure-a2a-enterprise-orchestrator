@@ -16,11 +16,22 @@ export type InstalledConnectorLifecycle = {
   reason: string;
 };
 
+function mergedActionCount(
+  actions: TrustedOnboardedAgent["approvedActions"] | undefined,
+  legacyCapabilities: TrustedOnboardedAgent["approvedCapabilities"] | undefined
+): number {
+  const ids = new Set<string>();
+  for (const action of [...(actions ?? []), ...(legacyCapabilities ?? [])]) {
+    ids.add(action.capability);
+  }
+  return ids.size;
+}
+
 // V1 derives lifecycle from current trusted onboarding metadata only.
 // needs_reverification is surfaced from runtime responses such as
 // connector_configuration_changed. Persistent lifecycle updates are V2.
 export function deriveInstalledConnectorLifecycle(agent: TrustedOnboardedAgent): InstalledConnectorLifecycle {
-  const approvedCount = (agent.approvedActions ?? agent.approvedCapabilities).length;
+  const approvedCount = mergedActionCount(agent.approvedActions, agent.approvedCapabilities);
 
   if (!agent.runtimeEndpoint || !isConnectorRuntimeEndpointAllowed(agent.runtimeEndpoint) || approvedCount === 0) {
     return {

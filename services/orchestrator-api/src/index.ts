@@ -33,6 +33,10 @@ import type {
 } from "@a2a/shared";
 import {
   A2A_CONTENT_TYPE,
+  OGEN_ACTION_CATEGORIES,
+  OGEN_APPROVAL_MODES,
+  OGEN_FIELD_CLASSES,
+  OGEN_RESOURCE_SENSITIVITIES,
   a2aJsonRequestHeaders,
   assertSecureA2AAuthMode,
   buildUnsupportedA2AProtocolVersionResponse,
@@ -387,6 +391,85 @@ const runtimeToolMappingStatuses = new Set([
   "unsupported_tool_shape",
   "blocked_unknown_tool"
 ]);
+const runtimeActionCategories: ReadonlySet<string> = new Set(OGEN_ACTION_CATEGORIES);
+const runtimeApprovalModes: ReadonlySet<string> = new Set(OGEN_APPROVAL_MODES);
+const runtimeResourceSensitivities: ReadonlySet<string> = new Set(OGEN_RESOURCE_SENSITIVITIES);
+const runtimeFieldClasses: ReadonlySet<string> = new Set(OGEN_FIELD_CLASSES);
+const runtimeActionConstraintKeys: ReadonlySet<string> = new Set([
+  "bulkAllowed",
+  "maxRecordsPerRequest",
+  "maxActionsPerHour",
+  "requiresConnectedAccount",
+  "auditRequired"
+]);
+
+function explicitRuntimeStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0);
+}
+
+function explicitRuntimeFieldClassArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) => typeof item === "string" && runtimeFieldClasses.has(item));
+}
+
+function runtimePositiveInteger(value: unknown): boolean {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function explicitRuntimeActionConstraints(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.entries(value as Record<string, unknown>).every(([key, entry]) => {
+    if (!runtimeActionConstraintKeys.has(key)) {
+      return false;
+    }
+    if (entry === undefined) {
+      return true;
+    }
+    if (key === "maxRecordsPerRequest" || key === "maxActionsPerHour") {
+      return runtimePositiveInteger(entry);
+    }
+    return entry === true || entry === false;
+  });
+}
+
+function validateMappedRuntimeActionMetadata(action: Record<string, unknown>): string | undefined {
+  for (const field of ["provider", "resourceSystem"]) {
+    if (typeof action[field] !== "string" || !String(action[field]).trim()) {
+      return `action.${field} is required for mapped tool metadata`;
+    }
+  }
+
+  if (action.requiresApproval !== true && action.requiresApproval !== false) {
+    return "action.requiresApproval is required for mapped tool metadata";
+  }
+  if (action.sensitivity !== "standard" && action.sensitivity !== "sensitive") {
+    return "action.sensitivity is required for mapped tool metadata";
+  }
+  if (!runtimeActionCategories.has(String(action.actionCategory))) {
+    return "action.actionCategory is required for mapped tool metadata";
+  }
+  if (!runtimeApprovalModes.has(String(action.approvalMode))) {
+    return "action.approvalMode is required for mapped tool metadata";
+  }
+  if (!runtimeResourceSensitivities.has(String(action.resourceSensitivity))) {
+    return "action.resourceSensitivity is required for mapped tool metadata";
+  }
+  if (!explicitRuntimeFieldClassArray(action.fieldClasses)) {
+    return "action.fieldClasses must be an explicit field-class array for mapped tool metadata";
+  }
+  if (!explicitRuntimeActionConstraints(action.actionConstraints)) {
+    return "action.actionConstraints must be an explicit action constraints object for mapped tool metadata";
+  }
+  for (const field of ["requiredApplicationGrants", "requiredEffectivePermissions", "requestedScopes"]) {
+    if (!explicitRuntimeStringArray(action[field])) {
+      return `action.${field} must be an explicit string array for mapped tool metadata`;
+    }
+  }
+
+  return undefined;
+}
 
 function validateRuntimeAuthorizationRequest(value: unknown): string | undefined {
   const body = objectRecord(value);
@@ -433,32 +516,39 @@ function validateRuntimeAuthorizationRequest(value: unknown): string | undefined
     return "action.riskLevel is required";
   }
 
-  if (!runtimeToolMappingStatuses.has(String(action.toolMappingStatus))) {
+  const toolMappingStatus = typeof action.toolMappingStatus === "string" ? action.toolMappingStatus : undefined;
+  if (toolMappingStatus !== undefined && !runtimeToolMappingStatuses.has(toolMappingStatus)) {
     return "action.toolMappingStatus must be a supported tool mapping status";
   }
 
   const toolMappingProof = objectRecord(action.toolMappingProof);
-  if (!toolMappingProof) {
-    return "action.toolMappingProof is required";
+  if (action.toolMappingProof !== undefined && !toolMappingProof) {
+    return "action.toolMappingProof must be an object when provided";
   }
 
-  if (!runtimeToolSourceTypes.has(String(toolMappingProof.sourceType))) {
-    return "action.toolMappingProof.sourceType is required";
+  if (toolMappingStatus === "mapped" && !toolMappingProof) {
+    return "action.toolMappingProof is required for mapped tool metadata";
   }
 
-  for (const field of ["sourceId", "toolId"]) {
-    if (typeof toolMappingProof[field] !== "string" || !String(toolMappingProof[field]).trim()) {
-      return `action.toolMappingProof.${field} is required`;
+  if (toolMappingProof) {
+    if (!runtimeToolSourceTypes.has(String(toolMappingProof.sourceType))) {
+      return "action.toolMappingProof.sourceType is required";
     }
-  }
 
-  if (
-    toolMappingProof.deterministicMapping !== true ||
-    toolMappingProof.aiInferred !== false ||
-    toolMappingProof.rawDescriptionStored !== false ||
-    toolMappingProof.protectedMaterialExposed !== false
-  ) {
-    return "action.toolMappingProof must be deterministic, non-AI-derived, and audit-safe";
+    for (const field of ["sourceId", "toolId"]) {
+      if (typeof toolMappingProof[field] !== "string" || !String(toolMappingProof[field]).trim()) {
+        return `action.toolMappingProof.${field} is required`;
+      }
+    }
+
+    if (
+      toolMappingProof.deterministicMapping !== true ||
+      toolMappingProof.aiInferred !== false ||
+      toolMappingProof.rawDescriptionStored !== false ||
+      toolMappingProof.protectedMaterialExposed !== false
+    ) {
+      return "action.toolMappingProof must be deterministic, non-AI-derived, and audit-safe";
+    }
   }
 
   const connectorRoute = objectRecord(body.connectorRoute);
@@ -472,26 +562,32 @@ function validateRuntimeAuthorizationRequest(value: unknown): string | undefined
         : typeof resource?.resourceSystem === "string" && resource.resourceSystem.trim()
           ? resource.resourceSystem.trim()
           : undefined;
-  if (action.toolMappingStatus === "mapped") {
+  if (toolMappingStatus === "mapped") {
+    const mappedToolMappingProof = toolMappingProof as Record<string, unknown>;
     for (const field of ["provider", "resourceSystem"]) {
-      if (typeof toolMappingProof[field] !== "string" || !String(toolMappingProof[field]).trim()) {
+      if (typeof mappedToolMappingProof[field] !== "string" || !String(mappedToolMappingProof[field]).trim()) {
         return `action.toolMappingProof.${field} is required for mapped tool proof`;
       }
     }
 
-    if (toolMappingProof.toolId !== action.skillId) {
+    const mappedActionMetadataError = validateMappedRuntimeActionMetadata(action);
+    if (mappedActionMetadataError) {
+      return mappedActionMetadataError;
+    }
+
+    if (mappedToolMappingProof.toolId !== action.skillId) {
       return "action.toolMappingProof.toolId must match action.skillId";
     }
 
-    if (typeof action.provider === "string" && action.provider.trim() && toolMappingProof.provider !== action.provider.trim()) {
+    if (mappedToolMappingProof.provider !== String(action.provider).trim()) {
       return "action.toolMappingProof.provider must match action.provider";
     }
 
-    if (typeof action.resourceSystem === "string" && action.resourceSystem.trim() && toolMappingProof.resourceSystem !== action.resourceSystem.trim()) {
+    if (mappedToolMappingProof.resourceSystem !== String(action.resourceSystem).trim()) {
       return "action.toolMappingProof.resourceSystem must match action.resourceSystem";
     }
 
-    if (trustedResourceSystem && toolMappingProof.resourceSystem !== trustedResourceSystem) {
+    if (trustedResourceSystem && mappedToolMappingProof.resourceSystem !== trustedResourceSystem) {
       return "action.toolMappingProof.resourceSystem must match trusted route resourceSystem";
     }
   }

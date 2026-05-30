@@ -101,8 +101,14 @@ export function toStoredConnectorTrustRecord(ownerKey: string, agent: TrustedOnb
 
 export function fromStoredConnectorTrustRecord(record: StoredConnectorTrustRecord): TrustedOnboardedAgent {
   const metadata = record.safeMetadata;
-  const approvedActions = metadataRecord<TrustedOnboardedAgent["approvedActions"]>(metadata.approvedActions, []);
-  const blockedActions = metadataRecord<TrustedOnboardedAgent["blockedActions"]>(metadata.blockedActions, []);
+  const storedApprovedActions = metadataRecord<TrustedOnboardedAgent["approvedActions"]>(metadata.approvedActions, []);
+  const storedApprovedCapabilities = metadataRecord<TrustedOnboardedAgent["approvedCapabilities"]>(metadata.approvedCapabilities, []);
+  const approvedActions = storedApprovedActions.length > 0 ? storedApprovedActions : storedApprovedCapabilities;
+  const approvedCapabilities = storedApprovedCapabilities.length > 0 ? storedApprovedCapabilities : approvedActions;
+  const storedBlockedActions = metadataRecord<TrustedOnboardedAgent["blockedActions"]>(metadata.blockedActions, []);
+  const storedBlockedCapabilities = metadataRecord<TrustedOnboardedAgent["blockedCapabilities"]>(metadata.blockedCapabilities, []);
+  const blockedActions = storedBlockedActions.length > 0 ? storedBlockedActions : storedBlockedCapabilities;
+  const blockedCapabilities = storedBlockedCapabilities.length > 0 ? storedBlockedCapabilities : blockedActions;
   const connectorProfile = metadataRecord<TrustedOnboardedAgent["connectorProfile"] | undefined>(metadata.connectorProfile, undefined);
   const tokenEndpointAuthMethod = metadataString(metadata.tokenEndpointAuthMethod);
   return {
@@ -127,8 +133,8 @@ export function fromStoredConnectorTrustRecord(record: StoredConnectorTrustRecor
     deniedPermissions: metadataStringArray(metadata.deniedPermissions),
     approvedActions,
     blockedActions,
-    approvedCapabilities: metadataRecord<TrustedOnboardedAgent["approvedCapabilities"]>(metadata.approvedCapabilities, approvedActions),
-    blockedCapabilities: metadataRecord<TrustedOnboardedAgent["blockedCapabilities"]>(metadata.blockedCapabilities, blockedActions),
+    approvedCapabilities,
+    blockedCapabilities,
     connectorProfile,
     connectorProfileVerified: metadataBoolean(metadata.connectorProfileVerified),
     connectorDecisionSource: metadataString(metadata.connectorDecisionSource) ?? "stored_connector_trust_record",

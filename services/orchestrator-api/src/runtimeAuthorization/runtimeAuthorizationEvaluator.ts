@@ -1,4 +1,11 @@
-import type { RuntimeAuthorizationRequest, RuntimeAuthorizationResponse } from "@a2a/shared";
+import {
+  OGEN_ACTION_CATEGORIES,
+  OGEN_APPROVAL_MODES,
+  OGEN_FIELD_CLASSES,
+  OGEN_RESOURCE_SENSITIVITIES,
+  type RuntimeAuthorizationRequest,
+  type RuntimeAuthorizationResponse
+} from "@a2a/shared";
 import type { ConnectorRoutingDecision } from "../connectorRouting.js";
 import { evaluateConnectorPolicy } from "../policy/connectorPolicy.js";
 import type { VerifiedUserIdentity } from "../security/userIdentity.js";
@@ -24,6 +31,17 @@ const toolSourceTypes: ReadonlySet<string> = new Set([
   "sdk_action_catalog",
   "manually_imported_catalog"
 ]);
+const actionCategories: ReadonlySet<string> = new Set(OGEN_ACTION_CATEGORIES);
+const approvalModes: ReadonlySet<string> = new Set(OGEN_APPROVAL_MODES);
+const resourceSensitivities: ReadonlySet<string> = new Set(OGEN_RESOURCE_SENSITIVITIES);
+const fieldClassValues: ReadonlySet<string> = new Set(OGEN_FIELD_CLASSES);
+const actionConstraintKeys: ReadonlySet<string> = new Set([
+  "bulkAllowed",
+  "maxRecordsPerRequest",
+  "maxActionsPerHour",
+  "requiresConnectedAccount",
+  "auditRequired"
+]);
 
 function connectorId(request: RuntimeAuthorizationRequest): string | undefined {
   return request.connectorRoute?.connectorId ?? request.targetAgent?.connectorId ?? request.resource?.connectorId;
@@ -36,6 +54,37 @@ function resourceSystem(request: RuntimeAuthorizationRequest): string | undefine
 function cleanString(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function explicitStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0);
+}
+
+function explicitFieldClassArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) => typeof item === "string" && fieldClassValues.has(item));
+}
+
+function positiveInteger(value: unknown): boolean {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function explicitActionConstraints(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.entries(value as Record<string, unknown>).every(([key, entry]) => {
+    if (!actionConstraintKeys.has(key)) {
+      return false;
+    }
+    if (entry === undefined) {
+      return true;
+    }
+    if (key === "maxRecordsPerRequest" || key === "maxActionsPerHour") {
+      return positiveInteger(entry);
+    }
+    return entry === true || entry === false;
+  });
 }
 
 function runtimeMode(request: RuntimeAuthorizationRequest): RuntimeMode {
@@ -53,6 +102,20 @@ function hasExplicitTarget(request: RuntimeAuthorizationRequest): boolean {
   );
 }
 
+function hasCompleteMappedActionMetadata(request: RuntimeAuthorizationRequest): boolean {
+  const action = request.action;
+  return typeof action.requiresApproval === "boolean" &&
+    (action.sensitivity === "standard" || action.sensitivity === "sensitive") &&
+    actionCategories.has(action.actionCategory ?? "") &&
+    approvalModes.has(action.approvalMode ?? "") &&
+    resourceSensitivities.has(action.resourceSensitivity ?? "") &&
+    explicitFieldClassArray(action.fieldClasses) &&
+    explicitActionConstraints(action.actionConstraints) &&
+    explicitStringArray(action.requiredApplicationGrants) &&
+    explicitStringArray(action.requiredEffectivePermissions) &&
+    explicitStringArray(action.requestedScopes);
+}
+
 function hasMappedToolProof(request: RuntimeAuthorizationRequest): boolean {
   const proof = request.action.toolMappingProof;
   const skillId = cleanString(request.action.skillId);
@@ -64,7 +127,8 @@ function hasMappedToolProof(request: RuntimeAuthorizationRequest): boolean {
   const proofResourceSystem = cleanString(proof?.resourceSystem);
 
   return request.action.toolMappingStatus === "mapped" &&
-    Boolean(proof) &&
+    hasCompleteMappedActionMetadata(request) &&
+    proof !== undefined &&
     toolSourceTypes.has(proof.sourceType) &&
     typeof proof.sourceId === "string" &&
     proof.sourceId.trim().length > 0 &&
@@ -169,7 +233,7 @@ export function evaluateRuntimeAuthorization(input: {
     allowed: policy.effect === "allow",
     requiresApproval: policy.effect === "needs_approval",
     reason: toolMappingBlocked && policy.effect === "block"
-      ? "Tool-to-action metadata mapping must be mapped and bound to the requested action and trusted route/resource before runtime authorization."
+      ? "Tool-to-action metadata mapping must be mapped and bound to the requested action and trusted route/resource with complete deterministic action metadata before runtime authorization."
       : policy.reason,
     tenantId,
     tenantResolution: tenantResolution

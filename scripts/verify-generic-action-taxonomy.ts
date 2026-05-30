@@ -177,14 +177,14 @@ for (const phrase of [
 }
 
 for (const phrase of [
-  "function fieldClasses(value: unknown): ConnectorActionPlanOption[\"fieldClasses\"]",
+  "function fieldClasses(value: unknown): ConnectorActionPlanOption[\"fieldClasses\"] | undefined",
   "if (!Array.isArray(value))",
-  "return fields;",
-  "fieldClasses: fieldClasses(item.fieldClasses)",
-  "function actionConstraints(value: unknown): ConnectorActionPlanOption[\"actionConstraints\"]",
+  "return [...value] as ConnectorActionPlanOption[\"fieldClasses\"]",
+  "const normalizedFieldClasses = fieldClasses(item.fieldClasses)",
+  "function actionConstraints(value: unknown): ConnectorActionPlanOption[\"actionConstraints\"] | undefined",
   "if (typeof value !== \"object\" || value === null || Array.isArray(value))",
   "return constraints;",
-  "actionConstraints: actionConstraints(item.actionConstraints)"
+  "const normalizedActionConstraints = actionConstraints(item.actionConstraints)"
 ]) {
   requireIncludes(connectorActionPlanner, phrase, "connector action planner preserves explicit empty taxonomy metadata");
 }

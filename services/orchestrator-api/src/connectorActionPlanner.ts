@@ -42,11 +42,20 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function explicitStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const trimmed = value.map((item) => typeof item === "string" ? item.trim() : undefined);
+  return trimmed.every((item): item is string => item !== undefined && item.length > 0) ? trimmed : undefined;
+}
+
 function cleanString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function normalizedActionCategory(value: unknown): ConnectorActionPlanOption["actionCategory"] {
+function normalizedActionCategory(value: unknown): ConnectorActionPlanOption["actionCategory"] | undefined {
   return value === "read" ||
     value === "search" ||
     value === "diagnose" ||
@@ -66,15 +75,15 @@ function normalizedActionCategory(value: unknown): ConnectorActionPlanOption["ac
     : undefined;
 }
 
-function approvalMode(value: unknown): ConnectorActionPlanOption["approvalMode"] {
+function approvalMode(value: unknown): ConnectorActionPlanOption["approvalMode"] | undefined {
   return value === "never" || value === "policy" || value === "always" || value === "blocked" ? value : undefined;
 }
 
-function resourceSensitivity(value: unknown): ConnectorActionPlanOption["resourceSensitivity"] {
+function resourceSensitivity(value: unknown): ConnectorActionPlanOption["resourceSensitivity"] | undefined {
   return value === "standard" || value === "sensitive" || value === "regulated" || value === "security_critical" || value === "admin_controlled" ? value : undefined;
 }
 
-function fieldClasses(value: unknown): ConnectorActionPlanOption["fieldClasses"] {
+function fieldClasses(value: unknown): ConnectorActionPlanOption["fieldClasses"] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }
@@ -92,37 +101,59 @@ function fieldClasses(value: unknown): ConnectorActionPlanOption["fieldClasses"]
     "admin_config",
     "external_message"
   ]);
-  const fields = stringArray(value).filter((fieldClass) => allowed.has(fieldClass)) as NonNullable<ConnectorActionPlanOption["fieldClasses"]>;
-  return fields;
+  if (!value.every((fieldClass): fieldClass is NonNullable<ConnectorActionPlanOption["fieldClasses"]>[number] => typeof fieldClass === "string" && allowed.has(fieldClass))) {
+    return undefined;
+  }
+
+  return [...value] as ConnectorActionPlanOption["fieldClasses"];
 }
 
 function positiveInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
-function actionConstraints(value: unknown): ConnectorActionPlanOption["actionConstraints"] {
+function actionConstraints(value: unknown): ConnectorActionPlanOption["actionConstraints"] | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return undefined;
   }
 
   const record = value as Record<string, unknown>;
-  const constraints: ConnectorActionPlanOption["actionConstraints"] = {
-    bulkAllowed: record.bulkAllowed === true || record.bulkAllowed === false ? record.bulkAllowed : undefined,
-    maxRecordsPerRequest: positiveInteger(record.maxRecordsPerRequest),
-    maxActionsPerHour: positiveInteger(record.maxActionsPerHour),
-    requiresConnectedAccount: record.requiresConnectedAccount === true || record.requiresConnectedAccount === false ? record.requiresConnectedAccount : undefined,
-    auditRequired: record.auditRequired === true || record.auditRequired === false ? record.auditRequired : undefined
-  };
+  const allowedKeys = new Set(["bulkAllowed", "maxRecordsPerRequest", "maxActionsPerHour", "requiresConnectedAccount", "auditRequired"]);
+  if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
+    return undefined;
+  }
+  if ("bulkAllowed" in record && record.bulkAllowed !== true && record.bulkAllowed !== false) {
+    return undefined;
+  }
+  if ("maxRecordsPerRequest" in record && positiveInteger(record.maxRecordsPerRequest) === undefined) {
+    return undefined;
+  }
+  if ("maxActionsPerHour" in record && positiveInteger(record.maxActionsPerHour) === undefined) {
+    return undefined;
+  }
+  if ("requiresConnectedAccount" in record && record.requiresConnectedAccount !== true && record.requiresConnectedAccount !== false) {
+    return undefined;
+  }
+  if ("auditRequired" in record && record.auditRequired !== true && record.auditRequired !== false) {
+    return undefined;
+  }
+
+  const constraints: ConnectorActionPlanOption["actionConstraints"] = {};
+  if ("bulkAllowed" in record) constraints.bulkAllowed = record.bulkAllowed as boolean;
+  if ("maxRecordsPerRequest" in record) constraints.maxRecordsPerRequest = record.maxRecordsPerRequest as number;
+  if ("maxActionsPerHour" in record) constraints.maxActionsPerHour = record.maxActionsPerHour as number;
+  if ("requiresConnectedAccount" in record) constraints.requiresConnectedAccount = record.requiresConnectedAccount as boolean;
+  if ("auditRequired" in record) constraints.auditRequired = record.auditRequired as boolean;
   return constraints;
 }
 
-function toolMappingStatus(value: unknown): ConnectorActionPlanOption["toolMappingStatus"] {
+function toolMappingStatus(value: unknown): ConnectorActionPlanOption["toolMappingStatus"] | undefined {
   return value === "mapped" || value === "incomplete_metadata" || value === "unsupported_tool_shape" || value === "blocked_unknown_tool"
     ? value
     : undefined;
 }
 
-function toolMappingProof(value: unknown): ConnectorActionPlanOption["toolMappingProof"] {
+function toolMappingProof(value: unknown): ConnectorActionPlanOption["toolMappingProof"] | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return undefined;
   }
@@ -135,10 +166,12 @@ function toolMappingProof(value: unknown): ConnectorActionPlanOption["toolMappin
     record.sourceType === "manually_imported_catalog"
     ? record.sourceType
     : undefined;
+  const sourceId = cleanString(record.sourceId);
+  const toolId = cleanString(record.toolId);
   if (
     !sourceType ||
-    typeof record.sourceId !== "string" ||
-    typeof record.toolId !== "string" ||
+    !sourceId ||
+    !toolId ||
     record.deterministicMapping !== true ||
     record.aiInferred !== false ||
     record.rawDescriptionStored !== false ||
@@ -149,8 +182,8 @@ function toolMappingProof(value: unknown): ConnectorActionPlanOption["toolMappin
 
   return {
     sourceType,
-    sourceId: record.sourceId,
-    toolId: record.toolId,
+    sourceId,
+    toolId,
     provider: cleanString(record.provider),
     resourceSystem: cleanString(record.resourceSystem),
     deterministicMapping: true,
@@ -160,18 +193,129 @@ function toolMappingProof(value: unknown): ConnectorActionPlanOption["toolMappin
   };
 }
 
-function executionType(value: unknown): PlannedActionExecutionType {
+function isExecutionType(value: unknown): value is PlannedActionExecutionType {
   return value === "inspection_read_only" || value === "diagnostic_read_only" || value === "write_action" || value === "admin_action" || value === "unsupported"
-    ? value
-    : "unsupported";
+}
+
+function executionType(value: unknown): PlannedActionExecutionType {
+  return isExecutionType(value) ? value : "unsupported";
+}
+
+function isRiskLevel(value: unknown): value is PlannedActionRiskLevel {
+  return value === "low" || value === "medium" || value === "high" || value === "critical";
 }
 
 function riskLevel(value: unknown): PlannedActionRiskLevel {
-  return value === "low" || value === "medium" || value === "high" || value === "critical" ? value : "medium";
+  return isRiskLevel(value) ? value : "medium";
+}
+
+function isSideEffects(value: unknown): value is PlannedActionSideEffects {
+  return value === "none" || value === "reads_data" || value === "modifies_state" || value === "admin_change" || value === "cross_system";
 }
 
 function sideEffects(value: unknown): PlannedActionSideEffects {
-  return value === "none" || value === "reads_data" || value === "modifies_state" || value === "admin_change" || value === "cross_system" ? value : "none";
+  return isSideEffects(value) ? value : "none";
+}
+
+function hasMappedPlanOptionMetadata(option: ConnectorActionPlanOption, planResourceSystem: string): boolean {
+  const proof = option.toolMappingProof;
+  return option.toolMappingStatus === "mapped" &&
+    proof !== undefined &&
+    option.provider !== undefined &&
+    option.resourceSystem !== undefined &&
+    option.resourceSystem === planResourceSystem &&
+    proof.toolId === option.actionId &&
+    proof.provider === option.provider &&
+    proof.resourceSystem === option.resourceSystem &&
+    proof.deterministicMapping === true &&
+    proof.aiInferred === false &&
+    proof.rawDescriptionStored === false &&
+    proof.protectedMaterialExposed === false;
+}
+
+function hasConsistentApprovalMetadata(
+  executionType: PlannedActionExecutionType,
+  approvalMode: ConnectorActionPlanOption["approvalMode"],
+  requiresApproval: boolean
+): boolean {
+  if (approvalMode === "always") {
+    return requiresApproval === true;
+  }
+  if (approvalMode === "never") {
+    return requiresApproval === false && executionType !== "write_action" && executionType !== "admin_action";
+  }
+  return true;
+}
+
+function normalizeConnectorActionPlanOption(item: Record<string, unknown>, planResourceSystem: string): ConnectorActionPlanOption | undefined {
+  const actionId = cleanString(item.actionId);
+  const label = cleanString(item.label);
+  const description = cleanString(item.description);
+  const normalizedExecutionType = executionType(item.executionType);
+  const normalizedRiskLevel = riskLevel(item.riskLevel);
+  const normalizedSideEffects = sideEffects(item.sideEffects);
+  const actionCategory = normalizedActionCategory(item.actionCategory);
+  const normalizedApprovalMode = approvalMode(item.approvalMode);
+  const normalizedResourceSensitivity = resourceSensitivity(item.resourceSensitivity);
+  const normalizedFieldClasses = fieldClasses(item.fieldClasses);
+  const normalizedActionConstraints = actionConstraints(item.actionConstraints);
+  const normalizedToolMappingStatus = toolMappingStatus(item.toolMappingStatus);
+  const normalizedToolMappingProof = toolMappingProof(item.toolMappingProof);
+  const provider = cleanString(item.provider);
+  const resourceSystem = cleanString(item.resourceSystem);
+  const requiredApplicationGrants = explicitStringArray(item.requiredApplicationGrants);
+  const requiredEffectivePermissions = explicitStringArray(item.requiredEffectivePermissions);
+  const requiresApproval = item.requiresApproval === true || item.requiresApproval === false ? item.requiresApproval : undefined;
+
+  if (
+    !actionId ||
+    !label ||
+    !description ||
+    !isExecutionType(item.executionType) ||
+    normalizedExecutionType === "unsupported" ||
+    !isRiskLevel(item.riskLevel) ||
+    !isSideEffects(item.sideEffects) ||
+    actionCategory === undefined ||
+    normalizedApprovalMode === undefined ||
+    normalizedResourceSensitivity === undefined ||
+    normalizedFieldClasses === undefined ||
+    normalizedActionConstraints === undefined ||
+    normalizedToolMappingStatus === undefined ||
+    normalizedToolMappingProof === undefined ||
+    provider === undefined ||
+    resourceSystem === undefined ||
+    requiredApplicationGrants === undefined ||
+    requiredEffectivePermissions === undefined ||
+    requiresApproval === undefined ||
+    !hasConsistentApprovalMetadata(normalizedExecutionType, normalizedApprovalMode, requiresApproval)
+  ) {
+    return undefined;
+  }
+
+  const option: ConnectorActionPlanOption = {
+    actionId,
+    label,
+    description,
+    executionType: normalizedExecutionType,
+    riskLevel: normalizedRiskLevel,
+    actionCategory,
+    approvalMode: normalizedApprovalMode,
+    resourceSensitivity: normalizedResourceSensitivity,
+    fieldClasses: normalizedFieldClasses,
+    actionConstraints: normalizedActionConstraints,
+    toolMappingStatus: normalizedToolMappingStatus,
+    toolMappingProof: normalizedToolMappingProof,
+    provider,
+    resourceSystem,
+    sideEffects: normalizedSideEffects,
+    requiredApplicationGrants,
+    requiredEffectivePermissions,
+    requiresApproval,
+    targetObjectTypes: stringArray(item.targetObjectTypes),
+    missingInputs: stringArray(item.missingInputs)
+  };
+
+  return hasMappedPlanOptionMetadata(option, planResourceSystem) ? option : undefined;
 }
 
 function normalizeConnectorActionPlan(value: unknown): ConnectorActionPlan | undefined {
@@ -180,38 +324,18 @@ function normalizeConnectorActionPlan(value: unknown): ConnectorActionPlan | und
   }
 
   const record = value as Record<string, unknown>;
+  const planResourceSystem = cleanString(record.resourceSystem);
   const options = Array.isArray(record.options)
     ? record.options
         .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && !Array.isArray(item))
-        .map((item) => ({
-          actionId: typeof item.actionId === "string" ? item.actionId : "",
-          label: typeof item.label === "string" ? item.label : "",
-          description: typeof item.description === "string" ? item.description : "",
-          executionType: executionType(item.executionType),
-          riskLevel: riskLevel(item.riskLevel),
-          actionCategory: normalizedActionCategory(item.actionCategory),
-          approvalMode: approvalMode(item.approvalMode),
-          resourceSensitivity: resourceSensitivity(item.resourceSensitivity),
-          fieldClasses: fieldClasses(item.fieldClasses),
-          actionConstraints: actionConstraints(item.actionConstraints),
-          toolMappingStatus: toolMappingStatus(item.toolMappingStatus),
-          toolMappingProof: toolMappingProof(item.toolMappingProof),
-          provider: cleanString(item.provider),
-          resourceSystem: cleanString(item.resourceSystem),
-          sideEffects: sideEffects(item.sideEffects),
-          requiredApplicationGrants: stringArray(item.requiredApplicationGrants),
-          requiredEffectivePermissions: stringArray(item.requiredEffectivePermissions),
-          requiresApproval: item.requiresApproval === true,
-          targetObjectTypes: stringArray(item.targetObjectTypes),
-          missingInputs: stringArray(item.missingInputs)
-        }))
-        .filter((item) => item.actionId && item.label && item.description)
+        .map((item) => planResourceSystem ? normalizeConnectorActionPlanOption(item, planResourceSystem) : undefined)
+        .filter((item): item is ConnectorActionPlanOption => item !== undefined)
     : [];
 
   if (
     typeof record.planId !== "string" ||
     typeof record.connectorId !== "string" ||
-    typeof record.resourceSystem !== "string" ||
+    !planResourceSystem ||
     typeof record.interpretedIntent !== "string" ||
     typeof record.userRequest !== "string" ||
     record.mode !== "plan_only" ||
@@ -226,7 +350,7 @@ function normalizeConnectorActionPlan(value: unknown): ConnectorActionPlan | und
   return {
     planId: record.planId,
     connectorId: record.connectorId,
-    resourceSystem: record.resourceSystem,
+    resourceSystem: planResourceSystem,
     interpretedIntent: record.interpretedIntent,
     userRequest: record.userRequest,
     mode: "plan_only",

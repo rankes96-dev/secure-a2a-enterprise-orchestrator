@@ -1,3 +1,13 @@
+import type {
+  OgenActionCategory,
+  OgenActionConstraints,
+  OgenApprovalMode,
+  OgenFieldClass,
+  OgenResourceSensitivity,
+  OgenToolMappingProof,
+  OgenToolMappingStatus
+} from "@a2a/shared";
+
 export type ConnectorPlanMode = "plan_only";
 
 export type PlannedActionExecutionType =
@@ -26,10 +36,19 @@ export type ConnectorActionPlanOption = {
   description: string;
   executionType: PlannedActionExecutionType;
   riskLevel: PlannedActionRiskLevel;
+  actionCategory: OgenActionCategory;
+  approvalMode: OgenApprovalMode;
+  resourceSensitivity: OgenResourceSensitivity;
+  fieldClasses: OgenFieldClass[];
+  actionConstraints: OgenActionConstraints;
+  toolMappingStatus: OgenToolMappingStatus;
+  toolMappingProof: OgenToolMappingProof;
+  provider: string;
+  resourceSystem: string;
   sideEffects: PlannedActionSideEffects;
   requiredApplicationGrants: string[];
   requiredEffectivePermissions: string[];
-  requiresApproval?: boolean;
+  requiresApproval: boolean;
   targetObjectTypes?: string[];
   missingInputs?: string[];
 };

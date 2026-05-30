@@ -68,7 +68,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "atlassian",
-        resourceSystem: "jira"
+        resourceSystem: "jira",
+        requiredApplicationGrants: ["read:jira-work"],
+        requiredEffectivePermissions: ["browse_projects", "view_issues"],
+        requestedScopes: ["read:jira-work"]
       },
       {
         skillId: "jira.project.access.prepare",
@@ -91,7 +94,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "atlassian",
-        resourceSystem: "jira"
+        resourceSystem: "jira",
+        requiredApplicationGrants: ["read:jira-user"],
+        requiredEffectivePermissions: ["read_project_roles"],
+        requestedScopes: ["read:jira-user"]
       },
       {
         skillId: "jira.permission.inspect",
@@ -113,7 +119,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "atlassian",
-        resourceSystem: "jira"
+        resourceSystem: "jira",
+        requiredApplicationGrants: ["read:jira-user"],
+        requiredEffectivePermissions: ["read_project_roles"],
+        requestedScopes: ["read:jira-user"]
       },
       {
         skillId: "jira.issue.create",
@@ -136,7 +145,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "atlassian",
-        resourceSystem: "jira"
+        resourceSystem: "jira",
+        requiredApplicationGrants: ["write:jira-work"],
+        requiredEffectivePermissions: ["create_issues"],
+        requestedScopes: ["write:jira-work"]
       },
       {
         skillId: "jira.issue.diagnose_creation_failure",
@@ -158,7 +170,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "atlassian",
-        resourceSystem: "jira"
+        resourceSystem: "jira",
+        requiredApplicationGrants: ["read:jira-work"],
+        requiredEffectivePermissions: ["browse_projects", "view_issues"],
+        requestedScopes: ["read:jira-work"]
       }
     ]
   },
@@ -189,7 +204,36 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "servicenow",
-        resourceSystem: "servicenow"
+        resourceSystem: "servicenow",
+        requiredApplicationGrants: ["incident.read", "catalog.read"],
+        requiredEffectivePermissions: ["role:itil", "table:incident:read", "table:sc_req_item:read"],
+        requestedScopes: ["incident.read", "catalog.read"]
+      },
+      {
+        skillId: "servicenow.request.status.lookup",
+        label: "Look up ServiceNow request status",
+        includeAny: ["request status", "status of my request", "requested item status", "ritm status", "service request status"],
+        excludeAny: ["create a mailing list", "aws production access", "need aws", "permission to aws"],
+        reason: "The request asks for ServiceNow service request status.",
+        riskLevel: "low",
+        executionType: "inspection_read_only",
+        requiresApproval: false,
+        sensitivity: "standard",
+        actionCategory: "business_object.read",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["workflow_state"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 1,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "servicenow",
+        resourceSystem: "servicenow",
+        requiredApplicationGrants: ["catalog.read"],
+        requiredEffectivePermissions: ["table:sc_req_item:read"],
+        requestedScopes: ["catalog.read"]
       },
       {
         skillId: "servicenow.catalog.item.recommend",
@@ -212,7 +256,36 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "servicenow",
-        resourceSystem: "servicenow"
+        resourceSystem: "servicenow",
+        requiredApplicationGrants: ["catalog.read"],
+        requiredEffectivePermissions: ["table:sc_req_item:read"],
+        requestedScopes: ["catalog.read"]
+      },
+      {
+        skillId: "servicenow.catalog.recommend",
+        label: "Recommend ServiceNow catalog entry",
+        capabilityIds: ["access.request.prepare", "service.request.prepare", "catalog.item.recommend", "catalog.recommend", "request.fulfillment.prepare"],
+        includeAny: ["catalog recommendation", "service catalog", "catalog recommend", "aws production access", "permission to aws", "need aws", "mailing list", "create a mailing list", "shared mailbox", "mailbox"],
+        reason: "The request asks for a ServiceNow catalog recommendation.",
+        riskLevel: "low",
+        executionType: "inspection_read_only",
+        requiresApproval: false,
+        sensitivity: "standard",
+        actionCategory: "search",
+        approvalMode: "never",
+        resourceSensitivity: "standard",
+        fieldClasses: ["classification"],
+        actionConstraints: {
+          bulkAllowed: false,
+          maxRecordsPerRequest: 10,
+          requiresConnectedAccount: true,
+          auditRequired: true
+        },
+        provider: "servicenow",
+        resourceSystem: "servicenow",
+        requiredApplicationGrants: ["catalog.read"],
+        requiredEffectivePermissions: ["table:sc_req_item:read"],
+        requestedScopes: ["catalog.read"]
       },
       {
         skillId: "servicenow.catalog.request.diagnose",
@@ -234,7 +307,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "servicenow",
-        resourceSystem: "servicenow"
+        resourceSystem: "servicenow",
+        requiredApplicationGrants: ["catalog.read"],
+        requiredEffectivePermissions: ["table:sc_req_item:read"],
+        requestedScopes: ["catalog.read"]
       },
       {
         skillId: "servicenow.user.role.inspect",
@@ -256,7 +332,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "servicenow",
-        resourceSystem: "servicenow"
+        resourceSystem: "servicenow",
+        requiredApplicationGrants: ["user.read"],
+        requiredEffectivePermissions: ["acl:user:read"],
+        requestedScopes: ["user.read"]
       },
       {
         skillId: "servicenow.incident.assignment.diagnose",
@@ -278,7 +357,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "servicenow",
-        resourceSystem: "servicenow"
+        resourceSystem: "servicenow",
+        requiredApplicationGrants: ["incident.read"],
+        requiredEffectivePermissions: ["role:itil", "table:incident:read"],
+        requestedScopes: ["incident.read"]
       }
     ]
   },
@@ -308,7 +390,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "github",
-        resourceSystem: "github"
+        resourceSystem: "github",
+        requiredApplicationGrants: ["repo.pull_requests.read"],
+        requiredEffectivePermissions: ["installation:repo_access", "repo:pull_requests:read"],
+        requestedScopes: ["repo.pull_requests.read"]
       },
       {
         skillId: "github.repository.access.prepare",
@@ -330,7 +415,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "github",
-        resourceSystem: "github"
+        resourceSystem: "github",
+        requiredApplicationGrants: ["repo.metadata.read"],
+        requiredEffectivePermissions: ["installation:repo_access", "repo:metadata:read"],
+        requestedScopes: ["repo.metadata.read"]
       },
       {
         skillId: "github.pull_request.access.diagnose",
@@ -352,7 +440,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "github",
-        resourceSystem: "github"
+        resourceSystem: "github",
+        requiredApplicationGrants: ["repo.pull_requests.read"],
+        requiredEffectivePermissions: ["repo:pull_requests:read"],
+        requestedScopes: ["repo.pull_requests.read"]
       },
       {
         skillId: "github.repository.permission.inspect",
@@ -375,7 +466,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "github",
-        resourceSystem: "github"
+        resourceSystem: "github",
+        requiredApplicationGrants: ["repo.metadata.read"],
+        requiredEffectivePermissions: ["installation:repo_access", "repo:metadata:read"],
+        requestedScopes: ["repo.metadata.read"]
       },
       {
         skillId: "github.repository.rate_limit.diagnose",
@@ -398,7 +492,10 @@ export const localReferenceConnectorIntentCatalog: ConnectorIntentHint[] = [
           auditRequired: true
         },
         provider: "github",
-        resourceSystem: "github"
+        resourceSystem: "github",
+        requiredApplicationGrants: ["repo.metadata.read"],
+        requiredEffectivePermissions: ["installation:repo_access", "org:rate_limit:read"],
+        requestedScopes: ["repo.metadata.read"]
       }
     ]
   }

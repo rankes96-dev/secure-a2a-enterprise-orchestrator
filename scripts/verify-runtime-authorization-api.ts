@@ -68,6 +68,10 @@ for (const phrase of [
   "export function evaluateRuntimeAuthorization",
   "evaluateConnectorPolicy",
   "identity.roles",
+  "function hasCompleteMappedActionMetadata",
+  "explicitStringArray(action.requiredApplicationGrants)",
+  "explicitStringArray(action.requiredEffectivePermissions)",
+  "explicitStringArray(action.requestedScopes)",
   "runtimeTokenIssued: false",
   "externalRuntimeCalled: false"
 ]) {
@@ -116,7 +120,11 @@ if (runtimeAuthorizeRouteStart < 0) {
 for (const phrase of [
   "appendRuntimeAuthorizationEvaluatedAuditEvent",
   "AuditEvents.RUNTIME_AUTHORIZATION_EVALUATED",
-  "runtimeToolMappingStatuses.has(String(action.toolMappingStatus))",
+  "toolMappingStatus !== undefined && !runtimeToolMappingStatuses.has(toolMappingStatus)",
+  "validateMappedRuntimeActionMetadata(action)",
+  "action.toolMappingProof is required for mapped tool metadata",
+  "action.requiresApproval is required for mapped tool metadata",
+  "must be an explicit string array for mapped tool metadata",
   'for (const field of ["sourceId", "toolId"])',
   "is required for mapped tool proof",
   "runtimeTokenIssued: false",
@@ -142,6 +150,10 @@ for (const phrase of [
   "runtimeAuthorizationRequestSchema",
   "runtimeAuthorizationResponseSchema",
   'required: ["action"]',
+  'if: {',
+  '"requiresApproval"',
+  '"requiredApplicationGrants"',
+  '"requestedScopes"',
   "tenantResolution",
   "runtimeTokenIssued",
   "externalRuntimeCalled",
@@ -160,6 +172,11 @@ if (fastifySchemas.includes('required: ["actor", "action"]')) {
   fail("Runtime authorization request schema must not require actor");
 } else {
   ok("Runtime authorization request schema does not require actor");
+}
+if (fastifySchemas.includes('required: ["skillId", "executionType", "riskLevel", "toolMappingStatus", "toolMappingProof"]')) {
+  fail("Runtime authorization request schema must not require mapped-only fields for every status");
+} else {
+  ok("Runtime authorization request schema keeps mapped-only fields conditional");
 }
 
 const parsedPackageJson = JSON.parse(packageJson) as { scripts?: Record<string, string> };
@@ -259,7 +276,10 @@ function request(overrides: Partial<RuntimeAuthorizationRequest> = {}): RuntimeA
       toolMappingStatus: "mapped",
       toolMappingProof: mappedToolProof("servicenow", "servicenow", "servicenow.ticket.status.lookup"),
       provider: "servicenow",
-      resourceSystem: "servicenow"
+      resourceSystem: "servicenow",
+      requiredApplicationGrants: [],
+      requiredEffectivePermissions: [],
+      requestedScopes: []
     },
     connectorRoute: {
       runtimeMode: "external_runtime_available"
@@ -293,6 +313,29 @@ if (missingToolMapping.decision !== "block" || missingToolMapping.allowed || !mi
   fail("runtime authorization without mapped tool proof should fail closed");
 } else {
   ok("runtime authorization without mapped tool proof fails closed");
+}
+
+const incompleteToolMappingBareRequest: RuntimeAuthorizationRequest = {
+  targetAgent: {
+    agentId: "servicenow-agent",
+    connectorId: "servicenow-reference",
+    resourceSystem: "servicenow"
+  },
+  action: {
+    skillId: "servicenow.ticket.status.lookup",
+    executionType: "inspection_read_only",
+    riskLevel: "low",
+    toolMappingStatus: "incomplete_metadata"
+  },
+  connectorRoute: {
+    runtimeMode: "external_runtime_available"
+  }
+};
+const incompleteToolMappingBare = evaluate(incompleteToolMappingBareRequest);
+if (incompleteToolMappingBare.decision !== "block" || incompleteToolMappingBare.allowed || !incompleteToolMappingBare.reason.includes("Tool-to-action metadata mapping must be mapped")) {
+  fail("runtime authorization with incomplete_metadata and no mapped-only fields should be type-valid and fail closed");
+} else {
+  ok("runtime authorization with incomplete_metadata and no mapped-only fields is accepted then fails closed");
 }
 
 const incompleteToolMapping = evaluate(request({
@@ -344,6 +387,27 @@ if (missingActionResourceSystem.decision !== "block" || missingActionResourceSys
   fail("runtime authorization with mapped proof but missing action resource system should fail closed");
 } else {
   ok("runtime authorization with mapped proof but missing action resource system fails closed");
+}
+
+for (const field of [
+  "requiresApproval",
+  "sensitivity",
+  "requiredApplicationGrants",
+  "requiredEffectivePermissions",
+  "requestedScopes"
+] as const) {
+  const missingMappedMetadataRequest = request();
+  delete (missingMappedMetadataRequest.action as Record<string, unknown>)[field];
+  const missingMappedMetadata = evaluate(missingMappedMetadataRequest);
+  if (
+    missingMappedMetadata.decision !== "block" ||
+    missingMappedMetadata.allowed ||
+    !missingMappedMetadata.reason.includes("complete deterministic action metadata")
+  ) {
+    fail(`runtime authorization with mapped proof but missing ${field} should fail closed`);
+  } else {
+    ok(`runtime authorization with mapped proof but missing ${field} fails closed`);
+  }
 }
 
 const mismatchedToolProof = evaluate(request({
@@ -446,7 +510,10 @@ const writeAction = evaluate(request({
     toolMappingStatus: "mapped",
     toolMappingProof: mappedToolProof("atlassian", "jira", "jira.issue.create"),
     provider: "atlassian",
-    resourceSystem: "jira"
+    resourceSystem: "jira",
+    requiredApplicationGrants: ["write:jira-work"],
+    requiredEffectivePermissions: ["create_issues"],
+    requestedScopes: ["write:jira-work"]
   }
 }));
 if (writeAction.decision !== "needs_approval" || !writeAction.requiresApproval) {

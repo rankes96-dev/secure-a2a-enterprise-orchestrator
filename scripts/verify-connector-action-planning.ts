@@ -4,6 +4,7 @@ const API_URL = process.env.ORCHESTRATOR_API_URL ?? "http://127.0.0.1:4000";
 const EXTERNAL_AGENT_URL = process.env.EXTERNAL_AGENT_URL ?? "http://localhost:4201";
 
 let sessionCookie = "";
+let csrfToken = "";
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -57,6 +58,7 @@ async function request(path: string, init: RequestInit = {}): Promise<{ response
     headers: {
       ...(init.body ? { "content-type": "application/json" } : {}),
       ...(sessionCookie ? { cookie: sessionCookie } : {}),
+      ...(init.body && csrfToken ? { "x-ogen-csrf-token": csrfToken } : {}),
       ...init.headers
     }
   });
@@ -76,9 +78,16 @@ async function createSession(): Promise<void> {
   const response = await fetch(`${API_URL}/session`, { method: "POST" });
   const body = await readJson(response);
   requireStatus(response, body, 200, "create session");
-  const setCookie = response.headers.get("set-cookie");
-  if (!setCookie) fail("create session did not return a cookie");
-  sessionCookie = setCookie.split(";")[0] ?? "";
+  const setCookies = typeof (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie === "function"
+    ? (response.headers as Headers & { getSetCookie: () => string[] }).getSetCookie()
+    : response.headers.get("set-cookie")?.split(/,(?=\s*[^;,]+=)/) ?? [];
+  if (setCookies.length === 0) fail("create session did not return a cookie");
+  sessionCookie = setCookies.map((cookie) => cookie.split(";")[0]).filter(Boolean).join("; ");
+  const record = asRecord(body, "create session response");
+  if (typeof record.csrfToken !== "string" || record.csrfToken.length === 0) {
+    fail("create session did not return a csrfToken");
+  }
+  csrfToken = record.csrfToken;
   logOk("created browser session");
 }
 
@@ -130,6 +139,9 @@ function verifyStatic(): void {
   }
   for (const term of ["ConnectorPlanningHandler", "buildConnectorActionPlan", "jiraPlanningHandler", "serviceNowPlanningHandler", "githubPlanningHandler", "plan_only", "connector_plan_only", "jiraActionPlan"]) {
     if (!external.includes(term)) fail(`external agent planning support missing: ${term}`);
+  }
+  for (const term of ["toolMappingStatus", "toolMappingProof", "provider", "resourceSystem", "actionCategory", "requiresApproval: false"]) {
+    if (!external.includes(term)) fail(`external action planning mapped metadata missing: ${term}`);
   }
   const externalIndex = read("real-external-agent/src/index.ts");
   if (!externalIndex.includes("buildConnectorActionPlan") || externalIndex.includes('profile.connectorId === "jira-reference" && isJiraAccessPlanningRequest')) {

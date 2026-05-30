@@ -11,6 +11,30 @@ function deniedFrom(required: string[], denied: string[]): string[] {
   return required.filter((item) => deniedSet.has(item));
 }
 
+function cleanString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function hasMappedPlanOptionProof(option: ConnectorActionPlanOption): boolean {
+  const proof = option.toolMappingProof;
+  const actionId = cleanString(option.actionId);
+  const provider = cleanString(option.provider);
+  const resourceSystem = cleanString(option.resourceSystem);
+  return option.toolMappingStatus === "mapped" &&
+    proof !== undefined &&
+    actionId !== undefined &&
+    provider !== undefined &&
+    resourceSystem !== undefined &&
+    cleanString(proof.toolId) === actionId &&
+    cleanString(proof.provider) === provider &&
+    cleanString(proof.resourceSystem) === resourceSystem &&
+    proof.deterministicMapping === true &&
+    proof.aiInferred === false &&
+    proof.rawDescriptionStored === false &&
+    proof.protectedMaterialExposed === false;
+}
+
 function evaluateOption(option: ConnectorActionPlanOption, onboardedAgent: TrustedOnboardedAgent): EvaluatedConnectorActionPlan["options"][number] {
   const missingApplicationGrants = missingFrom(option.requiredApplicationGrants, onboardedAgent.applicationAccessGrants.length ? onboardedAgent.applicationAccessGrants : onboardedAgent.grantedScopes);
   const effectivePermissions = onboardedAgent.effectivePermissions ?? [];
@@ -18,12 +42,48 @@ function evaluateOption(option: ConnectorActionPlanOption, onboardedAgent: Trust
   const missingEffectivePermissions = missingFrom(option.requiredEffectivePermissions, effectivePermissions).filter((permission) => !deniedPermissions.includes(permission));
   const deniedEffectivePermissions = deniedFrom(option.requiredEffectivePermissions, deniedPermissions);
 
-  if (option.executionType === "write_action" || option.executionType === "admin_action" || option.requiresApproval) {
+  if (!hasMappedPlanOptionProof(option)) {
+    return {
+      option,
+      decision: "blocked",
+      blockedAt: "gateway_governance",
+      reason: "Plan option must include mapped tool-to-action metadata bound to the planned action before evaluation.",
+      missingApplicationGrants,
+      missingEffectivePermissions,
+      deniedEffectivePermissions
+    };
+  }
+
+  if (option.executionType === "unsupported") {
+    return {
+      option,
+      decision: "blocked",
+      blockedAt: "gateway_governance",
+      reason: "Unsupported plan option execution type cannot be allowed.",
+      missingApplicationGrants,
+      missingEffectivePermissions,
+      deniedEffectivePermissions
+    };
+  }
+
+  if (option.approvalMode === "blocked") {
+    return {
+      option,
+      decision: "blocked",
+      blockedAt: "gateway_governance",
+      reason: "Normalized action metadata marks this plan option as blocked by policy or connector metadata.",
+      missingApplicationGrants,
+      missingEffectivePermissions,
+      deniedEffectivePermissions
+    };
+  }
+
+  if (option.executionType === "write_action" || option.executionType === "admin_action" || option.requiresApproval || option.approvalMode === "always") {
     return {
       option,
       decision: "needs_approval",
       blockedAt: "gateway_governance",
-      reason: "Write and admin actions require explicit Gateway approval before execution.",
+      reason: "Write, admin, and always-approval plan options require explicit Gateway approval before execution.",
       missingApplicationGrants,
       missingEffectivePermissions,
       deniedEffectivePermissions

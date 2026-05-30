@@ -7,6 +7,7 @@ const serviceNowSkills: ConnectorSkillRequirement[] = [
     description: "Return an end-user-safe status summary for an incident or request item the actor is allowed to view.",
     requiredApplicationGrants: ["incident.read", "catalog.read"],
     requiredEffectivePermissions: ["role:itil", "table:incident:read", "table:sc_req_item:read"],
+    requestedScopes: ["incident.read", "catalog.read"],
     executionType: "inspection_read_only"
   },
   {
@@ -15,6 +16,7 @@ const serviceNowSkills: ConnectorSkillRequirement[] = [
     description: "Recommend the right catalog item for access, mailbox, distribution list, or generic requests without submitting it.",
     requiredApplicationGrants: ["catalog.read"],
     requiredEffectivePermissions: ["table:sc_req_item:read"],
+    requestedScopes: ["catalog.read"],
     capabilityIds: ["access.request.prepare", "service.request.prepare", "catalog.item.recommend", "request.fulfillment.prepare"],
     executionType: "inspection_read_only"
   },
@@ -24,6 +26,7 @@ const serviceNowSkills: ConnectorSkillRequirement[] = [
     description: "Inspect incident assignment metadata, roles, and ACLs that affect assignment routing.",
     requiredApplicationGrants: ["incident.read"],
     requiredEffectivePermissions: ["role:itil", "table:incident:read"],
+    requestedScopes: ["incident.read"],
     executionType: "diagnostic_read_only",
     diagnosesActionId: "servicenow.incident.assign",
     diagnosesActionLabel: "Assign ServiceNow incident"
@@ -34,6 +37,7 @@ const serviceNowSkills: ConnectorSkillRequirement[] = [
     description: "Review request item visibility and catalog read access for failed RITM workflows.",
     requiredApplicationGrants: ["catalog.read"],
     requiredEffectivePermissions: ["table:sc_req_item:read"],
+    requestedScopes: ["catalog.read"],
     executionType: "diagnostic_read_only",
     diagnosesActionId: "servicenow.catalog.request.approve_or_fulfill",
     diagnosesActionLabel: "Process catalog request"
@@ -44,6 +48,7 @@ const serviceNowSkills: ConnectorSkillRequirement[] = [
     description: "Inspect user role and ACL visibility that affect ServiceNow access.",
     requiredApplicationGrants: ["user.read"],
     requiredEffectivePermissions: ["acl:user:read"],
+    requestedScopes: ["user.read"],
     executionType: "inspection_read_only"
   },
   {
@@ -52,6 +57,7 @@ const serviceNowSkills: ConnectorSkillRequirement[] = [
     description: "Assign or update ServiceNow incident records through the external agent runtime.",
     requiredApplicationGrants: ["incident.write"],
     requiredEffectivePermissions: ["role:itil", "table:incident:write"],
+    requestedScopes: ["incident.write"],
     executionType: "write_action"
   },
   {
@@ -60,6 +66,7 @@ const serviceNowSkills: ConnectorSkillRequirement[] = [
     description: "Approve, fulfill, or transition ServiceNow catalog request records.",
     requiredApplicationGrants: ["catalog.read"],
     requiredEffectivePermissions: ["role:catalog_admin"],
+    requestedScopes: ["catalog.read"],
     executionType: "write_action"
   }
 ];

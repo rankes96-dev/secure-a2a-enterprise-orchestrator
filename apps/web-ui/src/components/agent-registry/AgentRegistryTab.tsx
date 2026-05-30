@@ -1,6 +1,16 @@
 import React from "react";
 import type { AgentRegistryContext, ConnectorAction, ConnectorTemplate, ConnectionWizardStep, LocalConnectorPreset, OnboardingCheck, RegisteredAgentRow, TrustedOnboardedAgent } from "./types";
 
+function mergedConnectorActions(actions?: ConnectorAction[], legacyCapabilities?: ConnectorAction[]): ConnectorAction[] {
+  const byCapability = new Map<string, ConnectorAction>();
+  for (const action of [...(actions ?? []), ...(legacyCapabilities ?? [])]) {
+    if (!byCapability.has(action.capability)) {
+      byCapability.set(action.capability, action);
+    }
+  }
+  return [...byCapability.values()];
+}
+
 export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
   const {
     isLoading,
@@ -72,8 +82,8 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
   } = ctx;
 
   function renderZeroTrustOnboardingPanel() {
-    const approvedActions = zeroTrustResult?.skillDecision?.approvedActions ?? zeroTrustResult?.capabilityDecision.approvedCapabilities ?? [];
-    const blockedActions = zeroTrustResult?.skillDecision?.blockedActions ?? zeroTrustResult?.capabilityDecision.blockedCapabilities ?? [];
+    const approvedActions = mergedConnectorActions(zeroTrustResult?.skillDecision?.approvedActions, zeroTrustResult?.capabilityDecision.approvedCapabilities);
+    const blockedActions = mergedConnectorActions(zeroTrustResult?.skillDecision?.blockedActions, zeroTrustResult?.capabilityDecision.blockedCapabilities);
     const wizardSteps: Array<{ id: ConnectionWizardStep; label: string }> = [
       { id: "overview", label: "Overview" },
       { id: "gateway-registration", label: "Register Gateway" },
@@ -721,12 +731,11 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
     }
 
     function lifecycleForInstalledAgent(agent: RegisteredAgentRow) {
-      const approved = (agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0;
-      return agent.lifecycle ?? (
-        approved > 0 && agent.connectorProfileVerified && agent.runtimeEndpoint
-          ? { state: "runtime_ready" as const, label: "Runtime ready", reason: "Approved skills can execute through the trusted runtime endpoint with scoped A2A JWT." }
-          : { state: "runtime_blocked" as const, label: "Runtime blocked", reason: "No approved runtime skills are currently available." }
-      );
+      const approved = mergedConnectorActions(agent.approvedActions, agent.approvedCapabilities).length;
+      const derived = approved > 0 && agent.connectorProfileVerified && agent.runtimeEndpoint && agent.externalConfigHash
+        ? { state: "runtime_ready" as const, label: "Runtime ready", reason: "Approved skills can execute through the trusted runtime endpoint with scoped A2A JWT." }
+        : { state: "runtime_blocked" as const, label: "Runtime blocked", reason: "No approved runtime skills are currently available." };
+      return derived.state === "runtime_ready" ? derived : agent.lifecycle ?? derived;
     }
 
     const registrySummary = {
@@ -734,7 +743,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
       installedConnectors: zeroTrustAgents.length,
       runtimeReady: zeroTrustAgents.filter((agent) => lifecycleForInstalledAgent(agent).state === "runtime_ready").length,
       needsReverification: zeroTrustAgents.filter((agent) => lifecycleForInstalledAgent(agent).state === "needs_reverification").length,
-      blockedSkills: zeroTrustAgents.reduce((total, agent) => total + ((agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0), 0)
+      blockedSkills: zeroTrustAgents.reduce((total, agent) => total + mergedConnectorActions(agent.blockedActions, agent.blockedCapabilities).length, 0)
     };
 
     const approvedSkillScenarioMap: Record<string, string> = {
@@ -750,7 +759,7 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
     };
 
     function scenarioForApprovedSkill(agent: RegisteredAgentRow): string | undefined {
-      const approved: ConnectorAction[] = agent.approvedActions ?? agent.approvedCapabilities ?? [];
+      const approved = mergedConnectorActions(agent.approvedActions, agent.approvedCapabilities);
       for (const action of approved) {
         const scenario = approvedSkillScenarioMap[action.capability];
         if (scenario) {
@@ -917,8 +926,10 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
     }
 
     function renderInstalledConnectorCard(agent: RegisteredAgentRow) {
-      const approved = (agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0;
-      const blocked = (agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0;
+      const approvedActions = mergedConnectorActions(agent.approvedActions, agent.approvedCapabilities);
+      const blockedActions = mergedConnectorActions(agent.blockedActions, agent.blockedCapabilities);
+      const approved = approvedActions.length;
+      const blocked = blockedActions.length;
       const lifecycle = lifecycleForInstalledAgent(agent);
       const detailsOpen = expandedInstalledAgentIds.includes(agent.agentId);
       const template = templateForAgent(agent);
@@ -966,8 +977,8 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
                 <div><span>Trust level</span><strong>{agent.trustLevel}</strong></div>
                 <div><span>Profile verified</span><strong>{agent.connectorProfileVerified ? "yes" : "no"}</strong></div>
                 <div><span>External config</span><strong>{shortHash(agent.externalConfigHash)}</strong></div>
-                <div><span>Approved actions</span><strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item: ConnectorAction) => item.label ?? item.capability).join(", ") || "none"}</strong></div>
-                <div><span>Blocked actions</span><strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item: ConnectorAction) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong></div>
+                <div><span>Approved actions</span><strong>{approvedActions.map((item) => item.label ?? item.capability).join(", ") || "none"}</strong></div>
+                <div><span>Blocked actions</span><strong>{blockedActions.map((item) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong></div>
                 <div><span>Resource principal</span><strong>{agent.resourcePrincipal ?? "unknown"}</strong></div>
                 <div><span>Execution state</span><strong>{agent.executionState}</strong></div>
               </div>
@@ -1055,8 +1066,8 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
           </div>
           <div className="registry-agent-compact-metadata">
             {agent.source === "zero-trust-onboarded" ? <span><b>Trust</b> {agent.trustLevel}</span> : null}
-            {agent.source === "zero-trust-onboarded" ? <span><b>Approved</b> {(agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0}</span> : null}
-            {agent.source === "zero-trust-onboarded" ? <span><b>Blocked</b> {(agent.blockedActions ?? agent.blockedCapabilities)?.length ?? 0}</span> : null}
+            {agent.source === "zero-trust-onboarded" ? <span><b>Approved</b> {mergedConnectorActions(agent.approvedActions, agent.approvedCapabilities).length}</span> : null}
+            {agent.source === "zero-trust-onboarded" ? <span><b>Blocked</b> {mergedConnectorActions(agent.blockedActions, agent.blockedCapabilities).length}</span> : null}
             <span><b>Auth</b> {agent.authMode}</span>
             <span><b>Endpoint</b> {endpointTypeLabel(agent.endpointType, agent.endpointScheme)}</span>
             <span><b>Agent Card</b> {agent.agentCardAvailable ? "yes" : "no"}</span>
@@ -1097,11 +1108,11 @@ export function AgentRegistryTab({ ctx }: { ctx: AgentRegistryContext }) {
                   </div>
                   <div>
                     <span>Approved actions</span>
-                    <strong>{(agent.approvedActions ?? agent.approvedCapabilities)?.map((item: ConnectorAction) => item.label ?? item.capability).join(", ") || "none"}</strong>
+                    <strong>{mergedConnectorActions(agent.approvedActions, agent.approvedCapabilities).map((item) => item.label ?? item.capability).join(", ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Blocked actions</span>
-                    <strong>{(agent.blockedActions ?? agent.blockedCapabilities)?.map((item: ConnectorAction) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
+                    <strong>{mergedConnectorActions(agent.blockedActions, agent.blockedCapabilities).map((item) => `${item.label ?? item.capability}: ${item.reason}`).join("; ") || "none"}</strong>
                   </div>
                   <div>
                     <span>Resource principal</span>

@@ -216,6 +216,53 @@ function hasCompleteNormalizedActionMetadata(metadata: {
     metadata.actionConstraints !== undefined;
 }
 
+function missingNormalizedActionMetadataFields(metadata: {
+  riskLevel?: ReferenceConnectorRiskLevel;
+  executionType?: ReferenceConnectorExecutionType;
+  requiresApproval?: boolean;
+  sensitivity?: ReferenceConnectorSensitivity;
+  actionCategory?: ConnectorIntentSkillHint["actionCategory"];
+  approvalMode?: ConnectorIntentSkillHint["approvalMode"];
+  resourceSensitivity?: ConnectorIntentSkillHint["resourceSensitivity"];
+  fieldClasses?: ConnectorIntentSkillHint["fieldClasses"];
+  actionConstraints?: ConnectorIntentSkillHint["actionConstraints"];
+  provider?: string;
+  resourceSystem?: string;
+  requiredApplicationGrants?: string[];
+  requiredEffectivePermissions?: string[];
+  requestedScopes?: string[];
+}): string[] {
+  return [
+    metadata.provider ? "" : "provider",
+    metadata.resourceSystem ? "" : "resourceSystem",
+    metadata.executionType ? "" : "executionType",
+    metadata.riskLevel ? "" : "riskLevel",
+    typeof metadata.requiresApproval === "boolean" ? "" : "requiresApproval",
+    metadata.sensitivity ? "" : "sensitivity",
+    metadata.actionCategory ? "" : "actionCategory",
+    metadata.approvalMode ? "" : "approvalMode",
+    metadata.resourceSensitivity ? "" : "resourceSensitivity",
+    metadata.fieldClasses !== undefined ? "" : "fieldClasses",
+    metadata.actionConstraints !== undefined ? "" : "actionConstraints",
+    metadata.requiredApplicationGrants !== undefined ? "" : "requiredApplicationGrants",
+    metadata.requiredEffectivePermissions !== undefined ? "" : "requiredEffectivePermissions",
+    metadata.requestedScopes !== undefined ? "" : "requestedScopes"
+  ].filter(Boolean);
+}
+
+function mergedConnectorActions(
+  actions: TrustedOnboardedAgent["approvedActions"] | undefined,
+  legacyCapabilities: TrustedOnboardedAgent["approvedCapabilities"] | undefined
+): TrustedOnboardedAgent["approvedActions"] {
+  const byCapability = new Map<string, TrustedOnboardedAgent["approvedActions"][number]>();
+  for (const action of [...(actions ?? []), ...(legacyCapabilities ?? [])]) {
+    if (!byCapability.has(action.capability)) {
+      byCapability.set(action.capability, action);
+    }
+  }
+  return [...byCapability.values()];
+}
+
 function referenceSkillMetadata(
   supported: ConnectorIntentHint,
   skillId: string,
@@ -237,6 +284,7 @@ function referenceSkillMetadata(
   requiredApplicationGrants?: string[];
   requiredEffectivePermissions?: string[];
   requestedScopes?: string[];
+  missingFields: string[];
   source: ConnectorActionMetadataSource;
 } {
   const referenceSkill = supported.skillHints.find((hint) => hint.skillId === skillId);
@@ -290,24 +338,58 @@ function referenceSkillMetadata(
     requiredEffectivePermissions,
     requestedScopes
   });
+  const mappedAction = toolMapping.status === "mapped" ? toolMapping.action : undefined;
+  const effectiveRiskLevel = riskLevel ?? mappedAction?.riskLevel;
+  const effectiveExecutionType = executionType ?? mappedAction?.executionType;
+  const effectiveRequiresApproval = requiresApproval ?? mappedAction?.requiresApproval;
+  const effectiveSensitivity = sensitivity ?? mappedAction?.sensitivity;
+  const effectiveActionCategory = actionCategory ?? mappedAction?.actionCategory;
+  const effectiveApprovalMode = approvalMode ?? mappedAction?.approvalMode;
+  const effectiveResourceSensitivity = resourceSensitivity ?? mappedAction?.resourceSensitivity;
+  const effectiveFieldClasses = fieldClasses ?? mappedAction?.fieldClasses;
+  const effectiveActionConstraints = actionConstraints ?? mappedAction?.actionConstraints;
+  const effectiveRequiredApplicationGrants = requiredApplicationGrants ?? mappedAction?.requiredApplicationGrants;
+  const effectiveRequiredEffectivePermissions = requiredEffectivePermissions ?? mappedAction?.requiredEffectivePermissions;
+  const effectiveRequestedScopes = requestedScopes ?? mappedAction?.requestedScopes;
+  const effectiveProvider = provider ?? mappedAction?.provider;
+  const effectiveResourceSystem = resourceSystem ?? mappedAction?.resourceSystem;
+  const missingFields = toolMapping.status === "mapped"
+    ? missingNormalizedActionMetadataFields({
+        riskLevel: effectiveRiskLevel,
+        executionType: effectiveExecutionType,
+        requiresApproval: effectiveRequiresApproval,
+        sensitivity: effectiveSensitivity,
+        actionCategory: effectiveActionCategory,
+        approvalMode: effectiveApprovalMode,
+        resourceSensitivity: effectiveResourceSensitivity,
+        fieldClasses: effectiveFieldClasses,
+        actionConstraints: effectiveActionConstraints,
+        provider: effectiveProvider,
+        resourceSystem: effectiveResourceSystem,
+        requiredApplicationGrants: effectiveRequiredApplicationGrants,
+        requiredEffectivePermissions: effectiveRequiredEffectivePermissions,
+        requestedScopes: effectiveRequestedScopes
+      })
+    : toolMapping.missingFields;
 
   return {
-    riskLevel,
-    executionType,
-    requiresApproval,
-    sensitivity,
-    actionCategory,
-    approvalMode,
-    resourceSensitivity,
-    fieldClasses: fieldClasses ? [...fieldClasses] : undefined,
-    actionConstraints: actionConstraints ? { ...actionConstraints } : undefined,
+    riskLevel: effectiveRiskLevel,
+    executionType: effectiveExecutionType,
+    requiresApproval: effectiveRequiresApproval,
+    sensitivity: effectiveSensitivity,
+    actionCategory: effectiveActionCategory,
+    approvalMode: effectiveApprovalMode,
+    resourceSensitivity: effectiveResourceSensitivity,
+    fieldClasses: effectiveFieldClasses ? [...effectiveFieldClasses] : undefined,
+    actionConstraints: effectiveActionConstraints ? { ...effectiveActionConstraints } : undefined,
     toolMappingStatus: toolMapping.status,
     toolMappingProof: toolMapping.proof,
-    provider,
-    resourceSystem,
-    requiredApplicationGrants: requiredApplicationGrants ? [...requiredApplicationGrants] : undefined,
-    requiredEffectivePermissions: requiredEffectivePermissions ? [...requiredEffectivePermissions] : undefined,
-    requestedScopes: requestedScopes ? [...requestedScopes] : undefined,
+    provider: effectiveProvider,
+    resourceSystem: effectiveResourceSystem,
+    requiredApplicationGrants: effectiveRequiredApplicationGrants ? [...effectiveRequiredApplicationGrants] : undefined,
+    requiredEffectivePermissions: effectiveRequiredEffectivePermissions ? [...effectiveRequiredEffectivePermissions] : undefined,
+    requestedScopes: effectiveRequestedScopes ? [...effectiveRequestedScopes] : undefined,
+    missingFields,
     source
   };
 }
@@ -316,6 +398,43 @@ function exactConnectorIdMatch(agent: TrustedOnboardedAgent, connectorId: string
   return agent.connectorProfile?.connectorId === connectorId ||
     agent.connectorId === connectorId ||
     agent.connectorDecisionSource === connectorId;
+}
+
+type ReferenceSkillMetadata = ReturnType<typeof referenceSkillMetadata>;
+
+function requirementGapsForOnboardedAction(
+  onboarded: TrustedOnboardedAgent,
+  actionMetadata: ReferenceSkillMetadata
+): {
+  missingApplicationGrants: string[];
+  missingEffectivePermissions: string[];
+  deniedEffectivePermissions: string[];
+} {
+  const requestedApplicationGrants = new Set(onboarded.requestedApplicationGrants ?? []);
+  const applicationAccessGrants = new Set(onboarded.applicationAccessGrants ?? []);
+  const effectivePermissions = new Set(onboarded.effectivePermissions ?? []);
+  const deniedPermissions = new Set(onboarded.deniedPermissions ?? []);
+  const requiredApplicationGrants = actionMetadata.requiredApplicationGrants ?? [];
+  const requiredEffectivePermissions = actionMetadata.requiredEffectivePermissions ?? [];
+  const missingRequestedApplicationGrants = requiredApplicationGrants.filter((grant) => !requestedApplicationGrants.has(grant));
+  const missingApplicationGrants = requiredApplicationGrants.filter((grant) => !applicationAccessGrants.has(grant));
+  const missingEffectivePermissions = requiredEffectivePermissions.filter((permission) =>
+    !effectivePermissions.has(permission) && !deniedPermissions.has(permission)
+  );
+  const deniedEffectivePermissions = requiredEffectivePermissions.filter((permission) => deniedPermissions.has(permission));
+
+  return {
+    missingApplicationGrants: [...new Set([...missingRequestedApplicationGrants, ...missingApplicationGrants])],
+    missingEffectivePermissions,
+    deniedEffectivePermissions
+  };
+}
+
+function isMetadataOnlyBlockedAction(action: ApprovedConnectorAction): boolean {
+  return action.reason.toLowerCase().includes("missing deterministic metadata") &&
+    (action.missingApplicationGrants ?? []).length === 0 &&
+    (action.missingEffectivePermissions ?? []).length === 0 &&
+    (action.deniedEffectivePermissions ?? []).length === 0;
 }
 
 function resourceSystemMatch(agent: TrustedOnboardedAgent, resourceSystem: string): boolean {
@@ -495,11 +614,15 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     };
   }
 
-  const approvedActions = onboarded.approvedActions ?? onboarded.approvedCapabilities;
+  const approvedActions = mergedConnectorActions(onboarded.approvedActions, onboarded.approvedCapabilities);
   const approved = approvedActions.find((item) => item.capability === skillId);
   if (approved) {
     const actionMetadata = referenceSkillMetadata(supported, skillId, approved);
     if (actionMetadata.toolMappingStatus !== "mapped") {
+      const missingFields = actionMetadata.missingFields.length > 0 ? actionMetadata.missingFields : intent.missingFields;
+      const missingFieldsReason = actionMetadata.missingFields.length > 0
+        ? ` Missing deterministic metadata: ${actionMetadata.missingFields.join(", ")}.`
+        : "";
       return {
         status: "connector_skill_blocked",
         targetSystem: supported.resourceSystem,
@@ -525,14 +648,14 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
         actionResourceSystem: actionMetadata.resourceSystem,
         actionMetadataSource: actionMetadata.source,
         runtimeMode: "not_available",
-        reason: `Tool-to-action metadata mapping failed closed with status ${actionMetadata.toolMappingStatus}.`,
+        reason: `Tool-to-action metadata mapping failed closed with status ${actionMetadata.toolMappingStatus}.${missingFieldsReason}`,
         recommendedNextStep: "Update the connector profile or reference action metadata with deterministic provider, resource system, taxonomy, grants, permissions, and scope metadata before runtime execution.",
         intentClass: intent.intentClass,
         targetResourceSystem: intent.targetResourceSystem,
         targetResourceName: intent.targetResourceName,
         requestedAccessLevel: intent.requestedAccessLevel,
         fulfillmentCapability: intent.fulfillmentCapability,
-        missingFields: intent.missingFields
+        missingFields
       };
     }
 
@@ -585,9 +708,66 @@ export function decideConnectorRoute(intent: ConnectorRoutingIntent, onboardedAg
     };
   }
 
-  const blockedActions = onboarded.blockedActions ?? onboarded.blockedCapabilities;
+  const blockedActions = mergedConnectorActions(onboarded.blockedActions, onboarded.blockedCapabilities);
   const blocked = blockedActions.find((item) => item.capability === skillId);
   if (blocked) {
+    const actionMetadata = referenceSkillMetadata(supported, skillId, blocked);
+    const requirementGaps = requirementGapsForOnboardedAction(onboarded, actionMetadata);
+    const canRevalidateMetadataOnlyBlock = isMetadataOnlyBlockedAction(blocked) &&
+      actionMetadata.toolMappingStatus === "mapped" &&
+      actionMetadata.approvalMode !== "blocked" &&
+      requirementGaps.missingApplicationGrants.length === 0 &&
+      requirementGaps.missingEffectivePermissions.length === 0 &&
+      requirementGaps.deniedEffectivePermissions.length === 0;
+
+    if (canRevalidateMetadataOnlyBlock) {
+      const persistedMetadataOnly = isPersistedMetadataOnlyTrust(onboarded);
+      const runtimeAvailable = !persistedMetadataOnly && isConnectorRuntimeEndpointAllowed(onboarded.runtimeEndpoint);
+      return {
+        status: "connector_skill_approved",
+        targetSystem: supported.resourceSystem,
+        resourceSystem: onboarded.resourceSystem ?? onboarded.connectorProfile?.resourceSystem ?? supported.resourceSystem,
+        connectorId: onboarded.connectorId ?? onboarded.connectorProfile?.connectorId ?? supported.connectorId,
+        skillId,
+        skillLabel: blocked.label ?? skillId,
+        runtimeEndpoint: onboarded.runtimeEndpoint,
+        trustedRuntimeEndpoint: runtimeAvailable ? onboarded.runtimeEndpoint : undefined,
+        audience: onboarded.audience,
+        externalConfigHash: onboarded.externalConfigHash,
+        connectorProfileHash: onboarded.connectorProfileHash,
+        requiredApplicationGrants: actionMetadata.requiredApplicationGrants ?? [],
+        requiredEffectivePermissions: actionMetadata.requiredEffectivePermissions ?? [],
+        requestedScopes: actionMetadata.requestedScopes,
+        riskLevel: actionMetadata.riskLevel,
+        executionType: actionMetadata.executionType,
+        requiresApproval: actionMetadata.requiresApproval,
+        sensitivity: actionMetadata.sensitivity,
+        actionCategory: actionMetadata.actionCategory,
+        approvalMode: actionMetadata.approvalMode,
+        resourceSensitivity: actionMetadata.resourceSensitivity,
+        fieldClasses: actionMetadata.fieldClasses,
+        actionConstraints: actionMetadata.actionConstraints,
+        toolMappingStatus: actionMetadata.toolMappingStatus,
+        toolMappingProof: actionMetadata.toolMappingProof,
+        provider: actionMetadata.provider,
+        actionResourceSystem: actionMetadata.resourceSystem,
+        actionMetadataSource: actionMetadata.source,
+        runtimeMode: runtimeAvailable ? "external_runtime_available" : "metadata_only",
+        reason: persistedMetadataOnly
+          ? "Connector trust metadata was restored from persisted state, but runtime execution requires fresh runtime validation."
+          : "Connector action was revalidated with deterministic reference metadata and approved application grants and effective permissions.",
+        recommendedNextStep: persistedMetadataOnly
+          ? "Re-run connector onboarding or runtime revalidation before execution."
+          : intent.fulfillmentCapability ? "Use connector-backed request preparation flow." : "Use connector-backed diagnosis flow.",
+        intentClass: intent.intentClass,
+        targetResourceSystem: intent.targetResourceSystem,
+        targetResourceName: intent.targetResourceName,
+        requestedAccessLevel: intent.requestedAccessLevel,
+        fulfillmentCapability: intent.fulfillmentCapability,
+        missingFields: intent.missingFields
+      };
+    }
+
     return {
       status: "connector_skill_blocked",
       targetSystem: supported.resourceSystem,

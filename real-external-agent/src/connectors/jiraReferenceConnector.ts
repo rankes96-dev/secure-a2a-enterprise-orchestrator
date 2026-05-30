@@ -7,6 +7,7 @@ const jiraSkills: ConnectorSkillRequirement[] = [
     description: "Return an end-user-safe Jira issue status summary when the actor can browse the issue.",
     requiredApplicationGrants: ["read:jira-work"],
     requiredEffectivePermissions: ["browse_projects", "view_issues"],
+    requestedScopes: ["read:jira-work"],
     executionType: "inspection_read_only"
   },
   {
@@ -15,6 +16,7 @@ const jiraSkills: ConnectorSkillRequirement[] = [
     description: "Prepare a Jira project access request without granting permission.",
     requiredApplicationGrants: ["read:jira-user"],
     requiredEffectivePermissions: ["read_project_roles"],
+    requestedScopes: ["read:jira-user"],
     executionType: "inspection_read_only"
   },
   {
@@ -23,6 +25,7 @@ const jiraSkills: ConnectorSkillRequirement[] = [
     description: "Inspect project and issue metadata to explain why Jira issue creation is failing.",
     requiredApplicationGrants: ["read:jira-work"],
     requiredEffectivePermissions: ["browse_projects", "view_issues"],
+    requestedScopes: ["read:jira-work"],
     executionType: "diagnostic_read_only",
     diagnosesActionId: "jira.issue.create",
     diagnosesActionLabel: "Create Jira issue"
@@ -33,6 +36,7 @@ const jiraSkills: ConnectorSkillRequirement[] = [
     description: "Review project roles and user visibility that affect Jira access.",
     requiredApplicationGrants: ["read:jira-user"],
     requiredEffectivePermissions: ["read_project_roles"],
+    requestedScopes: ["read:jira-user"],
     executionType: "inspection_read_only"
   },
   {
@@ -41,6 +45,7 @@ const jiraSkills: ConnectorSkillRequirement[] = [
     description: "Create new Jira issues through the external agent runtime.",
     requiredApplicationGrants: ["write:jira-work"],
     requiredEffectivePermissions: ["create_issues"],
+    requestedScopes: ["write:jira-work"],
     executionType: "write_action"
   }
 ];

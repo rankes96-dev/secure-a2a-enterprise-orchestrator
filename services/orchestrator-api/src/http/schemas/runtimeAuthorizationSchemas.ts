@@ -38,7 +38,49 @@ export const runtimeAuthorizationRequestSchema = {
     action: {
       type: "object",
       additionalProperties: false,
-      required: ["skillId", "executionType", "riskLevel", "toolMappingStatus", "toolMappingProof"],
+      required: ["skillId", "executionType", "riskLevel"],
+      allOf: [
+        {
+          if: {
+            properties: {
+              toolMappingStatus: { const: "mapped" }
+            },
+            required: ["toolMappingStatus"]
+          },
+          then: {
+            required: [
+              "toolMappingProof",
+              "requiresApproval",
+              "sensitivity",
+              "actionCategory",
+              "approvalMode",
+              "resourceSensitivity",
+              "fieldClasses",
+              "actionConstraints",
+              "requiredApplicationGrants",
+              "requiredEffectivePermissions",
+              "requestedScopes",
+              "provider",
+              "resourceSystem"
+            ],
+            properties: {
+              toolMappingProof: {
+                required: [
+                  "sourceType",
+                  "sourceId",
+                  "toolId",
+                  "provider",
+                  "resourceSystem",
+                  "deterministicMapping",
+                  "aiInferred",
+                  "rawDescriptionStored",
+                  "protectedMaterialExposed"
+                ]
+              }
+            }
+          }
+        }
+      ],
       properties: {
         skillId: { type: "string" },
         skillLabel: { type: "string" },

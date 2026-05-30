@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { DerivedCapability, TrustedOnboardedAgent } from "../services/orchestrator-api/src/agentOnboarding.js";
 import { decideConnectorRoute, routeConnectorRequest, type ConnectorRoutingIntent } from "../services/orchestrator-api/src/connectorRouting.js";
-import { localReferenceConnectorIntentCatalog } from "../services/orchestrator-api/src/connectors/localReferenceConnectorIntentCatalog.js";
+import { localReferenceConnectorIntentCatalog, localReferenceToolToActionMappings } from "../services/orchestrator-api/src/connectors/localReferenceConnectorIntentCatalog.js";
 import { evaluateConnectorPolicy } from "../services/orchestrator-api/src/policy/connectorPolicy.js";
 
 let failed = false;
@@ -66,6 +66,11 @@ function fakeTrustedAgent(params: {
   approvedCapability: string;
   runtimeEndpoint?: string;
   approvedAction?: Partial<DerivedCapability>;
+  blockedAction?: Partial<DerivedCapability> & { capability: string };
+  requestedApplicationGrants?: string[];
+  applicationAccessGrants?: string[];
+  effectivePermissions?: string[];
+  deniedPermissions?: string[];
 }): TrustedOnboardedAgent {
   const approvedAction: DerivedCapability = {
     ...params.approvedAction,
@@ -74,6 +79,18 @@ function fakeTrustedAgent(params: {
     reason: params.approvedAction?.reason ?? "Approved for verification without embedded safety metadata."
   };
   const approvedActions = [approvedAction];
+  const blockedActions: DerivedCapability[] = params.blockedAction
+    ? [{
+        ...params.blockedAction,
+        capability: params.blockedAction.capability,
+        label: params.blockedAction.label ?? `Blocked ${params.blockedAction.capability}`,
+        reason: params.blockedAction.reason ?? "Blocked for verification."
+      }]
+    : [];
+  const declaredCapabilities = [...new Set([
+    params.approvedCapability,
+    ...blockedActions.map((action) => action.capability)
+  ])];
 
   return {
     agentId: `${params.connectorId}-agent`,
@@ -87,17 +104,17 @@ function fakeTrustedAgent(params: {
     externalConfigHash: "external-config-hash",
     connectorProfileHash: "connector-profile-hash",
     requestedScopes: [],
-    requestedApplicationGrants: [],
-    agentDeclaredSkills: [params.approvedCapability],
-    agentDeclaredCapabilities: [params.approvedCapability],
-    applicationAccessGrants: [],
+    requestedApplicationGrants: params.requestedApplicationGrants ?? [],
+    agentDeclaredSkills: declaredCapabilities,
+    agentDeclaredCapabilities: declaredCapabilities,
+    applicationAccessGrants: params.applicationAccessGrants ?? [],
     grantedScopes: [],
-    effectivePermissions: [],
-    deniedPermissions: [],
+    effectivePermissions: params.effectivePermissions ?? [],
+    deniedPermissions: params.deniedPermissions ?? [],
     approvedActions,
-    blockedActions: [],
+    blockedActions,
     approvedCapabilities: approvedActions,
-    blockedCapabilities: [],
+    blockedCapabilities: blockedActions,
     connectorProfileVerified: true,
     connectorDecisionSource: params.connectorId,
     trustLevel: "trusted_metadata_only",
@@ -128,7 +145,9 @@ for (const phrase of [
 
 const expectedMetadata = {
   "servicenow.ticket.status.lookup": { riskLevel: "low", executionType: "inspection_read_only", requiresApproval: false, sensitivity: "standard" },
+  "servicenow.request.status.lookup": { riskLevel: "low", executionType: "inspection_read_only", requiresApproval: false, sensitivity: "standard" },
   "servicenow.catalog.item.recommend": { riskLevel: "low", executionType: "inspection_read_only", requiresApproval: false, sensitivity: "standard" },
+  "servicenow.catalog.recommend": { riskLevel: "low", executionType: "inspection_read_only", requiresApproval: false, sensitivity: "standard" },
   "servicenow.catalog.request.diagnose": { riskLevel: "low", executionType: "diagnostic_read_only", requiresApproval: false, sensitivity: "standard" },
   "servicenow.user.role.inspect": { riskLevel: "medium", executionType: "inspection_read_only", requiresApproval: false, sensitivity: "standard" },
   "servicenow.incident.assignment.diagnose": { riskLevel: "medium", executionType: "diagnostic_read_only", requiresApproval: false, sensitivity: "standard" },
@@ -146,12 +165,20 @@ const expectedMetadata = {
 
 for (const [skillId, expected] of Object.entries(expectedMetadata)) {
   requireSkillMetadata(skillId, expected);
+  const mapping = localReferenceToolToActionMappings.find((item) => item.proof.toolId === skillId);
+  if (mapping?.status !== "mapped") {
+    fail(`${skillId} should map to complete deterministic tool-to-action metadata`);
+  } else {
+    ok(`${skillId} maps to complete deterministic tool-to-action metadata`);
+  }
 }
 
 requireIncludes(connectorRouting, "function referenceSkillMetadata", "connector routing has explicit reference metadata helper");
 requireIncludes(connectorRouting, "supported.skillHints.find((hint) => hint.skillId === skillId)", "reference metadata is selected by exact skill ID");
 requireIncludes(connectorRouting, "approved.riskLevel ?? referenceSkill?.riskLevel", "approved risk metadata wins before reference fallback");
 requireIncludes(connectorRouting, "approved.executionType ?? referenceSkill?.executionType", "approved execution metadata wins before reference fallback");
+requireIncludes(connectorRouting, "function missingNormalizedActionMetadataFields", "connector routing reports missing normalized metadata fields");
+requireIncludes(connectorRouting, "actionMetadata.missingFields", "connector routing carries missing metadata details into blocked decisions");
 requireIncludes(connectorRouting, "actionMetadataSource?: ConnectorActionMetadataSource", "connector routing exposes action metadata source proof");
 requireIncludes(connectorRouting, "actionMetadataSource: actionMetadata.source", "connector route decision records action metadata source");
 requireIncludes(connectorRouting, "actionResourceSystem?: string", "connector routing carries action-level resource system separately");
@@ -238,6 +265,34 @@ if (servicenowPolicy.effect !== "allow" || servicenowPolicy.primaryRuleId !== "a
   fail("ServiceNow ticket status lookup should be allowed by read-only approved runtime policy");
 } else {
   ok("ServiceNow ticket status lookup is allowed by read-only approved runtime policy");
+}
+
+const staleMetadataBlockedJiraDecision = routeConnectorRequest("Jira issue creation fails with 403 when creating issues in FIN project", [
+  fakeTrustedAgent({
+    connectorId: "jira-reference",
+    resourceSystem: "jira",
+    approvedCapability: "jira.permission.inspect",
+    requestedApplicationGrants: ["read:jira-work", "read:jira-user"],
+    applicationAccessGrants: ["read:jira-work", "read:jira-user"],
+    effectivePermissions: ["browse_projects", "view_issues", "read_project_roles"],
+    deniedPermissions: ["create_issues"],
+    blockedAction: {
+      capability: "jira.issue.diagnose_creation_failure",
+      label: "Diagnose Jira issue creation failures",
+      reason: "missing deterministic metadata requestedScopes"
+    }
+  })
+]);
+if (
+  staleMetadataBlockedJiraDecision.status !== "connector_skill_approved" ||
+  staleMetadataBlockedJiraDecision.skillId !== "jira.issue.diagnose_creation_failure" ||
+  staleMetadataBlockedJiraDecision.actionMetadataSource !== "reference_catalog" ||
+  staleMetadataBlockedJiraDecision.runtimeMode !== "external_runtime_available" ||
+  !staleMetadataBlockedJiraDecision.requestedScopes?.includes("read:jira-work")
+) {
+  fail("metadata-only stale blocked Jira diagnostic action should be revalidated as approved from reference metadata");
+} else {
+  ok("metadata-only stale blocked Jira diagnostic action is revalidated as approved from reference metadata");
 }
 
 const mismatchedActionResourceSystemDecision = routeConnectorRequest("What is the status of my ticket INC0010245?", [
@@ -348,12 +403,46 @@ if (
   unknownDecision.actionMetadataSource !== "missing" ||
   unknownDecision.toolMappingStatus !== "blocked_unknown_tool" ||
   unknownDecision.runtimeMode !== "not_available" ||
+  !unknownDecision.reason.includes("Missing deterministic metadata") ||
   unknownPolicy.effect !== "block" ||
   unknownPolicy.primaryRuleId !== "block-unapproved-route"
 ) {
   fail("unknown approved action without metadata should fail closed before approved runtime routing");
 } else {
   ok("unknown approved action without metadata fails closed before approved runtime routing");
+}
+
+const incompleteIntent: ConnectorRoutingIntent = {
+  targetSystem: "servicenow",
+  connectorId: "servicenow-reference",
+  requestedSkillId: "servicenow.partial.lookup",
+  confidence: "high",
+  reason: "Verification incomplete action metadata."
+};
+const incompleteDecision = decideConnectorRoute(incompleteIntent, [
+  fakeTrustedAgent({
+    connectorId: "servicenow-reference",
+    resourceSystem: "servicenow",
+    approvedCapability: "servicenow.partial.lookup",
+    approvedAction: {
+      riskLevel: "low",
+      executionType: "inspection_read_only",
+      requiresApproval: false,
+      sensitivity: "standard",
+      actionCategory: "business_object.read"
+    }
+  })
+]);
+if (
+  incompleteDecision.status !== "connector_skill_blocked" ||
+  incompleteDecision.toolMappingStatus !== "incomplete_metadata" ||
+  !incompleteDecision.missingFields?.includes("approvalMode") ||
+  !incompleteDecision.missingFields?.includes("provider") ||
+  !incompleteDecision.reason.includes("Missing deterministic metadata")
+) {
+  fail("approved action with incomplete metadata should fail closed with missing field details");
+} else {
+  ok("approved action with incomplete metadata fails closed with missing field details");
 }
 
 for (const phrase of [

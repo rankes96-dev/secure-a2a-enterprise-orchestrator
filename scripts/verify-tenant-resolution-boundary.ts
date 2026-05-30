@@ -410,6 +410,16 @@ const request: RuntimeAuthorizationRequest = {
     riskLevel: "low",
     requiresApproval: false,
     sensitivity: "standard",
+    actionCategory: "business_object.read",
+    approvalMode: "never",
+    resourceSensitivity: "standard",
+    fieldClasses: ["workflow_state"],
+    actionConstraints: {
+      bulkAllowed: false,
+      maxRecordsPerRequest: 1,
+      requiresConnectedAccount: true,
+      auditRequired: true
+    },
     toolMappingStatus: "mapped",
     toolMappingProof: {
       sourceType: "connector_profile_action",
@@ -421,7 +431,12 @@ const request: RuntimeAuthorizationRequest = {
       aiInferred: false,
       rawDescriptionStored: false,
       protectedMaterialExposed: false
-    }
+    },
+    requiredApplicationGrants: [],
+    requiredEffectivePermissions: [],
+    provider: "servicenow",
+    resourceSystem: "servicenow",
+    requestedScopes: []
   },
   connectorRoute: {
     runtimeMode: "external_runtime_available"

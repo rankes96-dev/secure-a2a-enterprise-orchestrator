@@ -234,8 +234,8 @@ for (const phrase of ["Runtime ready", "Needs re-verification", "Runtime blocked
     failed = true;
   }
 }
-if (!/function\s+scenarioForApprovedSkill[\s\S]*agent\.approvedActions\s*\?\?\s*agent\.approvedCapabilities/.test(webUi)) {
-  console.error("fail - runMatchingScenario should choose scenarios from approvedActions/approvedCapabilities");
+if (!/function\s+scenarioForApprovedSkill[\s\S]*mergedConnectorActions\(agent\.approvedActions, agent\.approvedCapabilities\)/.test(webUi)) {
+  console.error("fail - runMatchingScenario should merge approvedActions and approvedCapabilities");
   failed = true;
 }
 for (const phrase of [

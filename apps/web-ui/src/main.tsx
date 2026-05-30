@@ -856,6 +856,16 @@ type DerivedCapability = {
   deniedEffectivePermissions?: string[];
 };
 
+function mergedConnectorActions(actions?: DerivedCapability[], legacyCapabilities?: DerivedCapability[]): DerivedCapability[] {
+  const byCapability = new Map<string, DerivedCapability>();
+  for (const action of [...(actions ?? []), ...(legacyCapabilities ?? [])]) {
+    if (!byCapability.has(action.capability)) {
+      byCapability.set(action.capability, action);
+    }
+  }
+  return [...byCapability.values()];
+}
+
 type TrustedOnboardedAgent = {
   agentId: string;
   issuer: string;
@@ -1372,7 +1382,7 @@ function App() {
   const connectorTemplateCount = supportedConnectorGuardrails.length;
   const installedConnectorAgentCount = zeroTrustOnboardedAgents.length;
   const runtimeReadyConnectorAgentCount = zeroTrustOnboardedAgents.filter((agent) => {
-    const approvedCount = (agent.approvedActions ?? agent.approvedCapabilities)?.length ?? 0;
+    const approvedCount = mergedConnectorActions(agent.approvedActions, agent.approvedCapabilities).length;
     return agent.lifecycle?.state === "runtime_ready" || (
       approvedCount > 0 &&
       agent.connectorProfileVerified === true &&
@@ -1464,14 +1474,14 @@ function App() {
   function hasApprovedSkill(connectorId: string, skillId: string) {
     return zeroTrustOnboardedAgents.some((agent) =>
       (agent.connectorId ?? agent.connectorProfile?.connectorId) === connectorId &&
-      (agent.approvedActions ?? agent.approvedCapabilities ?? []).some((action) => action.capability === skillId)
+      mergedConnectorActions(agent.approvedActions, agent.approvedCapabilities).some((action) => action.capability === skillId)
     );
   }
 
   function hasBlockedSkill(connectorId: string, skillId: string) {
     return zeroTrustOnboardedAgents.some((agent) =>
       (agent.connectorId ?? agent.connectorProfile?.connectorId) === connectorId &&
-      (agent.blockedActions ?? agent.blockedCapabilities ?? []).some((action) => action.capability === skillId)
+      mergedConnectorActions(agent.blockedActions, agent.blockedCapabilities).some((action) => action.capability === skillId)
     );
   }
 

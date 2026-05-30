@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { decideConnectorRoute } from "../services/orchestrator-api/src/connectorRouting.js";
+import { deriveInstalledConnectorLifecycle } from "../services/orchestrator-api/src/connectors/installedConnectorLifecycle.js";
 import type { TrustedOnboardedAgent } from "../services/orchestrator-api/src/agentOnboarding/types.js";
 
 let failed = false;
@@ -102,6 +103,7 @@ requireRegex(trustedStore, /fromStoredConnectorTrustRecord[\s\S]*blockedActions/
 requireRegex(trustedStore, /fromStoredConnectorTrustRecord[\s\S]*connectorProfile/, "hydrated records preserve connector profile");
 requireIncludes(connectorRouting, 'agent.runtimeTrustSource === "stored_metadata"', "connector routing checks stored metadata trust source");
 requireIncludes(connectorRouting, "agent.rehydratedFromStore === true", "connector routing checks rehydration marker");
+requireIncludes(connectorRouting, "function mergedConnectorActions", "connector routing merges approvedActions and legacy approvedCapabilities");
 requireRegex(connectorRouting, /const runtimeAvailable = !persistedMetadataOnly && isConnectorRuntimeEndpointAllowed\(onboarded\.runtimeEndpoint\)/, "connector routing blocks stored metadata from external runtime availability");
 requireRegex(connectorRouting, /trustedRuntimeEndpoint: runtimeAvailable \? onboarded\.runtimeEndpoint : undefined/, "connector routing avoids trusted runtime endpoint for stored metadata");
 requireIncludes(connectorRouting, 'runtimeMode: runtimeAvailable ? "external_runtime_available" : "metadata_only"', "connector routing keeps stored metadata runtime mode metadata_only");
@@ -211,6 +213,32 @@ if (
   fail("live onboarding trust should keep allowlisted external runtime availability");
 } else {
   ok("live onboarding trust can use allowlisted external runtime");
+}
+
+const legacyCapabilitiesOnlyAgent: TrustedOnboardedAgent = {
+  ...baseAgent,
+  approvedActions: [],
+  approvedCapabilities: baseAgent.approvedCapabilities,
+  externalConfigHash: "legacy-external-config-hash",
+  runtimeTrustSource: "live_onboarding",
+  rehydratedFromStore: false
+};
+const legacyCapabilitiesOnlyDecision = decideConnectorRoute({
+  targetSystem: "jira",
+  connectorId: "jira-reference",
+  requestedSkillId: "jira.issue.status.lookup",
+  confidence: "high",
+  reason: "legacy alias verification test"
+}, [legacyCapabilitiesOnlyAgent]);
+const legacyCapabilitiesOnlyLifecycle = deriveInstalledConnectorLifecycle(legacyCapabilitiesOnlyAgent);
+if (
+  legacyCapabilitiesOnlyDecision.status !== "connector_skill_approved" ||
+  legacyCapabilitiesOnlyDecision.runtimeMode !== "external_runtime_available" ||
+  legacyCapabilitiesOnlyLifecycle.state !== "runtime_ready"
+) {
+  fail("legacy approvedCapabilities must count as approved runtime actions when approvedActions is empty");
+} else {
+  ok("legacy approvedCapabilities count as approved runtime actions when approvedActions is empty");
 }
 
 const parsedPackageJson = JSON.parse(packageJson) as { scripts?: Record<string, string> };

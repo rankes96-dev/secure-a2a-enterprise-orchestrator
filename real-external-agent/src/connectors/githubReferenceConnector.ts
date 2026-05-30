@@ -7,6 +7,7 @@ const githubSkills: ConnectorSkillRequirement[] = [
     description: "Return an end-user-safe pull request status summary when the actor can access the repository.",
     requiredApplicationGrants: ["repo.pull_requests.read"],
     requiredEffectivePermissions: ["installation:repo_access", "repo:pull_requests:read"],
+    requestedScopes: ["repo.pull_requests.read"],
     executionType: "inspection_read_only"
   },
   {
@@ -15,6 +16,7 @@ const githubSkills: ConnectorSkillRequirement[] = [
     description: "Prepare a repository access request without granting access.",
     requiredApplicationGrants: ["repo.metadata.read"],
     requiredEffectivePermissions: ["installation:repo_access", "repo:metadata:read"],
+    requestedScopes: ["repo.metadata.read"],
     executionType: "inspection_read_only"
   },
   {
@@ -23,6 +25,7 @@ const githubSkills: ConnectorSkillRequirement[] = [
     description: "Inspect repository metadata and installation context that affect GitHub API rate limits.",
     requiredApplicationGrants: ["repo.metadata.read"],
     requiredEffectivePermissions: ["installation:repo_access", "org:rate_limit:read"],
+    requestedScopes: ["repo.metadata.read"],
     executionType: "diagnostic_read_only",
     diagnosesActionId: "github.repository.sync",
     diagnosesActionLabel: "Sync GitHub repository"
@@ -33,6 +36,7 @@ const githubSkills: ConnectorSkillRequirement[] = [
     description: "Review GitHub App installation and repository metadata permissions.",
     requiredApplicationGrants: ["repo.metadata.read"],
     requiredEffectivePermissions: ["installation:repo_access", "repo:metadata:read"],
+    requestedScopes: ["repo.metadata.read"],
     executionType: "inspection_read_only"
   },
   {
@@ -41,6 +45,7 @@ const githubSkills: ConnectorSkillRequirement[] = [
     description: "Inspect pull request read access and repository permission requirements.",
     requiredApplicationGrants: ["repo.pull_requests.read"],
     requiredEffectivePermissions: ["repo:pull_requests:read"],
+    requestedScopes: ["repo.pull_requests.read"],
     executionType: "diagnostic_read_only",
     diagnosesActionId: "github.pull_request.read_checks",
     diagnosesActionLabel: "Read pull request checks"
@@ -51,6 +56,7 @@ const githubSkills: ConnectorSkillRequirement[] = [
     description: "Read repository metadata and contents for repository synchronization workflows.",
     requiredApplicationGrants: ["repo.metadata.read", "repo.contents.read"],
     requiredEffectivePermissions: ["installation:repo_access", "repo:metadata:read", "repo:contents:read"],
+    requestedScopes: ["repo.metadata.read", "repo.contents.read"],
     executionType: "inspection_read_only"
   },
   {
@@ -59,6 +65,7 @@ const githubSkills: ConnectorSkillRequirement[] = [
     description: "Read pull request checks and related repository metadata.",
     requiredApplicationGrants: ["repo.pull_requests.read"],
     requiredEffectivePermissions: ["installation:repo_access", "repo:pull_requests:read"],
+    requestedScopes: ["repo.pull_requests.read"],
     executionType: "inspection_read_only"
   }
 ];

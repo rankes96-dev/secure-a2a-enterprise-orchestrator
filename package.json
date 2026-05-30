@@ -38,6 +38,7 @@
     "verify:sdk-readiness-contracts": "tsx scripts/verify-sdk-readiness-contracts.ts",
     "verify:generic-action-taxonomy": "tsx scripts/verify-generic-action-taxonomy.ts",
     "verify:tool-to-action-metadata-mapping": "tsx scripts/verify-tool-to-action-metadata-mapping.ts",
+    "verify:tool-action-metadata-mapping": "npm run verify:tool-to-action-metadata-mapping",
     "verify:ui-truth-consistency": "tsx scripts/verify-ui-truth-consistency.ts",
     "verify:fastify-api-contract-boundary": "tsx scripts/verify-fastify-api-contract-boundary.ts",
     "verify:runtime-authorization-api": "tsx scripts/verify-runtime-authorization-api.ts",

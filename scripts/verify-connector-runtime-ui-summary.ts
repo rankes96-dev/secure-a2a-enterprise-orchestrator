@@ -1,6 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { ResolveResponse } from "@a2a/shared";
-import { tokenOutcomeLabel as runtimeTokenOutcomeLabel, tokenStatusLabel as runtimeTokenStatusLabel } from "../apps/web-ui/src/securitySummary";
+import {
+  connectorRouteSummaryLabel,
+  connectorRoutingStatusClass,
+  connectorRoutingStatusLabel,
+  tokenOutcomeLabel as runtimeTokenOutcomeLabel,
+  tokenStatusLabel as runtimeTokenStatusLabel
+} from "../apps/web-ui/src/securitySummary";
 
 let failed = false;
 
@@ -139,6 +145,47 @@ const connectorRuntimeFailureWithLegacyIssuedTask: ResolveResponse = {
   }
 };
 
+const approvedReferenceMetadataResponse: ResolveResponse = {
+  finalAnswer: "Connector route approved.",
+  classification: minimalClassification,
+  selectedAgents: [],
+  skippedAgents: [],
+  routingSource: "rules_fallback",
+  routingConfidence: "high",
+  routingReasoningSummary: "test fixture",
+  resolutionStatus: "diagnosed",
+  evidence: [],
+  agentTrace: [],
+  executionTrace: [],
+  connectorRouting: {
+    status: "connector_skill_approved",
+    connectorId: "servicenow-reference",
+    resourceSystem: "servicenow",
+    skillId: "servicenow.ticket.status.lookup",
+    reason: "Approved action was completed by deterministic reference metadata."
+  },
+  userIdentity: {
+    authenticated: true,
+    provider: "mock",
+    email: "engineer@example.com",
+    roles: ["it_engineer"]
+  }
+};
+
+const blockedIncompleteMetadataResponse: ResolveResponse = {
+  ...approvedReferenceMetadataResponse,
+  finalAnswer: "Connector route blocked.",
+  resolutionStatus: "blocked_at_gateway",
+  connectorRouting: {
+    status: "connector_skill_blocked",
+    connectorId: "servicenow-reference",
+    resourceSystem: "servicenow",
+    skillId: "servicenow.partial.lookup",
+    missingFields: ["approvalMode", "provider"],
+    reason: "Tool-to-action metadata mapping failed closed with status incomplete_metadata. Missing deterministic metadata: approvalMode, provider."
+  }
+};
+
 requireIncludes(main, 'from "./securitySummary";', "main imports connector runtime security summary helpers");
 
 const primaryPolicyLabel = functionBody(securitySummary, "primaryPolicyLabel");
@@ -179,6 +226,27 @@ if (runtimeFailureTokenOutcome !== "Runtime token not issued") {
   fail(`connector runtime failure token outcome should stay connector-specific; received ${runtimeFailureTokenOutcome}`);
 } else {
   ok("connector runtime failure token outcome stays connector-specific");
+}
+
+if (
+  connectorRouteSummaryLabel(approvedReferenceMetadataResponse) !== "Connector route approved" ||
+  connectorRoutingStatusLabel(approvedReferenceMetadataResponse.connectorRouting?.status ?? "") !== "Connector skill approved" ||
+  connectorRoutingStatusClass(approvedReferenceMetadataResponse.connectorRouting?.status ?? "") !== "success"
+) {
+  fail("approved connector action completed by reference metadata should render as approved, not blocked");
+} else {
+  ok("approved connector action completed by reference metadata renders as approved");
+}
+
+if (
+  connectorRouteSummaryLabel(blockedIncompleteMetadataResponse) !== "Connector route blocked" ||
+  connectorRoutingStatusLabel(blockedIncompleteMetadataResponse.connectorRouting?.status ?? "") !== "Connector skill blocked" ||
+  connectorRoutingStatusClass(blockedIncompleteMetadataResponse.connectorRouting?.status ?? "") !== "blocked" ||
+  !blockedIncompleteMetadataResponse.connectorRouting?.reason.includes("Missing deterministic metadata")
+) {
+  fail("approved connector action with incomplete metadata should render as blocked with missing metadata reason");
+} else {
+  ok("approved connector action with incomplete metadata renders as blocked with missing metadata reason");
 }
 
 const finalAnswerEventStart = securitySummary.indexOf('id: "final-answer"');
